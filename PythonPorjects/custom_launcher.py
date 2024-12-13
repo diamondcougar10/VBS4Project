@@ -51,7 +51,7 @@ try:
 
     bg_label = tk.Label(root, image=bg_photo)
     bg_label.place(relwidth=1, relheight=1)  # Cover the entire window with the background image
-except Exception as e:
+except Exception as e: 
     messagebox.showerror("Error", f"Failed to load background image.\n{e}")
 
 # Add a header label with styling (over background)
@@ -67,7 +67,7 @@ mainspace_button = tk.Button(
 mainspace_button.pack(pady=30) 
 
 regular_button = tk.Button(
-    root, text="Launch Regular Launcher", command=launch_regular, font=("Helvetica", 20), bg="green", fg="white", width=30, height=3
+    root, text="Setup VBS4 Launch", command=launch_regular, font=("Helvetica", 20), bg="green", fg="white", width=30, height=3
 )
 regular_button.pack(pady=30) 
 
