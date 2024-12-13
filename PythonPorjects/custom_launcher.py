@@ -7,21 +7,20 @@ from PIL import Image, ImageTk
 # Paths to the application executables and background image
 bypass_launcher_path = r"C:\Bohemia Interactive Simulations\VBS4 24.1 YYMEA_General\VBS4.exe"
 regular_launcher_path = r"C:\Bohemia Interactive Simulations\VBS4 24.1 YYMEA_General\VBSLauncher.exe"
-background_image_path = r"C:\Users\STEIn\OneDrive\Documents\Python Porjects\20240206_101613_026.jpg"
+background_image_path = r"C:\Repos\VBS4Project\PythonPorjects\20240206_101613_026.jpg"
 
 # Function to launch directly into battlespace
 def launch_mainspace():
-    if os.path.exists(bypass_launcher_path):
+    bat_file_path = r"C:\Repos\VBS4Project\PythonPorjects\Autolaunch_Batchfiles\Launch.bat"  # Replace with the actual path to your .bat file
+
+    if os.path.exists(bat_file_path):
         try:
-            subprocess.Popen(
-                [bypass_launcher_path, "-admin", "-forceSimul", "-init", "hostMission[\"MainSpace\"]", "-name", "Ryan"],
-                shell=True
-            )
-            messagebox.showinfo("Launcher", "VBS4 launched directly into MainSpace as Ryan!")
+            subprocess.Popen([bat_file_path], shell=True)
+            messagebox.showinfo("Launcher", "VBS4 launched successfully using the batch file!")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to launch into MainSpace.\n{e}")
+            messagebox.showerror("Error", f"Failed to launch VBS4 via the batch file.\n{e}")
     else:
-        messagebox.showerror("Error", "MainSpace application path does not exist.")
+        messagebox.showerror("Error", "Batch file path does not exist.")
 
 # Function to launch the regular VBS Launcher
 def launch_regular():
