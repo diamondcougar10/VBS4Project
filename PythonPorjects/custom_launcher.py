@@ -4,15 +4,22 @@ import subprocess
 import os
 from PIL import Image, ImageTk
 
-# Paths to batch files and executables
-batch_folder = r"C:\Repos\VBS4Project\PythonPorjects\Autolaunch_Batchfiles"
+# Get the base directory of the project
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Paths to batch files and executables (Relative)
+BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 batch_files = {
-    "Launch 3D Wargame (VBS4)": os.path.join(batch_folder, "Launch.bat"),
-    "Launch BVI": os.path.join(batch_folder, "BVi_Launch.bat"),
-    "Launch DXTRS": os.path.join(batch_folder, "Dxtrs_Launch.bat")
+    "Launch 3D Wargame (VBS4)": os.path.join(BATCH_FOLDER, "Launch.bat"),
+    "Launch BVI": os.path.join(BATCH_FOLDER, "BVi_Launch.bat"),
+    "Launch DXTRS": os.path.join(BATCH_FOLDER, "Dxtrs_Launch.bat")
 }
+
+# Path to VBS4 Setup (Still Absolute - Modify If Needed)
 vbs4_setup_path = r"C:\Bohemia Interactive Simulations\VBS4 24.1 YYMEA_General\VBSLauncher.exe"
-background_image_path = r"C:\Repos\VBS4Project\PythonPorjects\20240206_101613_026.jpg"
+
+# Path to Background Image (Relative)
+background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
 
 # Function to launch batch files or executables
 def launch_application(app_path, app_name):
@@ -25,15 +32,18 @@ def launch_application(app_path, app_name):
     else:
         messagebox.showerror("Error", f"{app_name} path not found.")
 
-# Function to apply background image to a window
+# Function to apply background image
 def set_background(window):
-    bg_image = Image.open(background_image_path)
-    bg_image = bg_image.resize((1600, 800), Image.Resampling.LANCZOS)  # Fit image to window size
-    bg_photo = ImageTk.PhotoImage(bg_image)
+    try:
+        bg_image = Image.open(background_image_path)
+        bg_image = bg_image.resize((1600, 800), Image.Resampling.LANCZOS)  # Fit image to window size
+        bg_photo = ImageTk.PhotoImage(bg_image)
 
-    bg_label = tk.Label(window, image=bg_photo)
-    bg_label.image = bg_photo  # Keep a reference to prevent garbage collection
-    bg_label.place(relwidth=1, relheight=1)
+        bg_label = tk.Label(window, image=bg_photo)
+        bg_label.image = bg_photo  # Keep a reference to prevent garbage collection
+        bg_label.place(relwidth=1, relheight=1)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to load background image.\n{e}")
 
 # Function to open a submenu
 def open_submenu(title, buttons):
