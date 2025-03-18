@@ -76,6 +76,22 @@ def create_batch_files(vbs4_path):
 # Generate batch files
 batch_files = create_batch_files(vbs4_exe_path)
 
+# Function to create the Drone Scenario batch file with the correct parameters
+def create_drone_scenario_batch(vbs4_path):
+    drone_batch = os.path.join(BATCH_FOLDER, "DroneScenario.bat")
+
+    with open(drone_batch, "w") as f:
+        f.write(f'''@echo off
+start "" "{vbs4_path}" -forceSimul -init=hostMission["Leonidas_demo"] -name=Admin -autoassign=Player1 -autostart=1
+exit
+''')
+
+    return drone_batch
+
+# Generate the Drone Scenario batch file dynamically (No Admin)
+drone_scenario_batch = create_drone_scenario_batch(vbs4_exe_path)
+
+
 # Function to create the correct BVI batch file
 def create_bvi_batch_file(ares_path):
     manager_batch = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
@@ -99,16 +115,17 @@ bvi_batch_file = create_bvi_batch_file(ares_manager_path)
 def launch_bvi():
     launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
 
-# Function to launch batch files or executables
+# Function to launch batch files or executables and close the GUI
 def launch_application(app_path, app_name):
     if os.path.exists(app_path):
         try:
+            root.destroy()  # Close the GUI window
             subprocess.Popen(app_path, shell=True)
-            messagebox.showinfo("Launcher", f"{app_name} launched successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch {app_name}.\n{e}")
     else:
         messagebox.showerror("Error", f"{app_name} path not found.")
+
 
 # Function to apply background image
 background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
@@ -182,7 +199,7 @@ main_buttons = {
         "VBS4 Setup": lambda: launch_application(vbs4_exe_path, "VBS4 Setup"),
     }),
     "Scenarios": lambda: open_submenu("Scenarios", {
-        "Scenario 1": lambda: messagebox.showinfo("Scenario", "Launching Scenario 1..."),
+        "Launch Drone Scenario": lambda: launch_application(drone_scenario_batch, "Drone Scenario"),
         "Scenario 2": lambda: messagebox.showinfo("Scenario", "Launching Scenario 2..."),
         "Scenario 3": lambda: messagebox.showinfo("Scenario", "Launching Scenario 3...")
     }),
