@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog, simpledialog
 import subprocess
 import os
 from PIL import Image, ImageTk
@@ -9,17 +9,95 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
-batch_files = {
-    "Launch 3D Wargame (VBS4)": os.path.join(BATCH_FOLDER, "Launch.bat"),
-    "Launch BVI": os.path.join(BATCH_FOLDER, "BVi_Launch.bat"),
-    "Launch DXTRS": os.path.join(BATCH_FOLDER, "Dxtrs_Launch.bat")
-}
+if not os.path.exists(BATCH_FOLDER):
+    os.makedirs(BATCH_FOLDER)  # Create batch folder if missing
 
-# Path to VBS4 Setup (Still Absolute - Modify If Needed)
-vbs4_setup_path = r"C:\Bohemia Interactive Simulations\VBS4 24.1 YYMEA_General\VBSLauncher.exe"
+# Function to find VBS4 installation path dynamically
+def find_vbs4():
+    possible_paths = [
+        os.path.join(os.getenv("PROGRAMFILES", "C:\\Program Files"), "BISIM", "VBS4", "VBS4.exe"),
+        os.path.join(os.getenv("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), "BISIM", "VBS4", "VBS4.exe"),
+        r"C:\BISIM\VBS4\VBS4.exe"  # Default known path
+    ]
 
-# Path to Background Image (Relative)
-background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+
+    # If VBS4 isn't found, prompt the user to select it manually
+    messagebox.showwarning("VBS4 Not Found", "VBS4 installation not found. Please select VBS4.exe manually.")
+    file_path = filedialog.askopenfilename(title="Select VBS4.exe", filetypes=[("Executable Files", "*.exe")])
+    
+    return file_path if os.path.exists(file_path) else None
+
+# Function to find ARES (BVI) installation path dynamically
+def find_ares():
+    possible_paths = [
+        os.path.join(os.getenv("PROGRAMFILES", "C:\\Program Files"), "ARES", "ARES-dev-release-v0.9.4-c1d3950", "ares.manager", "ares.manager.exe"),
+        os.path.join(os.getenv("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), "ARES", "ARES-dev-release-v0.9.4-c1d3950", "ares.manager", "ares.manager.exe")
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+
+    messagebox.showwarning("ARES Not Found", "ARES installation not found. Please select ares.manager.exe manually.")
+    file_path = filedialog.askopenfilename(title="Select ARES Manager Executable", filetypes=[("Executable Files", "*.exe")])
+    
+    return file_path if os.path.exists(file_path) else None
+
+# Detect VBS4 Path
+vbs4_exe_path = find_vbs4()
+if not vbs4_exe_path:
+    messagebox.showerror("Error", "VBS4 path not found. Exiting application.")
+    exit()
+
+# Detect ARES Path
+ares_manager_path = find_ares()
+if not ares_manager_path:
+    messagebox.showerror("Error", "ARES path not found. Exiting application.")
+    exit()
+
+
+
+# Function to create batch files dynamically
+def create_batch_files(vbs4_path):
+    host_batch = os.path.join(BATCH_FOLDER, "Host_Launch.bat")
+    user_batch = os.path.join(BATCH_FOLDER, "User_Launch.bat")
+
+    with open(host_batch, "w") as f:
+        f.write(f'@echo off\n"{vbs4_path}" -admin "-autoassign=admin" -forceSimul -window\nexit')
+
+    with open(user_batch, "w") as f:
+        f.write(f'@echo off\n"{vbs4_path}" -forceSimul -window\nexit')
+
+    return host_batch, user_batch
+
+# Generate batch files
+batch_files = create_batch_files(vbs4_exe_path)
+
+# Function to create the correct BVI batch file
+def create_bvi_batch_file(ares_path):
+    manager_batch = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
+
+    # Construct the XR path dynamically
+    xr_path = ares_path.replace("ares.manager\\ares.manager.exe", "ares.xr\\Windows\\AresXR.exe")
+
+    with open(manager_batch, "w") as f:
+        f.write(f'''@echo off
+start "" "{ares_path}"
+timeout /t 40 /nobreak
+start "" "{xr_path}"
+exit
+''')
+
+    return manager_batch
+# Generate batch file for BVI dynamically
+bvi_batch_file = create_bvi_batch_file(ares_manager_path)
+
+# Function to launch BVI
+def launch_bvi():
+    launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
 
 # Function to launch batch files or executables
 def launch_application(app_path, app_name):
@@ -33,6 +111,7 @@ def launch_application(app_path, app_name):
         messagebox.showerror("Error", f"{app_name} path not found.")
 
 # Function to apply background image
+background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
 def set_background(window):
     try:
         bg_image = Image.open(background_image_path)
@@ -97,10 +176,10 @@ header.pack(fill="x")
 # Main Menu Buttons
 main_buttons = {
     "Tools": lambda: open_submenu("Tools", {
-        "Launch 3D Wargame (VBS4)": lambda: launch_application(batch_files["Launch 3D Wargame (VBS4)"], "VBS4"),
-        "VBS4 Setup": lambda: launch_application(vbs4_setup_path, "VBS4 Setup"),
-        "Launch BVI": lambda: launch_application(batch_files["Launch BVI"], "BVI"),
-        "Launch DXTRS": lambda: launch_application(batch_files["Launch DXTRS"], "DXTRS")
+        "Launch VBS4 as (Host)": lambda: launch_application(batch_files[0], "VBS4 (Host)"),
+        "Launch VBS4 as (User)": lambda: launch_application(batch_files[1], "VBS4 (User)"),
+        "Launch BVI": launch_bvi,
+        "VBS4 Setup": lambda: launch_application(vbs4_exe_path, "VBS4 Setup"),
     }),
     "Scenarios": lambda: open_submenu("Scenarios", {
         "Scenario 1": lambda: messagebox.showinfo("Scenario", "Launching Scenario 1..."),
