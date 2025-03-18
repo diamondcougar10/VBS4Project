@@ -199,7 +199,7 @@ main_buttons = {
         "VBS4 Setup": lambda: launch_application(vbs4_exe_path, "VBS4 Setup"),
     }),
     "Scenarios": lambda: open_submenu("Scenarios", {
-        "Launch Drone Scenario": lambda: launch_application(drone_scenario_batch, "Drone Scenario"),
+        "Launch Leonidas Demo": lambda: launch_application(drone_scenario_batch, "Drone Scenario"),
         "Scenario 2": lambda: messagebox.showinfo("Scenario", "Launching Scenario 2..."),
         "Scenario 3": lambda: messagebox.showinfo("Scenario", "Launching Scenario 3...")
     }),
