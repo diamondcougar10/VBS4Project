@@ -165,34 +165,26 @@ def open_submenu(title, buttons):
     submenu.geometry("1600x800")
     submenu.resizable(False, False)
 
-    # ✅ Set transparent background (make it match root)
     submenu.configure(bg=root["bg"])  # Use the same background as root
     submenu.attributes('-transparentcolor', submenu["bg"])  # Make it transparent
-
-    # ✅ Set background image (same as root)
     set_background(submenu)
 
-    # ✅ Add black header label
     header = tk.Label(submenu, text=title, font=("Helvetica", 30, "bold"),
                       bg="black", fg="white", pady=15)
     header.pack(fill="x")  # Ensure it stretches across the top
 
-    # ✅ Create buttons directly inside the submenu (like in the main menu)
     for btn_text, command in buttons.items():
         btn = tk.Button(submenu, text=btn_text, command=command, font=("Helvetica", 24),
                         bg="#444444", fg="white", width=30, height=1, relief="raised")
         btn.pack(pady=20)
 
-    # ✅ Back Button (Using the same style)
     back_btn = tk.Button(submenu, text="Back", command=submenu.destroy, font=("Helvetica", 18),
                          bg="red", fg="white", width=30, height=1, relief="raised")
     back_btn.pack(pady=30)
 
-    # ✅ Exit Button
     exit_btn = tk.Button(submenu, text="Exit", command=exit_application, font=("Helvetica", 18),
                          bg="red", fg="white", width=30, height=1, relief="raised")
     exit_btn.pack(pady=10)
-
 
 # Function to exit the GUI
 def exit_application():
