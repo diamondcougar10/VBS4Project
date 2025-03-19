@@ -4,23 +4,27 @@ import subprocess
 import os
 from PIL import Image, ImageTk
 
+# ======================== 📌 SETUP & CONFIGURATION ========================= #
+
 # Get the base directory of the project
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Path to the Setup Documentation PDF
 PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
 
-def create_button(parent, text, command):
-    """Reusable function to create styled buttons."""
-    return tk.Button(parent, text=text, command=command, font=("Helvetica", 24), 
-                     bg="#444444", fg="white", width=30, height=1, relief="raised")
-
-
 # Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 if not os.path.exists(BATCH_FOLDER):
     os.makedirs(BATCH_FOLDER)  # Create batch folder if missing
 
+# ======================== 📌 REUSABLE BUTTON FUNCTION ========================= #
+
+def create_button(parent, text, command):
+    """Reusable function to create styled buttons."""
+    return tk.Button(parent, text=text, command=command, font=("Helvetica", 24), 
+                     bg="#444444", fg="white", width=30, height=1, relief="raised")
+
+# ======================== 📌 FUNCTION TO FIND INSTALLATION PATHS ========================= #
 
     # Function to open setup documentation
 def open_setup_documentation():
@@ -78,6 +82,8 @@ if not ares_manager_path:
     messagebox.showerror("Error", "ARES path not found. Exiting application.")
     exit()
 
+# ======================== 📌 FUNCTION TO CREATE & LAUNCH BATCH FILES ========================= #
+
 # Function to create batch files dynamically
 def create_batch_files(vbs4_path):
     host_batch = os.path.join(BATCH_FOLDER, "Host_Launch.bat")
@@ -108,7 +114,6 @@ exit
 
 # Generate the Drone Scenario batch file dynamically (No Admin)
 drone_scenario_batch = create_drone_scenario_batch(vbs4_exe_path)
-
 
 # Function to create the correct BVI batch file
 def create_bvi_batch_file(ares_path):
@@ -144,6 +149,7 @@ def launch_application(app_path, app_name):
     else:
         messagebox.showerror("Error", f"{app_name} path not found.")
 
+# ======================== 📌 FUNCTION TO SET BACKGROUND IMAGE ========================= #
 
 # Function to apply background image
 background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
@@ -158,6 +164,8 @@ def set_background(window):
         bg_label.place(relwidth=1, relheight=1)
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load background image.\n{e}")
+
+# ======================== 📌 FUNCTION TO OPEN SUBMENU ========================= #
 
 def open_submenu(title, buttons):
     submenu = tk.Toplevel(root)
@@ -186,9 +194,13 @@ def open_submenu(title, buttons):
                          bg="red", fg="white", width=30, height=1, relief="raised")
     exit_btn.pack(pady=10)
 
+# ======================== 📌 FUNCTION TO EXIT APPLICATION ========================= #
+
 # Function to exit the GUI
 def exit_application():
     root.destroy()
+
+# ======================== 📌 CREATE MAIN WINDOW ========================= #
 
 # Create main window
 root = tk.Tk()
@@ -207,6 +219,8 @@ header.pack(fill="x")
 setup_doc_button = tk.Button(root, text="SETUP DOCUMENTATION", command=open_setup_documentation, 
                              font=("Helvetica", 20, "bold"), bg="#FFD700", fg="black", width=40, height=2, relief="raised")
 setup_doc_button.pack(pady=20)  # Add button at the top
+
+# ======================== 📌 MAIN MENU BUTTONS ========================= #
 
 # Main Menu Buttons
 main_buttons = {
