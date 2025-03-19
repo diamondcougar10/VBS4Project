@@ -10,10 +10,17 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Path to the Setup Documentation PDF
 PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
 
+def create_button(parent, text, command):
+    """Reusable function to create styled buttons."""
+    return tk.Button(parent, text=text, command=command, font=("Helvetica", 24), 
+                     bg="#444444", fg="white", width=30, height=1, relief="raised")
+
+
 # Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 if not os.path.exists(BATCH_FOLDER):
     os.makedirs(BATCH_FOLDER)  # Create batch folder if missing
+
 
     # Function to open setup documentation
 def open_setup_documentation():
@@ -152,37 +159,40 @@ def set_background(window):
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load background image.\n{e}")
 
-# Function to open a submenu
 def open_submenu(title, buttons):
     submenu = tk.Toplevel(root)
     submenu.title(title)
     submenu.geometry("1600x800")
-    submenu.resizable(False, False)  # Lock window size
+    submenu.resizable(False, False)
 
-    set_background(submenu)  # Apply background
+    # ✅ Set transparent background (make it match root)
+    submenu.configure(bg=root["bg"])  # Use the same background as root
+    submenu.attributes('-transparentcolor', submenu["bg"])  # Make it transparent
 
-    # Header Label
-    label = tk.Label(submenu, text=title, font=("Helvetica", 30, "bold"), bg="black", fg="white", pady=15)
-    label.pack(fill="x")
+    # ✅ Set background image (same as root)
+    set_background(submenu)
 
-    # Button Frame (To keep buttons centered)
-    button_frame = tk.Frame(submenu, bg="black")
-    button_frame.pack(pady=50)
+    # ✅ Add black header label
+    header = tk.Label(submenu, text=title, font=("Helvetica", 30, "bold"),
+                      bg="black", fg="white", pady=15)
+    header.pack(fill="x")  # Ensure it stretches across the top
 
+    # ✅ Create buttons directly inside the submenu (like in the main menu)
     for btn_text, command in buttons.items():
-        btn = tk.Button(button_frame, text=btn_text, command=command, font=("Helvetica", 18), 
-                        bg="#555555", fg="white", width=40, height=2, relief="raised")
-        btn.pack(pady=15)
+        btn = tk.Button(submenu, text=btn_text, command=command, font=("Helvetica", 24),
+                        bg="#444444", fg="white", width=30, height=1, relief="raised")
+        btn.pack(pady=20)
 
-    # Back Button
-    back_btn = tk.Button(button_frame, text="Back", command=submenu.destroy, font=("Helvetica", 18), 
-                         bg="red", fg="white", width=40, height=2, relief="raised")
+    # ✅ Back Button (Using the same style)
+    back_btn = tk.Button(submenu, text="Back", command=submenu.destroy, font=("Helvetica", 18),
+                         bg="red", fg="white", width=30, height=1, relief="raised")
     back_btn.pack(pady=30)
 
-    # Exit Button in Submenu
-    exit_btn = tk.Button(button_frame, text="Exit", command=exit_application, font=("Helvetica", 18),
-                         bg="red", fg="white", width=40, height=2, relief="raised")
+    # ✅ Exit Button
+    exit_btn = tk.Button(submenu, text="Exit", command=exit_application, font=("Helvetica", 18),
+                         bg="red", fg="white", width=30, height=1, relief="raised")
     exit_btn.pack(pady=10)
+
 
 # Function to exit the GUI
 def exit_application():
@@ -231,12 +241,9 @@ main_buttons = {
     })
 }
 
-# Create Main Buttons (Centered in a Frame)
-# Loop through and create buttons directly inside root (instead of using a frame)
+# Loop through and create buttons directly inside root
 for btn_text, command in main_buttons.items():
     btn = tk.Button(root, text=btn_text, command=command, font=("Helvetica", 24), 
                     bg="#444444", fg="white", width=30, height=1, relief="raised")
-    btn.pack(pady=20)  # Increase padding to avoid squishing
-
-
+    btn.pack(pady=20) 
 root.mainloop()
