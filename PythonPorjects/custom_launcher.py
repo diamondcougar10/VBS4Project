@@ -7,10 +7,23 @@ from PIL import Image, ImageTk
 # Get the base directory of the project
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Path to the Setup Documentation PDF
+PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
+
 # Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 if not os.path.exists(BATCH_FOLDER):
     os.makedirs(BATCH_FOLDER)  # Create batch folder if missing
+
+    # Function to open setup documentation
+def open_setup_documentation():
+    if os.path.exists(PDF_FILE_PATH):
+        try:
+            subprocess.Popen([PDF_FILE_PATH], shell=True)  # Opens with default PDF viewer
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Setup Documentation.\n{e}")
+    else:
+        messagebox.showerror("Error", "Setup Documentation file not found.")
 
 # Function to find VBS4 installation path dynamically
 def find_vbs4():
@@ -57,8 +70,6 @@ ares_manager_path = find_ares()
 if not ares_manager_path:
     messagebox.showerror("Error", "ARES path not found. Exiting application.")
     exit()
-
-
 
 # Function to create batch files dynamically
 def create_batch_files(vbs4_path):
@@ -190,6 +201,11 @@ header = tk.Label(root, text="STE Mission Planning Toolkit", font=("Helvetica", 
                   bg="black", fg="white", pady=20)
 header.pack(fill="x")
 
+# **Setup Documentation Button**
+setup_doc_button = tk.Button(root, text="SETUP DOCUMENTATION", command=open_setup_documentation, 
+                             font=("Helvetica", 20, "bold"), bg="#FFD700", fg="black", width=40, height=2, relief="raised")
+setup_doc_button.pack(pady=20)  # Add button at the top
+
 # Main Menu Buttons
 main_buttons = {
     "Tools": lambda: open_submenu("Tools", {
@@ -216,17 +232,11 @@ main_buttons = {
 }
 
 # Create Main Buttons (Centered in a Frame)
-button_frame = tk.Frame(root, bg="black")
-button_frame.pack(pady=50)
-
+# Loop through and create buttons directly inside root (instead of using a frame)
 for btn_text, command in main_buttons.items():
-    btn = tk.Button(button_frame, text=btn_text, command=command, font=("Helvetica", 24), 
-                    bg="#444444", fg="white", width=40, height=2, relief="raised")
-    btn.pack(pady=20)
+    btn = tk.Button(root, text=btn_text, command=command, font=("Helvetica", 24), 
+                    bg="#444444", fg="white", width=30, height=1, relief="raised")
+    btn.pack(pady=20)  # Increase padding to avoid squishing
 
-# Exit Button in Main Menu
-exit_button = tk.Button(root, text="Exit", command=exit_application, font=("Helvetica", 24), 
-                        bg="red", fg="white", width=40, height=2, relief="raised")
-exit_button.pack(pady=30)
 
 root.mainloop()
