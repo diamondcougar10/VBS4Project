@@ -1,3 +1,4 @@
+import sys
 import tkinter as tk
 from tkinter import messagebox, filedialog, simpledialog
 import subprocess
@@ -5,6 +6,16 @@ import os
 from PIL import Image, ImageTk
 
 # ======================== 📌 SETUP & CONFIGURATION ========================= #
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 # Get the base directory of the project
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
