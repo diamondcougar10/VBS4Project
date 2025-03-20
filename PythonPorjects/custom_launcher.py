@@ -23,6 +23,8 @@ PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
 
 #Path to help and tutorials files
 bvi_setup_doc_path = os.path.join(BASE_DIR, "Help_Tutorials", "Bvi_Vbs4_Setup.pdf")
+# Path to the Demo Video
+demo_video_path = os.path.join(BASE_DIR, "Help_Tutorials", "BattleSpaceSetup.mkv")
 
 # Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
@@ -41,6 +43,15 @@ def open_bvi_setup_doc():
     else:
         messagebox.showerror("Error", "BVI VBS4 Setup document not found.")
 
+def play_demo_video():
+    """Opens the demo video using the default media player."""
+    if os.path.exists(demo_video_path):
+        try:
+            subprocess.Popen([demo_video_path], shell=True)  # Opens with the default video player
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to play demo video.\n{e}")
+    else:
+        messagebox.showerror("Error", "Demo video not found.")
 
 # ======================== 📌 REUSABLE BUTTON FUNCTION ========================= #
 
@@ -350,7 +361,8 @@ main_buttons = {
     "Help - Tutorials": lambda: open_submenu("Help - Tutorials", {
     "Build a Scenario": lambda: messagebox.showinfo("Help", "Opening Build a Scenario Tutorial..."),
     "Load a Terrain": lambda: messagebox.showinfo("Help", "Opening Load a Terrain Tutorial..."),
-    "BVI VBS4 Setup Guide": open_bvi_setup_doc 
+    "BVI VBS4 Setup Guide": open_bvi_setup_doc,
+    "Import a BattleSpace": play_demo_video 
 })
 }
 
