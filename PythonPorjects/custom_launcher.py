@@ -9,6 +9,15 @@ from PIL import Image, ImageTk
 # Get the base directory of the project
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Path to the Logos
+logo_STE_path = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
+logo_us_army_path = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
+logo_first_army  = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
+logo_AFC_army  = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png ")
+
+# Define the background image path
+background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
+
 # Path to the Setup Documentation PDF
 PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
 
@@ -150,20 +159,101 @@ def launch_application(app_path, app_name):
         messagebox.showerror("Error", f"{app_name} path not found.")
 
 # ======================== 📌 FUNCTION TO SET BACKGROUND IMAGE ========================= #
-
-# Function to apply background image
-background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
 def set_background(window):
+    """Applies background image and adds four logos:
+    - STE_CFT Logo (Top Left)
+    - US Army AFC Logo (Next to STE_CFT Logo)
+    - First Army Logo (Next to AFC Logo)
+    - US Army Logo (Top Right)
+    """
     try:
-        bg_image = Image.open(background_image_path)
-        bg_image = bg_image.resize((1600, 800), Image.Resampling.LANCZOS)  # Fit image to window size
-        bg_photo = ImageTk.PhotoImage(bg_image)
+        # ✅ Load and set background image
+        if os.path.exists(background_image_path):
+            bg_image = Image.open(background_image_path)
+            bg_image = bg_image.resize((1600, 800), Image.Resampling.LANCZOS)
+            bg_photo = ImageTk.PhotoImage(bg_image)
 
-        bg_label = tk.Label(window, image=bg_photo)
-        bg_label.image = bg_photo  # Keep a reference to prevent garbage collection
-        bg_label.place(relwidth=1, relheight=1)
+            bg_label = tk.Label(window, image=bg_photo)
+            bg_label.image = bg_photo  # Prevent garbage collection
+            bg_label.place(relwidth=1, relheight=1)  # Stretch image to fit window
+        else:
+            print("❌ Background image not found!")
+
+        # ✅ Function to place all logos after the window fully renders
+        def place_logos():
+            # ✅ Top Left Logo: STE_CFT_Logo
+            if os.path.exists(logo_STE_path):
+                ste_cft_logo_image = Image.open(logo_STE_path).convert("RGBA")  
+                ste_cft_logo_image = ste_cft_logo_image.resize((90, 90), Image.Resampling.LANCZOS)
+
+                ste_cft_logo_photo = ImageTk.PhotoImage(ste_cft_logo_image)
+
+                ste_cft_logo_label = tk.Label(window, image=ste_cft_logo_photo, bg="black")  
+                ste_cft_logo_label.image = ste_cft_logo_photo  
+                ste_cft_logo_label.place(x=1, y=1)  # ✅ Positioned at Top Left
+            else:
+                print("❌ STE_CFT Logo image not found!")
+
+            # ✅ Top Left (Next to STE_CFT Logo): US_Army_AFC_Logo
+            if os.path.exists(logo_AFC_army):
+                afc_army_logo_image = Image.open(logo_AFC_army).convert("RGBA")  
+                afc_army_logo_image = afc_army_logo_image.resize((73, 95), Image.Resampling.LANCZOS)  # ✅ Resized proportionally
+
+                afc_army_logo_photo = ImageTk.PhotoImage(afc_army_logo_image)
+
+                afc_army_logo_label = tk.Label(window, image=afc_army_logo_photo, bg="black")  
+                afc_army_logo_label.image = afc_army_logo_photo  
+                
+                # ✅ Position Next to STE_CFT Logo
+                afc_army_logo_label.place(x=180, y=1)  # ✅ Positioned Right of STE_CFT Logo
+
+            else:
+                print("❌ US Army AFC Logo image not found!")
+
+            # ✅ Top Left (Next to US Army AFC Logo): First_Army_Logo
+            if os.path.exists(logo_first_army):
+                first_army_logo_image = Image.open(logo_first_army).convert("RGBA")  
+                first_army_logo_image = first_army_logo_image.resize((60, 90), Image.Resampling.LANCZOS)  # ✅ Resize proportionally
+
+                first_army_logo_photo = ImageTk.PhotoImage(first_army_logo_image)
+
+                first_army_logo_label = tk.Label(window, image=first_army_logo_photo, bg="black")  
+                first_army_logo_label.image = first_army_logo_photo  
+                
+                # ✅ Position Next to US Army AFC Logo
+                def position_first_army_logo():
+                    first_army_logo_label.place(x=window.winfo_width() - 380, y=1)  # ✅ Positioned Right of AFC Logo
+
+                window.after(10, position_first_army_logo)  # ✅ Delay to get correct position
+
+            else:
+                print("❌ First Army Logo image not found!")
+
+            # ✅ Top Right Logo: New_US_Army_Logo
+            if os.path.exists(logo_us_army_path):
+                us_army_logo_image = Image.open(logo_us_army_path).convert("RGBA")  
+                us_army_logo_image = us_army_logo_image.resize((230, 86), Image.Resampling.LANCZOS)
+
+                us_army_logo_photo = ImageTk.PhotoImage(us_army_logo_image)
+
+                us_army_logo_label = tk.Label(window, image=us_army_logo_photo, bg="black")  
+                us_army_logo_label.image = us_army_logo_photo  
+                
+                # ✅ Adjusted for submenus using `.after()` to get correct width
+                def position_us_army_logo():
+                    us_army_logo_label.place(x=window.winfo_width() - 250, y=3)  # ✅ Positioned at Top Right
+
+                window.after(10, position_us_army_logo)  # ✅ Delay to get correct width
+
+            else:
+                print("❌ New US Army Logo image not found!")
+
+        # ✅ Delay placing the logos until the window fully renders
+        window.after(100, place_logos)
+
     except Exception as e:
-        messagebox.showerror("Error", f"Failed to load background image.\n{e}")
+        messagebox.showerror("Error", f"Failed to load images.\n{e}")
+
 
 # ======================== 📌 FUNCTION TO OPEN SUBMENU ========================= #
 
@@ -177,8 +267,8 @@ def open_submenu(title, buttons):
     submenu.attributes('-transparentcolor', submenu["bg"])  # Make it transparent
     set_background(submenu)
 
-    header = tk.Label(submenu, text=title, font=("Helvetica", 30, "bold"),
-                      bg="black", fg="white", pady=15)
+    header = tk.Label(submenu, text=title, font=("Helvetica", 36, "bold"),
+                      bg="black", fg="white", pady=20)
     header.pack(fill="x")  # Ensure it stretches across the top
 
     for btn_text, command in buttons.items():
