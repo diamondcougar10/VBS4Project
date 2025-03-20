@@ -21,10 +21,26 @@ background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
 # Path to the Setup Documentation PDF
 PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
 
+#Path to help and tutorials files
+bvi_setup_doc_path = os.path.join(BASE_DIR, "Help_Tutorials", "Bvi_Vbs4_Setup.pdf")
+
 # Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 if not os.path.exists(BATCH_FOLDER):
     os.makedirs(BATCH_FOLDER)  # Create batch folder if missing
+
+#============================📌 HElP AND tutorials FUNCTION =============================#
+
+def open_bvi_setup_doc():
+    """Opens the BVI VBS4 Setup document with the default Word processor."""
+    if os.path.exists(bvi_setup_doc_path):
+        try:
+            subprocess.Popen([bvi_setup_doc_path], shell=True)  # Open with default app
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open BVI VBS4 Setup document.\n{e}")
+    else:
+        messagebox.showerror("Error", "BVI VBS4 Setup document not found.")
+
 
 # ======================== 📌 REUSABLE BUTTON FUNCTION ========================= #
 
@@ -332,9 +348,10 @@ main_buttons = {
         "Orlando": lambda: messagebox.showinfo("Terrain", "Loading Orlando Terrain...")
     }),
     "Help - Tutorials": lambda: open_submenu("Help - Tutorials", {
-        "Build a Scenario": lambda: messagebox.showinfo("Help", "Opening Build a Scenario Tutorial..."),
-        "Load a Terrain": lambda: messagebox.showinfo("Help", "Opening Load a Terrain Tutorial...")
-    })
+    "Build a Scenario": lambda: messagebox.showinfo("Help", "Opening Build a Scenario Tutorial..."),
+    "Load a Terrain": lambda: messagebox.showinfo("Help", "Opening Load a Terrain Tutorial..."),
+    "BVI VBS4 Setup Guide": open_bvi_setup_doc 
+})
 }
 
 # Loop through and create buttons directly inside root
