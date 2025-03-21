@@ -18,7 +18,10 @@ from PIL import Image, ImageTk
 #     return os.path.join(base_path, relative_path)
 
 # Get the base directory of the project
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ======================== 📌 Path & File Locations ========================= #
 
 # Path to the Logos
 logo_STE_path = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
