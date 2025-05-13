@@ -7,197 +7,139 @@ from PIL import Image, ImageTk
 
 # ======================== 📌 SETUP & CONFIGURATION ========================= #
 
-# def resource_path(relative_path):
-#     """ Get absolute path to resource, works for dev and for PyInstaller """
-#     try:
-#         # PyInstaller creates a temp folder and stores path in _MEIPASS
-#         base_path = sys._MEIPASS
-#     except Exception:
-#         base_path = os.path.abspath(".")
-
-#     return os.path.join(base_path, relative_path)
-
-# Get the base directory of the project
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ======================== 📌 Path & File Locations ========================= #
 
-# Path to the Logos
-logo_STE_path = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
-logo_us_army_path = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
-logo_first_army  = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
-logo_AFC_army  = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png ")
+logo_STE_path       = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
+logo_us_army_path   = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
+logo_first_army     = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
+logo_AFC_army       = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
 
-# Define the background image path
 background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
+PDF_FILE_PATH         = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
+bvi_setup_doc_path    = os.path.join(BASE_DIR, "Help_Tutorials", "Bvi_Vbs4_Setup.pdf")
+demo_video_path       = os.path.join(BASE_DIR, "Help_Tutorials", "BattleSpaceSetup.mkv")
 
-# Path to the Setup Documentation PDF
-PDF_FILE_PATH = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
-
-#Path to help and tutorials files
-bvi_setup_doc_path = os.path.join(BASE_DIR, "Help_Tutorials", "Bvi_Vbs4_Setup.pdf")
-# Path to the Demo Video
-demo_video_path = os.path.join(BASE_DIR, "Help_Tutorials", "BattleSpaceSetup.mkv")
-
-# Paths to batch files and executables (Relative)
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 if not os.path.exists(BATCH_FOLDER):
-    os.makedirs(BATCH_FOLDER)  # Create batch folder if missing
+    os.makedirs(BATCH_FOLDER)
 
-#============================📌 HElP AND tutorials FUNCTION =============================#
+# ======================== 📌 HELP & DEMO FUNCTIONS ========================= #
 
 def open_bvi_setup_doc():
-    """Opens the BVI VBS4 Setup document with the default Word processor."""
     if os.path.exists(bvi_setup_doc_path):
-        try:
-            subprocess.Popen([bvi_setup_doc_path], shell=True)  # Open with default app
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open BVI VBS4 Setup document.\n{e}")
+        try: subprocess.Popen([bvi_setup_doc_path], shell=True)
+        except Exception as e: messagebox.showerror("Error", f"Failed to open BVI doc.\n{e}")
     else:
         messagebox.showerror("Error", "BVI VBS4 Setup document not found.")
 
 def play_demo_video():
-    """Opens the demo video using the default media player."""
     if os.path.exists(demo_video_path):
-        try:
-            subprocess.Popen([demo_video_path], shell=True)  # Opens with the default video player
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to play demo video.\n{e}")
+        try: subprocess.Popen([demo_video_path], shell=True)
+        except Exception as e: messagebox.showerror("Error", f"Failed to play demo video.\n{e}")
     else:
         messagebox.showerror("Error", "Demo video not found.")
 
 # ======================== 📌 REUSABLE BUTTON FUNCTION ========================= #
 
 def create_button(parent, text, command):
-    """Reusable function to create styled buttons."""
-    return tk.Button(parent, text=text, command=command, font=("Helvetica", 24), 
-                     bg="#444444", fg="white", width=30, height=1, relief="raised")
+    return tk.Button(parent, text=text, command=command,
+                     font=("Helvetica", 24), bg="#444444", fg="white",
+                     width=30, height=1, relief="raised")
 
-# ======================== 📌 FUNCTION TO FIND INSTALLATION PATHS ========================= #
+# ======================== 📌 INSTALL‑PATH FINDERS ========================= #
 
-    # Function to open setup documentation
 def open_setup_documentation():
     if os.path.exists(PDF_FILE_PATH):
-        try:
-            subprocess.Popen([PDF_FILE_PATH], shell=True)  # Opens with default PDF viewer
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open Setup Documentation.\n{e}")
+        try: subprocess.Popen([PDF_FILE_PATH], shell=True)
+        except Exception as e: messagebox.showerror("Error", f"Failed to open setup doc.\n{e}")
     else:
-        messagebox.showerror("Error", "Setup Documentation file not found.")
+        messagebox.showerror("Error", "Setup documentation not found.")
 
-# Function to find VBS4 installation path dynamically
 def find_vbs4():
-    possible_paths = [
-        os.path.join(os.getenv("PROGRAMFILES", "C:\\Program Files"), "BISIM", "VBS4", "VBS4.exe"),
-        os.path.join(os.getenv("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), "BISIM", "VBS4", "VBS4.exe"),
-        r"C:\BISIM\VBS4\VBS4.exe"  # Default known path
+    paths = [
+        os.path.join(os.getenv("PROGRAMFILES","C:\\Program Files"), "BISIM","VBS4","VBS4.exe"),
+        os.path.join(os.getenv("PROGRAMFILES(X86)","C:\\Program Files (x86)"), "BISIM","VBS4","VBS4.exe"),
+        r"C:\BISIM\VBS4\VBS4.exe"
     ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    messagebox.showwarning("VBS4 Not Found", "Select VBS4.exe manually.")
+    f = filedialog.askopenfilename(title="Select VBS4.exe", filetypes=[("EXE","*.exe")])
+    return f if os.path.exists(f) else None
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-
-    # If VBS4 isn't found, prompt the user to select it manually
-    messagebox.showwarning("VBS4 Not Found", "VBS4 installation not found. Please select VBS4.exe manually.")
-    file_path = filedialog.askopenfilename(title="Select VBS4.exe", filetypes=[("Executable Files", "*.exe")])
-    
-    return file_path if os.path.exists(file_path) else None
-
-# Function to find ARES (BVI) installation path dynamically
 def find_ares():
-    possible_paths = [
-        os.path.join(os.getenv("PROGRAMFILES", "C:\\Program Files"), "ARES", "ARES-dev-release-v0.9.4-c1d3950", "ares.manager", "ares.manager.exe"),
-        os.path.join(os.getenv("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), "ARES", "ARES-dev-release-v0.9.4-c1d3950", "ares.manager", "ares.manager.exe")
+    paths = [
+        os.path.join(os.getenv("PROGRAMFILES","C:\\Program Files"), "ARES","ARES-dev-release-v0.9.4-c1d3950","ares.manager","ares.manager.exe"),
+        os.path.join(os.getenv("PROGRAMFILES(X86)","C:\\Program Files (x86)"), "ARES","ARES-dev-release-v0.9.4-c1d3950","ares.manager","ares.manager.exe")
     ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    messagebox.showwarning("ARES Not Found", "Select ares.manager.exe manually.")
+    f = filedialog.askopenfilename(title="Select ARES Manager", filetypes=[("EXE","*.exe")])
+    return f if os.path.exists(f) else None
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-
-    messagebox.showwarning("ARES Not Found", "ARES installation not found. Please select ares.manager.exe manually.")
-    file_path = filedialog.askopenfilename(title="Select ARES Manager Executable", filetypes=[("Executable Files", "*.exe")])
-    
-    return file_path if os.path.exists(file_path) else None
-
-# Detect VBS4 Path
-vbs4_exe_path = find_vbs4()
-if not vbs4_exe_path:
-    messagebox.showerror("Error", "VBS4 path not found. Exiting application.")
-    exit()
-
-# Detect ARES Path
+vbs4_exe_path     = find_vbs4()
 ares_manager_path = find_ares()
-if not ares_manager_path:
-    messagebox.showerror("Error", "ARES path not found. Exiting application.")
-    exit()
+if not vbs4_exe_path or not ares_manager_path:
+    messagebox.showerror("Error", "Required paths not found. Exiting.")
+    sys.exit()
 
-# ======================== 📌 FUNCTION TO CREATE & LAUNCH BATCH FILES ========================= #
+# ======================== 📌 BATCH FILE GENERATORS ========================= #
 
-# Function to create batch files dynamically
 def create_batch_files(vbs4_path):
-    host_batch = os.path.join(BATCH_FOLDER, "Host_Launch.bat")
-    user_batch = os.path.join(BATCH_FOLDER, "User_Launch.bat")
-
-    with open(host_batch, "w") as f:
+    host = os.path.join(BATCH_FOLDER, "Host_Launch.bat")
+    user = os.path.join(BATCH_FOLDER, "User_Launch.bat")
+    with open(host, "w") as f:
         f.write(f'@echo off\n"{vbs4_path}" -admin "-autoassign=admin" -forceSimul -window\nexit')
-
-    with open(user_batch, "w") as f:
+    with open(user, "w") as f:
         f.write(f'@echo off\n"{vbs4_path}" -forceSimul -window\nexit')
+    return host, user
 
-    return host_batch, user_batch
-
-# Generate batch files
 batch_files = create_batch_files(vbs4_exe_path)
 
-# Function to create the Drone Scenario batch file with the correct parameters
 def create_drone_scenario_batch(vbs4_path):
-    drone_batch = os.path.join(BATCH_FOLDER, "DroneScenario.bat")
-
-    with open(drone_batch, "w") as f:
+    fpath = os.path.join(BATCH_FOLDER, "DroneScenario.bat")
+    with open(fpath, "w") as f:
         f.write(f'''@echo off
 start "" "{vbs4_path}" -forceSimul -init=hostMission["Leonidas_demo"] -name=Admin -autoassign=Player1 -autostart=1
 exit
 ''')
+    return fpath
 
-    return drone_batch
-
-# Generate the Drone Scenario batch file dynamically (No Admin)
 drone_scenario_batch = create_drone_scenario_batch(vbs4_exe_path)
 
-# Function to create the correct BVI batch file
 def create_bvi_batch_file(ares_path):
-    manager_batch = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
-
-    # Construct the XR path dynamically
-    xr_path = ares_path.replace("ares.manager\\ares.manager.exe", "ares.xr\\Windows\\AresXR.exe")
-
-    with open(manager_batch, "w") as f:
+    out = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
+    xr  = ares_path.replace("ares.manager\\ares.manager.exe","ares.xr\\Windows\\AresXR.exe")
+    with open(out, "w") as f:
         f.write(f'''@echo off
 start "" "{ares_path}"
 timeout /t 40 /nobreak
-start "" "{xr_path}"
+start "" "{xr}"
 exit
 ''')
+    return out
 
-    return manager_batch
-# Generate batch file for BVI dynamically
 bvi_batch_file = create_bvi_batch_file(ares_manager_path)
 
-# Function to launch BVI
-def launch_bvi():
-    launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
+# ======================== 📌 LAUNCH HELPERS ========================= #
 
-# Function to launch batch files or executables and close the GUI
 def launch_application(app_path, app_name):
     if os.path.exists(app_path):
         try:
-            root.destroy()  # Close the GUI window
+            root.destroy()
             subprocess.Popen(app_path, shell=True)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch {app_name}.\n{e}")
     else:
-        messagebox.showerror("Error", f"{app_name} path not found.")
+        messagebox.showerror("Error", f"{app_name} not found.")
+
+def launch_bvi():
+    launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
 
 # ======================== 📌 FUNCTION TO SET BACKGROUND IMAGE ========================= #
 def set_background(window):
@@ -295,94 +237,132 @@ def set_background(window):
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load images.\n{e}")
 
-
-# ======================== 📌 FUNCTION TO OPEN SUBMENU ========================= #
+# ======================== 📌 SUBMENU LOGIC ========================= #
 
 def open_submenu(title, buttons):
     submenu = tk.Toplevel(root)
     submenu.title(title)
     submenu.geometry("1600x800")
     submenu.resizable(False, False)
-
-    submenu.configure(bg=root["bg"])  # Use the same background as root
-    submenu.attributes('-transparentcolor', submenu["bg"])  # Make it transparent
+    submenu.configure(bg=root["bg"])
+    submenu.attributes('-transparentcolor', submenu["bg"])
     set_background(submenu)
 
-    header = tk.Label(submenu, text=title, font=("Helvetica", 36, "bold"),
+    header = tk.Label(submenu, text=title, font=("Helvetica",36,"bold"),
                       bg="black", fg="white", pady=20)
-    header.pack(fill="x")  # Ensure it stretches across the top
+    header.pack(fill="x")
 
-    for btn_text, command in buttons.items():
-        btn = tk.Button(submenu, text=btn_text, command=command, font=("Helvetica", 24),
-                        bg="#444444", fg="white", width=30, height=1, relief="raised")
+    for txt, cmd in buttons.items():
+        btn = tk.Button(submenu, text=txt, command=cmd,
+                        font=("Helvetica",24), bg="#444444", fg="white",
+                        width=30, height=1, relief="raised")
         btn.pack(pady=20)
 
-    back_btn = tk.Button(submenu, text="Back", command=submenu.destroy, font=("Helvetica", 18),
-                         bg="red", fg="white", width=30, height=1, relief="raised")
-    back_btn.pack(pady=30)
+    tk.Button(submenu, text="Back", command=submenu.destroy,
+              font=("Helvetica",18), bg="red", fg="white",
+              width=30, height=1, relief="raised").pack(pady=30)
+    tk.Button(submenu, text="Exit", command=exit_application,
+              font=("Helvetica",18), bg="red", fg="white",
+              width=30, height=1, relief="raised").pack(pady=10)
 
-    exit_btn = tk.Button(submenu, text="Exit", command=exit_application, font=("Helvetica", 18),
-                         bg="red", fg="white", width=30, height=1, relief="raised")
-    exit_btn.pack(pady=10)
-
-# ======================== 📌 FUNCTION TO EXIT APPLICATION ========================= #
-
-# Function to exit the GUI
 def exit_application():
     root.destroy()
 
-# ======================== 📌 CREATE MAIN WINDOW ========================= #
+# ======================== 📌 MAIN WINDOW SETUP ========================= #
 
-# Create main window
 root = tk.Tk()
 root.title("STE Mission Planning Toolkit")
 root.geometry("1600x800")
-root.resizable(False, False)  # Lock window size
+root.resizable(False, False)
 
-set_background(root)  # Apply background image
+set_background(root)
 
-# Header
-header = tk.Label(root, text="STE Mission Planning Toolkit", font=("Helvetica", 36, "bold"), 
-                  bg="black", fg="white", pady=20)
-header.pack(fill="x")
+tk.Label(root, text="STE Mission Planning Toolkit",
+         font=("Helvetica",36,"bold"),
+         bg="black", fg="white", pady=20).pack(fill="x")
 
-# **Setup Documentation Button**
-setup_doc_button = tk.Button(root, text="SETUP DOCUMENTATION", command=open_setup_documentation, 
-                             font=("Helvetica", 20, "bold"), bg="#FFD700", fg="black", width=40, height=2, relief="raised")
-setup_doc_button.pack(pady=20)  # Add button at the top
+tk.Button(root, text="SETUP DOCUMENTATION", command=open_setup_documentation,
+          font=("Helvetica",20,"bold"), bg="#FFD700", fg="black",
+          width=40, height=2, relief="raised").pack(pady=20)
+
+# ======================== 📌 TUTORIALS “?” BUTTON ========================= #
+
+vbs4_docs = {
+    "VBS4 Official Documentation":         lambda: messagebox.showinfo("VBS4 Doc","Open VBS4 docs in browser"),
+    "Script Wiki":                          lambda: messagebox.showinfo("Script Wiki","Open script wiki in browser"),
+    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play VBS4 tutorial videos"),
+    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open VBS4 support site"),
+}
+
+blueig_docs = {
+    "Blue IG Official Documentation":      lambda: messagebox.showinfo("BlueIG Doc","Open BlueIG docs in browser"),
+    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BlueIG tutorial videos"),
+    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open BlueIG support site"),
+}
+
+bvi_docs = {
+    "BVI Official Documentation":          lambda: messagebox.showinfo("BVI Doc","Open BVI docs in browser"),
+    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BVI tutorial videos"),
+    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open BVI support site"),
+}
+
+quick_start_docs = {
+    "Video Tutorials": lambda: messagebox.showinfo("Quick‑Start","Play quick‑start videos"),
+}
+
+oneclick_docs = {
+    "How to collect terrain scans w/ Drone":  lambda: messagebox.showinfo("One‑Click","Show drone collection guide"),
+    "How to import terrain scans from drone": lambda: messagebox.showinfo("One‑Click","Show drone import guide"),
+    "How to: Simulated Terrain":              lambda: open_submenu("Simulated Terrain Docs", {
+        "Create Mesh Documentation": lambda: messagebox.showinfo("Mesh Doc","Show mesh creation guide"),
+        "One‑Click Documentation":  lambda: messagebox.showinfo("One‑Click","Show one‑click terrain guide"),
+    }),
+}
+
+tutorials_items = {
+    "VBS4 Documentation":               lambda: open_submenu("VBS4 Documentation",    vbs4_docs),
+    "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs),
+    "BVI Documentation":                lambda: open_submenu("BVI Documentation",     bvi_docs),
+    "Quick‑Start Guide for entire kit": lambda: open_submenu("Quick‑Start Guide",    quick_start_docs),
+    "One‑Click Terrain Documentation":  lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs),
+}
+
+tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_items),
+          font=("Helvetica",24), bg="#FFD700", fg="black",
+          width=2, height=1, relief="raised").place(x=1550, y=110)
 
 # ======================== 📌 MAIN MENU BUTTONS ========================= #
 
-# Main Menu Buttons
 main_buttons = {
-    "Tools": lambda: open_submenu("Tools", {
+    "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
         "Launch VBS4 as (Host)": lambda: launch_application(batch_files[0], "VBS4 (Host)"),
         "Launch VBS4 as (User)": lambda: launch_application(batch_files[1], "VBS4 (User)"),
-        "Launch BVI": launch_bvi,
-        "VBS4 Setup": lambda: launch_application(vbs4_exe_path, "VBS4 Setup"),
+        "One-Click Terrain":     lambda: open_submenu("One-Click Terrain", {
+                                      "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
+                                      "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),
+                                      "View Mesh (.obj)":   lambda: messagebox.showinfo("Terrain","View Mesh (.obj)"),
+                                      "One-Click Tutorial": lambda: messagebox.showinfo("Terrain","Launch Tutorial"),
+                                  }),
+        "External Map":          lambda: open_submenu("External Map", {
+                                      "Select User Profile": lambda: messagebox.showinfo("Map","Select Profile"),
+                                      "Open External Map":   lambda: messagebox.showinfo("Map","Launching Browser"),
+                                  }),
     }),
-    "Scenarios": lambda: open_submenu("Scenarios", {
-        "Launch Leonidas Demo": lambda: launch_application(drone_scenario_batch, "Drone Scenario"),
-        "Scenario 2": lambda: messagebox.showinfo("Scenario", "Launching Scenario 2..."),
-        "Scenario 3": lambda: messagebox.showinfo("Scenario", "Launching Scenario 3...")
-    }),
-    "Terrain": lambda: open_submenu("Terrain", {
-        "NTC": lambda: messagebox.showinfo("Terrain", "Loading NTC Terrain..."),
-        "Stewart": lambda: messagebox.showinfo("Terrain", "Loading Stewart Terrain..."),
-        "Muscatuck": lambda: messagebox.showinfo("Terrain", "Loading Muscatuck Terrain..."),
-        "Orlando": lambda: messagebox.showinfo("Terrain", "Loading Orlando Terrain...")
-    }),
-    "Help - Tutorials": lambda: open_submenu("Help - Tutorials", {
-    "Build a Scenario": lambda: messagebox.showinfo("Help", "Opening Build a Scenario Tutorial..."),
-    "Load a Terrain": lambda: messagebox.showinfo("Help", "Opening Load a Terrain Tutorial..."),
-    "BVI VBS4 Setup Guide": open_bvi_setup_doc,
-    "Import a BattleSpace": play_demo_video 
-})
+    "BVI":           lambda: open_submenu("BVI", {
+                          "Launch BVI": launch_bvi,
+                          "Terrains":   lambda: messagebox.showinfo("BVI","List terrains from web app"),
+                      }),
+    "Settings":      lambda: open_submenu("Settings", {
+                          "Launch on Startup":          lambda: messagebox.showinfo("Settings","Toggle Launch on Startup"),
+                          "Close on Software Launch?":  lambda: messagebox.showinfo("Settings","Toggle Close on Launch"),
+                          "VBS4 Install Location":      lambda: messagebox.showinfo("Settings","Change VBS4 Path"),
+                          "BlueIG Install":             lambda: messagebox.showinfo("Settings","Change BlueIG Path"),
+                          "Pick Default Browser":       lambda: messagebox.showinfo("Settings","Select Default Browser"),
+                      }),
 }
 
-# Loop through and create buttons directly inside root
-for btn_text, command in main_buttons.items():
-    btn = tk.Button(root, text=btn_text, command=command, font=("Helvetica", 24), 
-                    bg="#444444", fg="white", width=30, height=1, relief="raised")
-    btn.pack(pady=20) 
+for text, cmd in main_buttons.items():
+    btn = create_button(root, text, cmd)
+    btn.pack(pady=20)
+
 root.mainloop()

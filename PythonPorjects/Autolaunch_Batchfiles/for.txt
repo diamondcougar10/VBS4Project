@@ -1,0 +1,14 @@
+for 
+{
+	_thing = (configfile >> "cfgVehicles" ) select 2506
+
+	_side = getNumber _thing >> "side"
+
+	if (side == 1 && simulation == "soldier) then
+	{
+
+
+
+}
+
+file:///C:/BISIM/VBS4/docs/SQF_Resources/VBS2PluginFileAccess.html
