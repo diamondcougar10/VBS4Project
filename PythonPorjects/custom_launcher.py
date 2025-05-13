@@ -4,10 +4,128 @@ from tkinter import messagebox, filedialog, simpledialog
 import subprocess
 import os
 from PIL import Image, ImageTk
+import winreg
+import configparser
+from tkinter import messagebox
+
+# ─── Configuration ─────────────────────────────────────────────────────────
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.ini')
+config = configparser.ConfigParser()
+config.read(CONFIG_PATH)
+if 'General' not in config:
+    config['General'] = {}
+if 'close_on_launch' not in config['General']:
+    config['General']['close_on_launch'] = 'False'
+with open(CONFIG_PATH, 'w') as f:
+    config.write(f)
+
+# ─── Startup‑on‑login Helpers ───────────────────────────────────────────────
+REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_NAME = "STE_Mission_Planning_Toolkit"
+
+def is_startup_enabled() -> bool:
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_READ)
+        winreg.QueryValueEx(key, APP_NAME)
+        winreg.CloseKey(key)
+        return True
+    except FileNotFoundError:
+        return False
+
+def enable_startup():
+    exe_path = sys.executable  # Path to the .exe when packaged
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
+    winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
+    winreg.CloseKey(key)
+
+def disable_startup():
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
+    try:
+        winreg.DeleteValue(key, APP_NAME)
+    except FileNotFoundError:
+        pass
+    winreg.CloseKey(key)
+
+def toggle_startup():
+    if is_startup_enabled():
+        disable_startup()
+        messagebox.showinfo("Settings", "Launch on startup ▶ Disabled")
+    else:
+        enable_startup()
+        messagebox.showinfo("Settings", "Launch on startup ▶ Enabled")
+
+# ─── Close‑on‑Launch Helpers ────────────────────────────────────────────────
+def is_close_on_launch_enabled() -> bool:
+    return config.getboolean('General', 'close_on_launch', fallback=False)
+
+def toggle_close_on_launch():
+    enabled = not is_close_on_launch_enabled()
+    config['General']['close_on_launch'] = str(enabled)
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+    status = "Enabled" if enabled else "Disabled"
+    messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
+
+    # ─── BlueIG Path Helpers ─────────────────────────────────────────────────────
+
+def get_blueig_install_path() -> str:
+    """Return the currently saved BlueIG path (or empty string if none)."""
+    return config['General'].get('blueig_path', '')
+
+def set_blueig_install_path():
+    """Open a file dialog to choose your BlueIG executable and save it."""
+    path = filedialog.askopenfilename(
+        title="Select BlueIG Executable",
+        filetypes=[("Executable Files", "*.exe")]
+    )
+    if path and os.path.exists(path):
+        config['General']['blueig_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        messagebox.showinfo("Settings", f"BlueIG path set to:\n{path}")
+    else:
+        messagebox.showerror("Settings", "Invalid BlueIG path selected.")
+
+# ─── Default Browser Helpers ────────────────────────────────────────────────
+def get_default_browser() -> str:
+    """Return the currently saved default browser executable path."""
+    return config['General'].get('default_browser', '')
+
+def set_default_browser():
+    """Open file dialog to set the default browser executable path."""
+    path = filedialog.askopenfilename(
+        title="Select Default Browser Executable",
+        filetypes=[("Executable Files", "*.exe")]
+    )
+    if path and os.path.exists(path):
+        config['General']['default_browser'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        messagebox.showinfo("Settings", f"Default browser set to:\n{path}")
+    else:
+        messagebox.showerror("Settings", "Invalid browser path selected.")
 
 # ======================== 📌 SETUP & CONFIGURATION ========================= #
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_vbs4_install_path() -> str:
+    """Return the currently saved VBS4 path (or empty string if none)."""
+    return config['General'].get('vbs4_path', '')
+
+def set_vbs4_install_path():
+    """Open a file dialog to choose VBS4.exe, then save it in config.ini."""
+    path = filedialog.askopenfilename(
+        title="Select VBS4.exe",
+        filetypes=[("Executable Files", "*.exe")]
+    )
+    if path and os.path.exists(path):
+        config['General']['vbs4_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        messagebox.showinfo("Settings", f"VBS4 path set to:\n{path}")
+    else:
+        messagebox.showerror("Settings", "Invalid VBS4 path selected.")
 
 # ======================== 📌 Path & File Locations ========================= #
 
@@ -131,7 +249,8 @@ bvi_batch_file = create_bvi_batch_file(ares_manager_path)
 def launch_application(app_path, app_name):
     if os.path.exists(app_path):
         try:
-            root.destroy()
+            if is_close_on_launch_enabled():
+                root.destroy()
             subprocess.Popen(app_path, shell=True)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch {app_name}.\n{e}")
@@ -331,12 +450,14 @@ tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_it
           font=("Helvetica",24), bg="#FFD700", fg="black",
           width=2, height=1, relief="raised").place(x=1550, y=110)
 
+
+
 # ======================== 📌 MAIN MENU BUTTONS ========================= #
 
 main_buttons = {
     "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
-        "Launch VBS4 as (Host)": lambda: launch_application(batch_files[0], "VBS4 (Host)"),
-        "Launch VBS4 as (User)": lambda: launch_application(batch_files[1], "VBS4 (User)"),
+        "Launch VBS4 as HammerKit": lambda: launch_application(batch_files[0], "VBS4 (Host)"),
+        "Launch BlueIg": lambda: launch_application(batch_files[1], " HammerKIt User"),
         "One-Click Terrain":     lambda: open_submenu("One-Click Terrain", {
                                       "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
                                       "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),
@@ -353,12 +474,14 @@ main_buttons = {
                           "Terrains":   lambda: messagebox.showinfo("BVI","List terrains from web app"),
                       }),
     "Settings":      lambda: open_submenu("Settings", {
-                          "Launch on Startup":          lambda: messagebox.showinfo("Settings","Toggle Launch on Startup"),
-                          "Close on Software Launch?":  lambda: messagebox.showinfo("Settings","Toggle Close on Launch"),
-                          "VBS4 Install Location":      lambda: messagebox.showinfo("Settings","Change VBS4 Path"),
-                          "BlueIG Install":             lambda: messagebox.showinfo("Settings","Change BlueIG Path"),
-                          "Pick Default Browser":       lambda: messagebox.showinfo("Settings","Select Default Browser"),
+                          "Launch on Startup":          toggle_startup,
+                          "Close on Software Launch?":  toggle_close_on_launch,
+                          "VBS4 Install Location":      set_vbs4_install_path,
+                          "BlueIG Install":             set_blueig_install_path,
+                          "Pick Default Browser":       set_default_browser,
                       }),
+
+                      
 }
 
 for text, cmd in main_buttons.items():
