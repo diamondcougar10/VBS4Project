@@ -18,6 +18,21 @@ if 'close_on_launch' not in config['General']:
     config['General']['close_on_launch'] = 'False'
 with open(CONFIG_PATH, 'w') as f:
     config.write(f)
+    # ─── Loading Text Indacator ─────────────────────────────────────────────────────────
+def wrap_with_loading(cmd):
+    def _wrapped():
+        # create loading label
+        loading = tk.Label(root, text="Loading...", font=("Helvetica", 24, "italic"),
+                           bg="black", fg="white")
+        # position it at bottom‐center (adjust relx/rely as you like)
+        loading.place(relx=0.5, rely=0.9, anchor="center")
+        root.update_idletasks()      # force redraw so user sees it immediately
+
+        try:
+            cmd()                     # run the real handler
+        finally:
+            loading.destroy()        # clean up the label
+    return _wrapped
 
 # ─── Startup‑on‑login Helpers ───────────────────────────────────────────────
 REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -163,8 +178,12 @@ def play_demo_video():
 
 def create_button(parent, text, command):
     return tk.Button(parent, text=text, command=command,
-                     font=("Helvetica", 24), bg="#444444", fg="white",
-                     width=30, height=1, relief="raised")
+                     font=("Helvetica", 32),     # bigger text
+                     bg="#444444", fg="white",
+                     width=20, height=2,         # wider & taller buttons
+                     relief="raised")
+
+
 
 # ======================== 📌 INSTALL‑PATH FINDERS ========================= #
 
@@ -269,7 +288,7 @@ def set_background(window):
     - US Army Logo (Top Right)
     """
     try:
-        # ✅ Load and set background image
+        # Load and set background image
         if os.path.exists(background_image_path):
             bg_image = Image.open(background_image_path)
             bg_image = bg_image.resize((1600, 800), Image.Resampling.LANCZOS)
@@ -281,9 +300,8 @@ def set_background(window):
         else:
             print("❌ Background image not found!")
 
-        # ✅ Function to place all logos after the window fully renders
         def place_logos():
-            # ✅ Top Left Logo: STE_CFT_Logo
+            # Top Left Logo: STE_CFT_Logo
             if os.path.exists(logo_STE_path):
                 ste_cft_logo_image = Image.open(logo_STE_path).convert("RGBA")  
                 ste_cft_logo_image = ste_cft_logo_image.resize((90, 90), Image.Resampling.LANCZOS)
@@ -292,46 +310,46 @@ def set_background(window):
 
                 ste_cft_logo_label = tk.Label(window, image=ste_cft_logo_photo, bg="black")  
                 ste_cft_logo_label.image = ste_cft_logo_photo  
-                ste_cft_logo_label.place(x=1, y=1)  # ✅ Positioned at Top Left
+                ste_cft_logo_label.place(x=1, y=1) 
             else:
                 print("❌ STE_CFT Logo image not found!")
 
-            # ✅ Top Left (Next to STE_CFT Logo): US_Army_AFC_Logo
+            # Top Left (Next to STE_CFT Logo): US_Army_AFC_Logo
             if os.path.exists(logo_AFC_army):
                 afc_army_logo_image = Image.open(logo_AFC_army).convert("RGBA")  
-                afc_army_logo_image = afc_army_logo_image.resize((73, 95), Image.Resampling.LANCZOS)  # ✅ Resized proportionally
+                afc_army_logo_image = afc_army_logo_image.resize((73, 95), Image.Resampling.LANCZOS)  
 
                 afc_army_logo_photo = ImageTk.PhotoImage(afc_army_logo_image)
 
                 afc_army_logo_label = tk.Label(window, image=afc_army_logo_photo, bg="black")  
                 afc_army_logo_label.image = afc_army_logo_photo  
                 
-                # ✅ Position Next to STE_CFT Logo
+                # Position Next to STE_CFT Logo
                 afc_army_logo_label.place(x=180, y=1)  # ✅ Positioned Right of STE_CFT Logo
 
             else:
-                print("❌ US Army AFC Logo image not found!")
+                print(" US Army AFC Logo image not found!")
 
-            # ✅ Top Left (Next to US Army AFC Logo): First_Army_Logo
+            # Top Left (Next to US Army AFC Logo): First_Army_Logo
             if os.path.exists(logo_first_army):
                 first_army_logo_image = Image.open(logo_first_army).convert("RGBA")  
-                first_army_logo_image = first_army_logo_image.resize((60, 90), Image.Resampling.LANCZOS)  # ✅ Resize proportionally
+                first_army_logo_image = first_army_logo_image.resize((60, 90), Image.Resampling.LANCZOS)  
 
                 first_army_logo_photo = ImageTk.PhotoImage(first_army_logo_image)
 
                 first_army_logo_label = tk.Label(window, image=first_army_logo_photo, bg="black")  
                 first_army_logo_label.image = first_army_logo_photo  
                 
-                # ✅ Position Next to US Army AFC Logo
+                # Position Next to US Army AFC Logo
                 def position_first_army_logo():
-                    first_army_logo_label.place(x=window.winfo_width() - 380, y=1)  # ✅ Positioned Right of AFC Logo
+                    first_army_logo_label.place(x=window.winfo_width() - 380, y=1)  
 
-                window.after(10, position_first_army_logo)  # ✅ Delay to get correct position
+                window.after(10, position_first_army_logo)  
 
             else:
                 print("❌ First Army Logo image not found!")
 
-            # ✅ Top Right Logo: New_US_Army_Logo
+            # Top Right Logo: New_US_Army_Logo
             if os.path.exists(logo_us_army_path):
                 us_army_logo_image = Image.open(logo_us_army_path).convert("RGBA")  
                 us_army_logo_image = us_army_logo_image.resize((230, 86), Image.Resampling.LANCZOS)
@@ -341,7 +359,7 @@ def set_background(window):
                 us_army_logo_label = tk.Label(window, image=us_army_logo_photo, bg="black")  
                 us_army_logo_label.image = us_army_logo_photo  
                 
-                # ✅ Adjusted for submenus using `.after()` to get correct width
+                # Adjusted for submenus using `.after()` to get correct width
                 def position_us_army_logo():
                     us_army_logo_label.place(x=window.winfo_width() - 250, y=3)  # ✅ Positioned at Top Right
 
@@ -350,7 +368,7 @@ def set_background(window):
             else:
                 print("❌ New US Army Logo image not found!")
 
-        # ✅ Delay placing the logos until the window fully renders
+        # Delay placing the logos until the window fully renders
         window.after(100, place_logos)
 
     except Exception as e:
@@ -363,46 +381,57 @@ def open_submenu(title, buttons):
     submenu.title(title)
     submenu.geometry("1600x800")
     submenu.resizable(False, False)
+
+    # make it a modal dialog on top of root
+    submenu.transient(root)
+    submenu.grab_set()       # route all events to this window
+    submenu.lift()           # raise above other windows
+    submenu.focus_force()    # give it keyboard focus
+
     submenu.configure(bg=root["bg"])
     submenu.attributes('-transparentcolor', submenu["bg"])
     set_background(submenu)
 
-    header = tk.Label(submenu, text=title, font=("Helvetica",36,"bold"),
+    header = tk.Label(submenu, text=title,
+                      font=("Helvetica", 36, "bold"),
                       bg="black", fg="white", pady=20)
     header.pack(fill="x")
 
     for txt, cmd in buttons.items():
         btn = tk.Button(submenu, text=txt, command=cmd,
-                        font=("Helvetica",24), bg="#444444", fg="white",
+                        font=("Helvetica", 24), bg="#444444", fg="white",
                         width=30, height=1, relief="raised")
         btn.pack(pady=20)
 
-    tk.Button(submenu, text="Back", command=submenu.destroy,
-              font=("Helvetica",18), bg="red", fg="white",
+    # Back just destroys this submenu
+    tk.Button(submenu, text="Back", command=lambda: (submenu.grab_release(), submenu.destroy()),
+              font=("Helvetica", 18), bg="red", fg="white",
               width=30, height=1, relief="raised").pack(pady=30)
-    tk.Button(submenu, text="Exit", command=exit_application,
-              font=("Helvetica",18), bg="red", fg="white",
+
+    # Exit releases grab then closes the whole app
+    tk.Button(submenu, text="Exit",
+              command=lambda: (submenu.grab_release(), exit_application()),
+              font=("Helvetica", 18), bg="red", fg="white",
               width=30, height=1, relief="raised").pack(pady=10)
 
 def exit_application():
     root.destroy()
-
 # ======================== 📌 MAIN WINDOW SETUP ========================= #
 
 root = tk.Tk()
 root.title("STE Mission Planning Toolkit")
 root.geometry("1600x800")
 root.resizable(False, False)
-
+# ─── bring root to front & focus it ────────────────────────────────────────
+root.lift()
+root.focus_force()
+root.after(100, lambda: (root.lift(), root.focus_force()))
 set_background(root)
 
 tk.Label(root, text="STE Mission Planning Toolkit",
          font=("Helvetica",36,"bold"),
          bg="black", fg="white", pady=20).pack(fill="x")
 
-tk.Button(root, text="SETUP DOCUMENTATION", command=open_setup_documentation,
-          font=("Helvetica",20,"bold"), bg="#FFD700", fg="black",
-          width=40, height=2, relief="raised").pack(pady=20)
 
 # ======================== 📌 TUTORIALS “?” BUTTON ========================= #
 
@@ -441,6 +470,7 @@ oneclick_docs = {
 tutorials_items = {
     "VBS4 Documentation":               lambda: open_submenu("VBS4 Documentation",    vbs4_docs),
     "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs),
+    "Setup Documentation":    open_setup_documentation,
     "BVI Documentation":                lambda: open_submenu("BVI Documentation",     bvi_docs),
     "Quick‑Start Guide for entire kit": lambda: open_submenu("Quick‑Start Guide",    quick_start_docs),
     "One‑Click Terrain Documentation":  lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs),
@@ -489,3 +519,5 @@ for text, cmd in main_buttons.items():
     btn.pack(pady=20)
 
 root.mainloop()
+
+
