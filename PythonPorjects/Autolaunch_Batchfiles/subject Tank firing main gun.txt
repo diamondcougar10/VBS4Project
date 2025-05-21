@@ -1,0 +1,5 @@
+subject: Tank firing main gun
+environment: dusk/ cloudy; smoky from war; artillery landing around vehicle
+
+subject: soldier by truck
+environment: bullets striking around, preferably a high volume and high visibility from an aircraft

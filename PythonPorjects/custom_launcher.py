@@ -20,21 +20,6 @@ if 'close_on_launch' not in config['General']:
     config['General']['close_on_launch'] = 'False'
 with open(CONFIG_PATH, 'w') as f:
     config.write(f)
-def create_blueig_hammerkit_batch(blueig_exe):
-    """Writes a .bat that launches BlueIG with your HammerKit flags."""
-    hammerkit_bat = os.path.join(BATCH_FOLDER, "BlueIG_HammerKit.bat")
-    with open(hammerkit_bat, "w") as f:
-        f.write("@echo off\n")
-        # note the quotes around the path
-        f.write(
-            f'start "" "{blueig_exe}" '
-            "-hmd=openxr_ctr:oculus "
-            "-vbsHostExerciseID=Exercise-HAMMERKIT1-1 "
-            "-splitCPU "
-            "-DJobThreads=8 "
-            "-DJobPool=8\n"
-        )
-    return hammerkit_bat
 
     # ─── Loading Text Indacator ─────────────────────────────────────────────────────────
 def wrap_with_loading(cmd):
@@ -331,8 +316,63 @@ bvi_setup_doc_path    = os.path.join(BASE_DIR, "Help_Tutorials", "Bvi_Vbs4_Setup
 demo_video_path       = os.path.join(BASE_DIR, "Help_Tutorials", "BattleSpaceSetup.mkv")
 
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
-if not os.path.exists(BATCH_FOLDER):
-    os.makedirs(BATCH_FOLDER)
+os.makedirs(BATCH_FOLDER, exist_ok=True)
+VBS4_BAT   = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
+BLUEIG_BAT = os.path.join(BATCH_FOLDER, "Blueig.bat")
+
+def _prompt_for_exe(title):
+    root = tk.Tk()
+    root.withdraw()
+    path = filedialog.askopenfilename(
+        title=title,
+        filetypes=[("Executable", "*.exe")]
+    )
+    root.destroy()
+    return path
+
+def _ensure_executable(config_key, defaults, prompt_title):
+    # Try config override + defaults
+    user_path = config['General'].get(config_key, '').strip()
+    candidates = [user_path] + defaults
+    found = next((p for p in candidates if p and os.path.exists(p)), None)
+    if not found:
+        # prompt user to locate the exe
+        found = _prompt_for_exe(prompt_title)
+        if not found or not os.path.exists(found):
+            raise FileNotFoundError(f"No executable selected for {config_key}, aborting.")
+        # persist to config
+        config['General'][config_key] = found
+        with open(CONFIG_PATH, 'w') as cfgfile:
+            config.write(cfgfile)
+    return found
+def ensure_batch_files():
+    # VBS4 launcher
+    vbs4_defaults = [
+        r"C:\BISIM\VBS4\VBS4.exe",
+        r"C:\Builds\VBS4\VBS4.exe",
+    ]
+    vbs4_exe = _ensure_executable('vbs4_path', vbs4_defaults, "Select VBS4 executable")
+    vbs4_script = f"""@echo off
+"{vbs4_exe}" -admin "-autoassign=admin" -forceSimul -window
+exit /b 0
+"""
+    with open(VBS4_BAT, "w", newline="\r\n") as f:
+        f.write(vbs4_script)
+
+    # BlueIG launcher
+    blueig_defaults = [
+        r"C:\Builds\BlueIG\BlueIG.exe",
+    ]
+    blueig_exe = _ensure_executable('blueig_path', blueig_defaults, "Select BlueIG executable")
+    blueig_script = f"""@echo off
+"{blueig_exe}" -hmd=openxr_ctr:oculus -vbsHostExerciseID=Exercise-HAMMERKIT1-1 -splitCPU -DJobThreads=8 -DJobPool=8
+exit /b 0
+"""
+    with open(BLUEIG_BAT, "w", newline="\r\n") as f:
+        f.write(blueig_script)
+
+# call it once at startup
+ensure_batch_files()
 
 # ======================== 📌 HELP & DEMO FUNCTIONS ========================= #
 
@@ -402,17 +442,6 @@ if not vbs4_exe_path or not ares_manager_path:
     sys.exit()
 
 # ======================== 📌 BATCH FILE GENERATORS ========================= #
-
-def create_batch_files(vbs4_path):
-    host = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
-    user = os.path.join(BATCH_FOLDER, "Blueig.bat")
-    with open(host, "w") as f:
-        f.write(f'@echo off\n"{vbs4_path}" -admin "-autoassign=admin" -forceSimul -window\nexit')
-    with open(user, "w") as f:
-        f.write(f'@echo off\n"{vbs4_path}" -forceSimul -window\nexit')
-    return host, user
-
-batch_files = create_batch_files(vbs4_exe_path)
 
 def create_drone_scenario_batch(vbs4_path):
     fpath = os.path.join(BATCH_FOLDER, "DroneScenario.bat")
@@ -659,11 +688,10 @@ tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_it
 
 main_buttons = {
     "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
-        "Launch VBS4 as HammerKit": lambda: launch_application(batch_files[0], "VBS4 (Host)"),
-        "Launch BlueIG HammerKit": lambda: launch_application(
-    os.path.join(BATCH_FOLDER, "BlueIg.bat"),
-    "BlueIG HammerKit"
-),
+           "Launch VBS4 as Host": wrap_with_loading(lambda:
+         launch_application(os.path.join(BATCH_FOLDER, "VBS4_Launch.bat"), "VBS4 (Host)")),
+      "Launch BlueIG HammerKit": wrap_with_loading(lambda:
+         launch_application(os.path.join(BATCH_FOLDER, "BlueIG_Launch.bat"), "BlueIG HammerKit")),
         "One-Click Terrain":     lambda: open_submenu("One-Click Terrain", {
                                       "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
                                       "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),

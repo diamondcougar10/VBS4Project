@@ -1,3 +1,3 @@
 @echo off
-"C:\BISIM\VBS4\VBS4.exe" -admin "-autoassign=admin" -forceSimul -window
-exit
+"C:/BISIM/VBS4/VBS4.exe" -admin "-autoassign=admin" -forceSimul -window
+exit /b 0
