@@ -7,6 +7,8 @@ from PIL import Image, ImageTk
 import winreg
 import configparser
 from tkinter import messagebox
+import webbrowser
+
 
 # ─── Configuration ─────────────────────────────────────────────────────────
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.ini')
@@ -141,6 +143,163 @@ def set_vbs4_install_path():
         messagebox.showinfo("Settings", f"VBS4 path set to:\n{path}")
     else:
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
+
+def open_vbs4_official_docs():
+    webbrowser.open(
+        "file:///C:/BISIM/VBS4/docs/HTML_EN/Content/Core/VBS4_Manuals_Home.htm",
+        new=2  # open in a new tab (if the browser supports it)
+    )
+
+def open_script_wiki():
+    webbrowser.open(
+        "file:///C:/BISIM/VBS4/docs/Wiki/SQF_Resources/VBS_Scripting_Reference.html",
+        new=2
+    )
+
+def open_vbs4_pdf_docs():
+    pdf_dir = os.path.join(BASE_DIR, "PDF_EN")
+    try:
+        pdf_files = sorted(f for f in os.listdir(pdf_dir) if f.lower().endswith(".pdf"))
+    except FileNotFoundError:
+        messagebox.showerror("Error", f"PDF folder not found:\n{pdf_dir}")
+        return
+
+    # Create the window
+    sub = tk.Toplevel(root)
+    sub.title("VBS4 PDF Documentation")
+    sub.geometry("1600x800")
+    sub.resizable(True, True)
+    sub.transient(root)
+    sub.grab_set()
+    sub.lift()
+    sub.focus_force()
+    set_background(sub)
+
+    # Header
+    header = tk.Label(sub, text="VBS4 PDF Documentation",
+                      font=("Helvetica", 28, "bold"),
+                      bg="black", fg="white", pady=10)
+    header.pack(fill="x")
+
+    # Frame to hold the buttons in a grid
+    btn_frame = tk.Frame(sub, bg=sub["bg"])
+    btn_frame.pack(expand=True, fill="both", padx=20, pady=20)
+
+    ncols = 3  # number of columns you want
+    for idx, fname in enumerate(pdf_files):
+        display = os.path.splitext(fname)[0].replace("_", " ")
+        full_path = os.path.join(pdf_dir, fname)
+
+        def make_cmd(p=full_path):
+            return lambda: subprocess.Popen([p], shell=True)
+
+        btn = tk.Button(btn_frame, text=display,
+                        command=make_cmd(),
+                        font=("Helvetica", 14),
+                        width=25, height=2,
+                        wraplength=200, justify="center")
+        row = idx // ncols
+        col = idx % ncols
+        btn.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+
+    # Make all columns expand equally
+    for c in range(ncols):
+        btn_frame.grid_columnconfigure(c, weight=1)
+
+    # Back / Exit
+    ctrl_frame = tk.Frame(sub, bg=sub["bg"])
+    ctrl_frame.pack(fill="x", pady=(0,20))
+    tk.Button(ctrl_frame, text="Back",
+              command=lambda: (sub.grab_release(), sub.destroy()),
+              font=("Helvetica", 16), bg="red", fg="white",
+              width=15, height=1).pack(side="left", padx=20)
+    tk.Button(ctrl_frame, text="Exit",
+              command=lambda: (sub.grab_release(), exit_application()),
+              font=("Helvetica", 16), bg="red", fg="white",
+              width=15, height=1).pack(side="right", padx=20)
+
+def open_bvi_pdf_docs():
+    """
+    Scans the BVI_Documentation folder and opens
+    a grid‐style submenu with one button per PDF.
+    """
+    pdf_dir = os.path.join(BASE_DIR, "BVI_Documentation")
+    try:
+        pdf_files = sorted(f for f in os.listdir(pdf_dir) if f.lower().endswith(".pdf"))
+    except FileNotFoundError:
+        messagebox.showerror("Error", f"BVI PDF folder not found:\n{pdf_dir}")
+        return
+
+    sub = tk.Toplevel(root)
+    sub.title("BVI PDF Documentation")
+    sub.geometry("1600x800")
+    sub.resizable(True, True)
+    sub.transient(root)
+    sub.grab_set()
+    sub.lift()
+    sub.focus_force()
+    set_background(sub)
+
+    header = tk.Label(
+        sub,
+        text="BVI PDF Documentation",
+        font=("Helvetica", 28, "bold"),
+        bg="black",
+        fg="white",
+        pady=10
+    )
+    header.pack(fill="x")
+
+    btn_frame = tk.Frame(sub, bg=sub["bg"])
+    btn_frame.pack(expand=True, fill="both", padx=20, pady=20)
+
+    ncols = 3
+    for idx, fname in enumerate(pdf_files):
+        display = os.path.splitext(fname)[0].replace("_", " ")
+        full_path = os.path.join(pdf_dir, fname)
+
+        def make_cmd(p=full_path):
+            return lambda: subprocess.Popen([p], shell=True)
+
+        btn = tk.Button(
+            btn_frame,
+            text=display,
+            command=make_cmd(),
+            font=("Helvetica", 14),
+            width=25,
+            height=2,
+            wraplength=200,
+            justify="center"
+        )
+        row = idx // ncols
+        col = idx % ncols
+        btn.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+
+    for c in range(ncols):
+        btn_frame.grid_columnconfigure(c, weight=1)
+
+    ctrl_frame = tk.Frame(sub, bg=sub["bg"])
+    ctrl_frame.pack(fill="x", pady=(0,20))
+    tk.Button(
+        ctrl_frame,
+        text="Back",
+        command=lambda: (sub.grab_release(), sub.destroy()),
+        font=("Helvetica", 16),
+        bg="red",
+        fg="white",
+        width=15,
+        height=1
+    ).pack(side="left", padx=20)
+    tk.Button(
+        ctrl_frame,
+        text="Exit",
+        command=lambda: (sub.grab_release(), exit_application()),
+        font=("Helvetica", 16),
+        bg="red",
+        fg="white",
+        width=15,
+        height=1
+    ).pack(side="right", padx=20)
 
 # ======================== 📌 Path & File Locations ========================= #
 
@@ -436,51 +595,48 @@ tk.Label(root, text="STE Mission Planning Toolkit",
 # ======================== 📌 TUTORIALS “?” BUTTON ========================= #
 
 vbs4_docs = {
-    "VBS4 Official Documentation":         lambda: messagebox.showinfo("VBS4 Doc","Open VBS4 docs in browser"),
-    "Script Wiki":                          lambda: messagebox.showinfo("Script Wiki","Open script wiki in browser"),
-    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play VBS4 tutorial videos"),
-    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open VBS4 support site"),
+    "VBS4 Official Documentation":          open_vbs4_pdf_docs,
+    "Script Wiki":                          open_script_wiki,
+    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play VBS4 tutorial videos"), #no videos yet
+    "Support Website (requires Internet)":  open_vbs4_official_docs,
 }
 
 blueig_docs = {
-    "Blue IG Official Documentation":      lambda: messagebox.showinfo("BlueIG Doc","Open BlueIG docs in browser"),
-    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BlueIG tutorial videos"),
-    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open BlueIG support site"),
+    "Blue IG Official Documentation":      lambda: messagebox.showinfo("BlueIG Doc","Open BlueIG docs in browser"), #not installed yet
+    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BlueIG tutorial videos"), #not installed yet
+    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open BlueIG support site"), #not installed yet
 }
 
 bvi_docs = {
-    "BVI Official Documentation":          lambda: messagebox.showinfo("BVI Doc","Open BVI docs in browser"),
-    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BVI tutorial videos"),
-    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open BVI support site"),
+    "BVI Official Documentation":           open_bvi_pdf_docs,
+    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BVI tutorial videos"), #not yet done
 }
 
 quick_start_docs = {
-    "Video Tutorials": lambda: messagebox.showinfo("Quick‑Start","Play quick‑start videos"),
+    "Video Tutorials": lambda: messagebox.showinfo("Quick‑Start","Play quick‑start videos"), #not yet done
 }
 
 oneclick_docs = {
-    "How to collect terrain scans w/ Drone":  lambda: messagebox.showinfo("One‑Click","Show drone collection guide"),
-    "How to import terrain scans from drone": lambda: messagebox.showinfo("One‑Click","Show drone import guide"),
-    "How to: Simulated Terrain":              lambda: open_submenu("Simulated Terrain Docs", {
-        "Create Mesh Documentation": lambda: messagebox.showinfo("Mesh Doc","Show mesh creation guide"),
-        "One‑Click Documentation":  lambda: messagebox.showinfo("One‑Click","Show one‑click terrain guide"),
+    "How to collect terrain scans w/ Drone":  lambda: messagebox.showinfo("One‑Click","Show drone collection guide"), #none are active
+    "How to import terrain scans from drone": lambda: messagebox.showinfo("One‑Click","Show drone import guide"),#none are active
+    "How to: Simulated Terrain":              lambda: open_submenu("Simulated Terrain Docs", {#none are active
+        "Create Mesh Documentation": lambda: messagebox.showinfo("Mesh Doc","Show mesh creation guide"),#none are active
+        "One‑Click Documentation":  lambda: messagebox.showinfo("One‑Click","Show one‑click terrain guide"),#none are active
     }),
 }
 
 tutorials_items = {
-    "VBS4 Documentation":               lambda: open_submenu("VBS4 Documentation",    vbs4_docs),
-    "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs),
+    "VBS4 Documentation":               open_vbs4_pdf_docs,
+    "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs), #not yet done
     "Setup Documentation":    open_setup_documentation,
-    "BVI Documentation":                lambda: open_submenu("BVI Documentation",     bvi_docs),
-    "Quick‑Start Guide for entire kit": lambda: open_submenu("Quick‑Start Guide",    quick_start_docs),
-    "One‑Click Terrain Documentation":  lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs),
+    "BVI Documentation":                open_bvi_pdf_docs,
+    "Quick‑Start Guide for entire kit":  open_setup_documentation, #will be changed 
+    "One‑Click Terrain Documentation":  lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs), #do not have
 }
 
 tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_items),
           font=("Helvetica",24), bg="#FFD700", fg="black",
           width=2, height=1, relief="raised").place(x=1550, y=110)
-
-
 
 # ======================== 📌 MAIN MENU BUTTONS ========================= #
 
