@@ -20,6 +20,22 @@ if 'close_on_launch' not in config['General']:
     config['General']['close_on_launch'] = 'False'
 with open(CONFIG_PATH, 'w') as f:
     config.write(f)
+def create_blueig_hammerkit_batch(blueig_exe):
+    """Writes a .bat that launches BlueIG with your HammerKit flags."""
+    hammerkit_bat = os.path.join(BATCH_FOLDER, "BlueIG_HammerKit.bat")
+    with open(hammerkit_bat, "w") as f:
+        f.write("@echo off\n")
+        # note the quotes around the path
+        f.write(
+            f'start "" "{blueig_exe}" '
+            "-hmd=openxr_ctr:oculus "
+            "-vbsHostExerciseID=Exercise-HAMMERKIT1-1 "
+            "-splitCPU "
+            "-DJobThreads=8 "
+            "-DJobPool=8\n"
+        )
+    return hammerkit_bat
+
     # ─── Loading Text Indacator ─────────────────────────────────────────────────────────
 def wrap_with_loading(cmd):
     def _wrapped():
@@ -102,6 +118,7 @@ def set_blueig_install_path():
         messagebox.showinfo("Settings", f"BlueIG path set to:\n{path}")
     else:
         messagebox.showerror("Settings", "Invalid BlueIG path selected.")
+
 
 # ─── Default Browser Helpers ────────────────────────────────────────────────
 def get_default_browser() -> str:
@@ -387,8 +404,8 @@ if not vbs4_exe_path or not ares_manager_path:
 # ======================== 📌 BATCH FILE GENERATORS ========================= #
 
 def create_batch_files(vbs4_path):
-    host = os.path.join(BATCH_FOLDER, "Host_Launch.bat")
-    user = os.path.join(BATCH_FOLDER, "User_Launch.bat")
+    host = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
+    user = os.path.join(BATCH_FOLDER, "Blueig.bat")
     with open(host, "w") as f:
         f.write(f'@echo off\n"{vbs4_path}" -admin "-autoassign=admin" -forceSimul -window\nexit')
     with open(user, "w") as f:
@@ -643,7 +660,10 @@ tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_it
 main_buttons = {
     "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
         "Launch VBS4 as HammerKit": lambda: launch_application(batch_files[0], "VBS4 (Host)"),
-        "Launch BlueIg": lambda: launch_application(batch_files[1], " HammerKIt User"),
+        "Launch BlueIG HammerKit": lambda: launch_application(
+    os.path.join(BATCH_FOLDER, "BlueIg.bat"),
+    "BlueIG HammerKit"
+),
         "One-Click Terrain":     lambda: open_submenu("One-Click Terrain", {
                                       "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
                                       "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),
