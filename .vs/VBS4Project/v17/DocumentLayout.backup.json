@@ -5,6 +5,10 @@
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\custom_launcher.py||{8B382828-6202-11D1-8870-0000F87579D2}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\custom_launcher.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\config.ini||{3B902123-F8A7-4915-9F01-361F908088D0}"
     }
   ],
   "DocumentGroupContainers": [
@@ -14,11 +18,24 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Bookmark",
               "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "config.ini",
+              "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini",
+              "RelativeDocumentMoniker": "PythonPorjects\\config.ini",
+              "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini",
+              "RelativeToolTip": "PythonPorjects\\config.ini",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002768|",
+              "WhenOpened": "2025-05-23T18:05:52.943Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -28,7 +45,7 @@
               "RelativeDocumentMoniker": "PythonPorjects\\custom_launcher.py",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\custom_launcher.py",
               "RelativeToolTip": "PythonPorjects\\custom_launcher.py",
-              "ViewState": "AgIAAGIBAAAAAAAAAAAMwHoBAAAZAAAAAAAAAA==",
+              "ViewState": "AgIAAOQCAAAAAAAAAAAMwAEDAAAbAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-05-21T02:02:53.492Z",
               "EditorCaption": ""
