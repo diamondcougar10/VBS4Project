@@ -8,6 +8,7 @@ import winreg
 import configparser
 from tkinter import messagebox
 import webbrowser
+import urllib.request
 
 
 # ─── Configuration ─────────────────────────────────────────────────────────
@@ -548,6 +549,28 @@ def launch_application(app_path, app_name):
 def launch_bvi():
     launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
 
+    # ======================== FUNCTION For BVI ========================= #
+def open_bvi_terrain():
+    """Try to hit the local terrain server; if it’s up, open in browser,
+    otherwise tell the user BVI must be running."""
+    url = "http://localhost:9080/terrain"
+    try:
+        # quick check to see if anything is listening
+        urllib.request.urlopen(url, timeout=1)
+        webbrowser.open(url, new=2)
+    except Exception:
+        messagebox.showinfo("BVI", "Note: BVI must be running")
+
+def open_bvi_quickstart():
+    path = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\BVI_Documentation\BVI_TECHNICAL_DOC.pdf"
+    if os.path.exists(path):
+        try:
+            subprocess.Popen([path], shell=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
+    else:
+        messagebox.showerror("Error", f"Quick-Start Guide not found:\n{path}")
+
 # ======================== FUNCTION TO SET BACKGROUND IMAGE ========================= #
 def set_background(window):
     """Applies background image and adds four logos:
@@ -740,7 +763,7 @@ tutorials_items = {
     "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs), #not yet done
     "Setup Documentation":    open_setup_documentation,
     "BVI Documentation":                open_bvi_pdf_docs,
-    "Quick‑Start Guide for entire kit":  open_setup_documentation, #will be changed 
+    "BVI Quick‑Start Guide for entire kit":  open_bvi_quickstart,
     "One‑Click Terrain Documentation":  lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs), #do not have
 }
 
@@ -767,7 +790,7 @@ main_buttons = {
     }),
     "BVI":           lambda: open_submenu("BVI", {
                           "Launch BVI": launch_bvi,
-                          "Terrains":   lambda: messagebox.showinfo("BVI","List terrains from web app"),
+                          "Terrains":    open_bvi_terrain,
                       }),
     "Settings":      lambda: open_submenu("Settings", {
                           "Launch on Startup":          toggle_startup,
