@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Triggers (Editor Object) - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1508992"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Scripting_References.html">Scripting References</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1508992"> <span>Triggers (Editor Object)</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+    <div  class="confbox admonition admonition-info">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+>This is legacy VBS content. For the latest information on using triggers, see Triggers in the VBS Editor Manual.</p>
+        </div>
+    </div>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Trigger_Window-version-2-modificationdate-1505466965924-api-v2.jpg" alt="images/download/attachments/1507348/Trigger_Window-version-2-modificationdate-1505466965924-api-v2.jpg"   />
+    <p   
+>Trigger Window</p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1JbnRyb2R1Y3Rpb24">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1Qcm9wZXJ0aWVz">Properties</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1BY3RpdmF0aW9u">Activation</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1TZWl6ZWRieS4uLg">Seized by...</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1UeXBl">Type</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1Db3VudGRvd24">Countdown</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1UaW1lb3V0">Timeout</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1Db25kaXRpb24">Condition</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1PbkFjdGl2YXRpb24vRGVhY3RpdmF0aW9u">On Activation/Deactivation</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1FZmZlY3Rz">Effects</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1TY3JpcHRpbmc">Scripting</a></p>
+</li></ul>    <div class="section section-1" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1JbnRyb2R1Y3Rpb24">
+        <h1 class="heading "><span>Introduction</span></h1>
+<p   
+><br/><br/>Triggers are an essential function for mission designers. A trigger (sometimes called a sensor) allows a mission designer to control events within a mission. Some common uses for triggers are controlling the timing of squad moves, camera control in cutscene, or even play the appropriate music when the time is right.</p>
+    </div>
+    <div class="section section-1" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1Qcm9wZXJ0aWVz">
+        <h1 class="heading "><span>Properties</span></h1>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1BY3RpdmF0aW9u">
+        <h2 class="heading "><span>Activation</span></h2>
+<p   
+>There are several combinations that can be created to activate the trigger. The trigger can be used to check if <a   href="east.html">east</a> or <a   href="west.html">west</a> is <i class=" ">present</i>, <i class=" ">not present</i>, or even <i class=" ">detected by</i> other sides within the trigger. A trigger can also be used to set up <i class=" ">radio</i> commands. (Be aware though, that a unit that has been <a   href="setCaptive.html">setCaptive</a> will not trigger any <i class=" ">detected</i> events.)</p>
+<p   
+>A trigger can be linked to one particular unit or group by going into Group Mode (F2), and dragging a line from the trigger to the desired unit. After this the Activation field will be set to &quot;Vehicle&quot;. It can then be changed to either &quot;Whole group&quot;, &quot;Group leader&quot; or &quot;Any group member&quot;.</p>
+<p   
+>If an activation is set to &quot;repeatedly&quot; the trigger first has to be &#39;deactivated&#39; before it can fire again (e.g. if a unit activated the trigger by entering it, it will first have to leave it, before the trigger can become active again.)</p>
+    <div class="section section-3" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1TZWl6ZWRieS4uLg">
+        <h3 class="heading "><span>Seized by...</span></h3>
+<p   
+>Designed to allow easy detection of domination of one side in given area. &quot;Seized by...&quot; should be used only with &quot;Time out&quot; option selected. The level of dominance needed for activation of this trigger type is depending on Min, Mid and Max time given in &quot;Time Out&quot; section: if the dominance is really overhelming, min. time is enough for this trigger to get activated. If the dominance is less severe, the trigger will be activated after timed out to max. value. Note that this trigger estimates side strengths in the area based on their normalized firepower per time.</p>
+<p   
+>Example of typical usage to detect if the area of a trigger is seized by BLUFOR:</p>
+<p   
+>Create a trigger configured as:</p>
+<ul class=" "><li class=" "><p   
+>Activation Seized by BLUFOR</p>
+</li><li class=" "><p   
+>Present</p>
+</li><li class=" "><p   
+>TimeOut 15-30-60</p>
+</li></ul><p   
+>If Detected by BLUFOR is set, it limits the OPFOR units used for estimating balance of power in the trigger area only to those currently known to BLUFOR and the designer must ensure that entire trigger area is well known to BLUFOR before considering the area secured (or create multiple triggers that need to be active at the same time).</p>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1UeXBl">
+        <h2 class="heading "><span>Type</span></h2>
+<p   
+>What does the trigger do when activated</p>
+<ul class=" "><li class=" "><p   
+>None</p>
+</li><li class=" "><p   
+>Guarded by OPFOR - Any OpFor squad with a Guard waypoint type will move to this trigger&#39;s location and await for ANY enemy contact on the ENTIRE island, then move there to engage the spotted enemy. Reference wiki for Guard waypoint type for more information on using this.</p>
+</li><li class=" "><p   
+>Guarded by BLUFOR - same as above, but for BlueFor.</p>
+</li><li class=" "><p   
+>Guarded by Independents - same as above, but for Independents.</p>
+</li><li class=" "><p   
+>Switch - switch a group to next waypoint series. The trigger should be synchronized with a cycle waypoint. You can use this to give a squad several series of waypoints which you can switch them between.</p>
+</li><li class=" "><p   
+>End #1 - terminate the mission</p>
+</li><li class=" "><p   
+>End #2</p>
+</li><li class=" "><p   
+>End #3</p>
+</li><li class=" "><p   
+>End #4</p>
+</li><li class=" "><p   
+>End #5</p>
+</li><li class=" "><p   
+>End #6</p>
+</li><li class=" "><p   
+>Lose</p>
+</li></ul>    </div>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1Db3VudGRvd24">
+        <h2 class="heading "><span>Countdown</span></h2>
+<p   
+>Defines (in seconds) how long to wait until <strong class=" ">On Activation</strong> is fired after <strong class=" ">Condition</strong> was true. Min, Max and Mid allow you to add some randomization to the time.</p>
+    </div>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1UaW1lb3V0">
+        <h2 class="heading "><span>Timeout</span></h2>
+<p   
+>Defines (in seconds) random range from Min. to Max. for how long the trigger <strong class=" ">condition</strong> field expression must be active in order to make the trigger activated.</p>
+    </div>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1Db25kaXRpb24">
+        <h2 class="heading "><span>Condition</span></h2>
+<p   
+>In addition to the &#39;Activation&#39; options above, this field allows you to specify other conditions that have to be fulfilled before the Trigger activates. By default only the <a   href="Boolean.html">Boolean</a> variable <strong class=" ">this</strong> is present in this field. It is set to the result of the main &#39;Activation&#39; condition (e.g. &#39;east&#39;/&#39;present&#39;). The expression in this field must return a <a   href="Boolean.html">Boolean</a> value (e.g. &quot;this &amp;&amp; alive player&quot;). Trigger conditions are tested every 0.5 seconds.</p>
+    </div>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1PbkFjdGl2YXRpb24vRGVhY3RpdmF0aW9u">
+        <h2 class="heading "><span>On Activation/Deactivation</span></h2>
+<p   
+>Defines action that is performed when trigger condition changes to <a   href="true.html">true</a> or <a   href="false.html">false</a>. Expression must either be an assignment or return <a   href="Nothing.html">Nothing</a>. Variable denoting trigger can be created by filling in <a   href="name.html">name</a> field. Array variable <strong class=" ">thisList</strong> will contain a list of all vehicles that met the trigger condition (e.g. hint format [&quot;%1 units in area&quot;,count thisList]).</p>
+    </div>
+    <div class="section section-2" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1FZmZlY3Rz">
+        <h2 class="heading "><span>Effects</span></h2>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Trigger_Effects_Window-version-1-modificationdate-1505466965793-api-v2.jpg" alt="images/download/attachments/1507348/Trigger_Effects_Window-version-1-modificationdate-1505466965793-api-v2.jpg"   />
+    <p   
+>Trigger Effects Window</p>
+<p   
+>Allows the mission designer to add music, environmental sounds, or to display title messages. Many use the effects to create quick and easy cutscenes.</p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508992_safe-id-VHJpZ2dlcnMoRWRpdG9yT2JqZWN0KS1TY3JpcHRpbmc">
+        <h1 class="heading "><span> Scripting </span></h1>
+<p   
+>Any of a trigger&#39;s properties which can be set in its definition window can also be set or modified via a script.<br/>A list of relevant scripting commands is available in <a   href="Activators_-_Triggers.html">Activators - Triggers</a>.</p>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Text_Editors.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Text Editors</span>
+        </a>
+                <a href="VBS1_Functions.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS1 Functions</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

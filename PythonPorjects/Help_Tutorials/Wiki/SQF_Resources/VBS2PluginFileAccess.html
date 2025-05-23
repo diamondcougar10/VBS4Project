@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>VBS2PluginFileAccess - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1509022"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Scripting_References.html">Scripting References</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1509022"> <span>VBS2PluginFileAccess</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Introduction">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-General">General</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Functions">Functions</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Append">Append</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-AppendLine">AppendLine</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-CloseFile">CloseFile</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-CreateDir">CreateDir</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Delete">Delete</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Exists">Exists</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Lookup">Lookup</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-ReadFile">ReadFile</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-RemoveDir">RemoveDir</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509022_VBS2PluginFileAccess-Write">Write</a></p>
+</li></ul></li></ul>    <div class="section section-1" id="src-1509022_VBS2PluginFileAccess-Introduction">
+        <h1 class="heading "><span>Introduction</span></h1>
+<p   
+>Allows direct access to OS-level files, to be created, read, written, etc.</p>
+<p   
+>The plugin has to be called via the pluginFunction command, with one of the available functions as an argument. e.g.</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;Exists(one.txt)&quot;]</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1509022_VBS2PluginFileAccess-General">
+        <h1 class="heading "><span>General</span></h1>
+<p   
+><strong class=" ">filename</strong>/<strong class=" ">foldername</strong>: Default directory is the application folder VBS2 was installed into. If there are multiple installations (others, which were only copied into their destination folder), the plugin will still use the folder that was written to the registry during the installation (and which is returned by &quot;<a   href="getDirectory.html">getDirectory</a> 2&quot;).</p>
+<p   
+>Subfolders or absolute paths can be specified (e.g. &quot;config\vbsEntity.config&quot; or &quot;c:\logs\data.txt&quot;).<br/>Specified folders must exist, or the file cannot be created. (Use <a   href="getDirectory.html">getDirectory</a> to retrieve VBS-specific paths, or <a   href="ListFiles.html">ListFiles</a> to check which files are available in a folder.)</p>
+<p   
+>Any return value is sent as a single-element array (e.g. [true]).</p>
+<p   
+>In general, the VBS2PluginFileAccess function should not be used to read or write to a mission folder. The <a   href="getDirectory.html">getDirectory</a> command will return only temporary folder names (which are different, depending on whether the mission was started from the editor, or as a compiled training scenario), and it is also impossible to execute FileAccess commands on a compiled mission folder (use <a   href="loadFile.html">loadFile</a> to read content of mission files instead).</p>
+<p   
+>Example mission available here: <a   href="attachments/1513634_3_VBSPluginFileAccess.zip">VBSPluginFileAccess.zip</a></p>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1509022_VBS2PluginFileAccess-Functions">
+        <h1 class="heading "><span>Functions</span></h1>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-Append">
+        <h2 class="heading "><span>Append</span></h2>
+<p   
+><strong class=" ">Append(fileName)@data</strong>Adds (data) to the last line in file (no carriage return).</p>
+<p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;Append(one.txt)@100&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-AppendLine">
+        <h2 class="heading "><span>AppendLine</span></h2>
+<p   
+><strong class=" ">AppendLine(fileName)@data</strong>Adds (data) to the last line in file, followed by a carriage return.</p>
+<p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;AppendLine(one.txt)@LineOne&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-CloseFile">
+        <h2 class="heading "><span>CloseFile</span></h2>
+<p   
+><strong class=" ">CloseFile(fileName)</strong> (<i class=" ">V1.34+</i>)Closes file opened for reading via ReadFile. Causes the file pointer to be reset to the beginning of the file.Closing a file that is already closed will cause an error to be returned.</p>
+<p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;CloseFile(one.txt)&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-CreateDir">
+        <h2 class="heading "><span>CreateDir</span></h2>
+<p   
+><strong class=" ">CreateDir(folderName)</strong> (<i class=" ">V1.40+</i>)Creates a folder.</p>
+<p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;CreateDir(tmp)&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-Delete">
+        <h2 class="heading "><span>Delete</span></h2>
+<p   
+><strong class=" ">Delete(fileName)</strong>Deletes file.</p>
+<p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;Delete(one.txt)&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-Exists">
+        <h2 class="heading "><span>Exists</span></h2>
+<p   
+><strong class=" ">Exists(fileName)</strong>Checks if the specified file exists.</p>
+<p   
+><i class=" ">Returns</i>: Boolean (true if the file exists).<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;Exists(one.txt)&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-Lookup">
+        <h2 class="heading "><span>Lookup</span></h2>
+<p   
+><strong class=" ">Lookup(fileName,lookupString)</strong>Browses file, finds the first line that contains (lookupString), and reads 7 (space separated) numbers that follow the string.</p>
+<p   
+><i class=" ">Returns</i>: String, containing the 7 read numbers, delimited with commas.</p>
+<ul class=" "><li class=" "><p   
+>If (fileName) or (lookupString) is not found, an empty array is returned.</p>
+</li><li class=" "><p   
+>Returns 0 for number entries that aren&#39;t filled.</p>
+</li><li class=" "><p   
+>Will <i class=" ">only</i> read numbers, <i class=" ">not</i> strings.</p>
+</li></ul><p   
+>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;Lookup(one.txt,LineOne)&quot;]</pre><p   
+>If file contained &quot;LineOne 1 22 333&quot;, _status would be &quot;1,22,333,0,0,0,0&quot;</p>
+    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-ReadFile">
+        <h2 class="heading "><span>ReadFile</span></h2>
+<p   
+><strong class=" ">ReadFile(fileName)</strong> (<i class=" ">V1.34+</i>)Reads the current line from the specified file. After each read, the file pointer will be moved to the next line. So, in order to read a whole file, the command has to be executed repeatedly, until an empty array is returned (EOF).The ReadFile command is able to read lines that have <strong class=" ">single quotes</strong> in them (&#39;), but lines with <strong class=" ">double quotes</strong> (&quot;) will generate an error.<i class=" ">In older versions of VBS (1.x, 2.x) reading files is very slow, and should only be used for smaller files or in very controlled situations (e.g. about 10 seconds to read 100 lines).<br/></i></p>
+<p   
+><i class=" ">Returns</i>: The line read. Or nothing at the end of file (EOF). Or an error message.<br/>Example (reads the whole contents of file &#39;one.txt&#39; and then closes the file):</p>
+<pre class=" ">waitUntil {<br/>  _line = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;ReadFile(one.txt)&quot;];<br/>  (count _line==0)<br/>};<br/>pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;CloseFile(one.txt)&quot;];</pre><p   
+><i class=" ">Note:</i> The file should be closed using <strong class=" ">CloseFile</strong> once you are done reading it.</p>
+    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-RemoveDir">
+        <h2 class="heading "><span>RemoveDir</span></h2>
+<p   
+><strong class=" ">RemoveDir(folderName)</strong> (<i class=" ">V1.40+</i>)Removes a folder. Only empty folders can be removed.</p>
+<p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;RemoveDir(c:\bi\tmp)&quot;]</pre>    </div>
+    <div class="section section-2" id="src-1509022_VBS2PluginFileAccess-Write">
+        <h2 class="heading "><span>Write</span></h2>
+<p   
+><strong class=" ">Write(fileName)@data</strong>Creates (or opens) file for writing.</p>
+<ul class=" "><li class=" "><p   
+>If the file already exists, existing content will be overwritten.</p>
+</li></ul><p   
+><i class=" ">Returns</i>: Nothing if successful. Otherwise an error message.<br/>Example:</p>
+<pre class=" ">_status = pluginFunction [&quot;VBSPluginFileAccess&quot;,&quot;Write(one.txt)@header&quot;]</pre><p   
+><i class=" ">Note:</i> If first entry should have a line carriage, write an empty string, and then add the data via AppendLine</p>
+    </div>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="VBS1_Functions.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS1 Functions</span>
+        </a>
+                <a href="VBS_Actions.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS Actions</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

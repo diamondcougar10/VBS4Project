@@ -1,0 +1,3343 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>VBS Actions - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1509021"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Scripting_References.html">Scripting References</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1509021"> <span>VBS Actions</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Introduction">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-GeneralSyntax">General Syntax</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Actions">Actions</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Animations">Animations</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1IYW5kR3VuT24vSGFuZEd1bk9mZg">HandGunOn / HandGunOff</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1MYWRkZXJEb3duL0xhZGRlclVw">LadderDown / LadderUp</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1MYWRkZXJPbkRvd24vTGFkZGVyT25VcA">LadderOnDown / LadderOnUp</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1OVkdvZ2dsZXMvTlZHb2dnbGVzT2Zm">NVGoggles / NVGogglesOff</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-PutWeaponOnBack">PutWeaponOnBack</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Salute">Salute</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-SitDown">SitDown</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-StrokeGun">StrokeGun</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1XZWFwb25JbkhhbmQvV2VhcG9uT25CYWNr">WeaponInHand / WeaponOnBack</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Flags">Flags</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-CancelTakeFlag">CancelTakeFlag</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-ReturnFlag">ReturnFlag</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-TakeFlag">TakeFlag</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Interactions">Interactions</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Explosives">Explosives</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Deactivate">Deactivate</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-DeactivateMine">DeactivateMine</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1TZXRUaW1lci9TdGFydFRpbWVy">SetTimer/StartTimer</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-TakeMine">TakeMine</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-TouchOff">TouchOff</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Fireplaces">Fireplaces</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1GaXJlSW5GbGFtZS9GaXJlUHV0RG93bg">FireInFlame / FirePutDown</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Supplies">Supplies</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Rearm">Rearm</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Refuel">Refuel</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Repair">Repair</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Units">Units</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-CaptureUnit">CaptureUnit</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Heal">Heal</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-HideBody">HideBody</a></p>
+</li></ul></li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-UserActions">User Actions</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-CancelAction">CancelAction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-TeamSwitch">TeamSwitch</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-User">User</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Vehicles">Vehicles</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Actions.1">Actions</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-AutoHover">AutoHover</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1MYW5kL0NhbmNlbExhbmQ">Land / CancelLand</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1NYW51YWxGaXJlL01hbnVhbEZpcmVDYW5jZWw">ManualFire / ManualFireCancel</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Equipment">Equipment</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1FbmdpbmVPbi9FbmdpbmVPZmY">EngineOn / EngineOff</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1GbGFwc1VwL0ZsYXBzRG93bg">FlapsUp / FlapsDown</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1MYW5kR2Vhci9MYW5kR2VhclVw">LandGear / LandGearUp</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1MaWdodE9mZi9MaWdodE9u">LightOff / LightOn</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1NYXJrZXJMaWdodHNPZmYvTWFya2VyTGlnaHRzT24">MarkerLightsOff / MarkerLightsOn</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-scudLaunch">scudLaunch</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-scudStart">scudStart</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-scudCancel">scudCancel</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Crew">Crew</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_VBSActions-Eject">Eject</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-GetInCargo">GetInCargo</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-GetInCommander">GetInCommander</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1HZXRJbkRyaXZlci9HZXRJblBpbG90">GetInDriver/GetInPilot</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-GetInGunner">GetInGunner</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-GetInTurret">GetInTurret</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-GetOut">GetOut</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-MoveToCargo">MoveToCargo</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-MoveToCommander">MoveToCommander</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1Nb3ZlVG9Ecml2ZXIvTW92ZVRvUGlsb3Q">MoveToDriver/MoveToPilot</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-MoveToGunner">MoveToGunner</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-MoveToTurret">MoveToTurret</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-QuickEnterVehicle">QuickEnterVehicle</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1UdXJuSW4vVHVybk91dA">TurnIn / TurnOut</a></p>
+</li></ul></li></ul></li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1XZWFwb25zL01hZ2F6aW5lcw">Weapons / Magazines</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1Ecm9wTWFnYXppbmUoUHV0TWFnYXppbmUp">DropMagazine (PutMagazine)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1Ecm9wV2VhcG9uKFB1dFdlYXBvbik">DropWeapon (PutWeapon)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1Td2l0Y2hNYWdhemluZShTd2l0Y2hXZWFwb24p">SwitchMagazine (SwitchWeapon)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-TakeMagazine">TakeMagazine</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-TakeWeapon">TakeWeapon</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509021_VBSActions-UseWeapon">UseWeapon</a></p>
+</li></ul></li></ul></li></ul>    <div class="section section-1" id="src-1509021_VBSActions-Introduction">
+        <h1 class="heading "><span> Introduction </span></h1>
+<p   
+>Actions are usually initiated in-game by the player, using the Action Menu (in <i class=" ">VBS4 23.2+</i>, 3D World Actions and Quick Menu Actions) or the command interface.<br/>If these should be initiated from a script instead, the actions listed below can be executed via the <a   href="action.html">action</a> command, without requiring any player input.</p>
+<p   
+>Just like regular script commands, actions initiated this way can be performed on any unit, independently of its position, or its distance to the manipulated object (e.g. when arresting a unit via the <a   href="#src-1509021_VBSActions-CaptureUnit">CaptureUnit</a> action, the arrested unit doesn&#39;t have to be within range of the arresting unit, but can be anywhere on the map).</p>
+<p   
+>If animations are associated with the performed action, only the &quot;entry&quot; animation will be executed (e.g. kneeling down to pick up a weapon). If an exit animation is required, an <a   href="Animations.html">Animation</a> has to be executed separately by the controlling script (e.g. <tt class=" ">unit playMove &quot;AmovPercMstpSrasWrflDnon&quot;</tt>).</p>
+<p   
+>In cases where there is an <i class=" ">initiating</i> unit (the one preceding the action command, e.g. <tt class=" ">soldierOne action [...]</tt>), in addition to the <i class=" ">performing</i> unit (object in the argument array, e.g. <tt class=" ">soldierOne action [&quot;takemine&quot;,soldierTwo]</tt>), these units can be different. The main purpose of doing this would be to suppress the animation played by the initiating unit, by making it a <a   href="Game_Logic.html">Game Logic</a>.</p>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1509021_VBSActions-GeneralSyntax">
+        <h1 class="heading "><span> General Syntax </span></h1>
+<p   
+><strong class=" "><i class=" ">unit</i> <a   href="action.html">action</a> [<i class=" ">&quot;actionType&quot;</i>, <i class=" ">parameter(s)</i>]</strong></p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Object.html#src-1508422_Object-Unit">Unit</a>. Can be a unit on foot, game logic, or an occupied vehicle.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">&quot;actionType&quot;</i>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a>. Action name. Not case sensitive.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">parameter(s)</i>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Various <a   href="Data_Types.html">Category Data Types</a>, number and type dependent on the action used.</p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1509021_VBSActions-Actions">
+        <h1 class="heading "><span> Actions </span></h1>
+    <div class="section section-2" id="src-1509021_VBSActions-Animations">
+        <h2 class="heading "><span> Animations </span></h2>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1IYW5kR3VuT24vSGFuZEd1bk9mZg">
+        <h3 class="heading "><span> HandGunOn / HandGunOff </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will shoulder their rifle, and draw their handgun (or vice versa).<br/></p>
+<p   
+>If the unit is in SAFE or CARELESS mode it will holster the handgun again right away, but rifle stays shouldered. Only works if the unit has a primary rifle.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;HandGunOn&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - Person who will ready their pistol.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;HandGunOn&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1MYWRkZXJEb3duL0xhZGRlclVw">
+        <h3 class="heading "><span> LadderDown / LadderUp </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will play an animation as if mounting the top (or bottom) of a ladder, then instantly teleport onto the specified ladder and position.<br/></p>
+<p   
+>If the person is controlled by AI, they will automatically climb up or down the ladder, and then get off it.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;LadderDown&quot;, <i class=" ">targetObject</i>, <i class=" ">ladderNumber</i>, <i class=" ">positionNumber</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person doing the climbing.</p>
+</li><li class=" "><p   
+><i class=" ">targetObject</i> - Object with a ladder.</p>
+</li><li class=" "><p   
+><i class=" ">ladderNumber</i> - Number defining the desired ladder</p>
+</li><li class=" "><p   
+><i class=" ">positionNumber</i> - Number defining the desired start position on the ladder (0 is normally the bottom of the ladder, and 1 the top). If a non-existing ladder number is specified, the unit will disappear.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;LadderDown&quot;, houseOne, 0, 1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1MYWRkZXJPbkRvd24vTGFkZGVyT25VcA">
+        <h3 class="heading "><span> LadderOnDown / LadderOnUp </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>: Identical to <a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1MYWRkZXJEb3duL0xhZGRlclVw">LadderDown / LadderUp</a>.</p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1OVkdvZ2dsZXMvTlZHb2dnbGVzT2Zm">
+        <h3 class="heading "><span> NVGoggles / NVGogglesOff </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will put its night-vision goggles on or off.<br/></p>
+<p   
+>If unit is AI-controlled, it will revert right away back to its automatic usage, depending on the time of day.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;NVGoggles&quot;, <i class=" ">unit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to put its goggles on or off.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;NVGoggles&quot;, player]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-PutWeaponOnBack">
+        <h3 class="heading "><span> PutWeaponOnBack </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will place its rifle on his back.<br/></p>
+<p   
+>If armed with only a pistol, it will be briefly holstered, but then taken back out right away.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;PutWeaponOnBack&quot;, <i class=" ">unit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to put its weapon on its back.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;PutWeaponOnBack&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-Salute">
+        <h3 class="heading "><span> Salute </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will salute.<br/></p>
+<p   
+>AI controlled units will only make a momentary salute, unless it is in safe or careless behaviour mode.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;Salute&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - Person to perform the salute.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;Salute&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-SitDown">
+        <h3 class="heading "><span> SitDown </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will sit down on the ground if standing, or get up if already sitting.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;SitDown&quot;, <i class=" ">unit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person who is sitting down.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;SitDown&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-StrokeGun">
+        <h3 class="heading "><span> StrokeGun </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will raise its rifle.<br/></p>
+<p   
+>AI-controlled units will only briefly perform the action, but then lower it again right away.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;StrokeGun&quot;, <i class=" ">unit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person who will raise its weapon.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;StrokeGun&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1XZWFwb25JbkhhbmQvV2VhcG9uT25CYWNr">
+        <h3 class="heading "><span> WeaponInHand / WeaponOnBack </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will move his weapon from the safety position (lowered for rifles, holstered for handguns) to the raise position (or vice versa).<br/></p>
+<p   
+>Change is persistent with player, but AI units will change back to suit their current <a   href="setBehaviour.html">setBehaviour</a>. AI generally keep their rifles safe unless moving or targeting.<br/>To circumvent this limitation, an animation can be <a   href="playMove.html">playMove</a> to have the AI perform different actions:</p>
+<ul class=" "><li class=" "><p   
+>Shoulder rifle: &quot;amovpercmstpsobkwrfldnon&quot;</p>
+</li><li class=" "><p   
+>Hold rifle in safe (lowered) position: &quot;amovpercmstpslowwrfldnon&quot;</p>
+</li></ul><p   
+>See also: <strong class=" "><a   href="fn_vbs_weapon_on_back.html">fn vbs weapon on back</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;WeaponInHand&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person initiating the action.</p>
+</li><li class=" "><p   
+>&#39;targetUnit&#39; - Person who will raise its rifle.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;WeaponInHand&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1509021_VBSActions-Flags">
+        <h2 class="heading "><span> Flags </span></h2>
+    <div class="section section-3" id="src-1509021_VBSActions-CancelTakeFlag">
+        <h3 class="heading "><span> CancelTakeFlag </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Cancels taking of a flag.<br/></p>
+<p   
+>The unit will complete the taking/action animation, but the flag will remain attached to its current object. This action needs to be executed while the flag is being taken (which happens after the unit completes the taking/action animation) to prevent a unit taking the flag. For example, if a person is taking a flag from a flagpole, then the cancelTakeFlag action should be executed while the flag is descending the flagpole.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;CancelTakeFlag&quot;, <i class=" ">targetFlag</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - A unit that is currently taking a flag.</p>
+</li><li class=" "><p   
+><i class=" ">targetFlag&#39;</i> - A flag object.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">westSoldierOne action [&quot;CancelTakeFlag&quot;, eastFlag]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-ReturnFlag">
+        <h3 class="heading "><span> ReturnFlag </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, pick up a flag from a nearby dead person, and return it to its flagpole.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;ReturnFlag&quot;, <i class=" ">targetObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to pick up the flag.</p>
+</li><li class=" "><p   
+><i class=" ">targetObject</i> - Dead person with flag to be returned.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;ReturnFlag&quot;, westFlag]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-TakeFlag">
+        <h3 class="heading "><span> TakeFlag </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and take control of the flag.<br/></p>
+<p   
+>He must be close to the flagpole and it must belong to an enemy side.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;TakeFlag&quot;, <i class=" ">flag</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person to take control of the flag.</p>
+</li><li class=" "><p   
+>&#39;flag&#39; - Flag object to take control of.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">SoldierOne action [&quot;TakeFlag&quot;, FlagOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1509021_VBSActions-Interactions">
+        <h2 class="heading "><span> Interactions </span></h2>
+    <div class="section section-3" id="src-1509021_VBSActions-Explosives">
+        <h3 class="heading "><span> Explosives </span></h3>
+    <div class="section section-4" id="src-1509021_VBSActions-Deactivate">
+        <h4 class="heading "><span> Deactivate </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, deactivate and take an active satchel charge.<br/></p>
+<p   
+>To place a charge use unitname Fire [&quot;pipebombmuzzle&quot;, &quot;pipebombmuzzle&quot;, &quot;pipebomb&quot;].</p>
+<p   
+>(An IED cannot be disabled/disarmed via this action, but must be replaced by its inert counterpart, i.e. add &quot;_disabled&quot; to the class name.)</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;Deactivate&quot;, <i class=" ">targetUnit</i>, <i class=" ">targetObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action and performing the animation.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - Person who will have the deactivated satchel charge added to its inventory.</p>
+</li><li class=" "><p   
+><i class=" ">targetObject</i> - The armed satchel object to be deactivated (class &quot;pipeBomb&quot; or &quot;timeBomb&quot;).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;Deactivate&quot;, soldierOne, mySatchelCharge]</tt></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;Deactivate&quot;, soldierOne, nearestObject [soldierOne, &quot;pipeBomb&quot;]]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-DeactivateMine">
+        <h4 class="heading "><span> DeactivateMine </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and deactivate any armed landmine that is within about two meters of it. The mine will stay at its location, but placed in a tilted position.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;DeactivateMine&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action and performing the animation.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - The closest landmine to this unit will be deactivated.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;DeactivateMine&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1TZXRUaW1lci9TdGFydFRpbWVy">
+        <h4 class="heading "><span> SetTimer/StartTimer </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will set the timer on a satchel charge to 30 seconds.<br/></p>
+<p   
+>If a timer is already set, this will increase the countdown time by 30 seconds. This action can be performed upon a satchel object from any distance. To place a charge use unitname Fire [&quot;pipebombmuzzle&quot;, &quot;pipebombmuzzle&quot;, &quot;pipebomb&quot;].</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;SetTimer&quot;, <i class=" ">unit</i>, <i class=" ">bombObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person activating the timer.</p>
+</li><li class=" "><p   
+><i class=" ">bombObject</i> - Satchel charge whose timer is set.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;SetTimer&quot;, soldierOne, nearestObject [soldierOne, &quot;pipeBomb&quot;]]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-TakeMine">
+        <h4 class="heading "><span> TakeMine </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, take the closest mine (within a radius of about 2m), and put it in its inventory.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;TakeMine&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action and performing the animation.</p>
+</li><li class=" "><p   
+>&#39;targetUnit&#39; - Person will receive the mine closest to him.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">gameLogic action [&quot;TakeMine&quot;,soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-TouchOff">
+        <h4 class="heading "><span> TouchOff </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and detonate the nearest (within 300m) satchel charge(s).<br/></p>
+<p   
+>See also: <strong class=" "><a   href="setAmmoTimer.html">setAmmoTimer</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;TouchOff&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person activating the action, and performing the animation.</p>
+</li><li class=" "><p   
+>&#39;targetUnit&#39; - Person whose nearest satchel will be detonated.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;TouchOff&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-Fireplaces">
+        <h3 class="heading "><span> Fireplaces </span></h3>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1GaXJlSW5GbGFtZS9GaXJlUHV0RG93bg">
+        <h4 class="heading "><span> FireInFlame / FirePutDown </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Ignites or extinguishes a fireplace object (from any distance).</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;FireInFlame&quot;, <i class=" ">targetObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetObject</i> - Fireplace to be ignited/extinguished.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;FireInFlame&quot;, firePlaceOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-Supplies">
+        <h3 class="heading "><span> Supplies </span></h3>
+    <div class="section section-4" id="src-1509021_VBSActions-Rearm">
+        <h4 class="heading "><span> Rearm </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>An occupied vehicle or person will kneel down, and resupply its ammo/magazines from any object with some ammoCargo.<br/></p>
+<p   
+>The rearming vehicle/person can be any distance from the rearming object. Rearming vehicles takes some time and will be interrupted if the vehicle starts to move.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;Rearm&quot;, <i class=" ">reamingObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person or occupied vehicle to be rearmed.</p>
+</li><li class=" "><p   
+><i class=" ">rearmingObject</i> - Object from which to rearm.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">tankOne action [&quot;Rearm&quot;, ammoTruckOne]</tt></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;Rearm&quot;, ammoTruckOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-Refuel">
+        <h4 class="heading "><span> Refuel </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>An occupied vehicle will refuel from any object with some fuelCargo (generally a refueling truck).<br/></p>
+<p   
+>The refueling object can be any distance from the vehicle. Refueling takes some time and will be interrupted if the vehicle starts to move.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">vehicle</i> action [&quot;Refuel&quot;, <i class=" ">refuelingObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">vehicle</i> - Occupied vehicle to be refueled.</p>
+</li><li class=" "><p   
+><i class=" ">refuelingObject</i> - Object from which to refuel.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">tankOne action [&quot;Refuel&quot;, refuelTruckOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-Repair">
+        <h4 class="heading "><span> Repair </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>An occupied vehicle will be repaired by an object with some repairCargo (generally a repair truck).<br/></p>
+<p   
+>The repair truck can be any distance from the vehicle. Repairing takes some time and will be interrupted if the vehicle starts to move.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">vehicle</i> action [&quot;Repair&quot;, <i class=" ">repairingObject</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">vehicle</i> - Occupied vehicle to be repaired.</p>
+</li><li class=" "><p   
+><i class=" ">repairingObject</i> - Object by which <i class=" ">vehicle</i> is being repaired.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">tankOne action [&quot;Repair&quot;, repairTruckOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-Units">
+        <h3 class="heading "><span> Units </span></h3>
+    <div class="section section-4" id="src-1509021_VBSActions-CaptureUnit">
+        <h4 class="heading "><span> CaptureUnit </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will have his hands tied behind his back, and join the capturing unit&#39;s group.<br/></p>
+<p   
+>If the captured unit was armed, it will drop its weapons onto the ground. The captured unit&#39;s <a   href="captive.html">captive</a> will be true, and its <a   href="captiveNum.html">captiveNum</a> will be 8. This action can be performed upon a target unit from any distance.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;CaptureUnit&quot;, <i class=" ">target</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person that is arresting <i class=" ">target</i>.</p>
+</li><li class=" "><p   
+><i class=" ">target</i> - Person being arrested.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">westSoldierOne action [&quot;CaptureUnit&quot;, opfor1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-Heal">
+        <h4 class="heading "><span> Heal </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Instantly teleports a unit to the target medic, to be healed.<br/></p>
+<p   
+>If the target unit is not a medic, the animations will still be played, but no healing occurs. If the medic is within a vehicle, no teleporting will occur and the wounded unit will only be healed if they are already within healing range (a few meters).</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;Heal&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person that is to be healed.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> Medic doing the healing.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;Heal&quot;, medicOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-HideBody">
+        <h4 class="heading "><span> HideBody </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down and hide (bury) a body in the ground.<br/></p>
+<p   
+>The body is automatically deleted within a few seconds. The person performing the action can be at any distance from the body. If the action is applied to a still living unit, the hiding will only happen when that unit dies.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;HideBody&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person burying the body.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - Dead person to be buried.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;HideBody&quot;, soldierTwo]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1509021_VBSActions-UserActions">
+        <h2 class="heading "><span> User Actions </span></h2>
+    <div class="section section-3" id="src-1509021_VBSActions-CancelAction">
+        <h3 class="heading "><span> CancelAction </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Cancels an action in progress.<br/></p>
+<p   
+>The target unit will complete its current animation, although the action itself will not be performed.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;CancelAction&quot;, <i class=" ">targetUnit</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - Person whose current action will be cancelled.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;CancelAction&quot;, soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-TeamSwitch">
+        <h3 class="heading "><span> TeamSwitch </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Opens the team-switch dialog, to allow switching into another playable unit. Only works in single-player.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>player action [&quot;TeamSwitch&quot;, player]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Team-switch dialog for player will be opened.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;TeamSwitch&quot;, player]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-User">
+        <h3 class="heading "><span> User </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will execute an action added via [[addAction].</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;User&quot;, <i class=" ">targetUnit</i>, <i class=" ">actionID</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person initiating the action.</p>
+</li><li class=" "><p   
+>&#39;targetUnit&#39; - Person who will execute the action.</p>
+</li><li class=" "><p   
+><i class=" ">actionID</i> - Action index as retured by <a   href="addAction.html">addAction</a>.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">gameLogic action [&quot;User&quot;, soldierOne, 2]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1509021_VBSActions-Vehicles">
+        <h2 class="heading "><span> Vehicles </span></h2>
+    <div class="section section-3" id="src-1509021_VBSActions-Actions.1">
+        <h3 class="heading "><span> Actions </span></h3>
+    <div class="section section-4" id="src-1509021_VBSActions-AutoHover">
+        <h4 class="heading "><span> AutoHover </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Toggles auto-hovering on and off (<i class=" ">V1.40</i>: Only turns auto-hovering ON.).<br/></p>
+<p   
+>Will only affect player-controlled vehicles.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">activato</i> action [&quot;AutoHover&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle whose auto-hovering will be turned on.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;AutoHover&quot;, vehicle player]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1MYW5kL0NhbmNlbExhbmQ">
+        <h4 class="heading "><span> Land / CancelLand </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Turns autopilot landing for an aircraft on or off, including AI controlled aircraft. The aircraft will land at the closest airfield.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;Land&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> Vehicle to perform an autopilot landing.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">(driver planeOne) action [&quot;Land&quot;, planeOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1NYW51YWxGaXJlL01hbnVhbEZpcmVDYW5jZWw">
+        <h4 class="heading "><span> ManualFire / ManualFireCancel </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Enables/disables manual fire mode for a player unit that is driver or commander of a vehicle.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;ManualFire&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle whose manual fire mode is being enabled/disabled.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;ManualFire&quot;, vehicle player]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-Equipment">
+        <h3 class="heading "><span> Equipment </span></h3>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1FbmdpbmVPbi9FbmdpbmVPZmY">
+        <h4 class="heading "><span> EngineOn / EngineOff </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Turns a vehicle&#39;s engine on or off.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;EngineOn&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle whose engine is turned on or off.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;EngineOn&quot;, vehicle soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1GbGFwc1VwL0ZsYXBzRG93bg">
+        <h4 class="heading "><span> FlapsUp / FlapsDown </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Adjusts an aircraft&#39;s flaps to the highest or lowest position.<br/></p>
+<p   
+>Only has an effect on player-controlled planes.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;FlapsUp&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Aircraft to have its flaps adjusted.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;FlapsUp&quot;, harrierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1MYW5kR2Vhci9MYW5kR2VhclVw">
+        <h4 class="heading "><span> LandGear / LandGearUp </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Lowers (or raises) the landing gear of an aircraft.<br/></p>
+<p   
+>Only works on player-controlled or landed aircraft.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;LandGear&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle to have its landing gear lowered/raised.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">planeOne action [&quot;LandGear&quot;, planeOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1MaWdodE9mZi9MaWdodE9u">
+        <h4 class="heading "><span> LightOff / LightOn </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Turns the headlights of an empty vehicle on or off.<br/></p>
+<p   
+>If the vehicle is AI-controlled (either as the lone driver, or as the commander/gunner) then the light status depends on the <a   href="AIBehaviour.html">AIBehaviour</a> (&quot;combat&quot; or &quot;stealth&quot; = lights off, any other mode = lights on).<br/>See also: <strong class=" "><a   href="setVehicleLights.html">setVehicleLights</a></strong>.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;LightOff&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle whose lights are turned on/off.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;LightOff&quot;, vehicle player]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1NYXJrZXJMaWdodHNPZmYvTWFya2VyTGlnaHRzT24">
+        <h4 class="heading "><span> MarkerLightsOff / MarkerLightsOn </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Turns an aircraft&#39;s marker lights on/off.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;MarkerLightsOff&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Aircraft whose marker lights are turned on/off.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">(driver heli1) action [&quot;MarkerLightsOff&quot;, heli1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-scudLaunch">
+        <h4 class="heading "><span> scudLaunch </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Raises the missile of a Scud vehicle (e.g. X SCUD-B TEL).<br/>(<i class=" ">Scud vehicles must have certain model properties set, in order to qualify as one.</i>)<br/>The status of this or the other scud actions can be checked via the <a   href="scudState.html">scudState</a> command.<br/>In order for scud actions to work, the target vehicle must be manned.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">targetVehicle</i> action [&quot;scudLaunch&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle (manned) with Scud missile.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">scud1 action [&quot;scudLaunch&quot;, scud1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-scudStart">
+        <h4 class="heading "><span> scudStart </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Scud missile will take off from the vehicle.<br/>If this command is executed <i class=" ">without</i> the previous <a   href="#src-1509021_VBSActions-scudLaunch">scudLaunch</a> action, the missile will be moved to the raised position immediately, and then take off.<br/>The missile will fly straight up into the sky, and then disappear (i.e. it will <i class=" ">not</i> land or detonate anywhere).</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">targetVehicle</i> action [&quot;scudStart&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle with Scud missile.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">scud1 action [&quot;scudStart&quot;, scud1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-scudCancel">
+        <h4 class="heading "><span> scudCancel </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Lowers a raised Scud missile back onto the vehicle.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">targetVehicle</i> action [&quot;scudCancel&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle with Scud missile.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">scud1 action [&quot;scudCancel&quot;, scud1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-Crew">
+        <h3 class="heading "><span> Crew </span></h3>
+    <div class="section section-4" id="src-1509021_VBSActions-Eject">
+        <h4 class="heading "><span> Eject </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will eject from his current vehicle via parachute.<br/></p>
+<p   
+>If the unit was the driver, then the vehicle will stop (or crash, in case of an aircraft). If case the vehicle wasn&#39;t airborne, the parachute will be destroyed immediately.<br/>Units that aren&#39;t <a   href="unassignVehicle.html">unassignVehicle</a> from the ejected vehicle will try to re-board it immediately. This action has a global effect when used on a local unit in multiplayer.<br/>See also: <strong class=" "><a   href="fn_vbs_unitCanEject.html">fn vbs unitCanEject</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;Eject&quot;, <i class=" ">vehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to be ejected.</p>
+</li><li class=" "><p   
+><i class=" ">vehicle</i> - Vehicle <i class=" ">unit</i> is ejected from.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;Eject&quot;, vehicle soldierOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-GetInCargo">
+        <h4 class="heading "><span> GetInCargo </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Instantly moves a person (who is not already in a vehicle) to the appropriate boarding position of the vehicle; after which he attempts to board the vehicle as cargo, either at the cargo position specified, or in the first available position.<br/></p>
+<p   
+>If the specified position is already occupied, the person will board in the first available cargo position. If the all cargo positions are already occupied by living persons, or no cargo position exists, the boarding will fail.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;GetInCargo&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;GetInCargo&quot;, <i class=" ">targetVehicle</i>, <i class=" ">positionNumber</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to board vehicle.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle to be boarded.</p>
+</li><li class=" "><p   
+><i class=" ">positionNumber - Cargo position index.</i></p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;GetInCargo&quot;, truckOne]</tt></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;GetInCargo&quot;, truckOne, 0]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-GetInCommander">
+        <h4 class="heading "><span> GetInCommander </span></h4>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1HZXRJbkRyaXZlci9HZXRJblBpbG90">
+        <h4 class="heading "><span> GetInDriver/GetInPilot </span></h4>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-GetInGunner">
+        <h4 class="heading "><span> GetInGunner </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Instantly moves a person (who is not already in a vehicle) to the appropriate boarding position of a vehicle; after which he attempts to board the vehicle.<br/></p>
+<p   
+>The boarding will fail if the position is already occupied or does not exist.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;GetInCommander&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to board vehicle.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle to be boarded.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;GetInCommander&quot;, tankOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-GetInTurret">
+        <h4 class="heading "><span> GetInTurret </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Instantly moves a person (who is not already in a vehicle) to the appropriate boarding position of a vehicle, after which he attempts to board the vehicle as the specified turret user.<br/></p>
+<p   
+>If the turret position is already occupied by another living person the boarding will fail. If the turret position does not exist, VBS2 may crash.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;GetInTurret&quot;, <i class=" ">targetVehicle</i>, <i class=" ">turretArray</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to board vehicle.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle to be boarded.</p>
+</li><li class=" "><p   
+><i class=" ">turretArray</i> - Turret path (array) defining the turret. For example, <i class=" ">[1]</i> would be a vehicle&#39;s second turret, and <i class=" ">[0, 2, 1]</i> is the second turret of the third turret of the first turret. A vehicle&#39;s turret order is defined in its class CfgVehicles of the Config.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">gunnerTwo action [&quot;GETINTURRET&quot;, myUH60MG, [1]]</tt></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">tankCommanderOne action [&quot;GetInTurret&quot;, myT72, [0,1]]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-GetOut">
+        <h4 class="heading "><span> GetOut </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will disembark from a vehicle (without a parachute in case of an aircraft).<br/></p>
+<p   
+>Units that aren&#39;t <a   href="unassignVehicle.html">unassignVehicle</a> from the ejected vehicle will try to re-board it immediately.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;GetOut&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to disembark.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle to disembark from.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;GetOut&quot;, carOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-MoveToCargo">
+        <h4 class="heading "><span> MoveToCargo </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Moves a unit to the chosen cargo position within a vehicle.<br/></p>
+<p   
+>If another unit is already in that position, the units will swap positions. (possibly alternate syntax to place unit in first empty cargo position?)</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;MoveToCargo&quot;, <i class=" ">targetVehicle</i>, <i class=" ">cargoPosition</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to move to vehicle&#39;s cargo position.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle <i class=" ">unit</i> is changing positions in.</p>
+</li><li class=" "><p   
+><i class=" ">cargoPosition</i> - Cargo index to occupy.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;MoveToCargo&quot;, vehicle player, 2]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-MoveToCommander">
+        <h4 class="heading "><span> MoveToCommander </span></h4>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1Nb3ZlVG9Ecml2ZXIvTW92ZVRvUGlsb3Q">
+        <h4 class="heading "><span> MoveToDriver/MoveToPilot </span></h4>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-MoveToGunner">
+        <h4 class="heading "><span> MoveToGunner </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Moves a unit to the respective position within a vehicle.<br/></p>
+<p   
+>If another unit is already in that position, the units will swap positions. (MoveToDriver &amp; MoveToPilot are identical.)</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;MoveToCommander&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to move to specified vehicle position.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle <i class=" ">unit</i> is changing positions in.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;MoveToCommander&quot;, vehicle player]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-MoveToTurret">
+        <h4 class="heading "><span> MoveToTurret </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Moves a unit to the chosen turret position within a vehicle.<br/></p>
+<p   
+>If another unit is already in that position, the units will swap positions.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;MoveToTurret&quot;, <i class=" ">targetVehicle</i>, <i class=" ">turretPath</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person to move to vehicle&#39;s turret position.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle <i class=" ">unit</i> is changing positions in.</p>
+</li><li class=" "><p   
+><i class=" ">turretPath</i> - Array defining to the desired turret position (for example, [0,1,2] refers to the third turret of the second turret of the first turret of the vehicle).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;MoveToTurret&quot;, vehicle player, [0]]</tt></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;MoveToTurret&quot;, vehicle player, [0,1]]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_VBSActions-QuickEnterVehicle">
+        <h4 class="heading "><span> QuickEnterVehicle </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Player will enter a vehicle at the first free position (priority: driver, gunner, cargo).</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">player</i> action [&quot;QuickEnterVehicle&quot;, <i class=" ">targetVehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">player</i> - Only works for player.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle to be entered.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">player action [&quot;QuickEnterVehicle&quot;, carOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-4" id="src-1509021_safe-id-VkJTQWN0aW9ucy1UdXJuSW4vVHVybk91dA">
+        <h4 class="heading "><span> TurnIn / TurnOut </span></h4>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will get in and out of vehicle hatches.<br/></p>
+<p   
+>Only works on AI commanders or players; other AI units&#39; turned out status will be controlled by their behavior mode.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;TurnIn&quot;, <i class=" ">vehicle</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person who will get in or out of the hatch.</p>
+</li><li class=" "><p   
+>&#39;vehicle&#39; - Vehicle <i class=" ">unit</i> is in.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">soldierOne action [&quot;TurnIn&quot;, tankOne]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1509021_safe-id-VkJTQWN0aW9ucy1XZWFwb25zL01hZ2F6aW5lcw">
+        <h2 class="heading "><span> Weapons / Magazines </span></h2>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1Ecm9wTWFnYXppbmUoUHV0TWFnYXppbmUp">
+        <h3 class="heading "><span> DropMagazine (PutMagazine) </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and transfer the specified magazine either into another unit or vehicle, or onto the ground (creating a WeaponHolder object).<br/></p>
+<p   
+>Magazines can be dropped into other units at any distance.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;DropMagazine&quot;, <i class=" ">receiver</i>, <i class=" ">&quot;magazine&quot;</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action and performing the animation.</p>
+</li><li class=" "><p   
+><i class=" ">receiver</i> - Person or vehicle who will have the magazine added to its inventory. If same as <i class=" ">unit</i> then magazine will be placed on the ground.</p>
+</li><li class=" "><p   
+><i class=" ">&quot;magazine&quot;</i> - Class name (string) of the magazine to be dropped.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>soldierOne action [&quot;DropMagazine&quot;, soldierOne, &quot;30Rnd_545x39_AK&quot;]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>soldierOne action [&quot;DropMagazine&quot;, ammoCrateOne, &quot;30Rnd_545x39_AK&quot;]</p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1Ecm9wV2VhcG9uKFB1dFdlYXBvbik">
+        <h3 class="heading "><span> DropWeapon (PutWeapon) </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and transfer the specified weapon and all associated magazines either into another unit or vehicle, or onto the ground (creating a WeaponHolder object).<br/></p>
+<p   
+>Weapons can be dropped into other units at any distance.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;DropWeapon&quot;, <i class=" ">receiver</i>, <i class=" ">&quot;weaponName&quot;</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action and performing the animation.</p>
+</li><li class=" "><p   
+><i class=" ">receiver</i> - Person or vehicle who will have the weapon added to its inventory. If same as <i class=" ">unit</i> then weapon will be placed on the ground.</p>
+</li><li class=" "><p   
+><i class=" ">&quot;weaponName&quot;</i> - Class name (string) of the weapon to be dropped.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Examples</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>soldierOne action [&quot;DropWeapon&quot;, soldierOne, &quot;AK74GL&quot;]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>soldierOne action [&quot;DropWeapon&quot;, ammoCrateOne, &quot;RPG7V&quot;]</p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1509021_safe-id-VkJTQWN0aW9ucy1Td2l0Y2hNYWdhemluZShTd2l0Y2hXZWFwb24p">
+        <h3 class="heading "><span> SwitchMagazine (SwitchWeapon) </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person (infantry unit or vehicle gunner) will switch to the given firing mode/muzzle index.<br/></p>
+<p   
+>The index is a combination of the available <a   href="fn_vbs_getModes.html">fn vbs getModes</a> for all weapons the unit possesses (e.g. if both, the primary and the secondary weapon have modes &quot;Single&quot; &amp; &quot;Auto&quot; available, selecting mode 2 would activate &quot;Single&quot; mode on the secondary weapon.) After the weapons, binoculars &amp; NVGs are the available indices.<br/>The list of firing modes only contains the weapons that are in the configuration of a unit. While the list updates when a weapon is dropped, weapons added during runtime (either via script, or by the unit picking it up) are <i class=" ">not</i> added to the index list, and can therefore not be selected via this action.<br/>To change the muzzle used, it is better to use <a   href="selectWeapon.html">selectWeapon</a> instead.<br/>See also: <strong class=" "><a   href="setWeaponMode.html">setWeaponMode</a></strong>, <strong class=" "><a   href="selectWeapon.html">selectWeapon</a></strong>, <strong class=" "><a   href="loadMagazine.html">loadMagazine</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;SwitchMagazine&quot;, <i class=" ">targetVehicle</i>, <i class=" ">targetUnit</i>, <i class=" ">mode</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+><i class=" ">unit</i> - Person initiating the action.</p>
+</li><li class=" "><p   
+><i class=" ">targetVehicle</i> - Vehicle or Person whose magazine selection is changed.</p>
+</li><li class=" "><p   
+><i class=" ">targetUnit</i> - Person whose magazine selection is changed (same as <i class=" ">targetVehicle</i> for infantry units.</p>
+</li><li class=" "><p   
+><i class=" ">mode</i> - Index of the firing mode/muzzle to use.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">gameLogic action [&quot;SwitchMagazine&quot;, unit1, unit1, 3]</tt><br/></p>
+<p   
+><tt class=" ">gameLogic action [&quot;SwitchMagazine&quot;,tank1,gunner tank1,1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-TakeMagazine">
+        <h3 class="heading "><span> TakeMagazine </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and take one of the specified magazines from another unit, vehicle or ammo crate.<br/></p>
+<p   
+>Can be executed over any distance.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;TakeMagazine&quot;, <i class=" ">source</i>, <i class=" ">magazine</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person to take the magazine.</p>
+</li><li class=" "><p   
+>&#39;magazine&#39; - Class name of magazine to take.</p>
+</li><li class=" "><p   
+>&#39;source&#39; - Person, vehicle or ammo crate to take magazine from.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">SoldierOne action [&quot;TakeMagazine&quot;, SoldierTwo, &quot;vbs2_mag_15rnd_9x19_Ball_berettaM9&quot;]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-TakeWeapon">
+        <h3 class="heading "><span> TakeWeapon </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Person will kneel down, and take the specified weapon (inluding any compatible magazines) from another unit, vehicle or weapon crate.<br/></p>
+<p   
+>Can be executed over any distance.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">unit</i> action [&quot;TakeWeapon&quot;, <i class=" ">source</i>, <i class=" ">weapon</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;unit&#39; - Person taking the weapon.</p>
+</li><li class=" "><p   
+>&#39;magazine&#39; - Class name of weapon to take.</p>
+</li><li class=" "><p   
+>&#39;source&#39; - Person, vehicle or weapon crate to take weapon from.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">SoldierOne action [&quot;TakeWeapon&quot;, SoldierTwo, &quot;NVGoggles&quot;]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1509021_VBSActions-UseWeapon">
+        <h3 class="heading "><span> UseWeapon </span></h3>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Description</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>One unit will kneel down, and the other one will fire the current weapon.<br/>Does not work if weapons were switched, and requires a second unit (or GameLogic) to play the (inappropriate) animation.<br/>Better to use &quot;DefaultAction&quot; setAction 1 or <a   href="fire.html">fire</a>.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Syntax</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">gamelogic</i> action [&quot;UseWeapon&quot;, <i class=" ">vehicle</i>, <i class=" ">unit</i>, <i class=" ">index</i>]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>&#39;gamelogic&#39; - Should be GameLogic or different unit from one that&#39;s shooting (will kneel down).</p>
+</li><li class=" "><p   
+>&#39;vehicle&#39; - Vehicle of firing unit, or firing unit itself.</p>
+</li><li class=" "><p   
+>&#39;unit&#39; - Person firing the weapon.</p>
+</li><li class=" "><p   
+>&#39;index&#39; - Index of weapon to fire (similar to <a   href="#src-1509021_safe-id-VkJTQWN0aW9ucy1Td2l0Y2hNYWdhemluZShTd2l0Y2hXZWFwb24p">SwitchMagazine (SwitchWeapon)</a>).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Example</strong>:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><tt class=" ">gLogic action [&quot;UseWeapon&quot;, SoldierOne, SoldierOne, 1]</tt></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    </div>
+    </div>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="VBS2PluginFileAccess.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS2PluginFileAccess</span>
+        </a>
+                <a href="VBS_Classes.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS Classes</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

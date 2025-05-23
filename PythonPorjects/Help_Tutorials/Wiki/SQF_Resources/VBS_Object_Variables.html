@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>VBS Object Variables - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1509000"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Scripting_References.html">Scripting References</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1509000"> <span>VBS Object Variables</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><strong class=" ">ObjectVariables</strong> are variables that hold temporary property information for a specific <a   href="Object.html">Object</a>.</p>
+<p   
+>Most of the variables listed below are set by the game itself, and shouldn&#39;t be modified, as that may lead to unpredictable outcomes. They can be read though (via <a   href="getVariable.html">getVariable</a>), to extract more object information than would otherwise be available.</p>
+<p   
+>Some variables are user-definable, to modify the game or object behavior. These are indicated in green, and have their parameter format listed right behind the variable name, e.g. <i class=" ">NOTVISIBLEINEDITOR</i> (<a   href="Boolean.html">Boolean</a>). To change these variables, use the <a   href="setVariable.html">setVariable</a> command, together with the variable name and the desired value, e.g. <tt class=" ">hiddenItem setVariable [&quot;NOTVISIBLEINEDITOR&quot;,false]</tt></p>
+<p   
+>For further available object properties see the article on <a   href="Editor_Object.html">Editor Object</a>.</p>
+<p   
+><strong class=" ">All of the object variables are case sensitive, and have to be used in the exact capitalization as they are listed here.</strong></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Airstrike">Airstrike</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Artillery">Artillery</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-ConstructionObjects">Construction Objects</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-ControlStations">Control Stations</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Editor">Editor</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-GlintObjects">Glint Objects</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Groups">Groups</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-IEDs">IEDs</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Inventory">Inventory</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-PopupTargets">Popup Targets</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Sandstorms">Sandstorms</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-SoundSource">Sound Source</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-UGVs">UGVs</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Units">Units</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Vehicles">Vehicles</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509000_VBSObjectVariables-Waypoints">Waypoints</a></p>
+</li></ul>    <div class="section section-1" id="src-1509000_VBSObjectVariables-Airstrike">
+        <h1 class="heading "><span>Airstrike</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_POS</strong>: Airstrike position [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_RADIUS</strong>: Airstrike radius [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_SIDE</strong>: Airstrike side [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_REPEATED</strong>: Repeated check for airstrike editor object [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_DELAY</strong>: Airstrike delay [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_CONDITION</strong>: Airstrike condition [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_PRIORITIES</strong>: Airstrike priority list [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_NAME</strong>: Airstrike name [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_LINK</strong>: Links to Airstrike targets [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_MISSION_TARGET</strong>: Aircraft target / Target hostile [AIRCRAFT/TARGET]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_EVENTS</strong>: Event-handlers on targets and aircraft [AIRCRAFT/TARGET]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_ACTIVE</strong>: Currently active aircraft [AIRCRAFT]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_AIRCRAFT</strong>: Viable aircraft [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_TARGETS</strong>: Viable targets [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_DENY_SWITCH</strong>: Prevents aircraft from engaging centre of Airstrike after engaging targets [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_PRIORITY</strong>: Target priority delegation [AIRCRAFT]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_AIRCRAFT_WEAPONS</strong>: Aircraft weapon check [AIRCRAFT]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_WAITING</strong>: Aircraft in queue for target [AIRCRAFT]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_TRIGGER_CHECK</strong>: Airstrike shutdown condition [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_MISSION_TARGET_PLAYER</strong>: Exclusivity to non-players condition [TARGET]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_TARGET_GROUPS</strong>: Target groups [EO]</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_AIRSTRIKE_EH_ARRAY</strong>: Airstrike event handlers [EO]</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Artillery">
+        <h1 class="heading "><span>Artillery</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">ArtilleryAmmo</strong>: Ammo class</p>
+</li><li class=" "><p   
+><strong class=" ">ArtillerySalvoes</strong>: Number of guns/planes</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryRounds</strong>: Number of rounds/bombs</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryDispersion</strong>: Impact radius</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryDelayBetweenRounds</strong>: Delay between guns/bombs</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryDelayBetween</strong>: Reload time / Delay between planes</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryDelayUntil</strong>: Delay until start</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryID</strong>: Artillery index</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryCondition</strong>: Condition <a   href="String.html">String</a></p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryPlane</strong>: Class on delivery plane (empty if none)</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryApproach</strong>: Plane approach direction</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryMode</strong>: Time until strike. 1: &gt;10 seconds (green arrow), 2: &lt;=10 sec (yellow arrow), 3: strike imminent (red arrow)</p>
+</li><li class=" "><p   
+><strong class=" ">ArtilleryPos</strong>: Drop position as <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> array</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-ConstructionObjects">
+        <h1 class="heading "><span>Construction Objects</span></h1>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/vbs3_3.20-version-3-modificationdate-1505467188126-api-v2.gif" alt="images/download/attachments/1507348/vbs3_3.20-version-3-modificationdate-1505467188126-api-v2.gif"   />
+    </p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">VBS_ENG_constrProps</strong>: Array containing general information about object (structure not finalized yet)</p>
+</li><li class=" "><p   
+><strong class=" ">VBS_ENG_constrWork</strong>: Amount of work (in seconds) that has been applied to object (should be modified via <a   href="fn_vbs_engineering_logWork.html">fn vbs engineering logWork</a>)</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-ControlStations">
+        <h1 class="heading "><span>Control Stations</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_ACT_ON_START</strong>: Activate on mission start</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_ALLOW_LOCK</strong>: Allow camera locking</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_AUTO_ACTIVATE</strong>: Activate on vehicle entry</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_AUTO_ORBIT</strong>: Enable auto orbiting</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_CHANGE_TARGET</strong>: Relocate locked target</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_COORD_TYPE</strong>: Coordinate type used</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_ENABLE_RECORD</strong>: Enable video recording</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_MARK_TARGETS</strong>: Can mark targets on map</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_MINIMAP</strong>: Enable mini-map</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_RECORD_FRAMES</strong>: Video resolution FPS</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_RECORD_RESOLUTION_X</strong>: Video resolution in X</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_RECORD_RESOLUTION_Y</strong>: Video resolution in Y</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_RECORD_UI</strong>: Record video</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_SHOW_HINTS</strong>: Show hints</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_TYPE</strong>: Type of control station</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_ULINK</strong>: <a   href="Array.html">Array</a> with unit(s) linked to station</p>
+</li><li class=" "><p   
+><strong class=" ">UAV_PhP_GCS_VLINK</strong>: Vehicle linked to station</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Editor">
+        <h1 class="heading "><span>Editor</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">DESCRIPTION</strong>: The object&#39;s description value, as set in the object&#39;s definition form.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">NOTVISIBLEINEDITOR</strong>    </span>
+ (<a   href="Boolean.html">Boolean</a>): Whether an object is shown in the editor (2D view &amp; ObjectTree).<br/>Variable must be set before editor is opened; changing its value <i class=" ">after</i> the editor has been opened does not change its visibility.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-GlintObjects">
+        <h1 class="heading "><span>Glint Objects</span></h1>
+<ul class=" "><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">FORCED</strong>    </span>
+ (<a   href="Boolean.html">Boolean</a>): If <a   href="true.html">true</a>, then glint will always be visible</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">CONDITION</strong>    </span>
+ (<a   href="String.html">String</a>): Condition that must be fulfilled (in addition to either &quot;FORCED&quot; being true or player within visibility limits) for glint to be visible</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">FOV_DIR</strong>    </span>
+ (<a   href="Number.html">Number</a>): Direction from which glint is visible</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">FOV</strong>    </span>
+ (<a   href="Number.html">Number</a>): Angle within glint is visible</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">DRAW</strong>    </span>
+ (<a   href="Boolean.html">Boolean</a>): Whether to show glint visibility angle in editor</p>
+</li><li class=" "><p   
+><strong class=" ">GLINT_ON</strong> (<a   href="Boolean.html">Boolean</a>): Whether the glint is currently visible to player</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Groups">
+        <h1 class="heading "><span>Groups</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">EDITOR_DESC</strong>: Group description given in edit window</p>
+</li><li class=" "><p   
+><strong class=" ">WAYPOINT_BRANCH_CFG</strong>: If group is on a branched waypoint, that WP is returned as an <a   href="Editor_Object.html">Editor Object</a></p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-IEDs">
+        <h1 class="heading "><span>IEDs</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">ATTACH_TO</strong>: Object IED is attached to</p>
+</li><li class=" "><p   
+><strong class=" ">ATTACHED_IED</strong>: IED that is attached to object (variable is assigned to the <i class=" ">object</i>, <i class=" ">not</i> the IED)</p>
+</li><li class=" "><p   
+><strong class=" ">ATTACHED_TRIGGERS</strong>: Trigger attached to IED</p>
+</li><li class=" "><p   
+><strong class=" ">BOOBY_TRAP</strong>: Booby trapped?</p>
+</li><li class=" "><p   
+><strong class=" ">CAN_BE_JAMMED</strong>: Can be jammed?</p>
+</li><li class=" "><p   
+><strong class=" ">CHARGE</strong>: Ammo type to explode when triggered</p>
+</li><li class=" "><p   
+><strong class=" ">DAISY_CHAIN</strong>: Array of IEDs that are daisy-chained</p>
+</li><li class=" "><p   
+><strong class=" ">DISARM_DURATION</strong>: Disarm duration in seconds</p>
+</li><li class=" "><p   
+><strong class=" ">EXPLOSION_TYPE</strong>: Explosion type (&#39;normal&#39;, &#39;wounding&#39; or &#39;fake&#39;)</p>
+</li><li class=" "><p   
+><strong class=" ">IED_CONDITIONS</strong>: Array with conditions that have to be true for IED to detonate</p>
+</li><li class=" "><p   
+><strong class=" ">NAME</strong>: Name given in IED edit window</p>
+</li><li class=" "><p   
+><strong class=" ">ON_EXPLODE</strong>: Code that&#39;s executed when IED detonates</p>
+</li><li class=" "><p   
+><strong class=" ">PRESSURE_PLATE</strong>: Command executed when pressure plate is triggered</p>
+</li><li class=" "><p   
+><strong class=" ">PRESSURE_PLATE_A</strong>: Width of pressure plate</p>
+</li><li class=" "><p   
+><strong class=" ">PRESSURE_PLATE_B</strong>: Height of pressure plate</p>
+</li><li class=" "><p   
+><strong class=" ">PRESSURE_PLATE_WEIGHT</strong>: Trigger weight for pressure plate</p>
+</li><li class=" "><p   
+><strong class=" ">PRESSURE_PLATE_X</strong>: X-offset for pressure plate</p>
+</li><li class=" "><p   
+><strong class=" ">PRESSURE_PLATE_Y</strong>: Y-offset for pressure plate</p>
+</li><li class=" "><p   
+><strong class=" ">PROXIMITY</strong>: Trigger type: &#39;Proximity&#39;, &#39;PressurePlate&#39; or &#39;Admin&#39;</p>
+</li><li class=" "><p   
+><strong class=" ">PROXIMITY_DIS</strong>: Proximity distance</p>
+</li><li class=" "><p   
+><strong class=" ">PROXIMITY_SIDE</strong>: Proximity side</p>
+</li><li class=" "><p   
+><strong class=" ">PROXIMITY_TRIGGER</strong>: Trigger attached to IED, if of proximity type</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Inventory">
+        <h1 class="heading "><span>Inventory</span></h1>
+<ul class=" "><li class=" "><p   
+><strong class=" ">WEIGHT_CAPACITY</strong>: Maximum carrying capacity of a container in kg.<br/>If not set, capacity is read out of config. If set to 0, then unlimited. Applies to units, vehicles, and containers.</p>
+</li><li class=" "><p   
+><strong class=" ">INV_CARRIED</strong> (<a   href="Array.html">Array</a>): with the objects currently being carried by a unit.</p>
+</li><li class=" "><p   
+><strong class=" ">INV_OBJCARGO</strong> (<a   href="Array.html">Array</a>): with the objects currently in cargo of the unit/vehicle.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-PopupTargets">
+        <h1 class="heading "><span>Popup Targets</span></h1>
+<ul class=" "><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_popup_hits</strong>    </span>
+ (<a   href="Number.html">Number</a>): The number of hits a popup target needs before it drops down.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_popup_time</strong>    </span>
+ (<a   href="Number.html">Number</a>): How many seconds a dropped popup target stays down before getting uprighted again.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Sandstorms">
+        <h1 class="heading "><span>Sandstorms</span></h1>
+<ul class=" "><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_SANDSTORM_RADIUS</strong>    </span>
+ (<a   href="Number.html">Number</a>): The radius of the sandstorm (in metres).</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_SANDSTORM_COLOUR_RGB</strong>    </span>
+ (<a   href="Color.html">Color</a>): Sandstorm colour [R,G,B,A].</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_SANDSTORM_DENSITY</strong>    </span>
+ (<a   href="Number.html">Number</a>): Relative density of the sandstorm.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_SANDSTORM_CEILING</strong>    </span>
+ (<a   href="Number.html">Number</a>): The height of the sandstorm (in metres).</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_SANDSTORM_LOCALPFX</strong> (<a   href="Boolean.html">Boolean</a>): Whether localised particle effects are switched on for the player.</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_SANDSTORM_CAMERAPFX</strong> (<a   href="Boolean.html">Boolean</a>): Whether localised particle effects are switched on for the camera.</p>
+</li><li class=" "><p   
+><strong class=" ">VBS_SANDSTORM_WIND</strong> (<a   href="Array.html">Array</a>): Holds the wind vector (somewhat randomised) that influences the sandstorm [X,Y,Z].</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_SANDSTORM_LOCALPFX_SOURCE</strong> (<a   href="Object.html">Object</a>): Holds the effect source of the localised particle effects.</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_SANDSTORM_INBUILDING</strong> (<a   href="Boolean.html">Boolean</a>): Wether the player is inside or not.</p>
+</li><li class=" "><p   
+><strong class=" ">VBS2_SANDSTORM_HANDLER_RUNNING</strong> (<a   href="Boolean.html">Boolean</a>): Whether the main handling loop for particle generation has been started or not.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-SoundSource">
+        <h1 class="heading "><span>Sound Source</span></h1>
+<p   
+>These variables only exist for the Sound Source <i class=" ">Editor Object</i>, NOT the sound source object created via <a   href="createSoundSource.html">createSoundSource</a>!</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">SoSoAnimRunning</strong> (<a   href="Boolean.html">Boolean</a>): Returns <a   href="true.html">true</a> if the sound is currently playing.</p>
+</li><li class=" "><p   
+><strong class=" ">SoSoCONDITION</strong> (<a   href="String.html">String</a>): Play condition.</p>
+</li><li class=" "><p   
+><strong class=" ">SoSoNAME</strong> (<a   href="String.html">String</a>): The name that was given to the Sound Source in the property dialog.</p>
+</li><li class=" "><p   
+><strong class=" ">SoSoPLACEMENT</strong> (<a   href="Number.html">Number</a>): Placement radius</p>
+</li><li class=" "><p   
+><strong class=" ">SoSoPRESCON</strong> (<a   href="String.html">String</a>): Presence condition.</p>
+</li><li class=" "><p   
+><strong class=" ">SoSoSOURCE</strong> (<a   href="Object.html">Object</a>): Sound source that was created by the editor object (<i class=" ">1.60+</i>).</p>
+</li><li class=" "><p   
+><strong class=" ">SoSoTYPE</strong> (<a   href="String.html">String</a>): Class name of sound effect it is playing.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-UGVs">
+        <h1 class="heading "><span>UGVs</span></h1>
+<ul class=" "><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">TAL_PhP_charges</strong>    </span>
+ (<a   href="Number.html">Number</a>): Whether the UGV is carrying explosive charges (either 0 or 1).</p>
+</li><li class=" "><p   
+><strong class=" ">TAL_PhP_chargePosition</strong> (<a   href="Array.html">Array</a> with 2 elements): 1st element: IED a charge was attached to (or objNull if placed on ground), 2nd element: explosive charge that was placed.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Units">
+        <h1 class="heading "><span>Units</span></h1>
+<ul class=" "><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">URN</strong>    </span>
+: The unit&#39;s URN callsign.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_CROWD_FORMATION</strong>    </span>
+ (<a   href="Boolean.html">Boolean</a>): Used to toggle civilians between standard formation (line, wedge, column, etc) and crowd formation. Only works on civilians. This is a tight, random &quot;formation&quot;, keeps them off roads, and prevents them from running to catch up with their group - they will rather walk faster, but never run. Static groups (groups that have no waypoints) using this will cause the subordinates to walk around a bit within the radius of the group. The variable must be applied to the leader of the group where he is local, and not the subordinates. The leader of the group must not be the player, it must be AI since the code is FSM driven. Groups that use this variable currently are designed to not use the danger FSM, ie they will not flee from danger at this stage, whereas regular civilian AI do.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">VBS2_FORCE_MOVE</strong>    </span>
+ (<a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a>): Defines destination for an civilian group member to move to, without falling back into formation. This is designed specifically for units using the VBS2_CROWD_FORMATION variable. It allows a mission designer to obtain full control of the movement of the AI in a way that works harmoniously with the VBS2_CROWD_FORMATION FSM. It it recommended that this variable is used instead of conventional scripting commands to move AI around when they are using the VBS2_CROWD_FORMATION FSM. If set to <a   href="nil.html">nil</a>, unit returns to formation.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">vbs2_knockedOut</strong>    </span>
+ (<a   href="Boolean.html">Boolean</a>): Set to <a   href="true.html">true</a> if player is temporarily knocked out by &quot;shell shock&quot; effect, caused by nearby detonations.<br/>It set to <a   href="true.html">true</a> via script <i class=" ">before</i> the detonation, then no shell-shock will be applied to the player. (And the variable will not be reset to <a   href="false.html">false</a>, once the shell-shock duration is over.)</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Vehicles">
+        <h1 class="heading "><span>Vehicles</span></h1>
+<ul class=" "><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">URN</strong>    </span>
+: The vehicle&#39;s URN marking.</p>
+</li><li class=" "><p   
+>    <span style="color: #008000;">
+<strong class=" ">URN_DIS</strong>    </span>
+: The vehicle&#39;s LVC URN marking.</p>
+</li><li class=" "><p   
+><strong class=" ">VEH_ARCS</strong>: Gunner arc: [direction, opening angle]</p>
+</li><li class=" "><p   
+><strong class=" ">vbs2_smokeDischarger</strong>: The number of times a vehicle can use its smoke discharger.<br/>Can not be used to add smoke to a vehicle that does not have a discharger already.</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509000_VBSObjectVariables-Waypoints">
+        <h1 class="heading "><span>Waypoints</span></h1>
+<p   
+>The variable has to be read from the group&#39;s waypoints. e.g.</p>
+<pre class=" ">{player sidechat str (_x getVariable &quot;WAYPOINT_AIR&quot;)}forEach waypoints (group player)</pre><ul class=" "><li class=" "><p   
+><strong class=" ">WAYPOINT_AIR</strong>: For aircraft returns [&quot;speed&quot;,&quot;elevation&quot;,&quot;speed mode&quot;,&quot;(unused)&quot;,&quot;agl/asl&quot;,&quot;loiter radius&quot;,&quot;loiter type&quot;]</p>
+</li><li class=" "><p   
+><strong class=" ">WAYPOINT_BRANCH</strong>: Branching information [[(unused)],branch condition,&quot;next waypoint EO&quot;]</p>
+</li></ul>    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="VBS_Objects.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS Objects</span>
+        </a>
+                <a href="VBS_ParticleShape.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS ParticleShape</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

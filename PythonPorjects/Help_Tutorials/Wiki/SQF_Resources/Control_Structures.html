@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Control Structures - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1508558"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Scripting_References.html">Scripting References</a></li>
+                                                                                     <li><a href="Syntax.html">Syntax</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1508558"> <span>Control Structures</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><strong class=" ">Control Structures</strong> are <a   href="Statement.html">Statement</a> which are used to control execution flow in the scripts. They are sequences of scripting code which help to control complex procedures. You can use control structures to define code which is only executed under certain conditions or repeated for a couple of times.</p>
+<p   
+><i class=" ">Note for advanced readers: The scripting language control structures are normal scripting commands, with no special handling compared to other commands. This is different from most imperative programming languages (like C), where control statements are implemented in the core language grammar. The &quot;controlling&quot; done by them is implemented by accepting <a   href="Code.html">Code</a> as an argument. The complex control structures like &quot;<a   href="while.html">while</a> ... <a   href="do.html">do</a> ...&quot; are implemented using helper types, like <a   href="While_Type.html">While Type</a>.</i></p>
+<p   
+><br/></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-Requirements">Requirements</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-ConditionalStructures">Conditional Structures</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-if-Statement">if-Statement</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508558_safe-id-Q29udHJvbFN0cnVjdHVyZXMtQWx0ZXJuYXRpdmVDb2RlKGVsc2Up">Alternative Code (else)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_safe-id-Q29udHJvbFN0cnVjdHVyZXMtQWx0ZXJuYXRpdmVDb2RlKGlmLi4udGhlbi4uLmVsc2Up">Alternative Code (if...then...else)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-Conditionalassignments">Conditional assignments</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-Nestedif-Statements">Nested if-Statements</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-switch-Statement">switch-Statement</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-default-Block">default-Block</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-Variableassignments">Variable assignments</a></p>
+</li></ul></li></ul></li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-Loops">Loops</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-waitUntil-Loop">waitUntil-Loop</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-while-Loop">while-Loop</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-for-Loop">for-Loop</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-for-from-to-Loop">for-from-to-Loop</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-for-from-to-Loopwithcustomstep">for-from-to-Loop with custom step</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-forEach-Loop">forEach-Loop</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-count-Loop">count-Loop</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-ReturnValues">Return Values</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508558_ControlStructures-Seealso">See also</a></p>
+</li></ul>    <div class="section section-1" id="src-1508558_ControlStructures-Requirements">
+        <h1 class="heading "><span> Requirements </span></h1>
+<p   
+>To fully understand this article you should read the following articles:</p>
+<ul class=" "><li class=" "><p   
+><a   href="Variables.html">Variables</a></p>
+</li><li class=" "><p   
+><a   href="Operators.html">Operators</a></p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1508558_ControlStructures-ConditionalStructures">
+        <h1 class="heading "><span> Conditional Structures </span></h1>
+<p   
+><strong class=" ">Conditional structures</strong> help to define code which is only executed under certain circumstances.</p>
+    <div class="section section-2" id="src-1508558_ControlStructures-if-Statement">
+        <h2 class="heading "><span> if-Statement </span></h2>
+<p   
+>The if-statement defines code that is only executed <strong class=" ">if</strong> a certain condition is met:</p>
+<pre class=" ">if (CONDITION) then {<br/>    STATEMENT;<br/>    ...<br/>};</pre><ul class=" "><li class=" "><p   
+>CONDITION is a <a   href="Boolean.html">Boolean</a> <a   href="Statement.html">Statement</a> or <a   href="Variables.html">Variables</a> which returns either <a   href="true.html">true</a> or <a   href="false.html">false</a>. The code contained in the <a   href="Block.html">Block</a> that follows it is only executed if the condition is <a   href="true.html">true</a>. If the condition returns <a   href="false.html">false</a>, the code block is ignored.</p>
+</li><li class=" "><p   
+>STATEMENT is one or more <a   href="Statement.html">Statement</a>. They may be commands, assignments, control structures etc.</p>
+</li></ul><p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">if (damage car &gt; 0) then {<br/>    hint &quot;damaged&quot;<br/>};</pre><p   
+>In this example, the condition is that the car <a   href="damage.html">damage</a> is greater than zero.</p>
+<ul class=" "><li class=" "><p   
+>If the condition is true, then hint &quot;damaged&quot; is executed.</p>
+</li><li class=" "><p   
+>If the condition is false (damage is zero), then the code block is ignored.</p>
+</li></ul><p   
+><br/></p>
+    <div class="section section-3" id="src-1508558_safe-id-Q29udHJvbFN0cnVjdHVyZXMtQWx0ZXJuYXRpdmVDb2RlKGVsc2Up">
+        <h3 class="heading "><span> Alternative Code (else)</span></h3>
+<p   
+>Via the else clause it is possible to define code which is executed when the condition is <i class=" ">not</i> <a   href="true.html">true</a>.</p>
+<pre class=" ">if (CONDITION) then {<br/>    STATEMENT_TRUE;<br/>    ...<br/>} else {<br/>    STATEMENT_FALSE;<br/>    ...<br/>};</pre><p   
+>The second sequence of <a   href="Statement.html">Statement</a> (STATEMENT_FALSE) are executed when CONDITION is <a   href="false.html">false</a>.</p>
+<pre class=" ">if (damage car &gt; 0) then {<br/>    hint &quot;damaged&quot;<br/>} else {<br/>    hint &quot;intact&quot;<br/>};</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1508558_safe-id-Q29udHJvbFN0cnVjdHVyZXMtQWx0ZXJuYXRpdmVDb2RlKGlmLi4udGhlbi4uLmVsc2Up">
+        <h3 class="heading "><span> Alternative Code (if...then...else)</span></h3>
+<p   
+>Via the elseif clause (available since V3.7) it is possible to define multiple conditional code sections which are only executed when the respective condition is <a   href="true.html">true</a>.</p>
+<pre class=" ">if (getDammage player == 0) then {<br/>  hint &quot;no damage&quot;;<br/>} elseif (getDammage player &lt; 0.3) then {<br/>  hint &quot;damage is less than 0.3&quot;; <br/>} elseif (getDammage player &lt; 1) then {<br/>  hint &quot;player is not dead yet&quot;;<br/>} else {<br/>  hint &quot;player is dead&quot;;<br/>};</pre>    </div>
+    <div class="section section-3" id="src-1508558_ControlStructures-Conditionalassignments">
+        <h3 class="heading "><span> Conditional assignments </span></h3>
+<p   
+>If...then structures can also be used to assign conditional values to variables:</p>
+<pre class=" ">_state = if (alive player) then {true} else {false}; // _state contains <a   href="true.html">true</a> if player is alive<br/>_state = if (alive player) then {&quot;alive&quot;} else {&quot;dead&quot;}; // _state contains &quot;alive&quot; if player is alive</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1508558_ControlStructures-Nestedif-Statements">
+        <h3 class="heading "><span> Nested if-Statements </span></h3>
+<p   
+>Since the if-statement is itself a <a   href="Statement.html">Statement</a>, you can also create <strong class=" ">nested if-statements</strong>.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">if (alive player) then {<br/>    if (someAmmo player) then {<br/>        hint &quot;The player is alive and has ammo!&quot;;<br/>    } else {<br/>        hint &quot;The player is out of ammo!&quot;;<br/>    };<br/>} else {<br/>    hint &quot;The player is dead!&quot;;<br/>};</pre><p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1508558_ControlStructures-switch-Statement">
+        <h2 class="heading "><span> switch-Statement </span></h2>
+<p   
+>To execute specific code, depending on that value contained in a variable (or returned by a statement), multiple nested if blocks could be used:</p>
+<pre class=" ">if (_color == &quot;blue&quot;) then {<br/>    hint &quot;What a nice color&quot;;<br/>} else {<br/>    if (_color == &quot;red&quot;) then {<br/>        hint &quot;Don&#39;t you get aggressive?&quot;;<br/>    }<br/>};</pre><p   
+>The more values there are to compare, the longer and harder to read the code will get.<br/>To make this process easier to code and to read, the switch-statement was introduced:</p>
+<pre class=" ">switch (VARIABLE) do {<br/><br/>    case VALUE1: {<br/>        STATEMENT1;<br/>        ...<br/>    };<br/><br/>    case VALUE2: {<br/>        STATEMENT2;<br/>        ...<br/>    };<br/><br/>    ...<br/>};</pre><p   
+>The structure compares VARIABLE against all given values (VALUE1, VALUE2, ...). If any of the values matches, the corresponding block of statements is executed.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">switch (_color) do {<br/><br/>    case &quot;blue&quot;: {<br/>        hint &quot;What a nice color&quot;;<br/>    };<br/><br/>    case &quot;red&quot;: {<br/>        hint &quot;Don&#39;t you get aggressive?&quot;;<br/>    };<br/>};</pre>    <div class="section section-3" id="src-1508558_ControlStructures-default-Block">
+        <h3 class="heading "><span> default-Block </span></h3>
+<p   
+>To catch values that are not explicitly defined in one of the case definitions, a default block can be used (Note that there is <strong class=" ">no colon</strong> after the default tag!):</p>
+<pre class=" ">switch (VARIABLE) do {<br/><br/>    case VALUE1: {<br/>        STATEMENT;<br/>        ...<br/>    };<br/><br/>    case VALUE2: {<br/>        STATEMENT;<br/>        ...<br/>    };<br/><br/>    default {<br/>        STATEMENT;<br/>        ...<br/>    };<br/>};</pre>    </div>
+    <div class="section section-3" id="src-1508558_ControlStructures-Variableassignments">
+        <h3 class="heading "><span> Variable assignments </span></h3>
+<p   
+>Switch can be used to assign different values to a variable:</p>
+<pre class=" ">_color = switch (side player) do {<br/>  case west: {&quot;ColorGreen&quot;}; <br/>  case east: {&quot;ColorRed&quot;}; <br/>};</pre><p   
+><br/></p>
+    </div>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508558_ControlStructures-Loops">
+        <h1 class="heading "><span> Loops </span></h1>
+<p   
+><strong class=" ">Loops</strong> are used to execute the same <a   href="Block.html">Block</a> for a specific or infinite number of times.</p>
+    <div class="section section-2" id="src-1508558_ControlStructures-waitUntil-Loop">
+        <h2 class="heading "><span> waitUntil-Loop </span></h2>
+<p   
+>This loop repeats the same code block as long as a given <a   href="Boolean.html">boolean</a> condition is <a   href="false.html">false</a>.</p>
+<pre class=" ">waitUntil {<br/>    STATEMENT;<br/>    ...<br/>    CONDITION<br/>};</pre><p   
+>Note that condition is practically return value of the code block. The loop processes as follow:</p>
+<ol class=" "><li class=" "><p   
+>Execution of all nested <a   href="Statement.html">Statement</a>. Go on to 2.</p>
+</li><li class=" "><p   
+>CONDITION is evaluated. If it is <a   href="false.html">false</a>, go back to 1., else quit loop.</p>
+</li></ol><p   
+>If CONDITION is always <a   href="true.html">true</a>, the loop quits after single iteration of STATEMENT.</p>
+<p   
+>Because the test of the waitUntil expression takes place after execution of the loop, a waitUntil loop executes one or more times. A waitUntil loop can be used only inside scheduled code, and since VBS2 NG it will be interrupted every 3.0ms to let other scripts run. It will resume on the next simulation step.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">_counter = 0;<br/><br/>waitUntil {<br/>    _counter = _counter + 1;<br/>    _counter &lt; 10<br/>};</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1508558_ControlStructures-while-Loop">
+        <h2 class="heading "><span> while-Loop </span></h2>
+<p   
+>This loop repeats the same code block as long as a given <a   href="Boolean.html">boolean</a> condition is <a   href="true.html">true</a>.</p>
+<pre class=" ">while {CONDITION} do {<br/>    STATEMENT;<br/>    ...<br/>};</pre><p   
+>Note the <strong class=" ">curled braces</strong> for the condition (<i class=" ">as opposed to round parentheses for if statements</i>). The loop processes as follow:</p>
+<ol class=" "><li class=" "><p   
+>CONDITION is evaluated. If it is <a   href="true.html">true</a>, go on to 2., else skip the block and go on with the code following the loop.</p>
+</li><li class=" "><p   
+>Execution of all nested <a   href="Statement.html">Statement</a>. Go back to 1.</p>
+</li></ol><p   
+>If CONDITION is <a   href="false.html">false</a> from the start, the statements within the block of the loop will never be executed.</p>
+<p   
+>Because the test of the while expression takes place before each execution of the loop, a while loop executes zero or more times. This differs from the for loop, which executes one or more times. Since VBS2 NG; a while loop inside a <a   href="spawn.html">spawn</a> or <a   href="execVM.html">execVM</a> thread will be interrupted every 3.0ms to let other scripts run. It will resume on the next simulation step. Also, a while loop will terminate without warning after 10,000 iterations if started from within a <a   href="Script_Interruption.html#src-1508454_Script_Interruption-Scheduledvs.non-scheduled">Scheduled vs. non-scheduled</a>.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">_counter = 0;<br/><br/>while {_counter &lt; 10} do {<br/>    _counter = _counter + 1;<br/>};</pre>    </div>
+    <div class="section section-2" id="src-1508558_ControlStructures-for-Loop">
+        <h2 class="heading "><span> for-Loop </span></h2>
+<p   
+>The for-loop repeats the same code block for a specific number of times.</p>
+<p   
+>All for loops whether <a   href="spawn.html">spawn</a> or <a   href="execVM.html">execVM</a> or <a   href="call.html">call</a> are blocking and atomic in execution. They will not terminate or be interrupted after a certain time nor after a number of fixed iterations (unless there is a float overflow or other unexpected failure of the conditional statement). This differs from <a   href="while.html">while</a> loops, and has the potential to freeze up VBS.</p>
+<pre class=" ">for [{BEGIN}, {CONDITION}, {STEP}] do {<br/>    STATEMENT;<br/>    ...<br/>};</pre><ul class=" "><li class=" "><p   
+>BEGIN is a number of <a   href="Statement.html">Statement</a> executed <i class=" ">before</i> the loop starts; part of parent and global variable spaces (inherits parent&#39;s local variables and is able to write to global variable space)</p>
+</li><li class=" "><p   
+>CONDITION is a <a   href="Boolean.html">Boolean</a> condition evaluated <i class=" ">before</i> each loop</p>
+</li><li class=" "><p   
+>STEP is a number of statements executed <i class=" ">after</i> each loop</p>
+</li></ul><p   
+>The loop processes as follows:</p>
+<ol class=" "><li class=" "><p   
+>BEGIN is executed</p>
+</li><li class=" "><p   
+>CONDITION is evaluated. If it is <a   href="true.html">true</a>, go on to 3., else skip the block and go on with the code following the loop.</p>
+</li><li class=" "><p   
+>The statements in the code block are executed</p>
+</li><li class=" "><p   
+>STEP is executed, go on to 2.</p>
+</li></ol><p   
+>If CONDITION is <a   href="false.html">false</a> from the beginning on, the code block will never be executed.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">// a loop repeating 10 times, displaying the numbers 0 to 9.<br/>for [{_i=0}, {_i&lt;10}, {_i=_i+1}] do {<br/>    player globalChat str (i);<br/>};</pre><p   
+><strong class=" ">Description:</strong></p>
+<ol class=" "><li class=" "><p   
+>The variable _i is set to 0</p>
+</li><li class=" "><p   
+>The condition _i&lt;10 is evaluated, which is <a   href="true.html">true</a> until _i surpasses 9.</p>
+</li><li class=" "><p   
+>The code player globalChat _i; is executed</p>
+</li><li class=" "><p   
+>The variable _i is incremented by 1, back to step 2.</p>
+</li></ol>    <div class="section section-3" id="src-1508558_ControlStructures-for-from-to-Loop">
+        <h3 class="heading "><span> for-from-to-Loop </span></h3>
+<p   
+>There exists an alternate syntax of the for-loop, which simplifies the last example a bit, and improves the performance of the loop as well.</p>
+<pre class=" ">for &quot;VARNAME&quot; from STARTVALUE to ENDVALUE do {<br/>    STATEMENT;<br/>    ...<br/>};</pre><ul class=" "><li class=" "><p   
+>VARNAME is any name given to the variable used to count the loop; not part of parent&#39;s variable space nor part of global variable space, variables will not persist outside this for loop.</p>
+</li><li class=" "><p   
+>STARTVALUE is a <a   href="Number.html">Number</a> value given to the counter variable before the loop starts</p>
+</li><li class=" "><p   
+>ENDVALUE is a <a   href="Number.html">Number</a> value until which the counter is incremented/decremented</p>
+</li></ul><p   
+>The loop processes as follows:</p>
+<ol class=" "><li class=" "><p   
+>A variable with the name VARNAME is initialized with STARTVALUE</p>
+</li><li class=" "><p   
+>If VARNAME is not equal to ENDVALUE, the code block is executed</p>
+</li><li class=" "><ol class=" "><li class=" "><p   
+>If ENDVALUE is greater than STARTVALUE, the variable VARNAME is incremented by 1</p>
+</li><li class=" "><p   
+>If ENDVALUE is less than STARTVALUE, the variable VARNAME is decremented by 1</p>
+</li></ol></li><li class=" "><p   
+>Go back to step 2</p>
+</li></ol><p   
+>The following example is semantically equal to the last example.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">// a loop repeating 10 times<br/>for &quot;_i&quot; from 0 to 9 do {<br/>    player globalChat format[&quot;%1&quot;,_i];<br/>};</pre><p   
+><strong class=" ">Description:</strong></p>
+<ol class=" "><li class=" "><p   
+>_i is set to 0</p>
+</li><li class=" "><p   
+>player globalChat 0 is executed</p>
+</li><li class=" "><p   
+>_i is incremented by 1 =&gt; _i is now 1</p>
+</li><li class=" "><p   
+>Back to step 2</p>
+</li></ol>    </div>
+    <div class="section section-3" id="src-1508558_ControlStructures-for-from-to-Loopwithcustomstep">
+        <h3 class="heading "><span> for-from-to-Loop with custom step </span></h3>
+<p   
+>The default step to increment the variable in for-from-to-Loops is 1. You can set a custom step though using this syntax:</p>
+<pre class=" ">for &quot;VARNAME&quot; from STARTVALUE to ENDVALUE step STEP do {<br/>    STATEMENT;<br/>    ...<br/>};</pre><ul class=" "><li class=" "><p   
+>STEP is a <a   href="Number.html">Number</a> which defines the step by which the variable is incremented every loop</p>
+</li></ul><p   
+>The rest is equal to the above section.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">// a loop repeating 5 times<br/>for &quot;_i&quot; from 0 to 9 step 2 do {<br/>    player globalChat format[&quot;%1&quot;,_i];<br/>};</pre><p   
+><strong class=" ">Description:</strong></p>
+<ol class=" "><li class=" "><p   
+>_i is set to 0</p>
+</li><li class=" "><p   
+>player globalChat 0 is executed</p>
+</li><li class=" "><p   
+>_i is incremented by 2 =&gt; _i is now 2</p>
+</li><li class=" "><p   
+>Back to step 2</p>
+</li></ol>    </div>
+    </div>
+    <div class="section section-2" id="src-1508558_ControlStructures-forEach-Loop">
+        <h2 class="heading "><span> forEach-Loop </span></h2>
+<p   
+>To step through every element of an <a   href="Array.html">Array</a>, the <a   href="forEach.html">forEach</a> command can be used:</p>
+<pre class=" ">{<br/>    STATEMENT;<br/>    ...<br/>} forEach ARRAY;</pre><p   
+>The code block is executed exactly (<a   href="count.html">count</a> ARRAY) times.</p>
+<p   
+>You may use the <a   href="Special_Variables.html">Category Special Variables</a> _x within the code block, which always references to the current item of the array. Another <a   href="Special_Variables.html">Category Special Variables</a> inside forEach loop is _forEachIndex accessible within the code block, representing current item&#39;s array index.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">_array = [unit1, unit2, unit3];<br/>{<br/>    _x setDamage 1;<br/>} forEach _array;</pre><p   
+><strong class=" ">Description:</strong></p>
+<ol class=" "><li class=" "><p   
+>In the first loop, the statement unit1 setDamage 1; is executed</p>
+</li><li class=" "><p   
+>In the second loop, the statement unit2 setDamage 1; is executed</p>
+</li><li class=" "><p   
+>In the third loop, the statement unit3 setDamage 1; is executed</p>
+</li></ol><p   
+>While it is possible to nest &#39;forEach&#39; loops, if the &#39;_x&#39; value of an outer loop is needed within an inner one, it has to be assigned to a local variable:</p>
+<pre class=" ">{<br/>  _unit = _x;<br/>  {<br/>     player sidechat format[&quot;Unit &#39;%1&#39;, weapon: &#39;%2&#39;&quot;,_unit,_x]<br/>  } forEach (weapons _x);<br/>} forEach allUnits;</pre><p   
+><i class=" ">NOTE: Each iteration (also when it consists of multiple commands) will be executed within one frame, so be aware of large and/or complex code blocks!</i></p>
+    </div>
+    <div class="section section-2" id="src-1508558_ControlStructures-count-Loop">
+        <h2 class="heading "><span> count-Loop </span></h2>
+<p   
+>It is possible to use <a   href="count.html">count</a> command in place of <a   href="forEach.html">forEach</a>, featuring minor performance improvement over <a   href="forEach.html">forEach</a> at the cost of lack of _forEachIndex variable.</p>
+<pre class=" ">{<br/>    STATEMENT;<br/>    ...<br/>    EXPRESSION<br/>} count ARRAY;</pre><p   
+>The code block is executed exactly (<a   href="count.html">count</a> ARRAY) times.</p>
+<p   
+>You may use the <a   href="Special_Variables.html">Category Special Variables</a> _x within the code block, which always references to the current item of the array. The value returned by command is count of return values of each blocks equal to <a   href="true.html">true</a>. It is mandatory for code block to return defined boolean value - true or false.</p>
+<p   
+><strong class=" ">Example:</strong></p>
+<pre class=" ">_array = [unit1, unit2, unit3];<br/>{<br/>    _x setDamage 1;<br/>    false<br/>} count _array;</pre><p   
+><strong class=" ">Description:</strong></p>
+<ol class=" "><li class=" "><p   
+>In the first loop, the statement unit1 setDamage 1; is executed</p>
+</li><li class=" "><p   
+>In the second loop, the statement unit2 setDamage 1; is executed</p>
+</li><li class=" "><p   
+>In the third loop, the statement unit3 setDamage 1; is executed</p>
+</li></ol><p   
+>While it is possible to nest &#39;count&#39; loops, if the &#39;_x&#39; value of an outer loop is needed within an inner one, it has to be assigned to a local variable:</p>
+<pre class=" ">{<br/>  _unit = _x;<br/>  {<br/>     player sidechat format[&quot;Unit &#39;%1&#39;, weapon: &#39;%2&#39;&quot;,_unit,_x];<br/>     false<br/>  } count (weapons _x);<br/>} count allUnits;</pre><p   
+><i class=" ">NOTE: Each iteration (also when it consists of multiple commands) will be executed within one frame, so be aware of large and/or complex code blocks!</i></p>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508558_ControlStructures-ReturnValues">
+        <h1 class="heading "><span> Return Values </span></h1>
+<p   
+>Control structures (with exception of <a   href="count.html">count</a>) always return the <strong class=" ">last <a   href="Expression.html">Expression</a> evaluated</strong> within the structure. Note that there <strong class=" ">must not</strong> be a semicolon (;) after this value, otherwise <a   href="Nothing.html">Nothing</a> is returned.</p>
+<p   
+><strong class=" ">example:</strong></p>
+<pre class=" ">_ret = if (myCondition) then {myValueA} else {myValueB};<br/><br/>=&gt; returns myValueA or myValueB</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1508558_ControlStructures-Seealso">
+        <h1 class="heading "><span> See also </span></h1>
+<ul class=" "><li class=" "><p   
+><a   href="if...then...else.html">if...then...else</a></p>
+</li><li class=" "><p   
+><a   href="Statement.html">Statement</a></p>
+</li><li class=" "><p   
+><a   href="Expression.html">Expression</a></p>
+</li><li class=" "><p   
+><a   href="Flow.html">Flow</a></p>
+</li></ul>    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Block.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Block</span>
+        </a>
+                <a href="Expression.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Expression</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

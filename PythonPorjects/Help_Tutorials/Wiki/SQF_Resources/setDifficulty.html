@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>setDifficulty - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1510415"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Commands_A-Z.html">Commands A-Z</a></li>
+                                                                                     <li><a href="S.html">S</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1510415"> <span>setDifficulty</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/vbs3_3.4-version-2-modificationdate-1505467167179-api-v2.gif" alt="images/download/attachments/1507348/vbs3_3.4-version-2-modificationdate-1505467167179-api-v2.gif"   />
+    </p>
+<p   
+><br/></p>
+    <div  class="confbox admonition admonition-note">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+>The command is deprecated in <i class=" ">VBS4 24.1+</i>. Use <a   href="setSetting.html">setSetting</a> instead.</p>
+        </div>
+    </div>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1510415_setDifficulty-Introducedin" class="heading "><span> Introduced in </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Version:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>3.4</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1510415_setDifficulty-Description" class="heading "><span> Description </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Description:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Controls specific simulation options (difficulty settings) for the current user.<br/></p>
+    <div  class="confbox admonition admonition-note">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+>The following consideration apply:</p>
+<ul class=" "><li class=" "><p   
+>In <i class=" ">VBS4 23.2+</i>, the command effect is immediate (no need to restart the mission). In pre-<i class=" ">VBS4 23.2</i> releases, after executing the command, restart the mission for the command to take effect.</p>
+</li><li class=" "><p   
+>The new settings are permanent (until set to a different value), and are visible in the options dialog.</p>
+</li><li class=" "><p   
+>In <i class=" ">VBS4 23.2+</i>, the <strong class=" ">3rdPersonView </strong>simulation option is called <strong class=" ">ThirdPersonView</strong>.</p>
+</li></ul>        </div>
+    </div>
+<p   
+>The options are:</p>
+<ul class=" "><li class=" "><p   
+>Weapons:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">realisticGunnery</strong> - Advanced Gunnery Features (realistic gunnery simulation, gunner view is removed from Commander optics, disables reload when weapon is loaded).</p>
+</li><li class=" "><p   
+><strong class=" ">autoAim</strong> - Auto-Aim (assists aiming by locking the weapon cursor onto the target after aiming at it, indicated by a color change from white to dark red).</p>
+</li><li class=" "><p   
+><strong class=" ">autoGuideAT</strong> - Auto-Guide AT (allows guided missiles to be treated as &quot;fire and forget&quot;).</p>
+</li><li class=" "><p   
+><strong class=" ">constantTurretSlewRate</strong> - Constant Turret Slew Rate (turret has the same turn rate irrespective of the turret zoom).</p>
+</li><li class=" "><p   
+><strong class=" ">ManualFire</strong> - Manual Fire (enables the &quot;Manual fire&quot; user action).</p>
+</li><li class=" "><p   
+><strong class=" ">TransparentPass3</strong> - Semi-Transparent Aiming (simulates aiming with both eyes open by making weapon semi-transparent).</p>
+</li><li class=" "><p   
+><strong class=" ">grenadeTrajectory</strong> - Show Grenade Trajectory (shows the approximate trajectory line for both throwing and launching grenades).</p>
+</li><li class=" "><p   
+><strong class=" ">weaponCursor</strong> - Weapon Crosshairs (toggles virtual crosshairs, providing an approximation of where the weapon muzzle is pointing).</p>
+</li><li class=" "><p   
+><strong class=" ">safetyOn</strong> - Weapon Safety Switch (activates the weapon safety mode, default: ON).</p>
+</li><li class=" "><p   
+><strong class=" ">MouseLook</strong> - Mouse Free Look (free look by using the mouse).</p>
+</li><li class=" "><p   
+><strong class=" ">NVGwithWeapScope</strong> - Force NVG Compatibility.</p>
+</li></ul></li><li class=" "><p   
+>HUD:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">SoldierNames</strong> - 3D Soldier Names (shows the names and health bars of soldiers in your team).</p>
+</li><li class=" "><p   
+><strong class=" ">clockIndicator</strong> - Clock Indicator (provides a &quot;Clock method&quot; of target indication, only appears when an enemy is located).</p>
+</li><li class=" "><p   
+><strong class=" ">enemyTag</strong> - Enemy TAG (shows the name and health bar of a hostile target, if your crosshairs are aimed at it).</p>
+</li><li class=" "><p   
+><strong class=" ">hud</strong> - Extended HUD Info (indicates the location and estimated distance of enemy forces, the information is available from all friendly sources and appears automatically on your screen).</p>
+</li><li class=" "><p   
+><strong class=" ">hudPerm</strong> - Extended HUD Info Always On (shows extended HUD info persistently, rather than fading in and out).</p>
+</li><li class=" "><p   
+><strong class=" ">map</strong> - Extended Map Info (shows real-time positions of known friendly/hostile units on the map).</p>
+</li><li class=" "><p   
+><strong class=" ">friendlyTag</strong> - Friendly TAG (this shows the name and health bars of a friendly target, if your crosshairs are aimed at it).</p>
+</li><li class=" "><p   
+><strong class=" ">hideUI</strong> - Hide UI (removes unit info resources such as: health bar, radar, weapon cursor, etc; forced in MP).</p>
+</li><li class=" "><p   
+><strong class=" ">hudWp</strong> - HUD Waypoints Info (waypoints are shown &quot;floating&quot; above their location with an icon and distance indicator).</p>
+</li><li class=" "><p   
+><strong class=" ">hudWpPerm</strong> - HUD Waypoints Info Always On (the next waypoint is persistently shown, rather than fading in and out).</p>
+</li><li class=" "><p   
+><strong class=" ">allowHUDLabels</strong> - HUD Labels (turns on HUD labels for everything, except player-controlled avatars).</p>
+</li><li class=" "><p   
+><strong class=" ">visualDirection</strong> - Nearby Shot Awareness (visualize nearby shot directions).</p>
+</li><li class=" "><p   
+><strong class=" ">showSpeakerIcons</strong> - Show Speaker Icons in AAR (displays speaker icons in the timeline during AAR recordings).</p>
+</li><li class=" "><p   
+><strong class=" ">ShowArmAMap</strong> - Use Game Map (shows the old-style ArmA game map, instead of the new C2 interface).</p>
+</li><li class=" "><p   
+><strong class=" ">VehicleAwareness</strong> - Vehicle Awareness Indicator (enables/disables display of situation-awareness indicator for vehicles).</p>
+</li><li class=" "><p   
+><strong class=" ">NoParaglideHUD</strong> - Hide Steerable Parachute HUD (hides special HUD controls shown when the player is in a steerable parachute).</p>
+</li><li class=" "><p   
+><strong class=" ">InfantryHeading</strong> - Infantry Heading Indicator (heading indicator for infantry).</p>
+</li><li class=" "><p   
+><strong class=" ">AdvancedMinimap</strong> - Advanced Mini-Map (replace mini-map with advanced one).</p>
+</li></ul></li><li class=" "><p   
+>Multiplayer:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">canHost</strong> - Can Host MP Session (allows users to host multiplayer Sessions).</p>
+</li><li class=" "><p   
+><strong class=" ">AllowSeagull</strong> - Seagull Respawn (enables a dead player to respawn as a seagull to continue observing the battlefield).</p>
+</li><li class=" "><p   
+><strong class=" ">netStats</strong> - Show Network Stats (activates the network statistics display, accessible to players during a network session).</p>
+</li><li class=" "><p   
+><strong class=" ">vonId</strong> - VON ID (shows VOIP ID).</p>
+</li><li class=" "><p   
+><strong class=" ">startAARInMultiplayer</strong> - Start AAR in Multiplayer (automatically starts AAR recording during MP sessions).</p>
+</li></ul></li><li class=" "><p   
+>Simulation:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">AdvancedHeadInjury</strong> - Advanced Head Injury (head injuries can cause dizziness and impaired vision).</p>
+</li><li class=" "><p   
+><strong class=" ">Wound</strong> - Advanced Wounding and Amputations (simulates injuries of specific limbs, including amputations and bleeding).</p>
+</li><li class=" "><p   
+><strong class=" ">AnalogThrottle</strong> - Analog Throttle (enables the use of an analog throttle). Removed in <i class=" ">VBS3 22.1+</i> and <i class=" ">VBS4 22.2+</i>.</p>
+</li><li class=" "><p   
+><strong class=" ">BackblastDamage</strong> - Backblast Damage.</p>
+</li><li class=" "><p   
+><strong class=" ">Bleeding</strong> - Bleeding (units may die of bleeding).</p>
+</li><li class=" "><p   
+><strong class=" ">showHints</strong> - Cadet Mode and Training Hints (simplifies user interface, toggles the visibility of hints for specific items).</p>
+</li><li class=" "><p   
+><strong class=" ">SuppressPlayer</strong> - Combat User Suppression (the player can be effectively suppressed by incoming fire - white flashes and momentary loss of focus).</p>
+</li><li class=" "><p   
+><strong class=" ">armor</strong> - Extended Armor (simulates the addition of extra armor plates to armored vehicles, allows the vehicle to sustain more damage before total destruction).</p>
+</li><li class=" "><p   
+><strong class=" ">HealthDegrad</strong> - Health Degradation (health degrades when less than 75%, and stops at 10%).</p>
+</li><li class=" "><p   
+><strong class=" ">FollowContour</strong> - Helicopter Follow Contour (forces the helicopter to gain/decrease altitude according to terrain contours, adopting a &quot;tactical flight&quot; protocol).</p>
+</li><li class=" "><p   
+><strong class=" ">HitBodyEffect</strong> - Hit Body Effect.</p>
+</li><li class=" "><p   
+><strong class=" ">TremblingHands</strong> - Injured Hands Trembling (hands damage affects aiming).</p>
+</li><li class=" "><p   
+><strong class=" ">OneIncapacitatedScreen</strong> - One Incapacitated Screen (same text on the black screen for player death and unconsciousness).</p>
+</li><li class=" "><p   
+><strong class=" ">RealisticFatigue</strong> - Realistic Fatigue (morale is effected by physical stresses, such as weight being carried, wounds and the length of time in battle).</p>
+</li><li class=" "><p   
+><strong class=" ">RealisticRepairs</strong> - Realistic Repairs (repairs take longer time and players have to get out of repair trucks to carry them out).</p>
+</li><li class=" "><p   
+><strong class=" ">SimplifiedHeliModel</strong> - Simple Helicopter Model (simplifies helicopter flight physics, disables crashing and speed/elevation are controlled by single key presses).</p>
+</li><li class=" "><p   
+><strong class=" ">unlimitedSaves</strong> - Unlimited Saves (allows an unlimited number of single player mission saves).</p>
+</li><li class=" "><p   
+><strong class=" ">UnlimitedFuel</strong> - Unlimited Fuel (allows vehicles to never run out of fuel).</p>
+</li><li class=" "><p   
+><strong class=" ">VehicleQualification</strong> - Vehicle and Weapon Qualifications (user capabilities reduce vehicle and weapon usage by its qualification).</p>
+</li><li class=" "><p   
+>    <span style="color: #172b4d;">
+<strong class=" ">FootprintRendering</strong><strong class=" "> </strong>(<i class=" ">VBS4 22.2+</i>) - Rendering of footprints on the terrain.    </span>
+</p>
+</li><li class=" "><p   
+>    <span style="color: #172b4d;">
+<strong class=" ">InversedShipControl</strong> (<i class=" ">VBS4 22.2+</i>)<i class=" "> </i>- Reverses ship-steering control.    </span>
+</p>
+</li><li class=" "><p   
+>    <span style="color: #172b4d;">
+<strong class=" ">LifeformSnowCompression</strong> (<i class=" ">VBS4 23.2+</i>) - Snow compression caused by lifeforms.    </span>
+</p>
+</li><li class=" "><p   
+><strong class=" ">    <span style="color: #172b4d;">
+WheelSnowCompression    </span>
+</strong>    <span style="color: #172b4d;">
+ (<i class=" ">VBS4 23.2+</i>) - Snow compression caused by wheeled vehicles.    </span>
+</p>
+</li></ul></li><li class=" "><p   
+>AI:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">AIVoices</strong> - AI Voices (transmits all AI radio traffic).</p>
+</li><li class=" "><p   
+><strong class=" ">autoSpot</strong> - Auto-Report (your character automatically radios in reports).</p>
+</li><li class=" "><p   
+><strong class=" ">SurrenderBLUFOR</strong> - BLUFOR Surrender (BLUFOR surrenders if conditions are met, requires morale simulation to be enabled).</p>
+</li><li class=" "><p   
+><strong class=" ">SurrenderIndependent</strong> - INDEPENDENT Surrender (Independent surrenders if conditions are met, requires morale simulation to be enabled).</p>
+</li><li class=" "><p   
+><strong class=" ">LongTermMorale</strong> - Long Term Morale (slows the effects of morale fluctuations, by evaluating the moral of a unit over 60 second intervals, instead of 1 sec).</p>
+</li><li class=" "><p   
+><strong class=" ">Morale</strong> - Morale Simulation (activates the morale system, strong and long-term morale are dependent on this setting).</p>
+</li><li class=" "><p   
+><strong class=" ">SurrenderOPFOR</strong> - OPFOR Surrender (OPFOR surrenders if conditions are met, requires morale simulation to be enabled).</p>
+</li><li class=" "><p   
+><strong class=" ">StrongMorale</strong> - Strong Morale (morale has a stronger impact on AI skills and conduct in battle).</p>
+</li><li class=" "><p   
+><strong class=" ">XaitmentInBuildings</strong> - Xaitment Pathplanning Inside Buildings (enables Xaitment pathplanning for all units inside objects with an attached navigation mesh).</p>
+</li><li class=" "><p   
+><strong class=" ">ultraAI</strong> - Super AI (increases the intelligence of the AI, which performs with a higher degree of cunning and awareness).</p>
+</li></ul></li><li class=" "><p   
+>Camera:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">3rdPersonView</strong> (<i class=" ">VBS4 23.2+</i>: <strong class=" ">ThirdPersonView</strong>) - Third-Person View (enables or disables third-person view).</p>
+</li><li class=" "><p   
+><strong class=" ">autoVehicleCameraTurn</strong> - Automatic Driver Camera Turn (if true, the view direction is affected by the direction the vehicle is headed in; if false, the camera is independent of vehicle steering).</p>
+</li><li class=" "><p   
+><strong class=" ">rteCamAbsolute</strong> - 3D Editor Camera Retains Absolute Height (allows the editor camera in the 3D editor to follow an absolute height, instead of a relative height).</p>
+</li><li class=" "><p   
+><strong class=" ">showAvatar</strong> - Show Avatar in 1st Person View (draws the avatar in 1st-person view, when in vehicle).</p>
+</li><li class=" "><p   
+><strong class=" ">useCameraDOF</strong> - Use DOF for Optics (enables the default ArmA Depth-of-Field effect for optics).</p>
+</li><li class=" "><p   
+><strong class=" ">hudGroupInfo</strong> - HUD Show Group.</p>
+</li><li class=" "><p   
+><strong class=" ">PeripheralVision</strong> - Adds visual signals to characters who are slightly out of direct view.</p>
+</li></ul></li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1510415_setDifficulty-Syntax" class="heading "><span>Syntax</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Syntax:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">setDifficulty</strong> [option, setting, force]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Parameters:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>option: <a   href="String.html">String</a> - Option name (see description).</p>
+</li><li class=" "><p   
+>setting: <a   href="Boolean.html">Boolean</a> - New value for difficulty setting.</p>
+</li><li class=" "><p   
+>force: <a   href="Boolean.html">Boolean</a> - Sets the &quot;Enforce&quot; (by admin) option.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Return Value:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Nothing.html">Nothing</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1510415_setDifficulty-Examples" class="heading "><span>Examples</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Examples:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">// Pre-VBS4 23.2<br/>setDifficulty [&quot;3rdPersonView&quot;, false, false];<br/><br/>// VBS4 23.2+<br/>setDifficulty [&quot;ThirdPersonView&quot;, false, false];</pre>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1510415_setDifficulty-AdditionalInformation" class="heading "><span>Additional Information</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>See also:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" "><a   href="difficultyEnabled.html">difficultyEnabled</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Multiplayer:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Problems:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="setDestination.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>setDestination</span>
+        </a>
+                <a href="setDir.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>setDir</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

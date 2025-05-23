@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Custom Command Menus - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1508552"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Scripting_References.html">Scripting References</a></li>
+                                                                                     <li><a href="VBS_Dialogs.html">VBS Dialogs</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1508552"> <span>Custom Command Menus</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><br/></p>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/CustomMenu-version-2-modificationdate-1505466819644-api-v2.jpg" alt="images/download/attachments/1507348/CustomMenu-version-2-modificationdate-1505466819644-api-v2.jpg"   />
+    <ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Introduction">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Menudefinition">Menu definition</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-viaScript">via Script</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Menusyntax">Menu syntax</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Example">Example</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-viaConfig">via Config</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Example.1">Example</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Conditions">Conditions</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508552_CustomCommandMenus-Output">Output</a></p>
+</li></ul><p   
+><br/><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/vbs2_2.00-version-2-modificationdate-1505467044145-api-v2.gif" alt="images/download/attachments/1507348/vbs2_2.00-version-2-modificationdate-1505467044145-api-v2.gif"   />
+    </p>
+    <div class="section section-1" id="src-1508552_CustomCommandMenus-Introduction">
+        <h1 class="heading "><span>Introduction</span></h1>
+<p   
+>Custom command menus (like the standard one opened via the &lt;0&gt; key) can be created either inside a mission (via scripts) or via addons (to be used in *any* mission), or custom entries can be added to the existing command menu (which will then be shown in the &quot;Communication&quot; group).</p>
+    </div>
+    <div class="section section-1" id="src-1508552_CustomCommandMenus-Menudefinition">
+        <h1 class="heading "><span>Menu definition</span></h1>
+    <div class="section section-2" id="src-1508552_CustomCommandMenus-viaScript">
+        <h2 class="heading "><span>via Script</span></h2>
+<p   
+>A custom menu is defined via a global array, which contains the definitions for the menu entries.<br/>It can have multiple sub-levels, and can be changed dynamically, by reconfiguring the values in the array.<br/>Each menu (the main one, as well as each of the possible sub-menus) have to be defined in separate arrays. The naming is not limited, but in order to avoid possible conflicts with other global variables, they should start with a unique identifier (e.g. &quot;MYMENU_menu1&quot;).</p>
+<p   
+>To display the custom menu, use the <a   href="showCommandingMenu.html">showCommandingMenu</a> command:</p>
+<pre class=" ">showCommandingMenu &quot;#USER:MY_MENU_communication&quot;</pre><p   
+>To add the custom menu to the standard command menu, assign its definition array to BIS_MENU_GroupCommunication. It will then be available under the &quot;Communications&quot; entry in the regular command menu (press 0-8 to access it):</p>
+<pre class=" ">BIS_MENU_GroupCommunication =+ MY_MENU_communication</pre><p   
+><br/></p>
+    <div class="section section-3" id="src-1508552_CustomCommandMenus-Menusyntax">
+        <h3 class="heading "><span>Menu syntax</span></h3>
+<p   
+>First array element:<strong class=" ">[title,standard_cursor]</strong></p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">title</strong>: <a   href="String.html">String</a> - Label to be shown at bottom of menu (should not be empty, otherwise just a black block will be shown).</p>
+</li><li class=" "><p   
+><strong class=" ">standard_cursor</strong>: <a   href="Boolean.html">Boolean</a> - If set to <a   href="true.html">true</a>, then custom icons (as defined in menu entries below) will not be displayed.</p>
+</li></ul><p   
+>Second and higher array elements. (Can be as many as needed - up to 10 will fit into menu frame. More than that can be displayed, but will drop out of frame.):<strong class=" ">[label, key, submenu, type, script, visible, active, icon]</strong></p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">label</strong>: <a   href="String.html">String</a> - Displayed caption for menu selection</p>
+</li><li class=" "><p   
+><strong class=" ">key</strong>: <a   href="Array.html">Array</a>: Key-press that can activate selection. 0: no key, 1: &lt;Escape&gt;, 2...9: &lt;F1&gt;...&lt;F10&gt;, 10,11,12,...: Number 9,10,&quot;-&quot;, and the rest of the keyboard (corresponding to DIK assignments)<br/>More than one key can be assigned, but only the first will be displayed in the menu.</p>
+</li><li class=" "><p   
+><strong class=" ">submenu</strong>: <a   href="String.html">String</a> - User menu name string (eg &quot;#USER:MY_SUBMENU_NAME&quot; ), &quot;&quot; for script to execute. Must be global, and preceded by &quot;#USER:&quot;.</p>
+</li><li class=" "><p   
+><strong class=" ">type</strong>: <a   href="Number.html">Number</a> -</p>
+<ul class=" "><li class=" "><p   
+>-1: separator line (any defined title text is ignored)</p>
+</li><li class=" "><p   
+>-2: no action (used for group headers, etc.)</p>
+</li><li class=" "><p   
+>-3: hides command menu</p>
+</li><li class=" "><p   
+>-4: goes up one level in the menu</p>
+</li><li class=" "><p   
+>-5: executes the defined script</p>
+</li></ul></li><li class=" "><p   
+><strong class=" ">script</strong>: <a   href="Array.html">Array</a>: Always defined in the following syntax: [[&quot;expression&quot;,command]] Command to be executed on activation (if type==5 and submenu==&quot;&quot;). No arguments are passed.</p>
+</li><li class=" "><p   
+><strong class=" ">visible</strong>: <a   href="Number.html">Number</a> - 1: menu entry is visible, 0: hidden. Can use system variables (see list <a   href="#src-1508552_CustomCommandMenus-Conditions">Conditions</a>).</p>
+</li><li class=" "><p   
+><strong class=" ">active</strong>: <a   href="Number.html">Number</a> - 1: menu entry is highlighted, 0: grayed out. Can use system variables (see list <a   href="#src-1508552_CustomCommandMenus-Conditions">Conditions</a>).</p>
+</li><li class=" "><p   
+><strong class=" ">icon</strong>: <a   href="String.html">String</a> - Path to a custom cursor to show when selection is active. (Only OVERLAYS the already existing cursor, so for now not useful.) (optional)</p>
+</li></ul>    </div>
+    <div class="section section-3" id="src-1508552_CustomCommandMenus-Example">
+        <h3 class="heading "><span>Example</span></h3>
+<p   
+><strong class=" ">Demo mission: <a   href="attachments/1514514_2_CustomCommandMenus.zip">CustomCommandMenus.zip</a></strong></p>
+<pre class=" ">// only show placement option if the cursor is on the ground, but NOT pointing at a unit or vehicle<br/>_placementCondition = &quot;CursorOnGround * 1-CursorOnGroupMember * 1-CursorOnEmptyVehicle&quot;;<br/><br/>// main menu (contains some top-level actions (&quot;Removal options&quot;) and calls to sub-menus (which are defined below)<br/>MY_MENU_communication = <br/>[<br/>  [&quot;Custom Menu&quot;,true],<br/>  [&quot;Removal options&quot;,   [0], &quot;&quot;,                           -2, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, &quot;1&quot;], // header text for removal options<br/>  [&quot; Remove all&quot;,       [2], &quot;&quot;,                           -5, [[&quot;expression&quot;, &quot;[&#39;remove&#39;,&#39;all&#39;] execVM &#39;place.sqf&#39;&quot;]],    &quot;1&quot;, &quot;1&quot;], // option is always shown<br/>  [&quot; Remove unit&quot;,      [3], &quot;&quot;,                           -5, [[&quot;expression&quot;, &quot;[&#39;remove&#39;,&#39;unit&#39;] execVM &#39;place.sqf&#39;&quot;]],   &quot;CursorOnGroupMember&quot;, &quot;CursorOnGroupMember&quot;], // only show option if cursor is on a group member<br/>  [&quot; Remove vehicle&quot;,   [3], &quot;&quot;,                           -5, [[&quot;expression&quot;, &quot;[&#39;remove&#39;,&#39;vehicle&#39;] execVM &#39;place.sqf&#39;&quot;]],&quot;CursorOnEmptyVehicle&quot;, &quot;CursorOnEmptyVehicle&quot;], // only show option if cursor is on an empty vehicle<br/>  [&quot;(separator)&quot;,       [3], &quot;&quot;,                           -1, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, &quot;1&quot;],	// separator line<br/>  [&quot;Placement options&quot;, [0], &quot;&quot;,                           -2, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, &quot;1&quot;], // header text for placement options<br/>  [&quot; Place units&quot;,      [4], &quot;#USER:MY_MENU_placeUnit&quot;,    -5, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, _placementCondition], // option is always shown, but can only be selected if cursor condition is fulfilled<br/>  [&quot; Place vehicles&quot;,   [5], &quot;#USER:MY_MENU_placeVehicle&quot;, -5, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, _placementCondition]<br/>];<br/><br/>// sub-menu to create units<br/>MY_MENU_placeUnit = [<br/>  [&quot;Unit placement&quot;,true],<br/>  [&quot;Type of unit to place&quot;, [0], &quot;&quot;, -2, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, &quot;1&quot;],<br/>  [&quot; Unarmed&quot;, [2], &quot;&quot;, -5, [[&quot;expression&quot;, &quot;[&#39;place&#39;,&#39;unit&#39;,&#39;VBS2_US_ARMY_Interpreter_W&#39;] execVM &#39;place.sqf&#39;&quot;]], &quot;1&quot;, _placementCondition],<br/>  [&quot; Machinegun&quot;, [3], &quot;&quot;, -5, [[&quot;expression&quot;, &quot;[&#39;place&#39;,&#39;unit&#39;,&#39;VBS2_US_ARMY_MGunner_W_M249_none&#39;] execVM &#39;place.sqf&#39;&quot;]], &quot;1&quot;, _placementCondition],<br/>  [&quot; Anti-Tank&quot;, [4], &quot;&quot;, -5, [[&quot;expression&quot;, &quot;[&#39;place&#39;,&#39;unit&#39;,&#39;VBS2_us_army_ATsoldier_W_Javelin_none&#39;] execVM &#39;place.sqf&#39;&quot;]], &quot;1&quot;, _placementCondition]<br/>];<br/><br/>// sub-menu to create vehicles<br/>MY_MENU_placeVehicle = [<br/>  [&quot;Vehicle placement&quot;,true],<br/>  [&quot;Type of veh. to place&quot;, [0], &quot;&quot;, -2, [[&quot;expression&quot;, &quot;&quot;]], &quot;1&quot;, &quot;1&quot;],<br/>  [&quot; Land Rover&quot;, [2], &quot;&quot;, -5, [[&quot;expression&quot;, &quot;[&#39;place&#39;,&#39;vehicle&#39;,&#39;VBS2_AU_Army_Landrover_D_X&#39;] execVM &#39;place.sqf&#39;&quot;]], &quot;1&quot;, _placementCondition],<br/>  [&quot; Humvee&quot;, [3], &quot;&quot;, -5, [[&quot;expression&quot;, &quot;[&#39;place&#39;,&#39;vehicle&#39;,&#39;VBS2_US_ARMY_M1114_D_X&#39;] execVM &#39;place.sqf&#39;&quot;]], &quot;1&quot;, _placementCondition],<br/>  [&quot; Abrams&quot;, [4], &quot;&quot;, -5, [[&quot;expression&quot;, &quot;[&#39;place&#39;,&#39;vehicle&#39;,&#39;VBS2_US_ARMY_M1A1_D_X&#39;] execVM &#39;place.sqf&#39;&quot;]], &quot;1&quot;, _placementCondition]<br/>];<br/><br/>// open the custom menu <br/>showCommandingMenu &quot;#USER:MY_MENU_communication&quot;;</pre>    </div>
+    </div>
+    <div class="section section-2" id="src-1508552_CustomCommandMenus-viaConfig">
+        <h2 class="heading "><span> via Config</span></h2>
+<p   
+>Custom menus can also be defined in an addon.<br/>The definitions mirror those of the scripted syntax, but the &quot;command&quot; property (which corresponds to the &quot;type&quot; property for scripted definitions, where it is a number between -1 and -5) can also be a string in a config. In that case the command defined in this string will be executed upon opening the menu it is shown it. (If there are multiple menu entries with script commands, they will <i class=" ">all</i> be executed!)<br/>The standard VBS2 command menu is defined in RscGroupRootMenu.</p>
+    <div class="section section-3" id="src-1508552_CustomCommandMenus-Example.1">
+        <h3 class="heading "><span> Example </span></h3>
+<p   
+><strong class=" ">Demo addon: <a   href="attachments/1514600_2_MY_CommandMenu.zip">MY_CommandMenu.zip</a></strong></p>
+<pre class=" ">// definition of main custom menu<br/>class MY_CustomMenu {  // this class name has to be used in the showCommandingMenu command<br/>  title=&quot;Custom Menu&quot;; // custom label at the bottom of the menu<br/>  access=0;<br/>  atomic=0;<br/>  vocabulary=&quot;&quot;;<br/>  contexsensitive=1;<br/><br/>  // items in main menu<br/>  class Items {<br/>    // selectable action (always visible &amp; active)<br/>    class RemoveAll {<br/>      title=&quot; Remove all&quot;; // visible label<br/>      shortcuts[]={2};  // keys assigned to action<br/>      show=&quot;1&quot;;  // visibility condition<br/>      enable=&quot;1&quot;;  // activation condition<br/>      command=-5;  // type of entry (-5: executable action)<br/>      eventHandler=&quot;hint &#39;remove all&#39;&quot;;  // action to be performed when selected<br/>      speechId=0;<br/>    };<br/>    // action to bring up the submenu &#39;MY_CustomMenu_PlaceUnit&#39;<br/>    class PlaceUnit {<br/>      title=&quot; Place unit&quot;;<br/>      shortcuts[]={4};<br/>      show=&quot;1&quot;;<br/>      enable=&quot;CursorOnGround * 1-CursorOnGroupMember * 1-CursorOnEmptyVehicle&quot;;<br/>      menu=&quot;MY_CustomMenu_PlaceUnit&quot;;  // this option opens a sub-menu defined elsewhere<br/>      speechId=0;<br/>    };<br/>  };<br/>};</pre>    </div>
+    </div>
+    <div class="section section-2" id="src-1508552_CustomCommandMenus-Conditions">
+        <h2 class="heading "><span>Conditions</span></h2>
+<p   
+>The condition string that controls whether a menu entry can be seen or selected can contain one or more of the keywords listed below.<br/>Each of them is determined by the engine, and automatically assigned either a 1 (true) or 0 (false) value. It is NOT possible to use regular script commands in this condition string!<br/>Keywords can be negated by subtracting them from 1 (e.g. &quot;1-CursorOnGround&quot; will only be true if the cursor is pointed at the sky), and combined by multiplying them (e.g. &quot;CursorOnGround * IsCommander&quot;).</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">AmmoLow</strong>: Player&#39;s ammo is low (last magazine)</p>
+</li><li class=" "><p   
+><strong class=" ">AreActions</strong>: Menu entry is an action (as opposed to a sub-menu, for example)</p>
+</li><li class=" "><p   
+><strong class=" ">CanAnswer</strong>: Is able to reply to radio messages</p>
+</li><li class=" "><p   
+><strong class=" ">CommandsToGunner</strong>: Can give orders to gunner</p>
+</li><li class=" "><p   
+><strong class=" ">CommandsToPilot</strong>: Can give orders to driver/pilot</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnEmptyVehicle</strong>: Cursor is pointed at an empty vehicle</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnEnemy</strong>: Cursor is pointed at an *identified* enemy</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnFriendly</strong>: Cursor is pointed at unit of same side</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnGround</strong>: Cursor is pointed at ground</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnGroupMember</strong>: Cursor is pointed at group member</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnGroupMemberSelected</strong>: Cursor is pointed at selected group member</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnHoldingFire</strong>: Cursor is pointed at group member that has been ordered to hold fire</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnNeedFirstAID</strong>: A non-medic unit is selected, and the cursor is pointed at an unconscious unit</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnNeedHeal</strong>: A medic is selected, and the cursor is pointed at a heavily injured (damage&gt;=.45) or unconscious unit</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnNotEmptySubgroups</strong>: Unit under cursor is in different subgroup than player</p>
+</li><li class=" "><p   
+><strong class=" ">CursorOnVehicleCanGetIn</strong>: At least one of currently selected units isn&#39;t in vehicle under cursor</p>
+</li><li class=" "><p   
+><strong class=" ">FormationDiamond</strong>: Group&#39;s formation is &quot;DELTA&quot; (diamond)</p>
+</li><li class=" "><p   
+><strong class=" ">FormationLine</strong>: Group&#39;s formation is &quot;LINE&quot;</p>
+</li><li class=" "><p   
+><strong class=" ">FuelLow</strong>: Player&#39;s vehicle is low on fuel</p>
+</li><li class=" "><p   
+><strong class=" ">HasRadio</strong>: Player has radio actions available</p>
+</li><li class=" "><p   
+><strong class=" ">IsAlone</strong>: No group members, or group members confirmed dead</p>
+</li><li class=" "><p   
+><strong class=" ">IsAloneInVehicle</strong>: Only unit in vehicle</p>
+</li><li class=" "><p   
+><strong class=" ">IsCommander</strong>: Vehicle commander (or driver if turret-less). If not in vehicle, then true for group leader.</p>
+</li><li class=" "><p   
+><strong class=" ">IsLeader</strong>: Group leader (group must have members)</p>
+</li><li class=" "><p   
+><strong class=" ">IsSelectedToAdd: Left or right control key is pressed</strong></p>
+</li><li class=" "><p   
+><strong class=" ">IsTeamSwitch</strong>: Team switching is enabled</p>
+</li><li class=" "><p   
+><strong class=" ">Multiplayer</strong>: Multiplayer session in progess</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmpty</strong>: Group members have been selected</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyBlueTeam</strong>: Group members have been assigned to team Blue</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyCommanders</strong>: A unit commanding a vehicle is currently selected</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyGreenTeam</strong>: Group members have been assigned to team Green</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyInVehicle</strong>: Group members in a vehicle have been selected</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyMainTeam</strong>: Player commands subordinates</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyRedTeam</strong>: Group members have been assigned to team Red</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptyYellowTeam</strong>: Group members have been assigned to team Yellow</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptySoldiers</strong>: At least one of selected units isn&#39;t in vehicle (type of unit doesn&#39;t matter-can be soldier, civilian, or even animals)</p>
+</li><li class=" "><p   
+><strong class=" ">NotEmptySubgroups</strong>: At least one of selected units is in different subgroup than main subgroup of its group (e.g. in a different vehicle than the player)</p>
+</li><li class=" "><p   
+><strong class=" ">PlayableLeader</strong>: Leader of player group is a playable unit</p>
+</li><li class=" "><p   
+><strong class=" ">PlayableSelected</strong>: Only one unit is selected and it is playable</p>
+</li><li class=" "><p   
+><strong class=" ">PlayerOwnRadio</strong>: Player has radio actions available</p>
+</li><li class=" "><p   
+><strong class=" ">PlayerVehicleCanGetIn</strong>: Player&#39;s vehicle have some free seats (even if locked)</p>
+</li><li class=" "><p   
+><strong class=" ">SomeSelectedHaveTarget</strong>: At least one of the group members has a target assigned</p>
+</li><li class=" "><p   
+><strong class=" ">SomeSelectedHoldingFire</strong>: At least one of the group members has been ordered to hold fire</p>
+</li><li class=" "><p   
+><strong class=" ">VehicleCommander</strong>: Vehicle commander (or driver if turret-less). Only true if in vehicle.</p>
+</li></ul>    </div>
+    </div>
+    <div class="section section-1" id="src-1508552_CustomCommandMenus-Output">
+        <h1 class="heading "><span>Output</span></h1>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/CustomMenuGround-version-2-modificationdate-1505466819922-api-v2.jpg" alt="images/download/attachments/1507348/CustomMenuGround-version-2-modificationdate-1505466819922-api-v2.jpg"   />
+    </p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/CustomMenuUnit-version-1-modificationdate-1505466820813-api-v2.jpg" alt="images/download/attachments/1507348/CustomMenuUnit-version-1-modificationdate-1505466820813-api-v2.jpg"   />
+    </p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/CustomMenuNoGround-version-2-modificationdate-1505466820364-api-v2.jpg" alt="images/download/attachments/1507348/CustomMenuNoGround-version-2-modificationdate-1505466820364-api-v2.jpg"   />
+    </p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+>For the custom menu shown above the conditions for the upper part of the menu (&quot;Removal options&quot;) are:</p>
+<ul class=" "><li class=" "><p   
+>visibility:&quot;CursorOnGroupMember&quot; (only shown when cursor is on group member)</p>
+</li><li class=" "><p   
+>selection:&quot;CursorOnGroupMember&quot; (can only be selected when cursor is on group member)</p>
+</li></ul><p   
+>For the lower part (&quot;Placement options&quot;) the conditions are:</p>
+<ul class=" "><li class=" "><p   
+>visibility:&quot;1&quot; (always visible)</p>
+</li><li class=" "><p   
+>selection:&quot;CursorOnGround * 1-CursorOnGroupMember&quot; (can only be selected when cursor on ground, and NOT on group member)</p>
+</li></ul><p   
+>The results are as follows:</p>
+<ul class=" "><li class=" "><p   
+>1st image: Cursor is on the ground, but is <i class=" ">not</i> pointed at a group member, so the option to place a unit at that position is visible and can be selected.</p>
+</li><li class=" "><p   
+>2nd image: Since the cursor is pointed at the group member, &quot;CursorOnGroupMember&quot; will return 1, and make the condition negative. Therefore, the option the create a unit at that location is disabled (even though it is still visible).</p>
+</li><li class=" "><p   
+>3rd image: The cursor is pointed at the sky (CursorOnGround returns 0), so the removal options are hidden, and the placement options disabled.</p>
+</li></ul><p   
+><br/></p>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="VBS_Dialogs.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS Dialogs</span>
+        </a>
+                <a href="Dialogs_ActiveText.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Dialogs_ActiveText</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>
