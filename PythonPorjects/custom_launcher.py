@@ -303,7 +303,7 @@ def open_bvi_pdf_docs():
         height=1
     ).pack(side="right", padx=20)
 
-# ======================== 📌 Path & File Locations ========================= #
+# ======================== Path & File Locations ========================= #
 
 logo_STE_path       = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
 logo_us_army_path   = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
@@ -318,9 +318,10 @@ demo_video_path       = os.path.join(BASE_DIR, "Help_Tutorials", "BattleSpaceSet
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 os.makedirs(BATCH_FOLDER, exist_ok=True)
 VBS4_BAT   = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
-BLUEIG_BAT = os.path.join(BATCH_FOLDER, "Blueig.bat")
+BLUEIG_BAT = os.path.join(BATCH_FOLDER, "BlueIg.bat")
 
-def _prompt_for_exe(title):
+def prompt_for_exe(title: str) -> str:
+    """Open a file dialog and return the path to an .exe file."""
     root = tk.Tk()
     root.withdraw()
     path = filedialog.askopenfilename(
@@ -330,51 +331,116 @@ def _prompt_for_exe(title):
     root.destroy()
     return path
 
-def _ensure_executable(config_key, defaults, prompt_title):
-    # Try config override + defaults
-    user_path = config['General'].get(config_key, '').strip()
-    candidates = [user_path] + defaults
-    found = next((p for p in candidates if p and os.path.exists(p)), None)
-    if not found:
-        # prompt user to locate the exe
-        found = _prompt_for_exe(prompt_title)
-        if not found or not os.path.exists(found):
-            raise FileNotFoundError(f"No executable selected for {config_key}, aborting.")
-        # persist to config
-        config['General'][config_key] = found
-        with open(CONFIG_PATH, 'w') as cfgfile:
-            config.write(cfgfile)
-    return found
-def ensure_batch_files():
-    # VBS4 launcher
-    vbs4_defaults = [
-        r"C:\BISIM\VBS4\VBS4.exe",
-        r"C:\Builds\VBS4\VBS4.exe",
-    ]
-    vbs4_exe = _ensure_executable('vbs4_path', vbs4_defaults, "Select VBS4 executable")
-    vbs4_script = f"""@echo off
-"{vbs4_exe}" -admin "-autoassign=admin" -forceSimul -window
+def _write_vbs4_bat(vbs4_exe: str):
+    script = f"""@echo off
+\"{vbs4_exe}\" -admin \"-autoassign=admin\" -forceSimul -window
 exit /b 0
 """
     with open(VBS4_BAT, "w", newline="\r\n") as f:
-        f.write(vbs4_script)
+        f.write(script)
 
-    # BlueIG launcher
-    blueig_defaults = [
-        r"C:\Builds\BlueIG\BlueIG.exe",
-    ]
-    blueig_exe = _ensure_executable('blueig_path', blueig_defaults, "Select BlueIG executable")
-    blueig_script = f"""@echo off
-"{blueig_exe}" -hmd=openxr_ctr:oculus -vbsHostExerciseID=Exercise-HAMMERKIT1-1 -splitCPU -DJobThreads=8 -DJobPool=8
+def _write_blueig_bat(blueig_exe: str):
+    script = f"""@echo off
+\"{blueig_exe}\" -hmd=openxr_ctr:oculus -vbsHostExerciseID=Exercise-HAMMERKIT1-1 -splitCPU -DJobThreads=8 -DJobPool=8
 exit /b 0
 """
     with open(BLUEIG_BAT, "w", newline="\r\n") as f:
-        f.write(blueig_script)
+        f.write(script)
 
-# call it once at startup
-ensure_batch_files()
+def launch_vbs4():
+    # get or prompt for vbs4.exe
+    exe = config['General'].get('vbs4_path', '').strip()
+    if not os.path.isfile(exe):
+        messagebox.showwarning("VBS4 Not Found", "Please locate VBS4.exe now.")
+        exe = filedialog.askopenfilename(title="Select VBS4.exe", filetypes=[("Exe","*.exe")])
+        if not os.path.isfile(exe):
+            messagebox.showerror("Error", "Invalid VBS4 path.")
+            return
+        config['General']['vbs4_path'] = exe
+        with open(CONFIG_PATH, 'w') as cfg: config.write(cfg)
 
-# ======================== 📌 HELP & DEMO FUNCTIONS ========================= #
+    _write_vbs4_bat(exe)
+    try:
+        subprocess.Popen(["cmd.exe", "/c", VBS4_BAT], cwd=BATCH_FOLDER)
+        messagebox.showinfo("Launch Successful", "VBS4 has started.")
+        if is_close_on_launch_enabled(): root.destroy()
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn’t launch VBS4:\n{e}")
+
+def launch_blueig():
+    # get or prompt for BlueIG.exe
+    exe = config['General'].get('blueig_path', '').strip()
+    if not os.path.isfile(exe):
+        messagebox.showwarning("BlueIG Not Found", "Please locate BlueIG.exe now.")
+        exe = filedialog.askopenfilename(title="Select BlueIG.exe", filetypes=[("Exe","*.exe")])
+        if not os.path.isfile(exe):
+            messagebox.showerror("Error", "Invalid BlueIG path.")
+            return
+        config['General']['blueig_path'] = exe
+        with open(CONFIG_PATH, 'w') as cfg: config.write(cfg)
+
+    _write_blueig_bat(exe)
+    try:
+        subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
+        messagebox.showinfo("Launch Successful", "BlueIG has started.")
+        if is_close_on_launch_enabled(): root.destroy()
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn’t launch BlueIG:\n{e}")
+
+def prompt_for_exe(title: str) -> str:
+    """Open a file dialog and return the path to an .exe file."""
+    root = tk.Tk()
+    root.withdraw()
+    path = filedialog.askopenfilename(
+        title=title,
+        filetypes=[("Executable", "*.exe")]
+    )
+    root.destroy()
+    return path
+
+def ensure_executable(config_key: str, defaults: list[str], prompt_title: str) -> str:
+    """Locate or prompt for an executable, persist it to config, and return its path."""
+    # Check saved config and defaults
+    saved = config['General'].get(config_key, '').strip()
+    for candidate in [saved] + defaults:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+
+    # Prompt if none found
+    selected = prompt_for_exe(prompt_title)
+    if not selected or not os.path.isfile(selected):
+        raise FileNotFoundError(f"No executable found for '{config_key}'.")
+
+    # Save selection
+    config['General'][config_key] = selected
+    with open(CONFIG_PATH, 'w') as cfg_file:
+        config.write(cfg_file)
+
+    return selected
+
+# ======================== HELP & DEMO FUNCTIONS ========================= #
+
+def ensure_executable(config_key: str, defaults: list[str], prompt_title: str) -> str:
+    """Locate or prompt for an executable, persist it to config, and return its path."""
+    # Check saved config and defaults
+    saved = config['General'].get(config_key, '').strip()
+    for candidate in [saved] + defaults:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+
+    # Prompt if none found
+    selected = prompt_for_exe(prompt_title)
+    if not selected or not os.path.isfile(selected):
+        raise FileNotFoundError(f"No executable found for '{config_key}'.")
+
+    # Save selection
+    config['General'][config_key] = selected
+    with open(CONFIG_PATH, 'w') as cfg_file:
+        config.write(cfg_file)
+
+    return selected
+
+# ======================== HELP & DEMO FUNCTIONS ========================= #
 
 def open_bvi_setup_doc():
     if os.path.exists(bvi_setup_doc_path):
@@ -390,7 +456,7 @@ def play_demo_video():
     else:
         messagebox.showerror("Error", "Demo video not found.")
 
-# ======================== 📌 REUSABLE BUTTON FUNCTION ========================= #
+# ======================== REUSABLE BUTTON FUNCTION ========================= #
 
 def create_button(parent, text, command):
     return tk.Button(parent, text=text, command=command,
@@ -399,9 +465,7 @@ def create_button(parent, text, command):
                      width=20, height=2,         # wider & taller buttons
                      relief="raised")
 
-
-
-# ======================== 📌 INSTALL‑PATH FINDERS ========================= #
+# ======================== INSTALL‑PATH FINDERS ========================= #
 
 def open_setup_documentation():
     if os.path.exists(PDF_FILE_PATH):
@@ -441,7 +505,7 @@ if not vbs4_exe_path or not ares_manager_path:
     messagebox.showerror("Error", "Required paths not found. Exiting.")
     sys.exit()
 
-# ======================== 📌 BATCH FILE GENERATORS ========================= #
+# ======================== BATCH FILE GENERATORS ========================= #
 
 def create_drone_scenario_batch(vbs4_path):
     fpath = os.path.join(BATCH_FOLDER, "DroneScenario.bat")
@@ -468,7 +532,7 @@ exit
 
 bvi_batch_file = create_bvi_batch_file(ares_manager_path)
 
-# ======================== 📌 LAUNCH HELPERS ========================= #
+# ======================== LAUNCH HELPERS ========================= #
 
 def launch_application(app_path, app_name):
     if os.path.exists(app_path):
@@ -484,7 +548,7 @@ def launch_application(app_path, app_name):
 def launch_bvi():
     launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
 
-# ======================== 📌 FUNCTION TO SET BACKGROUND IMAGE ========================= #
+# ======================== FUNCTION TO SET BACKGROUND IMAGE ========================= #
 def set_background(window):
     """Applies background image and adds four logos:
     - STE_CFT Logo (Top Left)
@@ -579,7 +643,7 @@ def set_background(window):
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load images.\n{e}")
 
-# ======================== 📌 SUBMENU LOGIC ========================= #
+# ======================== SUBMENU LOGIC ========================= #
 
 def open_submenu(title, buttons):
     submenu = tk.Toplevel(root)
@@ -621,7 +685,7 @@ def open_submenu(title, buttons):
 
 def exit_application():
     root.destroy()
-# ======================== 📌 MAIN WINDOW SETUP ========================= #
+# ======================== MAIN WINDOW SETUP ========================= #
 
 root = tk.Tk()
 root.title("STE Mission Planning Toolkit")
@@ -638,7 +702,7 @@ tk.Label(root, text="STE Mission Planning Toolkit",
          bg="black", fg="white", pady=20).pack(fill="x")
 
 
-# ======================== 📌 TUTORIALS “?” BUTTON ========================= #
+# ======================== TUTORIALS “?” BUTTON ========================= #
 
 vbs4_docs = {
     "VBS4 Official Documentation":          open_vbs4_pdf_docs,
@@ -684,14 +748,12 @@ tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_it
           font=("Helvetica",24), bg="#FFD700", fg="black",
           width=2, height=1, relief="raised").place(x=1550, y=110)
 
-# ======================== 📌 MAIN MENU BUTTONS ========================= #
+# ======================== MAIN MENU BUTTONS ========================= #
 
 main_buttons = {
     "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
-           "Launch VBS4 as Host": wrap_with_loading(lambda:
-         launch_application(os.path.join(BATCH_FOLDER, "VBS4_Launch.bat"), "VBS4 (Host)")),
-      "Launch BlueIG HammerKit": wrap_with_loading(lambda:
-         launch_application(os.path.join(BATCH_FOLDER, "BlueIG_Launch.bat"), "BlueIG HammerKit")),
+         "Launch VBS4":   launch_vbs4,
+      "Launch BlueIG":  launch_blueig,
         "One-Click Terrain":     lambda: open_submenu("One-Click Terrain", {
                                       "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
                                       "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),
@@ -711,7 +773,7 @@ main_buttons = {
                           "Launch on Startup":          toggle_startup,
                           "Close on Software Launch?":  toggle_close_on_launch,
                           "VBS4 Install Location":      set_vbs4_install_path,
-                          "BlueIG Install":             set_blueig_install_path,
+                          "BlueIG Install Location":             set_blueig_install_path,
                           "Pick Default Browser":       set_default_browser,
                       }),
 
