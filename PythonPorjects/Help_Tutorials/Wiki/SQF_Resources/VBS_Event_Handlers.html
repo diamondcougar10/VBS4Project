@@ -1,0 +1,1855 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>VBS Event Handlers - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1513011"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Scripting_References.html">Scripting References</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1513011"> <span>VBS Event Handlers</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+    <h2 id="src-1513011_VBSEventHandlers-Introduction" class="heading "><span>Introduction</span></h2>
+    <h3 id="src-1513011_VBSEventHandlers-EventHandlerPages" class="heading "><span>Event Handler Pages</span></h3>
+<p   
+></p>
+<ul class="content-by-label "><li class=" "><p   
+>Page:<a   href="Activators_-_Event_Handlers.html">Activators - Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_-_Event_Handlers.html">Editor - Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Hendo_DataLogging.html">Hendo_DataLogging</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Intel_-_Mission_-_Event_Handlers.html">Intel - Mission - Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="VBS__Mission_Event_Scripts.html">VBS Mission Event Scripts</a></p>
+</li><li class=" "><p   
+>Page:<a   href="VBS_Config_Event_Handlers.html">VBS Config Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="VBS_Custom_Event_Handlers.html">VBS Custom Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="#">VBS Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="VBS_Global_Event_Handlers.html">VBS Global Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="VBS_System_Event_Handlers.html">VBS System Event Handlers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="VBS_User_Interface_Event_Handlers.html">VBS User Interface Event Handlers</a></p>
+</li></ul><p   
+></p>
+    <div  class="confbox admonition admonition-note">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+>For the most up to date information about Event Handlers, see Event Handlers in the VBS3 / VBS4 Scripting Manual in the docs folder of your VBS3 / VBS4 installation. For information about Event Handlers specific to a VBS3 / VBS4 version, see Event Handlers in your version of the VBS3 / VBS4 Scripting Manual.</p>
+        </div>
+    </div>
+<p   
+>Event Handlers (EHs) are attached to objects, and allow you to automatically execute custom code upon particular events being triggered by that object.</p>
+<p   
+>These event handlers are added to objects using the <a   href="addEventHandler.html">addEventHandler</a> command, or in the object&#39;s configuration file (see below).</p>
+<p   
+>Multiple event handlers of the same type can be attached to an object (and are identified by the index returned by <a   href="addEventHandler.html">addEventHandler</a>), and will fire in the order they were created.</p>
+    <h2 id="src-1513011_VBSEventHandlers-GeneralMPNote" class="heading "><span> General MP Note </span></h2>
+<p   
+>A respawned unit still has the EHs it had before, so it is not neccessary to re-add EHs after respawning.</p>
+    <h2 id="src-1513011_VBSEventHandlers-OtherTypesofEvent" class="heading "><span>Other Types of Event</span></h2>
+<ul class=" "><li class=" "><p   
+><strong class=" ">Configs</strong>: See <a   href="VBS_Config_Event_Handlers.html">VBS Config Event Handlers</a> on how to add EHs to object&#39;s config files.</p>
+</li><li class=" "><p   
+><strong class=" ">Global Events</strong> (not tied to a specific object, but responding to global, or system, events)</p>
+<ul class=" "><li class=" "><p   
+><a   href="VBS_Global_Event_Handlers.html">VBS Global Event Handlers</a></p>
+</li><li class=" "><p   
+><a   href="VBS_Custom_Event_Handlers.html">VBS Custom Event Handlers</a></p>
+</li><li class=" "><p   
+><a   href="VBS_System_Event_Handlers.html">VBS System Event Handlers</a></p>
+</li></ul></li><li class=" "><p   
+><strong class=" ">User Interface</strong>: See <a   href="VBS_User_Interface_Event_Handlers.html">VBS User Interface Event Handlers</a> for event handlers used in displays/dialogs.</p>
+</li><li class=" "><p   
+><strong class=" ">Mission Events</strong>: See <a   href="VBS__Mission_Event_Scripts.html">VBS Mission Event Scripts</a> for special scripts that are triggered under certain mission events.</p>
+</li><li class=" "><p   
+><strong class=" ">AAR Events</strong>: Some AAR-specific events can be defined via <a   href="addAAREventHandler.html">addAAREventHandler</a>.</p>
+</li><li class=" "><p   
+><strong class=" ">Dedicated Script Commands</strong>: Some EHs are defined via special commands (e.g. <a   href="onMapSingleClick.html">onMapSingleClick</a>). See <a   href="Activators_-_Event_Handlers.html">Activators - Event Handlers</a> for what is available.</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Fusion_Callbacks.html">Fusion Callbacks</a></strong></p>
+</li></ul>    <h2 id="src-1513011_VBSEventHandlers-EventHandlerList" class="heading "><span>Event Handler List</span></h2>
+    <h3 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Db2xsaXNpb25zL0RhbWFnZXM" class="heading "><span>Collisions/Damages</span></h3>
+    <h4 id="src-1513011_VBSEventHandlers-BeforeKilled" class="heading "><span>BeforeKilled</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.41-version-1-modificationdate-1644920713081-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.41-version-1-modificationdate-1644920713081-api-v2.gif"   />
+    <br/>Fires just before a unit is killed.<br/>Does not work with objects, and only fires <i class=" ">after</i> destruction, if used with vehicles.<br/><strong class=" ">In V2.0+ this event actually fires <i class=" ">after</i> the unit has been killed.</strong> (i.e. it is the same as the <a   href="#src-1513011_VBSEventHandlers-Killed">Killed</a> EH)<br/>See also: <a   href="#src-1513011_VBSEventHandlers-HandleDamage">HandleDamage</a></p>
+<p   
+>Passed array: <strong class=" ">[object]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Unit that is about to die.</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-Collision" class="heading "><span>Collision</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.15-version-1-modificationdate-1644920723122-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.15-version-1-modificationdate-1644920723122-api-v2.gif"   />
+    <br/>Collision event for a named selection in the geometry.<br/><strong class=" ">Note:</strong> Obsolete in releases after 2.15, use <a   href="#src-1513011_VBSEventHandlers-CollisionStart">CollisionStart</a> and <a   href="#src-1513011_VBSEventHandlers-CollisionEnd">CollisionEnd</a> instead.</p>
+<p   
+>Passed array: <strong class=" ">[hitObject, hitComonent, collidingObject, collisionPhase]</strong></p>
+<ul class=" "><li class=" "><p   
+>hitObject: <a   href="Object.html">Object</a> - The object that is being hit</p>
+</li><li class=" "><p   
+>hitComponent: <a   href="String.html">String</a> - The name of the component in the hit object that is being hit</p>
+</li><li class=" "><p   
+>collidingObject: <a   href="Object.html">Object</a> - The colliding object</p>
+</li><li class=" "><p   
+>collisionPhase: <a   href="Boolean.html">Boolean</a> - True if the collision starts, false if the collision ends</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-CollisionEnd" class="heading "><span>CollisionEnd</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.63-version-1-modificationdate-1644920723345-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.63-version-1-modificationdate-1644920723345-api-v2.gif"   />
+    <br/>Fires when a collision between two objects (either PhysX or non-PhysX) ends.</p>
+<p   
+>Passed array, not using collision volumes: <strong class=" ">[object, []]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object the event handler is attached to</p>
+</li><li class=" "><p   
+><strong class=" ">Note:</strong> An empty array [] is returned. It can be discarded.</p>
+</li></ul><p   
+>Passed array, using collision volumes: <strong class=" ">[object, collidingObj]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object with the volume defined</p>
+</li><li class=" "><p   
+>collidingObj: <a   href="Object.html">Object</a> - Optional other object, if the collision volume collided with another object, missing if collided with terrain</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-CollisionStart" class="heading "><span>CollisionStart</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.63-version-1-modificationdate-1644920723345-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.63-version-1-modificationdate-1644920723345-api-v2.gif"   />
+    <br/>Fires when a collision between two objects (either PhysX or non-PhysX) starts.</p>
+<p   
+>Passed array, not using collision volumes: <strong class=" ">[owner, collisions]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object EH is attached to</p>
+</li><li class=" "><p   
+>collisions: <a   href="Array.html">Array</a> - Array of collisions that are occurring. Each element is: <strong class=" ">[collidingObj, [collidingObjComponents], [ownerComponents], [contactPointCoords]]</strong></p>
+<ul class=" "><li class=" "><p   
+>collidingObj: <a   href="Object.html">Object</a> - The object that the owner collided with</p>
+</li><li class=" "><p   
+>collidingObjComponents: <a   href="Array.html">Array</a> - An array of component names (referring to named selections in the Geometry LOD - <i class=" ">V17.3.0+</i>) that the collision is affecting on the colliding object</p>
+</li><li class=" "><p   
+>ownerComponents: <a   href="Array.html">Array</a> - An array of component names (referring to named selections in the Geometry LOD - <i class=" ">V17.3.0+</i>) that the collision is affecting on the owner</p>
+</li><li class=" "><p   
+>contactPointCoords: <a   href="Array.html">Array</a> - An array of contact point coordinates (absolute position) in world space (<i class=" ">V17.3.0+</i>)</p>
+</li></ul></li></ul><p   
+>Passed array, using collision volumes: <strong class=" ">[object, collisionVolID, collidingObj, collidingObjVolID]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object with the volume defined</p>
+</li><li class=" "><p   
+>collisionVolID: <a   href="Number.html">Number</a> - Collision volume ID that triggered the event</p>
+</li><li class=" "><p   
+>collidingObj: <a   href="Object.html">Object</a> - Optional other object, if the collision volume collided with another object, missing if collided with terrain</p>
+</li><li class=" "><p   
+>collidingObjVolID: <a   href="Number.html">Number</a> - Optional other collision volume ID, if the collision volume collided with another one</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-Dammaged" class="heading "><span>Dammaged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when the object is damaged. (<i class=" ">Must</i> be spelled with two &quot;m&quot;s!)<br/>Only fires if the damage to the hit selection is greater than 0.5.<br/>Does <i class=" ">not</i> fire if damage is set via <a   href="setDamage.html">setDamage</a>.<br/>If simultaneous damage occurred (e.g. via grenade) EH will be triggered several times.</p>
+<p   
+>Passed array: <strong class=" ">[unit, selectionName, damage]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>selectionName: <a   href="String.html">String</a> - Name of the selection that was damaged.</p>
+</li><li class=" "><p   
+>damage: <a   href="Number.html">Number</a> - Resulting total damage to the hit selection.</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-DamagedHitPart" class="heading "><span>DamagedHitPart</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+<br/>Triggered when the object is damaged.<br/>Does <i class=" ">not</i> fire if damage is set via <a   href="setDamage.html">setDamage</a>.<br/>If simultaneous damage occurred (e.g. via grenade) EH will be triggered several times.</p>
+<p   
+>Passed array: <strong class=" ">[target, shooter, hitzone,totaldamage,hitdamage,structdamage,hitzonecenter,hitzoneradius,selections,surfaces]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that got damaged.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that inflicted the damage. If injured by a vehicle impact or a fall the target itself is returned. In case of IEDs or artillery either the target itself is returned, or the <a   href="objNull.html">objNull</a>, if further away from the explosion. In case of explosives that were planted by someone (e.g. satchel charges), either that unit is returned, or the target unit itself, if further away.</p>
+</li><li class=" "><p   
+>hitzone: <a   href="String.html">String</a> - HitZone that was damaged.</p>
+</li><li class=" "><p   
+>totaldamage: <a   href="Number.html">Number</a> - Accumulated damage to hitzone.</p>
+</li><li class=" "><p   
+>hitdamage: <a   href="Number.html">Number</a> - Amount of damage hitzone received with this hit</p>
+</li><li class=" "><p   
+>structdamage: <a   href="Number.html">Number</a> - Damage increase to object itself, received by this hit.</p>
+</li><li class=" "><p   
+>hitzonecenter: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position of hitzone center in model space.</p>
+</li><li class=" "><p   
+>hitzoneradius: <a   href="Number.html">Number</a> - Radius of the hitzone.</p>
+</li><li class=" "><p   
+>selections: <a   href="Array.html">Array</a> of <a   href="String.html">String</a> - Names of selections the hitzone belongs to.</p>
+</li><li class=" "><p   
+>surfaces: <a   href="Array.html">Array</a> of <a   href="String.html">String</a> - Surface types of hitzone.</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-EpeContact" class="heading "><span>EpeContact</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif"   />
+    <br/>Triggered (every frame) while a PhysX object is in contact with another PhysX object.</p>
+<p   
+>Passed array: <strong class=" ">[owner, object, ownsel, objsel, force]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object the event handler is attached to.</p>
+</li><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that is colliding with owner object (may be <a   href="objNull.html">objNull</a>, if a moving object touching the ground).</p>
+</li><li class=" "><p   
+>ownsel: <a   href="String.html">String</a> - Selection name of owner object that is being touched (empty if no selections defined).</p>
+</li><li class=" "><p   
+>objsel: <a   href="String.html">String</a> - Selection name of colliding object that is being touched (empty if no selections defined).</p>
+</li><li class=" "><p   
+>force: <a   href="Number.html">Number</a> - Amount of force (in N) of collision. Can be 0 during the contact release.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1FcGVDb250YWN0U3RhcnQvRXBlQ29udGFjdEVuZA" class="heading "><span>EpeContactStart / EpeContactEnd</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif"   />
+    <br/>Triggered when a contact between two PhysX objects is initiated (or ended).</p>
+<p   
+>Passed array: <strong class=" ">[owner, object, ownsel, objsel, force]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object the event handler is attached to.</p>
+</li><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that is colliding with owner object (may be objNull is a moving object is touching the ground).</p>
+</li><li class=" "><p   
+>ownsel: <a   href="String.html">String</a> - Selection name of owner object that is being touched (empty if no selections defined).</p>
+</li><li class=" "><p   
+>objsel: <a   href="String.html">String</a> - Selection name of colliding object that is being touched (empty if no selections defined).</p>
+</li><li class=" "><p   
+>force: <a   href="Number.html">Number</a> - Amount of force (in N) of collision.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-FreeFall" class="heading "><span>FreeFall</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.02-version-1-modificationdate-1644920724101-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.02-version-1-modificationdate-1644920724101-api-v2.gif"   />
+    <br/>Fires when a unit drops from a height (e.g. falling off a building, or after being thrown into the air by an explosion). Will <i class=" ">not</i> fire on parachute ejections.</p>
+<p   
+>Passed array: <strong class=" ">[owner]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object EH is attached to</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-HandleDamage" class="heading "><span>HandleDamage</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+<br/>Fires when the damage value for an object changes, and allows the adjustment of the damage value inside the EH&#39;s code section.<br/>May fire multiple times, if multiple sections are affected, or if damage is caused by a direct, as well as indirect, hit (e.g. via grenades).<br/>The code section of this EH can contain a return value which specifies the damage that should be applied to the target. If no return value is given, then no damage is applied (same effect as passing a 0). To use the original damage that would&#39;ve been caused by the hit, _this select 2 should be returned, e.g. <tt class=" ">unit1 addEventHandler [&quot;HandleDamage&quot;,&quot;hint &#39;ouch&#39;; _this select 2&quot;]</tt>. A return value of 1 will destroy the attached object (the example below will do this whenever the vehicle&#39;s engine is hit, any other hit will not cause <i class=" ">any</i> damage): <tt class=" ">car1 addEventHandler [&quot;HandleDamage&quot;,&quot;if (&#39;engine&#39; in _this) then {1} else {0}&quot;]</tt> The command <a   href="setDamage.html">setDamage</a> should not be used in the code section of this EH, as it might lead to a dead loop (with the engine endlessly resetting and reacting to the changes of damages).<br/>Due to the fact that this EH may fire multiple times, damage values set by one event may be overwritten by a later one, if these happen within the same frame. While <i class=" ">full</i> damage (as in the example above) cannot be reversed, if only partial damage is applied, then it could be overwritten by a later event (e.g. if the car example applied a damage of only 0.9, then a damage event to the &quot;hull&quot; could negate the originally applied damage).</p>
+<p   
+>Passed array: <strong class=" ">[target, selection, damage, shooter, bullet]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object EH is attached to (can be unit, vehicle or object)</p>
+</li><li class=" "><p   
+>selection: <a   href="String.html">String</a> - Name of selection that received damage. Empty string (&quot;&quot;) for overall damage. &quot;?&quot; for unknown/unnamed section.</p>
+</li><li class=" "><p   
+>damage: <a   href="Number.html">Number</a> - Damage value inflicted by this hit</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Source of damage. If injured by a vehicle impact or a fall the target itself is returned, or, in case of explosions, or for vehicles hitting obstacles, the <a   href="objNull.html">objNull</a>.</p>
+</li><li class=" "><p   
+>bullet: <a   href="String.html">String</a> - Class name of projectile that caused damage. Empty string (&quot;&quot;) if damage was caused by different means (e.g. a fall or impact).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-HandleHeal" class="heading "><span>HandleHeal</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v22.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v22.gif"   />
+    <br/>Fires when a unit is healed by another one.<br/>Does <i class=" ">not</i> fire when healing at an ambulance vehicle or tent.<br/>If the EH code returns nothing (or <a   href="false.html">false</a>), then the normal healing process is activated. If it returns <a   href="true.html">true</a>, then this EH will continue to fire until either the target&#39;s health is set to full (via <a   href="setDamage.html">setDamage</a>), or the <a   href="AISFinishHeal.html">AISFinishHeal</a> command is executed. <tt class=" ">player addEventHandler[&quot;HandleHeal&quot;,&quot;if (okToHeal) then {false} else {AISFinishHeal [_this select 0,_this select 1,false]}&quot;]</tt></p>
+<p   
+>Passed array: <strong class=" ">[target, healer, isMedic]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html#src-1508422_Object-Unit">Unit</a> - Unit EH is attached to</p>
+</li><li class=" "><p   
+>healer: <a   href="String.html">String</a> - Unit that is healing the target.</p>
+</li><li class=" "><p   
+>isMedic: <a   href="Boolean.html">Boolean</a> - Is <a   href="true.html">true</a> if healer is a medic</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Hit" class="heading "><span>Hit</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif"   />
+    <br/>Triggered when the unit is hit and damaged.</p>
+<p   
+>Will only fire if a minimum threshold of damage has been reached (about .06). Otherwise, even if the object damage did increase, this EH will not be triggered. If damage has been <a   href="allowDamage.html">allowDamage</a>, the event will never fire, even if the object was hit.<br/>In addition, if an object is killed/destroyed right away with the first hit, this EH may not trigger either; only the <a   href="#src-1513011_VBSEventHandlers-Killed">Killed</a> EH will fire in that case.<br/><strong class=" ">See <a   href="#src-1513011_VBSEventHandlers-MPHit">MPHit</a> for a global &quot;Hit&quot; EH for MP scenarios.</strong></p>
+<p   
+>Passed array: <strong class=" ">[target, shooter, damage]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that got injured/damaged.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that inflicted the damage. If injured by a vehicle impact or a fall the target itself is returned, or, in case of IEDs or artillery, the <a   href="objNull.html">objNull</a>. In case of explosives that were planted by someone (e.g. satchel charges), that unit is returned.</p>
+</li><li class=" "><p   
+>damage: <a   href="Number.html">Number</a> - Level of damage caused by the hit.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-HitPart" class="heading "><span>HitPart</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+<br/>Runs when the object it was added to gets hit/injured/damaged.<br/>Unlike the &quot;Hit&quot; event, this one will fire even if there is no damage (e.g. because it was <a   href="allowDamage.html">allowDamage</a>).<br/>It returns the position and component that was hit on the object within a nested array (one for each selection that was hit).<br/>See also: <a   href="getHitPoints.html">getHitPoints</a></p>
+<p   
+>Passed array: <strong class=" ">[[target, shooter, bullet, position, velocity, selection, ammo, direction, radius, surface, direct]]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that got injured/damaged.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that inflicted the damage. If injured by a vehicle impact or a fall the target itself is returned, or, in case of explosions, the <a   href="objNull.html">objNull</a>. In case of explosives that were planted by someone (e.g. satchel charges), that unit is returned.</p>
+</li><li class=" "><p   
+>bullet: <a   href="Object.html">Object</a> - Object that was fired.</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position the bullet impacted.</p>
+</li><li class=" "><p   
+>velocity: <a   href="Vector3D.html">Vector3D</a> - 3D speed at which bullet impacted.</p>
+</li><li class=" "><p   
+>selection: <a   href="Array.html">Array</a> - Array of <a   href="String.html">String</a> with named selection of the object that were hit.</p>
+</li><li class=" "><p   
+>ammo: <a   href="Array.html">Array</a> - Ammo info: [hit value, indirect hit value, indirect hit range, explosive damage, ammo class name] OR, if there is no shot object: [impulse value on object collided with,0,0,0]</p>
+</li><li class=" "><p   
+>direction: <a   href="Vector3D.html">Vector3D</a> - vector that is orthogonal (perpendicular) to the surface struck. For example, if a wall was hit, vector would be pointing out of the wall at a 90 degree angle.</p>
+</li><li class=" "><p   
+>radius: <a   href="Number.html">Number</a> - Radius (size) of component hit.</p>
+</li><li class=" "><p   
+>surface: <a   href="String.html">String</a> - Surface type struck.</p>
+</li><li class=" "><p   
+>direct: <a   href="Boolean.html">Boolean</a> - <a   href="true.html">true</a> if object was directly hit, <a   href="false.html">false</a> if it was hit by indirect/splash damage.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Killed" class="heading "><span>Killed</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif"   />
+    <br/>Triggered when the unit is killed.<br/><strong class=" ">See <a   href="#src-1513011_VBSEventHandlers-MPKilled">MPKilled</a> for a global &quot;Killed&quot; EH for MP scenarios.</strong></p>
+<p   
+>Passed array: <strong class=" ">[unit, killer]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that got killed.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that caused the death. If injured by a vehicle impact or a fall the target itself is returned. In case of IEDs or artillery either the target itself is returned, or the <a   href="objNull.html">objNull</a>, if further away from the explosion. In case of explosives that were planted by someone (e.g. satchel charges), that unit is returned.</p>
+</li></ul>    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy10dXJyZXREcml2ZUNvbm5lY3RlZC90dXJyZXREcml2ZURpc2Nvbm5lY3RlZA" class="heading "><span>turretDriveConnected / turretDriveDisconnected</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_17.2.0-version-1-modificationdate-1644920724476-api-v2.gif" alt="images/download/attachments/1513011/vbs3_17.2.0-version-1-modificationdate-1644920724476-api-v2.gif"   />
+    <br/>Triggered when contact between a PhysX object and a configured vehicle turret is initiated (connected) / ended (disconnected).</p>
+<p   
+>Passed array: <strong class=" ">[owner, turret, force, angular speed]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object the event handler is attached to.</p>
+</li><li class=" "><p   
+>turret: <a   href="Array.html">Array</a> - Path to the turret involved in the collision.</p>
+</li><li class=" "><p   
+>force: <a   href="Number.html">Number</a> - Amount of force (in N) of collision.</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-WheelCollisionEnd" class="heading "><span>WheelCollisionEnd</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_17.1.0-version-1-modificationdate-1644920724570-api-v2.gif" alt="images/download/attachments/1513011/vbs3_17.1.0-version-1-modificationdate-1644920724570-api-v2.gif"   />
+    <br/>This event occurs when wheel collision with the target object ends (see <a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a>).</p>
+<ul class=" "><li class=" "><p   
+>The event handler only executes for raycast wheels (for example, it does not work for <strong class=" ">X M119 - 105mm Howitzer</strong>).</p>
+</li><li class=" "><p   
+>Can execute after Branch Point Load (see <a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a> for details).</p>
+</li></ul><p   
+>Passed array: <strong class=" ">[vehicle, selection, trgObject, hitPoint]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - The vehicle.</p>
+</li><li class=" "><p   
+>selection: <a   href="String.html">String</a> - Wheel selection name (for example, &quot;wheel_1_1_damper&quot;).</p>
+</li><li class=" "><p   
+>trgObject: <a   href="Object.html">Object</a> - Trigger object (the one that is hit by the wheel).</p>
+</li><li class=" "><p   
+>hitPoint: <a   href="String.html">String</a> - Hit point on the object that is hit by the wheel (or empty string if there is no hit point defined for the hit component).</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-WheelCollisionStart" class="heading "><span>WheelCollisionStart</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_17.1.0-version-1-modificationdate-1644920724570-api-v2.gif" alt="images/download/attachments/1513011/vbs3_17.1.0-version-1-modificationdate-1644920724570-api-v2.gif"   />
+    <br/>This event occurs when wheel collision with the target object starts (also see <a   href="#src-1513011_VBSEventHandlers-WheelCollisionEnd">WheelCollisionEnd</a>).</p>
+<ul class=" "><li class=" "><p   
+>The event handler only executes for raycast wheels (for example, it does not work for <strong class=" ">X M119 - 105mm Howitzer</strong>).</p>
+</li><li class=" "><p   
+>Some events may be skipped if the vehicle drives fast over small objects with the event handler turned on.</p>
+</li><li class=" "><p   
+>The events get reported for each wheel separately, but it may be reported only once for each collision object and not for each collision object component that the wheel touches.</p>
+</li><li class=" "><p   
+>If the game is saved and then loaded, WheelCollisionEnd executes while the collision contact is still happening, and <a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a> executes immediately after.<br/>Example:</p>
+</li></ul><ol class=" "><li class=" "><p   
+>Drive the vehicle over the speed bump (which has the <a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a> event handler attached to it) and stop there (with at least one of the wheels touching the speed bump).</p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a> executes.</p>
+</li><li class=" "><p   
+>Branch Point Save.</p>
+</li><li class=" "><p   
+>Drive off the speed bump.</p>
+</li><li class=" "><p   
+>WheelCollisionEnd executes.</p>
+</li><li class=" "><p   
+>Branch Point Load.</p>
+</li><li class=" "><p   
+>WheelCollisionEnd executes.</p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a> executes.</p>
+</li><li class=" "><p   
+>Drive off the speed bump.</p>
+</li><li class=" "><p   
+>WheelCollisionEnd executes.</p>
+</li></ol><p   
+>Passed array: <strong class=" ">[vehicle, selection, trgObject, hitPoint]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - The vehicle.</p>
+</li><li class=" "><p   
+>selection: <a   href="String.html">String</a> - Wheel selection name (for example, &quot;wheel_1_1_damper&quot;).</p>
+</li><li class=" "><p   
+>trgObject: <a   href="Object.html">Object</a> - Trigger object (the one that is hit by the wheel).</p>
+</li><li class=" "><p   
+>hitPoint: <a   href="String.html">String</a> - Hit point on the object that is hit by the wheel (or empty string if there is no hit point defined for the hit component).</p>
+</li></ul>    <h3 id="src-1513011_VBSEventHandlers-Editor" class="heading "><span>Editor</span></h3>
+    <h4 id="src-1513011_VBSEventHandlers-Delete" class="heading "><span>Delete</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.14-version-1-modificationdate-1644920724736-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.14-version-1-modificationdate-1644920724736-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+<br/>Runs just before an object is deleted. Object can be deleted in several ways, few of which are: the deleteVehicle command, the RTE, or LVC Game.</p>
+<p   
+>Passed array: <strong class=" ">[object]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that was deleted</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> Delete EH can only be added within scripts using <a   href="addEventHandler.html">addEventHandler</a> scripting command. If used in a config, an error will occur during packing of content.<br/><strong class=" ">Note:</strong> To ensure the parameters are passed correctly before the object is deleted, it is strongly recommended that you use <a   href="call.html">call</a> rather than <a   href="execVM.html">execVM</a> or <a   href="spawn.html">spawn</a><br/><br/><strong class=" ">Example:</strong><br/><tt class=" ">_object addEventhandler [&quot;delete&quot;,&quot;_this call compile preProcessFile &#39;fn_my_function.sqf&#39;&quot;];</tt></p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Deleted" class="heading "><span>Deleted</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.30-version-1-modificationdate-1644920724980-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.30-version-1-modificationdate-1644920724980-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Identical to the <a   href="#src-1513011_VBSEventHandlers-Delete">Delete</a> EH, except this EH can be added in config.</p>
+<p   
+>Passed array: <strong class=" ">[object]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that was deleted</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> To ensure the parameters are passed correctly before the object is deleted, it is strongly recommended that you use <a   href="call.html">call</a> rather than <a   href="execVM.html">execVM</a> or <a   href="spawn.html">spawn</a><br/><br/><strong class=" ">Example:</strong><br/><tt class=" ">deleted=&quot;_this call compile preProcessFile &#39;fn_my_function.sqf&#39;&quot;</tt></p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-GroupChangedRTE" class="heading "><span>GroupChangedRTE</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.35-version-1-modificationdate-1644920725075-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.35-version-1-modificationdate-1644920725075-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/><strong class=" ">Added to a <a   href="Side_-_Data_Type.html">Side - Data Type</a>, not an object.</strong> Triggered only if RTE is open, when a change occurs to a specific group&#39;s or subgroup status. Also triggered on creation of new group, or deletion of an existing group.</p>
+<p   
+>Passed array: <strong class=" ">[group]</strong></p>
+<ul class=" "><li class=" "><p   
+>group: <a   href="Group_-_Data_Type.html">Group - Data Type</a> - Group for which the change occurred.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Paste" class="heading "><span>Paste</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v22.gif" alt="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v22.gif"   />
+    <br/>Triggered when an object has been copied and pasted in the editor.<br/>If a vehicle is copied, the EH will fire once for the vehicle, and once for every crew member.</p>
+<p   
+>Passed array: <strong class=" ">[original, copy]</strong></p>
+<ul class=" "><li class=" "><p   
+>original: <a   href="Object.html">Object</a> - Object that was copied</p>
+</li><li class=" "><p   
+>copy: <a   href="Object.html">Object</a> - Object that was created.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-PlayerChangedRTE" class="heading "><span>PlayerChangedRTE</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.11-version-1-modificationdate-1574683947365-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.11-version-1-modificationdate-1574683947365-api-v2.gif"   />
+    <br/><strong class=" ">Added to a Side, not an object.</strong> <i class=" ">V3.20+</i>: Can also be used on units.<br/>A unit&#39;s ownership by a player has changed while the editor is open.<br/>Also see <a   href="#src-1513011_VBSEventHandlers-PlayerChanged">PlayerChanged</a></p>
+<p   
+>Passed array: <strong class=" ">[unit, mode]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit/vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>mode: <a   href="String.html">String</a> - Action that caused this change. Can be:</p>
+<ul class=" "><li class=" "><p   
+>&quot;CONNECT&quot;: Player occupied unit via MP JIP (Join-in-progress)</p>
+</li><li class=" "><p   
+>&quot;DISCONNECT&quot;: Player disconnected from MP session</p>
+</li><li class=" "><p   
+>&quot;SELECTEDPLAYER&quot;: Player switched *into* a unit</p>
+</li><li class=" "><p   
+>&quot;UNSELECTEDPLAYER&quot;: Player switched *out of* a unit.<br/>When switching unit (e.g. via <a   href="selectPlayer.html">selectPlayer</a>) <i class=" ">both</i> events will always fire - first &quot;UNSELECTEDPLAYER&quot; on the unit that is being left, and then &quot;SELECTEDPLAYER&quot; on the unit that is being occupied.</p>
+</li></ul></li></ul><p   
+><br/></p>
+    <h3 id="src-1513011_VBSEventHandlers-Units" class="heading "><span>Units</span></h3>
+    <h4 id="src-1513011_VBSEventHandlers-AnimChanged" class="heading "><span>AnimChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when a new animation is started.</p>
+<p   
+>Passed array: <strong class=" ">[unit, anim, currentPhase, targetPhase]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>anim: <a   href="String.html">String</a> - Name of the animation that started.</p>
+</li><li class=" "><p   
+>currentPhase: <a   href="Number.html">Number</a> - Current animation phase.</p>
+</li><li class=" "><p   
+>targetPhase: <a   href="Number.html">Number</a> - Desired animation phase.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-AnimDone" class="heading "><span>AnimDone</span></h4>
+<p   
+>Triggered when an animation has reach its end position.</p>
+<p   
+>Passed array: <strong class=" ">[unit, anim]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>anim: <a   href="String.html">String</a> - Name of the animation that has been finished.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-AnimStateChanged" class="heading "><span>AnimStateChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v22.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v22.gif"   />
+    <br/>Triggered when an animation state changes.<br/>Unlike AnimChanged and AnimDone, it is triggered for <i class=" ">all</i> animation states in a sequence.</p>
+<p   
+>Passed array: <strong class=" ">[unit, anim]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>anim: <a   href="String.html">String</a> - Name of the animation that has been started.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-CoverReached" class="heading "><span>CoverReached</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.12-version-1-modificationdate-1644920725195-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.12-version-1-modificationdate-1644920725195-api-v2.gif"   />
+    <br/>Triggered when a unit in combat mode reached a cover position.</p>
+<p   
+>Passed array: <strong class=" ">[unit, coverType, coverPosition, coverEntryPosition]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>coverType: <a   href="String.html">String</a> - Type of object used as cover. Can be:</p>
+<ul class=" "><li class=" "><p   
+>0: None (no cover)</p>
+</li><li class=" "><p   
+>1: RightCornerHigh (high vertical edge, like a building edge - use standing + leaning)</p>
+</li><li class=" "><p   
+>2: RightCornerMiddle (middle vertical edge, like a fence edge - use kneel + leaning)</p>
+</li><li class=" "><p   
+>3: RightCornerLow (low vertical edge - use prone + sideways movement)</p>
+</li><li class=" "><p   
+>4: LeftCornerHigh (high vertical edge, like a building edge - use standing + leaning)</p>
+</li><li class=" "><p   
+>5: LeftCornerMiddle (middle vertical edge, like a fence edge - use kneel + leaning)</p>
+</li><li class=" "><p   
+>6: LeftCornerLow (low vertical edge - use prone + sideways movement)</p>
+</li><li class=" "><p   
+>7: EdgeMiddle (horizontal edge, like a fence - use kneel + stand)</p>
+</li><li class=" "><p   
+>8: EdgeLow (low horizontal edge, like a fence - use prone + kneel)</p>
+</li><li class=" "><p   
+>9: Wall (wall - total protection from one side, no fire over the obstacle)</p>
+</li></ul></li><li class=" "><p   
+>coverPosition: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> - Position of cover (at about eye level).</p>
+</li><li class=" "><p   
+>coverEntryPosition: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> - Approximate position from which cover position was entered. Roughly one meter away from vertical cover (e.g. walls), about the same as &#39;coverPosition&#39; for ground cover (e.g. grass).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Danger" class="heading "><span>Danger</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.12-version-1-modificationdate-1644920725195-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.12-version-1-modificationdate-1644920725195-api-v2.gif"   />
+    <br/>Triggered when an AI unit encounters a danger indicator.</p>
+<p   
+>Passed array: <strong class=" ">[unit, dangerType, dangerPosition, until, cause, script]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>dangerType: <a   href="String.html">String</a> - The cause of the danger. Can be:</p>
+<ul class=" "><li class=" "><p   
+>&quot;ENEMYDETECTED&quot; (the first enemy detected. Will trigger at only <i class=" ">very</i> close distances if unit is in &quot;NO FIRE&quot; combat mode.)</p>
+</li><li class=" "><p   
+>&quot;FIRE&quot; (bullet impact noticed, only triggered if unit&#39;s <a   href="combatMode.html">combatMode</a> is SAFE or AWARE)</p>
+</li><li class=" "><p   
+>&quot;HIT&quot; (unit was hit)</p>
+</li><li class=" "><p   
+>&quot;ENEMYNEAR&quot; (enemy very close, &lt; 10m)</p>
+</li><li class=" "><p   
+>&quot;EXPLOSION&quot; (explosion detected, caused by bombs or bullet impacts)</p>
+</li><li class=" "><p   
+>&quot;DEADBODYGROUP&quot; (dead soldier from same group found)</p>
+</li><li class=" "><p   
+>&quot;DEADBODY&quot; (other dead person found)</p>
+</li><li class=" "><p   
+>&quot;SCREAM&quot; (hit soldier screaming - <i class=" ">non-functional</i>)</p>
+</li><li class=" "><p   
+>&quot;CANFIRE&quot; (new opportunity to fire on an enemy target)</p>
+</li></ul></li><li class=" "><p   
+>dangerPosition: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> - Position of object that triggered the danger event.</p>
+</li><li class=" "><p   
+>until: <a   href="Number.html">Number</a> - Duration (in seconds) for how long the danger is expected to persist.</p>
+</li><li class=" "><p   
+>cause: <a   href="Object.html">Object</a> - Object that triggered the danger event.<br/>For &quot;DEADBODY&quot; events, it will return the killer, but <i class=" ">only</i> if it&#39;s an enemy and within view distance (actual visibility doesn&#39;t matter). If killed by friendlies (or via scripting), or out of range, <a   href="objNull.html">objNull</a> is returned.</p>
+</li><li class=" "><p   
+>script: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, then even was triggered by the command <a   href="setDanger.html">setDanger</a>.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-GestureChanged" class="heading "><span>GestureChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.10-version-1-modificationdate-1644920725321-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.10-version-1-modificationdate-1644920725321-api-v2.gif"   />
+    <br/>Triggered when a new gesture is started or completed.</p>
+<p   
+>Passed array: <strong class=" ">[unit, gesture]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>gesture: <a   href="String.html">String</a> - Name of the gesture that was started. When completed, event returns &quot;&lt;none&gt;&quot;.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-GestureDone" class="heading "><span>GestureDone</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.10-version-1-modificationdate-1644920725321-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.10-version-1-modificationdate-1644920725321-api-v2.gif"   />
+    <br/>Triggered when a gesture is completed.</p>
+<p   
+>Passed array: <strong class=" ">[unit, gesture]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>gesture: <a   href="String.html">String</a> - Name of the gesture that was completed.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-GroupChanged" class="heading "><span>GroupChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.35-version-1-modificationdate-1644920725075-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.35-version-1-modificationdate-1644920725075-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+</p>
+<p   
+>Added to a <a   href="Side_-_Data_Type.html">Side - Data Type</a>, not an object. Triggered when a change occurs to a specific group&#39;s or subgroup status. Also triggered on creation of new group, or deletion of an existing group.<br/>See also <a   href="#src-1513011_VBSEventHandlers-GroupChangedRTE">GroupChangedRTE</a>.</p>
+<p   
+>Passed array: <strong class=" ">[group]</strong></p>
+<ul class=" "><li class=" "><p   
+>group: <a   href="Group_-_Data_Type.html">Group - Data Type</a> - Group for which the change occurred.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Mb2FkT3V0Q2hhbmdlZChVbml0KQ" class="heading "><span>LoadOutChanged (Unit)</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.30-version-1-modificationdate-1644920724980-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.30-version-1-modificationdate-1644920724980-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+</p>
+<p   
+>Runs whenever a weapon or magazine is added/removed from a unit or vehicle. This could occur as a result of scripting commands (such as <a   href="addWeapon.html">addWeapon</a> or <a   href="removeMagazine.html">removeMagazine</a>), or it could happen as a result of in-game actions such as reloading magazines, dropping weapons, etc.</p>
+<p   
+>Passed array: <strong class=" ">[object]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that had its equipment changed</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> In versions below 1.30, these event handlers will be removed from nearby objects when a player uses the inventory (and thus can not be considered 100% reliable). This does not happen in v1.30+ (and thus can be considered 100% reliable).</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Nb3ZlZChVbml0KQ" class="heading "><span>Moved (Unit)</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.7-version-1-modificationdate-1644920725485-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.7-version-1-modificationdate-1644920725485-api-v2.gif"   />
+    <br/>A unit/vehicle/object has moved (either by itself, or it was dragged in the editor).<br/>If a unit is inside a vehicle, and that vehicle moves, then <i class=" ">only</i> the event for the vehicle will fire.</p>
+<p   
+>Passed array: <strong class=" ">[unit, oldPos, oldDir, oldUp, oldDirS, newPos, newDir, newUp, newDirS]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Entity who moved (was moved).</p>
+</li><li class=" "><p   
+>oldPos: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> - Old position</p>
+</li><li class=" "><p   
+>oldDir: <a   href="Vector3D.html">Vector3D</a> - Old <a   href="vectorDir.html">vectorDir</a></p>
+</li><li class=" "><p   
+>oldUp: <a   href="Vector3D.html">Vector3D</a> - Old <a   href="vectorUp.html">vectorUp</a></p>
+</li><li class=" "><p   
+>oldDirS: <a   href="Vector3D.html">Vector3D</a> - Old direction aside (perpendicular to the y and z-axis, pointing along the x-axis to the right)</p>
+</li><li class=" "><p   
+>newPos: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> - New position</p>
+</li><li class=" "><p   
+>newDir: <a   href="Vector3D.html">Vector3D</a> - New <a   href="vectorDir.html">vectorDir</a></p>
+</li><li class=" "><p   
+>newUp: <a   href="Vector3D.html">Vector3D</a> - New <a   href="vectorUp.html">vectorUp</a></p>
+</li><li class=" "><p   
+>newDirS: <a   href="Vector3D.html">Vector3D</a> - New direction aside</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-NameChanged" class="heading "><span>NameChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.4-version-1-modificationdate-1644920725598-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.4-version-1-modificationdate-1644920725598-api-v2.gif"   />
+    <br/><strong class=" ">Added to a Side, not an object.</strong> A unit&#39;s name was assigned via <a   href="setUnitName.html">setUnitName</a>.<br/>Event will fire even if the new name is the same as the old one.</p>
+<p   
+>Passed array: <strong class=" ">[unit, newName, oldName]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit whose name was changed.</p>
+</li><li class=" "><p   
+>newName: <a   href="String.html">String</a> - Unit&#39;s new name.</p>
+</li><li class=" "><p   
+>oldName: <a   href="String.html">String</a> - Unit&#39;s old name.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QYXRoUGxhbkZhaWxlZChVbml0KQ" class="heading "><span>PathPlanFailed (Unit)</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif"   />
+    <br/>Unit/vehicle was not able to reach a assigned destination (assignment can be via waypoint, move commands, or group order).</p>
+<p   
+>Passed array: <strong class=" ">[unit, destination, retry]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit/vehicle the event handler is assigned to.</p>
+</li><li class=" "><p   
+>destination: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position that cannot be reached.</p>
+</li><li class=" "><p   
+>retry: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a> then unit will retry reaching the destination (normally it retries twice before giving up, at which point <a   href="false.html">false</a> is returned).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QbGF5ZXJDaGFuZ2VkKFVuaXQp" class="heading "><span>PlayerChanged (Unit)</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.11-version-1-modificationdate-1574683947365-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.11-version-1-modificationdate-1574683947365-api-v2.gif"   />
+    <br/><strong class=" ">Added to a Side, not an object.</strong> <i class=" ">V3.20+</i>: Can also be used on units.<br/>A unit ownership by a player has changed.<br/>Also see <a   href="#src-1513011_VBSEventHandlers-PlayerChangedRTE">PlayerChangedRTE</a></p>
+<p   
+>Passed array: <strong class=" ">[unit, mode]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit / vehicle the event handler is assigned to.</p>
+</li><li class=" "><p   
+>mode: <a   href="String.html">String</a> - Action that caused this change. Can be:</p>
+<ul class=" "><li class=" "><p   
+>&quot;CONNECT&quot;: Player occupied unit via MP JIP (Join-in-progress)</p>
+</li><li class=" "><p   
+>&quot;DISCONNECT&quot;: Player disconnected from MP session</p>
+</li><li class=" "><p   
+>&quot;SELECTEDPLAYER&quot;: Player switched *into* a unit</p>
+</li><li class=" "><p   
+>&quot;UNSELECTEDPLAYER&quot;: Player switched *out of* a unit.<br/>When switching unit (for example, using <a   href="selectPlayer.html">selectPlayer</a>), both events always fire - first &quot;UNSELECTEDPLAYER&quot; on the unit that is being left, and then &quot;SELECTEDPLAYER&quot; on the unit that is being occupied.</p>
+</li></ul></li></ul>    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QbGF5ZXJDaGFuZ2VkKFZlaGljbGUp" class="heading "><span>PlayerChanged (Vehicle)</span></h4>
+<p   
+><img  class="confluence-embedded-image confluence-thumbnail"  src="images/download/thumbnails/1513011/vbs3_3.2-version-1-modificationdate-1644920725713-api-v2.gif" alt="images/download/thumbnails/1513011/vbs3_3.2-version-1-modificationdate-1644920725713-api-v2.gif"  height="30" />
+    <br/>A vehicle ownership by a player has changed.<br/>Also see <a   href="#src-1513011_VBSEventHandlers-PlayerChangedRTE">PlayerChangedRTE</a></p>
+<p   
+>Passed array: <strong class=" ">    <span style="color: #1d1c1d;">
+[vehicle, unit, mode]    </span>
+</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to.</p>
+</li><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit the player switches in and out of.</p>
+</li><li class=" "><p   
+>mode: <a   href="String.html">String</a> - Action that caused this change. Can be:</p>
+<ul class=" "><li class=" "><p   
+>&quot;CONNECT&quot;: Player occupied unit via MP JIP (Join-in-progress)</p>
+</li><li class=" "><p   
+>&quot;DISCONNECT&quot;: Player disconnected from MP session</p>
+</li><li class=" "><p   
+>&quot;SELECTEDPLAYER&quot;: Player switched *into* a unit</p>
+</li><li class=" "><p   
+>&quot;UNSELECTEDPLAYER&quot;: Player switched *out of* a unit.<br/>When switching unit (for example, using <a   href="selectPlayer.html">selectPlayer</a>), both events always fire - first &quot;UNSELECTEDPLAYER&quot; on the unit that is being left, and then &quot;SELECTEDPLAYER&quot; on the unit that is being occupied.</p>
+</li></ul></li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-PositionChangedMan" class="heading "><span>PositionChangedMan</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.05-version-1-modificationdate-1644920725832-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.05-version-1-modificationdate-1644920725832-api-v2.gif"   />
+    <br/>Runs when a person either enters, exits, or changes positions inside a vehicle.<br/>Also see <a   href="#src-1513011_VBSEventHandlers-PositionChanged">PositionChanged</a>, for a vehicle-based EH.</p>
+<p   
+>Passed array: <strong class=" ">[person, vehicle, positionFromArray, positionToArray]</strong></p>
+<ul class=" "><li class=" "><p   
+>person: <a   href="Object.html">Object</a> - Unit the event handler was attached to</p>
+</li><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle that was entered/exited/moved in</p>
+</li><li class=" "><p   
+>positionFromArray/positionToArray: <a   href="Array.html">Array</a> - Array indicating what position the person was in, and what position they moved into. Format of both arrays is: [type, turretPath or cargoIndex]<br/><strong class=" ">Note:</strong> In versions below <i class=" ">V3.2</i>, if a vehicle is entered in the driver position, then the from/to arrays are reversed - it returns [1,0],[0,0], instead of [0,0],[1,0].</p>
+<ul class=" "><li class=" "><p   
+>type: <a   href="Number.html">Number</a> - 0 = not in vehicle; 1 = driver; 2 = cargo position, 3 = turret</p>
+</li><li class=" "><p   
+>turretPath: <a   href="Array.html">Array</a> - Path to turret</p>
+</li><li class=" "><p   
+>cargoIndex: <a   href="Number.html">Number</a> - Index indicating which cargo slot</p>
+</li></ul></li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-ResetFatigue" class="heading "><span>ResetFatigue</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.15-version-1-modificationdate-1644920723122-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.15-version-1-modificationdate-1644920723122-api-v2.gif"   />
+    <br/>Runs when a unit&#39;s fatigue level is reset via <a   href="resetFatigue.html">resetFatigue</a>.</p>
+<p   
+>Passed array: <strong class=" ">[unit, fatigue]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - The unit whose fatigue level was reset</p>
+</li><li class=" "><p   
+>fatigue: <a   href="Number.html">Number</a> - The fatigue level before it was reset</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Respawn" class="heading "><span>Respawn</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+<br/>Runs when the object respawns. This EH is only fired where the respawned unit is local, if its not known where the unit is local (or will be local when it is respawned), you have to add it on all machines.<br/><strong class=" ">See <a   href="#src-1513011_VBSEventHandlers-MPRespawn">MPRespawn</a> for a global &quot;Respawn&quot; EH for MP scenarios.</strong></p>
+<p   
+>Passed array: <strong class=" ">[new unit, old unit]</strong></p>
+<ul class=" "><li class=" "><p   
+>new unit: <a   href="Object.html">Object</a> - The player&#39;s new unit, after respawning</p>
+</li><li class=" "><p   
+>old unit: <a   href="Object.html">Object</a> - The player&#39;s old unit, before respawning</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> This EH is persistent, thus unit once respawned will have it again.</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Revived" class="heading "><span>Revived</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.8.1-version-1-modificationdate-1644920725970-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.8.1-version-1-modificationdate-1644920725970-api-v2.gif"   />
+    <br/>Triggered after a unit is revived.</p>
+<p   
+>Passed array: <strong class=" ">[man]</strong></p>
+<ul class=" "><li class=" "><p   
+>man: <a   href="Object.html">Object</a> - Unit that is revived</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-Suppressed" class="heading "><span>Suppressed</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Runs each time a unit is suppressed (by incoming rounds).</p>
+<p   
+>Passed array: <strong class=" ">[unit, who fired, type, distance, position, projectile]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - The unit that was suppressed</p>
+</li><li class=" "><p   
+>who fired: <a   href="Object.html">Object</a> - Object that fired the suppressing round</p>
+</li><li class=" "><p   
+>type: <a   href="String.html">String</a> - Classname of the round that caused suppression</p>
+</li><li class=" "><p   
+>distance: <a   href="Number.html">Number</a> - Nearest distance that round came to suppressed uni</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - AGL position where round was closest to suppressed unit</p>
+</li><li class=" "><p   
+>projectile: <a   href="Object.html">Object</a> - Object of the projectile that was shot</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> &quot;Suppression of user&quot; must be enabled in difficulty settings for this event to trigger. This event will trigger for both AI as well as player units.</p>
+    <h4 id="src-1513011_VBSEventHandlers-UPRPlaybackEnd" class="heading "><span>UPRPlaybackEnd</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.7-version-1-modificationdate-1644920725485-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.7-version-1-modificationdate-1644920725485-api-v2.gif"   />
+    <br/>Fires when the <a   href="UPRStartPlayback.html">UPRStartPlayback</a> of a UPR recoding ends.</p>
+<p   
+>Passed array: <strong class=" ">[unit, stopped]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html#src-1508422_Object-Unit">Unit</a> - AI unit to which EH was added.</p>
+</li><li class=" "><p   
+>stopped: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, then playback was stopped by the unit itself (e.g. because of enemy contact), if <a   href="false.html">false</a> then playback was completed or stopped via <a   href="UPRStopPlayback.html">UPRStopPlayback</a>.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-UPRRecordEnd" class="heading "><span>UPRRecordEnd</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.7-version-1-modificationdate-1644920725485-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.7-version-1-modificationdate-1644920725485-api-v2.gif"   />
+    <br/>Fires when a <a   href="UPRStartRecording.html">UPRStartRecording</a> ends.</p>
+<p   
+>Passed array: <strong class=" ">[unit, stopped]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html#src-1508422_Object-Unit">Unit</a> - Unit to which EH was added.</p>
+</li><li class=" "><p   
+>stopped: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, then playback was finished or stopped via <a   href="UPRSaveRecording.html">UPRSaveRecording</a>, if <a   href="false.html">false</a> then recording was aborted for other reasons (e.g. unit died or entered a vehicle).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-WaypointComplete" class="heading "><span>WaypointComplete</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.00-version-1-modificationdate-1644920726094-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.00-version-1-modificationdate-1644920726094-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>This event must be added to a <a   href="Group_-_Data_Type.html">Group - Data Type</a>, not an individual unit or vehicle. It is triggered when that group completes a waypoint.</p>
+<p   
+>Passed array: <strong class=" ">[group, index, waypointObject]</strong></p>
+<ul class=" "><li class=" "><p   
+>group: <a   href="Group_-_Data_Type.html">Group - Data Type</a> - Group that triggered event was added to</p>
+</li><li class=" "><p   
+>index: <a   href="Number.html">Number</a> - Index of waypoint that was completed</p>
+</li><li class=" "><p   
+>waypointObject: <a   href="Object.html">Object</a> - Object of the completed waypoint (will be invalid next frame - as completed waypoints are deleted) - VBS4 24.1+</p>
+</li></ul>    <h3 id="src-1513011_VBSEventHandlers-Vehicles" class="heading "><span>Vehicles</span></h3>
+    <h4 id="src-1513011_VBSEventHandlers-AnimChanged.1" class="heading "><span>AnimChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif"   />
+    <br/>Fires constantly during an animation. See <a   href="#src-1513011_VBSEventHandlers-AnimChanged">AnimChanged</a> for details.</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-AnimDone.1" class="heading "><span>AnimDone</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.60-version-1-modificationdate-1644920723931-api-v2.gif"   />
+    <br/>See <a   href="#src-1513011_VBSEventHandlers-AnimDone">AnimDone</a> for details.</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BZnRlckdldEluL0FmdGVyR2V0T3V0" class="heading "><span>AfterGetIn/AfterGetOut</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v22.gif" alt="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v22.gif"   />
+    <br/>Triggered after a unit gets in or out of a vehicle.</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, position, unit]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>position: <a   href="String.html">String</a> - Can be either &quot;driver&quot;, &quot;gunner&quot; or &quot;cargo&quot;</p>
+</li><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit that has left or entered the vehicle</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1CZWZvcmVHZXRJbi9CZWZvcmVHZXRPdXQ" class="heading "><span>BeforeGetIn/BeforeGetOut</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v22.gif" alt="images/download/attachments/1513011/vbs2_1.50-version-1-modificationdate-1644920723518-api-v22.gif"   />
+    <br/>Triggered just before a unit gets in or out of a vehicle.<br/><strong class=" ">In V2.0+ this event actually fires <i class=" ">after</i> the unit has entered/left the vehicle.</strong> (i.e. it is the same as the <a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BZnRlckdldEluL0FmdGVyR2V0T3V0">AfterGetIn/AfterGetOut</a> EH)</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, position, unit]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>position: <a   href="String.html">String</a> - Can be either &quot;driver&quot;, &quot;gunner&quot; or &quot;cargo&quot;</p>
+</li><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit that will be leaving or entering the vehicle</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-CargoChanged" class="heading "><span>CargoChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Runs whenever a weapon or magazine is added / removed from the cargo space of a vehicle. This could occur as a result of running scripting commands (such as <a   href="addWeaponCargo.html">addWeaponCargo</a> or <a   href="clearMagazineCargo.html">clearMagazineCargo</a>), or it could happen as a result of in-game actions, such as an AI soldier taking out gear from a vehicle.<br/>The event handler has the following considerations:</p>
+<ol class=" "><li class=" "><p   
+>The magazines of an infantry unit are in their equipped space (does not trigger the event handler); when the magazines are moved in a vehicle, they are in the vehicle cargo space (triggers the event handler).</p>
+</li><li class=" "><p   
+>When a weapon is moved from the primary slot of an infantry unit to their backpack, it is considered as moving the weapon from the equipped space into the cargo space of the infantry unit (triggers the event handler).</p>
+</li><li class=" "><p   
+>For infantry units, magazine space is not considered cargo space, even if the infantry unit has a backpack (moving a magazine to an infantry unit does not trigger the event handler).</p>
+</li></ol><p   
+>Passed array: <strong class=" ">[object]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that had its cargo changed</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> before v1.30, these event handlers are removed from nearby objects when a player uses the inventory; therefore, these event handlers cannot be considered reliable in versions before 1.30.</p>
+    <h4 id="src-1513011_VBSEventHandlers-Engine" class="heading "><span>Engine</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when the engine of the unit is turned on/off.</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, engineState]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>engineState: <a   href="Boolean.html">Boolean</a> - True when the engine is turned on, false when turned off</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Fuel" class="heading "><span>Fuel</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when the unit&#39;s fuel status changes between completely empty / not empty (only useful if the event handler is assigned to a vehicle).</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, fuelState]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>fuelState: <a   href="Boolean.html">Boolean</a> - <a   href="false.html">false</a> when no fuel, <a   href="true.html">true</a> when the fuel tank is full</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Gear" class="heading "><span>Gear</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when the unit lowers/retracts the landing gear (only useful if the event handler is assigned to is a member of the class &quot;Plane&quot;).</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, gearState]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>gearState: <a   href="Boolean.html">Boolean</a> - True when the gear is lowered, false when retracted</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1HZXRJbi9HZXRPdXQ" class="heading "><span>GetIn/GetOut</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when a unit enters or leaves the object (only useful when the event handler is assigned to a vehicle). It does not trigger upon a change of positions within the same vehicle. It also is not triggered by the moveInX commands.</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, position, unit]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li><li class=" "><p   
+>position: <a   href="String.html">String</a> - Can be either &quot;driver&quot;, &quot;gunner&quot;, &quot;commander&quot; or &quot;cargo&quot;</p>
+</li><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit that entered or left the vehicle</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1HZXRJbk1hbi9HZXRPdXRNYW4" class="heading "><span>GetInMan/GetOutMan</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Triggered when a unit enters or leaves a vehicle. It does not trigger upon a change of positions within the same vehicle. This event is attached to a person, not a vehicle like the GetIn event.</p>
+<p   
+>Passed array: <strong class=" ">[unit, position, vehicle]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit that entered or left the vehicle</p>
+</li><li class=" "><p   
+>position: <a   href="String.html">String</a> - Can be either &quot;driver&quot;, &quot;gunner&quot;, &quot;commander&quot; or &quot;cargo&quot;</p>
+</li><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the event handler is assigned to</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-LandedStopped" class="heading "><span>LandedStopped</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif"   />
+    <br/>Triggered when an AI pilot would get out usually. Not executed for player.</p>
+<p   
+>Passed array: <strong class=" ">[plane, airportID]</strong></p>
+<ul class=" "><li class=" "><p   
+>plane: <a   href="Object.html">Object</a> - Object the event handler is assigned to</p>
+</li><li class=" "><p   
+>airportID: <a   href="Number.html">Number</a> - ID of the airport (-1 for anything else).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-LandedTouchDown" class="heading "><span>LandedTouchDown</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v22.gif"   />
+    <br/>Triggered when a plane (AI or player) touches the ground.</p>
+<p   
+>Passed array: <strong class=" ">[plane, airportID]</strong></p>
+<ul class=" "><li class=" "><p   
+>plane: <a   href="Object.html">Object</a> - Object the event handler is assigned to</p>
+</li><li class=" "><p   
+>airportID: <a   href="Number.html">Number</a> - ID of the airport (-1 for anything else).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-LaserFired" class="heading "><span>LaserFired</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_17.1.0-version-1-modificationdate-1644920724570-api-v2.gif" alt="images/download/attachments/1513011/vbs3_17.1.0-version-1-modificationdate-1644920724570-api-v2.gif"   />
+    <br/>Triggered when a vehicle laser range finder is invoked. The returned values are relative to the vehicle.</p>
+<p   
+>If the event-handler <a   href="addEventHandler.html">addEventHandler</a> command returns <a   href="true.html">true</a> (for example, tank addEventHandler[&quot;LaserFired&quot;,&quot;hint &#39;fired&#39;; true&quot;]), lasing is interrupted (and the distance displayed appears in red).</p>
+<p   
+>If a range finder is returning an illegal range (for example, too far or too close, as indicated by an &quot;ERR&quot; message), the event handler returns the last lased distance, in addition to the new directions.</p>
+<p   
+>Depending on the vehicle or weapon configuration, multiple returns are provided.</p>
+<p   
+>Passed array: <strong class=" ">[distance, elevation, turn, vehicle, turret, position, direction, distances]</strong></p>
+<ul class=" "><li class=" "><p   
+>distance: <a   href="Number.html">Number</a> - Current distance (or previous one, in case of error)</p>
+</li><li class=" "><p   
+>elevation: <a   href="Number.html">Number</a> - Required weapon elevation (in degrees) to hit the specified location</p>
+</li><li class=" "><p   
+>turn: <a   href="Number.html">Number</a> - Required weapon turning angle (in degrees) to hit the specified location</p>
+</li><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Object that fired the laser range finder</p>
+</li><li class=" "><p   
+>turret: <a   href="Array.html">Array</a> - Path to turret that fired the laser range finder</p>
+</li><li class=" "><p   
+>position: <a   href="Vector3D.html">Vector3D</a> - Starting position of the beam</p>
+</li><li class=" "><p   
+>direction: <a   href="Vector3D.html">Vector3D</a> - Laser beam direction</p>
+</li><li class=" "><p   
+>distances: <a   href="Array.html">Array</a> - All ranges (Numbers) collected in event</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Mb2FkT3V0Q2hhbmdlZChWZWhpY2xlKQ" class="heading "><span>LoadOutChanged (Vehicle)</span></h4>
+<p   
+>See <a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Mb2FkT3V0Q2hhbmdlZChVbml0KQ">LoadOutChanged (Unit)</a></p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Nb3ZlZChWZWhpY2xlKQ" class="heading "><span>Moved (Vehicle)</span></h4>
+<p   
+>See [#Moved (Unit)]</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QYXRoUGxhbkZhaWxlZChWZWhpY2xlKQ" class="heading "><span>PathPlanFailed (Vehicle)</span></h4>
+<p   
+>See [#PathPlanFailed (Unit)]]</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-PositionChanged" class="heading "><span>PositionChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.24-version-1-modificationdate-1644920726197-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.24-version-1-modificationdate-1644920726197-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Added to a vehicle. Runs when a person either enters, exits, or changes positions inside a vehicle.<br/>Also see <a   href="#src-1513011_VBSEventHandlers-PositionChangedMan">PositionChangedMan</a>, for a unit-based EH.</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, person, positionFromArray, positionToArray]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle that event handler was attached to</p>
+</li><li class=" "><p   
+>person: <a   href="Object.html">Object</a> - Unit that entered/exited/moved in the vehicle</p>
+</li><li class=" "><p   
+>positionFromArray/positionToArray: <a   href="Array.html">Array</a> - Array indicating what position the person was in, and what position they moved into. Format of both arrays is: [type, turretPath or cargoIndex]<br/><strong class=" ">Note:</strong>    <span style="color: #172b4d;">
+In versions below    </span>
+<i class=" ">V3.2</i>    <span style="color: #172b4d;">
+, if a vehicle is entered in the driver position, then the from/to arrays are reversed - it returns [1,0],[0,0], instead of [0,0],[1,0].    </span>
+<br/></p>
+<ul class=" "><li class=" "><p   
+>type: <a   href="Number.html">Number</a> - 0 = not in vehicle; 1 = driver; 2 = cargo position, 3 = turret</p>
+</li><li class=" "><p   
+>turretPath: <a   href="Array.html">Array</a> - Path to turret</p>
+</li><li class=" "><p   
+>cargoIndex: <a   href="Number.html">Number</a> - Index indicating which cargo slot</p>
+</li></ul></li></ul><p   
+><strong class=" ">Note:</strong> The event will be called whenever you change one manned vehicle type in the OME for another. This includes the removal of the original crew, in which case null objects will be passed to the event along with the vehicle positions.</p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1UdXJuSW4vVHVybk91dA" class="heading "><span>TurnIn/TurnOut</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.19-version-1-modificationdate-1644920726291-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.19-version-1-modificationdate-1644920726291-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Triggered when a unit turns in (or out of) a vehicle&#39;s turret position.</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, unit, turretpath]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Vehicle the unit is in</p>
+</li><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Unit that is turning in or out</p>
+</li><li class=" "><p   
+>turretpath: <a   href="Array.html">Array</a> - [] for driver</p>
+</li></ul>    <h3 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1XZWFwb25zL1Nob3Rz" class="heading "><span>Weapons/Shots</span></h3>
+    <h4 id="src-1513011_VBSEventHandlers-AmmoCreate" class="heading "><span>AmmoCreate</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.8-version-1-modificationdate-1644920726389-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.8-version-1-modificationdate-1644920726389-api-v2.gif"   />
+    <br/>Fires whenever any object of cfgAmmo is created.</p>
+<p   
+>Passed array: <strong class=" ">[bullet, shooter, target, position, velocity, selection, ammo, direction, exploded]</strong> (<i class=" ">the same array elements as <a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BbW1vRXhwbG9kZS9BbW1vSGl0">AmmoExplode/AmmoHit</a>, even though some of them have no meaning for create ammo - e.g. target and exploded</i>).</p>
+<ul class=" "><li class=" "><p   
+>bullet: <a   href="Object.html">Object</a> - Object (bullet, shell, etc.) that was fired.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that fired shot.</p>
+</li><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that was hit (always <a   href="objNull.html">objNull</a>).</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position of bullet when it was deleted.</p>
+</li><li class=" "><p   
+>velocity: <a   href="Vector3D.html">Vector3D</a> - 3D speed of bullet when it was deleted.</p>
+</li><li class=" "><p   
+>selection: <a   href="Array.html">Array</a> - Array of selections that were hit (always empty: []).</p>
+</li><li class=" "><p   
+>ammo: <a   href="Array.html">Array</a> - Ammo info: [hit value, indirect hit value, indirect hit range, explosive damage, ammo class name]</p>
+</li><li class=" "><p   
+>direction: <a   href="Vector3D.html">Vector3D</a> - Vector to surface struck (always [0,0,0]).</p>
+</li><li class=" "><p   
+>exploded: <a   href="Boolean.html">Boolean</a> - Boolean - Always <a   href="false.html">false</a>.</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-AmmoDelete" class="heading "><span>AmmoDelete</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.4-version-1-modificationdate-1644920725598-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.4-version-1-modificationdate-1644920725598-api-v2.gif"   />
+    <br/>Fires when the shot is deleted via <a   href="deleteVehicle.html">deleteVehicle</a>.</p>
+<p   
+>Passed array: <strong class=" ">[bullet, shooter, target, position, velocity, selection, ammo, direction, exploded]</strong> (<i class=" ">the same array elements as <a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BbW1vRXhwbG9kZS9BbW1vSGl0">AmmoExplode/AmmoHit</a>, even though some of them have no meaning for deleted ammo - e.g. hit information</i>).</p>
+<ul class=" "><li class=" "><p   
+>bullet: <a   href="Object.html">Object</a> - Object (bullet, shell, etc.) that was fired.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that fired shot.</p>
+</li><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that was hit (always <a   href="objNull.html">objNull</a>).</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position of bullet when it was deleted.</p>
+</li><li class=" "><p   
+>velocity: <a   href="Vector3D.html">Vector3D</a> - 3D speed of bullet when it was deleted.</p>
+</li><li class=" "><p   
+>selection: <a   href="Array.html">Array</a> - Array of selections that were hit (always empty: []).</p>
+</li><li class=" "><p   
+>ammo: <a   href="Array.html">Array</a> - Ammo info: [hit value, indirect hit value, indirect hit range, explosive damage, ammo class name]</p>
+</li><li class=" "><p   
+>direction: <a   href="Vector3D.html">Vector3D</a> - Vector to surface struck (always [0,0,0]).</p>
+</li><li class=" "><p   
+>exploded: <a   href="Boolean.html">Boolean</a> - Whether ammo exploded, or was destroyed (always <a   href="true.html">true</a>).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BbW1vRXhwbG9kZS9BbW1vSGl0" class="heading "><span>AmmoExplode/AmmoHit</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.18-version-1-modificationdate-1644920724369-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.30-version-1-modificationdate-1644920724980-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.30-version-1-modificationdate-1644920724980-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif" alt="images/download/attachments/1513011/effects_local-version-1-modificationdate-1644920723728-api-v2.gif"   />
+<br/>EH is assigned to a bullet (found via the &quot;Fired&quot; EH, for example).<br/>&quot;AmmoHit&quot; runs when the ammunition hits something (even if it ricochets), while &quot;AmmoExplode&quot; only runs when the ammo explodes or terminally impacts something.<br/>Scripted &quot;AmmoHit&quot; events will only fire if the bullet has already traveled for a certain distance (about 40m or 0.03 seconds).</p>
+<p   
+>Passed array: <strong class=" ">[bullet, shooter, target, position, velocity, selection, ammo, direction, exploded]</strong></p>
+<ul class=" "><li class=" "><p   
+>bullet: <a   href="Object.html">Object</a> - Object that was fired</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that fired shot</p>
+</li><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that was hit, or objnull if the ground was hit</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position the bullet impacted in <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-PositionASL">PositionASL</a> coordinates</p>
+</li><li class=" "><p   
+>velocity: <a   href="Vector3D.html">Vector3D</a> - 3D speed at which bullet impacted</p>
+</li><li class=" "><p   
+>selection: <a   href="Array.html">Array</a> - Array of <a   href="String.html">String</a> with named selection of the object that were hit.</p>
+</li><li class=" "><p   
+>ammo: <a   href="Array.html">Array</a> - Ammo info: [hit value, indirect hit value, indirect hit range, explosive damage, ammo class name]</p>
+</li><li class=" "><p   
+>direction: <a   href="Vector3D.html">Vector3D</a> - vector that is orthogonal (perpendicular) to the surface struck. For example, if a wall was hit, vector would be pointing out of the wall at a 90 degree angle</p>
+</li><li class=" "><p   
+>exploded: <a   href="Boolean.html">Boolean</a> - true if the ammo exploded / was destroyed, false if it ricocheted</p>
+</li></ul><p   
+><strong class=" ">Note:</strong> In versions below 1.3, these EHs only works from CfgAmmo (you cannot add it with <a   href="addEventHandler.html">addEventHandler</a>). However, in v1.3 and above the &quot;AmmoHit&quot; EH can be added via the script command.</p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-ChangedWeapon" class="heading "><span>ChangedWeapon</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.31-version-1-modificationdate-1644920726523-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.31-version-1-modificationdate-1644920726523-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/><strong class=" ">Added to the config of a weapon (not added via the addEventHandler scripting command)!</strong> Runs whenever this weapon is added or removed from a unit.</p>
+<p   
+>Passed array: <strong class=" ">[owner, weapon, added?]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object that had the weapon added or removed</p>
+</li><li class=" "><p   
+>weapon: <a   href="String.html">String</a> - Classname of weapon that was added or removed</p>
+</li><li class=" "><p   
+>added?: <a   href="Boolean.html">Boolean</a> - True if weapon was added to owner, false if it was removed</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Explosions" class="heading "><span>Explosions</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.45-version-1-modificationdate-1644920726616-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.45-version-1-modificationdate-1644920726616-api-v2.gif"   />
+    <br/>Fires when an explosion happens in the mission (<i class=" ">only</i> works with player units).</p>
+<p   
+>Passed array: <strong class=" ">[positionX, positionY, positionZ, indirectHit, indirectHitRange, energyFactor]</strong></p>
+<ul class=" "><li class=" "><p   
+>positionX/Y/Z: <a   href="Number.html">Number</a> - impact coordinates (above sea level)</p>
+</li><li class=" "><p   
+>indirectHit: <a   href="String.html">String</a> - ammo configuration value</p>
+</li><li class=" "><p   
+>indirectHitRange: <a   href="String.html">String</a> - ammo configuration value</p>
+</li><li class=" "><p   
+>energyFactor: <a   href="String.html">String</a> - unknown</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Fired" class="heading "><span>Fired</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.19-version-1-modificationdate-1644920726291-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.19-version-1-modificationdate-1644920726291-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Executes when a weapon is fired.<br/>For addons, this Event Handler can be configured to run from either CfgWeapons or CfgVehicles.</p>
+<p   
+>Passed array: <strong class=" ">[unit, weapon, muzzle, mode, ammo, magazine, projectile]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to</p>
+</li><li class=" "><p   
+>weapon: <a   href="String.html">String</a> - Fired weapon</p>
+</li><li class=" "><p   
+>muzzle: <a   href="String.html">String</a> - Muzzle which was used</p>
+</li><li class=" "><p   
+>mode: <a   href="String.html">String</a> - Current mode of the fired weapon</p>
+</li><li class=" "><p   
+>ammo: <a   href="String.html">String</a> - Ammo used</p>
+</li><li class=" "><p   
+>magazine: <a   href="String.html">String</a> - Magazine which was used</p>
+</li><li class=" "><p   
+>projectile: <a   href="Object.html">Object</a> - Object of the projectile that was shot</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-FiredNear" class="heading "><span>FiredNear</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v22.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v22.gif"   />
+    <br/>Executes when a weapon is fired nearby.<br/>Does <i class=" ">not</i> respond to explosions (e.g. IEDs or artillery) or thrown projectiles.<br/>The effective range depends on the environment. In an open area this EH may fire up to a distance of up 80m, whereas in an urban area it may be less than 40m.<br/>The caliber and ammo type do not affect the trigger range (i.e. a silenced 9mm pistol may have the same range as a 50cal machine gun).<br/>This handler will continue to fire, even after the unit it&#39;s attached to is dead.<br/>For addons, this Event Handler can be configured to run from either CfgWeapons or CfgVehicles.</p>
+<p   
+>Passed array: <strong class=" ">[unit, shooter, distance, weapon, muzzle, mode, ammo]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit/vehicle that fired the weapon</p>
+</li><li class=" "><p   
+>distance: <a   href="Number.html">Number</a> - Distance to shooter</p>
+</li><li class=" "><p   
+>weapon: <a   href="String.html">String</a> - Fired weapon</p>
+</li><li class=" "><p   
+>muzzle: <a   href="String.html">String</a> - Muzzle which was used</p>
+</li><li class=" "><p   
+>mode: <a   href="String.html">String</a> - Current mode of the fired weapon</p>
+</li><li class=" "><p   
+>ammo: <a   href="String.html">String</a> - Ammo used</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-IncomingFire" class="heading "><span>IncomingFire</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.02-version-1-modificationdate-1644920724101-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.02-version-1-modificationdate-1644920724101-api-v2.gif"   />
+    <br/>Triggered when a bullet was fired at the associated object.</p>
+<p   
+>Passed array: <strong class=" ">[unit, shooter, ammo, distance, position, projectile]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Object that fired the weapon.</p>
+</li><li class=" "><p   
+>ammo: <a   href="String.html">String</a> - Ammo type that was fired on the unit.</p>
+</li><li class=" "><p   
+>distance: <a   href="Number.html">Number</a> - Nearest distance the bullet came to the unit.</p>
+</li><li class=" "><p   
+>position: <a   href="Array.html">Array</a> - Nearest position the bullet came to the unit in [X,Z,Y] format.</p>
+</li><li class=" "><p   
+>projectile: <a   href="Object.html">Object</a> - Object of the projectile that was shot</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-IncomingLaser" class="heading "><span>IncomingLaser</span></h4>
+<p   
+><img  class="confluence-embedded-image confluence-thumbnail"  src="images/download/thumbnails/1513011/vbs3_19.1.0-version-1-modificationdate-1644920726737-api-v2.gif" alt="images/download/thumbnails/1513011/vbs3_19.1.0-version-1-modificationdate-1644920726737-api-v2.gif"  height="30" />
+ <img  class="confluence-embedded-image confluence-external-resource"  src="images/download/attachments/1507348/effects_local-version-2-modificationdate-1505466840347-api-v2.gif" alt="images/download/attachments/1507348/effects_local-version-2-modificationdate-1505466840347-api-v2.gif"   />
+</p>
+<p   
+>Triggers whenever an entity that has this event handler set is lased by a laser designator, LRF, or laser pointer. It also triggers when the lasing stops. The event handler can trigger multiple times, if it the lasing continues.</p>
+<p   
+>The following parameters are available:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">CONTINUOUS</strong> - If set to true, continuous lasing is repeatedly reported (potentially, each frame). If set to false, continuous lasing is reported only twice - at lasing start and lasing end.</p>
+</li><li class=" "><p   
+><strong class=" ">PERIOD</strong> - A single continuous lasing event is reported with a frequency set up by the period (in seconds). Can be used to reduce the frequency of calling a script.</p>
+</li><li class=" "><p   
+><strong class=" ">TRIGGER_ANGLE_DELTA</strong> - Continuous lasing, with CONTINUOUS set to false, is reported if the angle of the incoming laser moves by at least the delta value (in degrees), since the event was reported last time.</p>
+</li></ul><p   
+>Passed array: <strong class=" ">[lasedEntity, laserSource, laserType, laseEventID, endOfLaseEvent, laserDir, laserPos, laserConeAngle]</strong></p>
+<ul class=" "><li class=" "><p   
+>lasedEntity: Object - Lased entity (that has the event handler set).</p>
+</li><li class=" "><p   
+>laserSource: Object - Lasing entity.</p>
+</li><li class=" "><p   
+>laserType: String - Laser type. Can be: &quot;rangefinder&quot;, &quot;designator&quot;, &quot;pointer&quot;.</p>
+</li><li class=" "><p   
+>laseEventID: Number - Lase event ID, to track continuous lasing and the end of the lasing event.</p>
+</li><li class=" "><p   
+>endOfLaseEvent: Boolean - Set to true, if the event notifies of the lasing event end (a vehicle stops being lased by that specific laser).</p>
+</li><li class=" "><p   
+>laserDir: Vector - Direction of the laser beam, from source to target.</p>
+</li><li class=" "><p   
+>laserPos: Vector - Position of the laser origin, in world coordinates.</p>
+</li><li class=" "><p   
+>laserConeAngle: Number - Angle of the laser cone for the conical laser beam.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-IncomingMissile" class="heading "><span>IncomingMissile</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered when a guided missile locked on the target or unguided missile or rocket aimed by AI at the target was fired.</p>
+<p   
+>Passed array: <strong class=" ">[unit, ammo, shooter, projectile]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>ammo: <a   href="String.html">String</a> - Ammo type that was fired on the unit.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Object that fired the weapon.</p>
+</li><li class=" "><p   
+>projectile: <a   href="Object.html">Object</a> - Object of the missile that was shot</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-IncomingProjectile" class="heading "><span>IncomingProjectile</span></h4>
+<p   
+><img  class="confluence-embedded-image confluence-thumbnail"  src="images/download/thumbnails/1513011/vbs3_18.3.0-version-1-modificationdate-1644920726843-api-v2.gif" alt="images/download/thumbnails/1513011/vbs3_18.3.0-version-1-modificationdate-1644920726843-api-v2.gif"  height="30" />
+<img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+</p>
+<p   
+>Triggered when a projectile reaches a certain distance from the attached vehicle. The trigger distance can be set using the 3rd parameter of <a   href="addEventHandler.html">addEventHandler</a>, and passing the <tt class=" ">TRIGGER_DISTANCE</tt> parameter. If not specified, the default trigger distance is 10m.</p>
+<p   
+>Passed array: <strong class=" ">[vehicle, projectile, ammoType, distance, projectilePos, projectileVel, shooter, canDamage, shotOriginPos]</strong></p>
+<ul class=" "><li class=" "><p   
+>vehicle: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li><li class=" "><p   
+>projectile: <a   href="Object.html">Object</a> - The object of the detected projectile.</p>
+</li><li class=" "><p   
+>ammoType: <a   href="String.html">String</a> - The <tt class=" ">CfgAmmo</tt> class name of the detected projectile.</p>
+</li><li class=" "><p   
+>distance: <a   href="Number.html">Number</a> - The estimated distance that is reached by the projectile, after the next simulation step (not the current distance of the projectile from the target vehicle).</p>
+</li><li class=" "><p   
+>projectilePos: <a   href="Position_-_Data_Type.html">Position - Data Type</a> - The future position of the projectile, at the moment it passes the border of the detection range. The position is always on the sphere, which is defined by the vehicle position and the detection radius at the intersection of the sphere surface with the trajectory of the projectile (with the exception of the projectile being fired from inside of the detection area).</p>
+</li><li class=" "><p   
+>projectileVel: <a   href="Array.html">Array</a> - The velocity of the projectile, when it is detected.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - The unit or vehicle that fired the shot, or <a   href="objNull.html">objNull</a> if nobody fired it.</p>
+</li><li class=" "><p   
+>canDamage: <a   href="Boolean.html">Boolean</a> - Set to <a   href="true.html">true</a>, if the projectile can cause damage.</p>
+</li><li class=" "><p   
+>shotOriginPos: <a   href="Position_-_Data_Type.html">Position - Data Type</a> - World position of the location, where the shot is spawned.</p>
+</li></ul>    <h4 id="src-1513011_VBSEventHandlers-LaserFired.1" class="heading "><span>LaserFired</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.51-version-1-modificationdate-1644920726949-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.51-version-1-modificationdate-1644920726949-api-v2.gif"   />
+    <br/>Executes when a vehicle&#39;s laser range finder is invoked.<br/>Returned values are relative to the vehicle.<br/>If the EH command returns true (e.g. tank addEventHandler[&quot;LaserFired&quot;,&quot;hint &#39;fired&#39;; true&quot;]), lasing will be interrupted (and the distance displayed will show up red).<br/>If a range finder is returning an illegal range (too far or too close, as indicated by an &quot;ERR&quot; message), this EH will return the last lased distance, in addition to the new directions.</p>
+<p   
+>Passed array: <strong class=" ">[distance, elevation, turn]</strong></p>
+<ul class=" "><li class=" "><p   
+>distance: <a   href="Number.html">Number</a> - Current distance (or previous one, in case of error)</p>
+</li><li class=" "><p   
+>elevation: <a   href="Number.html">Number</a> - Required weapon elevation (in degrees) to hit the specified location</p>
+</li><li class=" "><p   
+>turn: <a   href="Number.html">Number</a> - Required weapon turning angle (in degrees) to hit the specified location</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-SelectWeapon" class="heading "><span>SelectWeapon</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.02-version-1-modificationdate-1644920724101-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.02-version-1-modificationdate-1644920724101-api-v2.gif"   />
+    <br/>Runs after the user changes weapon or weapon mode (such as Single to FullAuto, or from rifle to grenades).<br/>Passed array: <strong class=" ">[object, weapon, muzzle, mode, selected]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - The object that selected the weapon (vehicle or unit)</p>
+</li><li class=" "><p   
+>weapon: <a   href="String.html">String</a> - The currently selected weapon class name of the object.</p>
+</li><li class=" "><p   
+>muzzle: <a   href="String.html">String</a> - The currently selected muzzle.</p>
+</li><li class=" "><p   
+>mode: <a   href="String.html">String</a> - Mode of the previously selected weapon.</p>
+</li><li class=" "><p   
+>selected: <a   href="Boolean.html">Boolean</a> - Set to <a   href="true.html">true</a> if the weapon is added to the owner, <a   href="false.html">false</a> if it is removed from the owner.</p>
+</li></ul>    <h3 id="src-1513011_VBSEventHandlers-Other" class="heading "><span>Other</span></h3>
+    <h4 id="src-1513011_VBSEventHandlers-Attached" class="heading "><span>Attached</span></h4>
+<p   
+><img  class="confluence-embedded-image confluence-thumbnail"  src="images/download/thumbnails/1513011/vbs3_20.2-version-1-modificationdate-1644920727090-api-v2.png" alt="images/download/thumbnails/1513011/vbs3_20.2-version-1-modificationdate-1644920727090-api-v2.png"  height="30" />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Triggered when a child object is attached to a parent object.</p>
+<p   
+>When a child object is detached, the parent object returns objNull. When a child object is attached to another object, the parent returns the other object.</p>
+    <div  class="confbox admonition admonition-info">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+>Works in the same way as <a   href="#src-1513011_VBSEventHandlers-AttachTo">AttachTo</a>.</p>
+        </div>
+    </div>
+<p   
+>Passed array: <strong class=" ">[object, parent, child, position]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object that the event handler is attached to.</p>
+</li><li class=" "><p   
+>parent: <a   href="Object.html">Object</a> - Parent object.</p>
+</li><li class=" "><p   
+>child: <a   href="Object.html">Object</a> - Child object.</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position where object was attached to, in model coordinates.</p>
+</li></ul><p   
+><br/></p>
+<p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-AttachTo" class="heading "><span>AttachTo</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_1.19-version-1-modificationdate-1644920726291-api-v2.gif" alt="images/download/attachments/1513011/vbs2_1.19-version-1-modificationdate-1644920726291-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Runs whenever an object is attached to another using the <a   href="attachTo.html">attachTo</a> scripting command. Also runs when an object is detached from another object.</p>
+<p   
+>Passed array: <strong class=" ">[child, parent, position]</strong></p>
+<ul class=" "><li class=" "><p   
+>child: <a   href="Object.html">Object</a> - Object that was attached to another.</p>
+</li><li class=" "><p   
+>parent: <a   href="Object.html">Object</a> - Object that had an object attached to it; or <a   href="objNull.html">objNull</a> if an object was detached.</p>
+</li><li class=" "><p   
+>position: <a   href="Position_-_Data_Type.html#src-1508440_PositionDataType-Position3D">Position3D</a> - Position where object was attached to, in model coordinates.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-Init" class="heading "><span>Init</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v2.gif"   />
+    <br/>Triggered on mission start or when a vehicle is created on the fly using <a   href="createVehicle.html">createVehicle</a>.</p>
+<p   
+>Passed array: <strong class=" ">[unit]</strong></p>
+<ul class=" "><li class=" "><p   
+>unit: <a   href="Object.html">Object</a> - Object the event handler is assigned to.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-VariableChanged" class="heading "><span>VariableChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.09-version-1-modificationdate-1644920727186-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.09-version-1-modificationdate-1644920727186-api-v2.gif"   />
+    <br/>Runs whenever a <a   href="setVariable.html">setVariable</a> command is run for the specified unit/object.<br/>It doesn&#39;t matter if the variable actually <i class=" ">changed</i>, or if it was created or destroyed - whenever any object variable for the specified owner is set, the event will fire. (<i class=" ">V3.4+</i>: Event will also fire if variable is changed within AAR.)</p>
+<p   
+>Passed array: <strong class=" ">[owner, variable, newval, oldval]</strong></p>
+<ul class=" "><li class=" "><p   
+>owner: <a   href="Object.html">Object</a> - Object event handler was assigned to, and whose variable was changed.</p>
+</li><li class=" "><p   
+>variable: <a   href="String.html">String</a> - Name of variable that was set.</p>
+</li><li class=" "><p   
+>newval: <a   href="Anything.html">Anything</a> - New value of variable (can be nul, if variable was <a   href="nil.html">nil</a>).</p>
+</li><li class=" "><p   
+>oldval: <a   href="Anything.html">Anything</a> - Old value of variable (can be nul, if variable was just created).</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-VariableNameChanged" class="heading "><span>VariableNameChanged</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs3_3.4-version-1-modificationdate-1644920725598-api-v2.gif" alt="images/download/attachments/1513011/vbs3_3.4-version-1-modificationdate-1644920725598-api-v2.gif"   />
+    <br/><strong class=" ">Added to a Side, not an object.</strong> An object&#39;s variable name was assigned via <a   href="setVehicleVarName.html">setVehicleVarName</a>.<br/>Event will fire even if the new name is the same as the old one.</p>
+<p   
+>Passed array: <strong class=" ">[unit, newName, oldName]</strong></p>
+<ul class=" "><li class=" "><p   
+>object: <a   href="Object.html">Object</a> - Object whose variable name was changed.</p>
+</li><li class=" "><p   
+>newName: <a   href="String.html">String</a> - New variable name.</p>
+</li><li class=" "><p   
+>oldName: <a   href="String.html">String</a> - Old variable name.</p>
+</li></ul><p   
+><br/></p>
+    <h3 id="src-1513011_VBSEventHandlers-Multiplayer" class="heading "><span>Multiplayer</span></h3>
+<p   
+>The following events have to be declared with the <a   href="addMPEventHandler.html">addMPEventHandler</a> command, and the defined action will be executed on all MP clients.</p>
+    <h4 id="src-1513011_VBSEventHandlers-MPHit" class="heading "><span>MPHit</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Triggered when the unit is hit/damaged.<br/>Same behavior as regular <a   href="#src-1513011_VBSEventHandlers-Hit">Hit</a> EH, but effect is global.</p>
+<p   
+>Passed array: <strong class=" ">[target, shooter, damage]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that got injured/damaged.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that inflicted the damage. If injured by a vehicle impact or a fall the target itself is returned, or, in case of IEDs or artillery, the <a   href="objNull.html">objNull</a>. In case of explosives that were planted by someone (e.g. satchel charges), that unit is returned.</p>
+</li><li class=" "><p   
+>damage: <a   href="Number.html">Number</a> - Level of damage caused by the hit.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-MPKilled" class="heading "><span>MPKilled</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Triggered when the unit is killed.<br/>Same behavior as regular <a   href="#src-1513011_VBSEventHandlers-Killed">Killed</a> EH, but effect is global.</p>
+<p   
+>Passed array: <strong class=" ">[unit, killer]</strong></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object that got killed.</p>
+</li><li class=" "><p   
+>shooter: <a   href="Object.html">Object</a> - Unit that caused the death. If injured by a vehicle impact or a fall the target itself is returned. In case of IEDs or artillery either the target itself is returned, or the <a   href="objNull.html">objNull</a>, if further away from the explosion. In case of explosives that were planted by someone (e.g. satchel charges), that unit is returned.</p>
+</li></ul><p   
+><br/></p>
+    <h4 id="src-1513011_VBSEventHandlers-MPRespawn" class="heading "><span>MPRespawn</span></h4>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif" alt="images/download/attachments/1513011/vbs2_2.00-version-1-modificationdate-1644920724233-api-v2.gif"   />
+ <img  class="confluence-embedded-image"  src="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif" alt="images/download/attachments/1513011/effects_global-version-1-modificationdate-1536576936408-api-v22.gif"   />
+<br/>Triggered when the object respawns.<br/>Same behavior as regular <a   href="#src-1513011_VBSEventHandlers-Respawn">Respawn</a> EH, but effect is global.</p>
+<p   
+>Passed array: <strong class=" ">[new unit, old unit]</strong></p>
+<ul class=" "><li class=" "><p   
+>new unit: <a   href="Object.html">Object</a> - The player&#39;s new unit, after respawning</p>
+</li><li class=" "><p   
+>old unit: <a   href="Object.html">Object</a> - The player&#39;s old unit, before respawning</p>
+</li></ul><p   
+><br/></p>
+<p   
+></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Introduction">Introduction</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-EventHandlerPages">Event Handler Pages</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-GeneralMPNote">General MP Note</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-OtherTypesofEvent">Other Types of Event</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-EventHandlerList">Event Handler List</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Db2xsaXNpb25zL0RhbWFnZXM">Collisions/Damages</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-BeforeKilled">BeforeKilled</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Collision">Collision</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-CollisionEnd">CollisionEnd</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-CollisionStart">CollisionStart</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Dammaged">Dammaged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-DamagedHitPart">DamagedHitPart</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-EpeContact">EpeContact</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1FcGVDb250YWN0U3RhcnQvRXBlQ29udGFjdEVuZA">EpeContactStart / EpeContactEnd</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-FreeFall">FreeFall</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-HandleDamage">HandleDamage</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-HandleHeal">HandleHeal</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Hit">Hit</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-HitPart">HitPart</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Killed">Killed</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy10dXJyZXREcml2ZUNvbm5lY3RlZC90dXJyZXREcml2ZURpc2Nvbm5lY3RlZA">turretDriveConnected / turretDriveDisconnected</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-WheelCollisionEnd">WheelCollisionEnd</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-WheelCollisionStart">WheelCollisionStart</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Editor">Editor</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Delete">Delete</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Deleted">Deleted</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-GroupChangedRTE">GroupChangedRTE</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Paste">Paste</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-PlayerChangedRTE">PlayerChangedRTE</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Units">Units</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AnimChanged">AnimChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AnimDone">AnimDone</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AnimStateChanged">AnimStateChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-CoverReached">CoverReached</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Danger">Danger</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-GestureChanged">GestureChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-GestureDone">GestureDone</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-GroupChanged">GroupChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Mb2FkT3V0Q2hhbmdlZChVbml0KQ">LoadOutChanged (Unit)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Nb3ZlZChVbml0KQ">Moved (Unit)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-NameChanged">NameChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QYXRoUGxhbkZhaWxlZChVbml0KQ">PathPlanFailed (Unit)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QbGF5ZXJDaGFuZ2VkKFVuaXQp">PlayerChanged (Unit)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QbGF5ZXJDaGFuZ2VkKFZlaGljbGUp">PlayerChanged (Vehicle)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-PositionChangedMan">PositionChangedMan</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-ResetFatigue">ResetFatigue</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Respawn">Respawn</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Revived">Revived</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Suppressed">Suppressed</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-UPRPlaybackEnd">UPRPlaybackEnd</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-UPRRecordEnd">UPRRecordEnd</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-WaypointComplete">WaypointComplete</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Vehicles">Vehicles</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AnimChanged.1">AnimChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AnimDone.1">AnimDone</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BZnRlckdldEluL0FmdGVyR2V0T3V0">AfterGetIn/AfterGetOut</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1CZWZvcmVHZXRJbi9CZWZvcmVHZXRPdXQ">BeforeGetIn/BeforeGetOut</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-CargoChanged">CargoChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Engine">Engine</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Fuel">Fuel</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Gear">Gear</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1HZXRJbi9HZXRPdXQ">GetIn/GetOut</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1HZXRJbk1hbi9HZXRPdXRNYW4">GetInMan/GetOutMan</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-LandedStopped">LandedStopped</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-LandedTouchDown">LandedTouchDown</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-LaserFired">LaserFired</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Mb2FkT3V0Q2hhbmdlZChWZWhpY2xlKQ">LoadOutChanged (Vehicle)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1Nb3ZlZChWZWhpY2xlKQ">Moved (Vehicle)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1QYXRoUGxhbkZhaWxlZChWZWhpY2xlKQ">PathPlanFailed (Vehicle)</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-PositionChanged">PositionChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1UdXJuSW4vVHVybk91dA">TurnIn/TurnOut</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1XZWFwb25zL1Nob3Rz">Weapons/Shots</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AmmoCreate">AmmoCreate</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AmmoDelete">AmmoDelete</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_safe-id-VkJTRXZlbnRIYW5kbGVycy1BbW1vRXhwbG9kZS9BbW1vSGl0">AmmoExplode/AmmoHit</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-ChangedWeapon">ChangedWeapon</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Explosions">Explosions</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Fired">Fired</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-FiredNear">FiredNear</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-IncomingFire">IncomingFire</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-IncomingLaser">IncomingLaser</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-IncomingMissile">IncomingMissile</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-IncomingProjectile">IncomingProjectile</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-LaserFired.1">LaserFired</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-SelectWeapon">SelectWeapon</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Other">Other</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Attached">Attached</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-AttachTo">AttachTo</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Init">Init</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-VariableChanged">VariableChanged</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-VariableNameChanged">VariableNameChanged</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-Multiplayer">Multiplayer</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-MPHit">MPHit</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-MPKilled">MPKilled</a></p>
+</li><li class=" "><p   
+><a   href="#src-1513011_VBSEventHandlers-MPRespawn">MPRespawn</a></p>
+</li></ul></li></ul></li></ul><p   
+></p>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="VBS_Displays.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS Displays</span>
+        </a>
+                <a href="Fusion_Callbacks.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Fusion Callbacks</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

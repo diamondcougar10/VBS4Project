@@ -1,18 +1,19 @@
-import sys
 import tkinter as tk
-from tkinter import messagebox, filedialog, simpledialog
-import subprocess
-import os
+from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
-import winreg
-import configparser
-from tkinter import messagebox
+import os
+import subprocess
 import webbrowser
 import urllib.request
+import configparser
+import winreg
+import sys
 
-# ─── Configuration ─────────────────────────────────────────────────────────
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.ini')
-config = configparser.ConfigParser()
+
+# ─── CONFIGURATION ───────────────────────────────────────────────────────────
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
+config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 if 'General' not in config:
     config['General'] = {}
@@ -21,26 +22,11 @@ if 'close_on_launch' not in config['General']:
 with open(CONFIG_PATH, 'w') as f:
     config.write(f)
 
-    # ─── Loading Text Indacator ─────────────────────────────────────────────────────────
-def wrap_with_loading(cmd):
-    def _wrapped():
-        # create loading label
-        loading = tk.Label(root, text="Loading...", font=("Helvetica", 24, "italic"),
-                           bg="black", fg="white")
-        # position it at bottom‐center (adjust relx/rely as you like)
-        loading.place(relx=0.5, rely=0.9, anchor="center")
-        root.update_idletasks()      # force redraw so user sees it immediately
-        try:
-            cmd()                     # run the real handler
-        finally:
-            loading.destroy()        # clean up the label
-    return _wrapped
-
-# ─── Startup‑on‑login Helpers ───────────────────────────────────────────────
-REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-APP_NAME = "STE_Mission_Planning_Toolkit"
-
+# ─── SETTINGS HELPERS ────────────────────────────────────────────────────────
 def is_startup_enabled() -> bool:
+    """Return True if the app is registered to launch on Windows startup."""
+    REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    APP_NAME = "STE_Mission_Planning_Toolkit"
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_READ)
         winreg.QueryValueEx(key, APP_NAME)
@@ -49,34 +35,28 @@ def is_startup_enabled() -> bool:
     except FileNotFoundError:
         return False
 
-def enable_startup():
-    exe_path = sys.executable  # Path to the .exe when packaged
-    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
-    winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
-    winreg.CloseKey(key)
-
-def disable_startup():
-    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
-    try:
-        winreg.DeleteValue(key, APP_NAME)
-    except FileNotFoundError:
-        pass
-    winreg.CloseKey(key)
-
-def toggle_startup():
-    if is_startup_enabled():
-        disable_startup()
-        messagebox.showinfo("Settings", "Launch on startup ▶ Disabled")
-    else:
-        enable_startup()
-        messagebox.showinfo("Settings", "Launch on startup ▶ Enabled")
-
-# ─── Close‑on‑Launch Helpers ────────────────────────────────────────────────\
-
 def is_close_on_launch_enabled() -> bool:
+    """Return True if the config says to close on launch."""
     return config.getboolean('General', 'close_on_launch', fallback=False)
 
+def toggle_startup():
+    """Toggle Windows startup registration for this app."""
+    REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    APP_NAME = "STE_Mission_Planning_Toolkit"
+    if is_startup_enabled():
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
+        winreg.DeleteValue(key, APP_NAME)
+        winreg.CloseKey(key)
+        messagebox.showinfo("Settings", "Launch on startup ▶ Disabled")
+    else:
+        exe_path = sys.executable
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
+        winreg.CloseKey(key)
+        messagebox.showinfo("Settings", "Launch on startup ▶ Enabled")
+
 def toggle_close_on_launch():
+    """Toggle whether the main window closes when you launch a tool."""
     enabled = not is_close_on_launch_enabled()
     config['General']['close_on_launch'] = str(enabled)
     with open(CONFIG_PATH, 'w') as f:
@@ -84,8 +64,271 @@ def toggle_close_on_launch():
     status = "Enabled" if enabled else "Disabled"
     messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
 
-    # ─── BlueIG Path Helpers ─────────────────────────────────────────────────────
 
+# ─── BATCH‐FILE LAUNCH LOGIC ──────────────────────────────────────────────────
+BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
+os.makedirs(BATCH_FOLDER, exist_ok=True)
+VBS4_BAT     = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
+BLUEIG_BAT   = os.path.join(BATCH_FOLDER, "BlueIg.bat")
+BVI_BAT      = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
+
+def prompt_for_exe(title: str) -> str:
+    root = tk.Tk(); root.withdraw()
+    path = filedialog.askopenfilename(title=title, filetypes=[("Executable","*.exe")])
+    root.destroy()
+    return path
+
+def ensure_executable(config_key: str, defaults: list[str], prompt_title: str) -> str:
+    saved = config['General'].get(config_key, '').strip()
+    for candidate in [saved] + defaults:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    selected = prompt_for_exe(prompt_title)
+    if not selected or not os.path.isfile(selected):
+        raise FileNotFoundError(f"No executable found for '{config_key}'.")
+    config['General'][config_key] = selected
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+    return selected
+
+def _write_vbs4_bat(vbs4_exe: str):
+    script = f"""@echo off
+"{vbs4_exe}" -admin "-autoassign=admin" -forceSimul -window
+exit /b 0
+"""
+    with open(VBS4_BAT, "w", newline="\r\n") as f:
+        f.write(script)
+
+def _write_blueig_bat(blueig_exe: str):
+    script = f"""@echo off
+"{blueig_exe}" -hmd=openxr_ctr:oculus -vbsHostExerciseID=Exercise-HAMMERKIT1-1 -splitCPU -DJobThreads=8 -DJobPool=8
+exit /b 0
+"""
+    with open(BLUEIG_BAT, "w", newline="\r\n") as f:
+        f.write(script)
+
+def create_bvi_batch_file(ares_path: str) -> str:
+    """
+    Write a batch file that launches Ares Manager, waits, then Ares XR.
+    """
+    xr_path = ares_path.replace(
+        "ares.manager\\ares.manager.exe",
+        "ares.xr\\Windows\\AresXR.exe"
+    )
+    with open(BVI_BAT, "w") as f:
+        f.write(f'''@echo off
+start "" "{ares_path}"
+timeout /t 40 /nobreak
+start "" "{xr_path}"
+exit /b 0
+''')
+    return BVI_BAT
+
+# Prepare batch files on startup
+# VBS4
+vbs4_exe = ensure_executable(
+    'vbs4_path',
+    [
+        os.path.join(os.getenv("PROGRAMFILES","C:\\Program Files"), "BISIM","VBS4","VBS4.exe"),
+        os.path.join(os.getenv("PROGRAMFILES(X86)","C:\\Program Files (x86)"), "BISIM","VBS4","VBS4.exe"),
+        r"C:\BISIM\VBS4\VBS4.exe"
+    ],
+    "Select VBS4.exe"
+)
+_write_vbs4_bat(vbs4_exe)
+
+# BlueIG
+blueig_exe = ensure_executable('blueig_path', [], "Select BlueIG.exe")
+_write_blueig_bat(blueig_exe)
+
+# BVI (ARES Manager)
+ares_exe    = ensure_executable('bvi_manager_path', [], "Select ARES Manager executable")
+bvi_batch_file = create_bvi_batch_file(ares_exe)
+
+def launch_vbs4():
+    try:
+        subprocess.Popen(["cmd.exe","/c", VBS4_BAT], cwd=BATCH_FOLDER)
+        messagebox.showinfo("Launch Successful", "VBS4 has started.")
+        if is_close_on_launch_enabled():
+            sys.exit(0)
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn’t launch VBS4:\n{e}")
+
+def launch_blueig():
+    try:
+        subprocess.Popen(["cmd.exe","/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
+        messagebox.showinfo("Launch Successful", "BlueIG has started.")
+        if is_close_on_launch_enabled():
+            sys.exit(0)
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn’t launch BlueIG:\n{e}")
+
+def launch_bvi():
+    try:
+        subprocess.Popen([bvi_batch_file], shell=True)
+        messagebox.showinfo("Launch Successful", "BVI has started.")
+        if is_close_on_launch_enabled():
+            sys.exit(0)
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn’t launch BVI:\n{e}")
+
+def open_bvi_terrain():
+    url = "http://localhost:9080/terrain"
+    try:
+        urllib.request.urlopen(url, timeout=1)
+        webbrowser.open(url, new=2)
+    except:
+        messagebox.showinfo("BVI", "Note: BVI must be running")
+
+
+# ─── BACKGROUND & LOGOS ──────────────────────────────────────────────────────
+background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
+logo_STE_path         = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
+logo_AFC_army         = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
+logo_first_army       = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
+logo_us_army_path     = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
+
+def set_background(window):
+    # wallpaper
+    if os.path.exists(background_image_path):
+        img = Image.open(background_image_path).resize((1600,800), Image.Resampling.LANCZOS)
+        ph  = ImageTk.PhotoImage(img)
+        lbl = tk.Label(window, image=ph)
+        lbl.image = ph
+        lbl.place(relwidth=1, relheight=1)
+
+    # logos (once per real window)
+    if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
+        return
+    window._logos_placed = True
+
+    def place_logos():
+        coords = [
+            (200,  5, logo_STE_path,   (90, 90)),
+            (300,  5, logo_AFC_army,   (73, 95)),
+            (380,  5, logo_first_army, (60, 90)),
+            (window.winfo_width()-250, 3, logo_us_army_path, (230, 86)),
+        ]
+        for x,y,path,(w,h) in coords:
+            if os.path.exists(path):
+                img   = Image.open(path).convert("RGBA").resize((w,h), Image.Resampling.LANCZOS)
+                ph    = ImageTk.PhotoImage(img)
+                lbl2  = tk.Label(window, image=ph, bg="black")
+                lbl2.image = ph
+                lbl2.place(x=x, y=y)
+
+    window.after(100, place_logos)
+
+def set_wallpaper(window):
+    if os.path.exists(background_image_path):
+        img = Image.open(background_image_path).resize((1600,800), Image.Resampling.LANCZOS)
+        ph  = ImageTk.PhotoImage(img)
+        lbl = tk.Label(window, image=ph)
+        lbl.image = ph
+        lbl.place(relwidth=1, relheight=1)
+
+
+# ─── TUTORIALS PANEL DATA ────────────────────────────────────────────────────
+tutorials_items = {
+    "VBS4 Documentation": lambda: webbrowser.open(
+        "file:///C:/BISIM/VBS4/docs/HTML_EN/Content/Core/VBS4_Manuals_Home.htm", new=2),
+    "Script Wiki":         lambda: webbrowser.open(
+        "file:///C:/BISIM/VBS4/docs/Wiki/SQF_Resources/VBS_Scripting_Reference.html", new=2),
+    "BVI PDF Docs":        lambda: messagebox.showinfo("BVI Docs","Open BVI PDF docs"),
+}
+blueig_help_items = {
+    "Blue IG Official Documentation": lambda: messagebox.showinfo("Coming Soon", "Not implemented yet"),
+    "Video Tutorials":                lambda: messagebox.showinfo("Coming Soon", "Not implemented yet"),
+    "Support Website":                lambda: webbrowser.open("https://example.com/blueig-support", new=2),
+}
+# ─── (reuse your existing open_submenu function) ────────────────────────────
+def open_submenu(title, buttons):
+    sub = tk.Toplevel()
+    sub.title(title)
+    sub.geometry("1600x800")
+    sub.transient()
+    sub.grab_set()
+    set_background(sub)            
+    tk.Label(sub, text=title,
+             font=("Helvetica",28,"bold"),
+             bg='black', fg='white', pady=10).pack(fill='x')
+    for txt, cmd in buttons.items():
+        tk.Button(sub, text=txt, command=cmd,
+                  font=("Helvetica",18), bg="#444", fg="white",
+                  width=30, height=1).pack(pady=5, padx=10)
+    tk.Button(sub, text="Close", command=sub.destroy,
+              font=("Helvetica",16), bg="red", fg="white").pack(pady=15)
+# Path constants
+VBS4_HTML    = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\VBS4_Manuals_EN.htm"
+SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\Wiki\SQF_Reference.html"
+SUPPORT_SITE = "https://bisimulations.com/support/"
+# ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
+pdf_docs = {
+    "SQF Wiki": lambda: webbrowser.open(
+        r"file:///C:/Users/tifte/Documents/GitHub/VBS4Project/PythonPorjects/Help_Tutorials/Wiki/SQF_Reference.html",
+        new=2),
+    "VBS4 Manuals": lambda: webbrowser.open(
+        r"file:///C:/Users/tifte/Documents/GitHub/VBS4Project/PythonPorjects/Help_Tutorials/VBS4_Manuals_EN.htm",
+        new=2),
+}
+# ─── VBS4 PDF Docs Helper ────────────────────────────────────────────────────
+VBS4_PDF_DIR = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\PDF_EN"
+
+def open_vbs4_pdfs():
+    """Scan the VBS4 PDF_EN folder and pop up a submenu of all the PDFs."""
+    try:
+        pdfs = sorted(f for f in os.listdir(VBS4_PDF_DIR) if f.lower().endswith(".pdf"))
+    except FileNotFoundError:
+        messagebox.showerror("Error", f"VBS4 PDF folder not found:\n{VBS4_PDF_DIR}")
+        return
+
+    items = {}
+    for fname in pdfs:
+        display = os.path.splitext(fname)[0].replace("_", " ")
+        path    = os.path.join(VBS4_PDF_DIR, fname)
+        items[display] = lambda p=path: subprocess.Popen([p], shell=True)
+
+    open_submenu("VBS4 PDF Manuals", items)
+
+video_items = {
+    "VBS4 Video Tutorials":   lambda: messagebox.showinfo("VBS4 Videos", "Play VBS4 tutorial videos"),
+    "BlueIG Video Tutorials": lambda: messagebox.showinfo("BlueIG Videos", "Play BlueIG tutorial videos"),
+    "BVI Video Tutorials":    lambda: messagebox.showinfo("BVI Videos", "Play BVI tutorial videos"),
+}
+vbs4_help_items = {
+    "VBS4 Official Documentation": lambda: subprocess.Popen([VBS4_HTML], shell=True),
+       "VBS4 PDF Manuals":   open_vbs4_pdfs,
+    "Script Wiki":                  lambda: subprocess.Popen([SCRIPT_WIKI], shell=True),
+    "Video Tutorials":              lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
+    "Support Website":              lambda: webbrowser.open(SUPPORT_SITE, new=2),
+}
+def open_bvi_quickstart():
+    path = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\BVI_Documentation\BVI_TECHNICAL_DOC.pdf"
+    if os.path.exists(path):
+        try:
+            subprocess.Popen([path], shell=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
+    else:
+        messagebox.showerror("Error", f"Quick-Start Guide not found:\n{path}")
+
+# BVI Help submenu
+bvi_help_items = {
+    "BVI Official Documentation": lambda: messagebox.showinfo("BVI Docs", "Open BVI PDF docs (not hooked up)"),
+    "BVI Quick-Start Guide":      open_bvi_quickstart,
+    "Video Tutorials":            lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
+    "Support Website":            lambda: webbrowser.open("https://www.dignitastechnologies.com/bvi", new=2),
+}
+
+# One-Click Terrain Help submenu
+oct_help_items = {
+    "How to collect terrain scans w/ Drone":   lambda: messagebox.showinfo("Drone Scans","Coming soon…"),
+    "How to import terrain scans from drone":  lambda: messagebox.showinfo("Import Scans","Coming soon…"),
+    "How to: Simulated Terrain":               lambda: messagebox.showinfo("Simulated Terrain","Coming soon…"),
+    # if you later want sub-menus under this, you can nest open_submenu again
+}
+
+# ─── Helper DATA ────────────────────────────────────────────────────
 def get_blueig_install_path() -> str:
     """Return the currently saved BlueIG path (or empty string if none)."""
     return config['General'].get('blueig_path', '')
@@ -146,655 +389,286 @@ def set_vbs4_install_path():
     else:
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
 
-def open_vbs4_official_docs():
-    webbrowser.open(
-        "file:///C:/BISIM/VBS4/docs/HTML_EN/Content/Core/VBS4_Manuals_Home.htm",
-        new=2  # open in a new tab (if the browser supports it)
-    )
-
-def open_script_wiki():
-    webbrowser.open(
-        "file:///C:/BISIM/VBS4/docs/Wiki/SQF_Resources/VBS_Scripting_Reference.html",
-        new=2
-    )
-
-def open_vbs4_pdf_docs():
-    pdf_dir = os.path.join(BASE_DIR, "PDF_EN")
-    try:
-        pdf_files = sorted(f for f in os.listdir(pdf_dir) if f.lower().endswith(".pdf"))
-    except FileNotFoundError:
-        messagebox.showerror("Error", f"PDF folder not found:\n{pdf_dir}")
-        return
-
-    # Create the window
-    sub = tk.Toplevel(root)
-    sub.title("VBS4 PDF Documentation")
-    sub.geometry("1600x800")
-    sub.resizable(True, True)
-    sub.transient(root)
-    sub.grab_set()
-    sub.lift()
-    sub.focus_force()
-    set_background(sub)
-
-    # Header
-    header = tk.Label(sub, text="VBS4 PDF Documentation",
-                      font=("Helvetica", 28, "bold"),
-                      bg="black", fg="white", pady=10)
-    header.pack(fill="x")
-
-    # Frame to hold the buttons in a grid
-    btn_frame = tk.Frame(sub, bg=sub["bg"])
-    btn_frame.pack(expand=True, fill="both", padx=20, pady=20)
-
-    ncols = 3  # number of columns you want
-    for idx, fname in enumerate(pdf_files):
-        display = os.path.splitext(fname)[0].replace("_", " ")
-        full_path = os.path.join(pdf_dir, fname)
-
-        def make_cmd(p=full_path):
-            return lambda: subprocess.Popen([p], shell=True)
-
-        btn = tk.Button(btn_frame, text=display,
-                        command=make_cmd(),
-                        font=("Helvetica", 14),
-                        width=25, height=2,
-                        wraplength=200, justify="center")
-        row = idx // ncols
-        col = idx % ncols
-        btn.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-
-    # Make all columns expand equally
-    for c in range(ncols):
-        btn_frame.grid_columnconfigure(c, weight=1)
-
-    # Back / Exit
-    ctrl_frame = tk.Frame(sub, bg=sub["bg"])
-    ctrl_frame.pack(fill="x", pady=(0,20))
-    tk.Button(ctrl_frame, text="Back",
-              command=lambda: (sub.grab_release(), sub.destroy()),
-              font=("Helvetica", 16), bg="red", fg="white",
-              width=15, height=1).pack(side="left", padx=20)
-    tk.Button(ctrl_frame, text="Exit",
-              command=lambda: (sub.grab_release(), exit_application()),
-              font=("Helvetica", 16), bg="red", fg="white",
-              width=15, height=1).pack(side="right", padx=20)
-
-def open_bvi_pdf_docs():
-    """
-    Scans the BVI_Documentation folder and opens
-    a grid‐style submenu with one button per PDF.
-    """
-    pdf_dir = os.path.join(BASE_DIR, "BVI_Documentation")
-    try:
-        pdf_files = sorted(f for f in os.listdir(pdf_dir) if f.lower().endswith(".pdf"))
-    except FileNotFoundError:
-        messagebox.showerror("Error", f"BVI PDF folder not found:\n{pdf_dir}")
-        return
-
-    sub = tk.Toplevel(root)
-    sub.title("BVI PDF Documentation")
-    sub.geometry("1600x800")
-    sub.resizable(True, True)
-    sub.transient(root)
-    sub.grab_set()
-    sub.lift()
-    sub.focus_force()
-    set_background(sub)
-
-    header = tk.Label(
-        sub,
-        text="BVI PDF Documentation",
-        font=("Helvetica", 28, "bold"),
-        bg="black",
-        fg="white",
-        pady=10
-    )
-    header.pack(fill="x")
-
-    btn_frame = tk.Frame(sub, bg=sub["bg"])
-    btn_frame.pack(expand=True, fill="both", padx=20, pady=20)
-
-    ncols = 3
-    for idx, fname in enumerate(pdf_files):
-        display = os.path.splitext(fname)[0].replace("_", " ")
-        full_path = os.path.join(pdf_dir, fname)
-
-        def make_cmd(p=full_path):
-            return lambda: subprocess.Popen([p], shell=True)
-
-        btn = tk.Button(
-            btn_frame,
-            text=display,
-            command=make_cmd(),
-            font=("Helvetica", 14),
-            width=25,
-            height=2,
-            wraplength=200,
-            justify="center"
-        )
-        row = idx // ncols
-        col = idx % ncols
-        btn.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-
-    for c in range(ncols):
-        btn_frame.grid_columnconfigure(c, weight=1)
-
-    ctrl_frame = tk.Frame(sub, bg=sub["bg"])
-    ctrl_frame.pack(fill="x", pady=(0,20))
-    tk.Button(
-        ctrl_frame,
-        text="Back",
-        command=lambda: (sub.grab_release(), sub.destroy()),
-        font=("Helvetica", 16),
-        bg="red",
-        fg="white",
-        width=15,
-        height=1
-    ).pack(side="left", padx=20)
-    tk.Button(
-        ctrl_frame,
-        text="Exit",
-        command=lambda: (sub.grab_release(), exit_application()),
-        font=("Helvetica", 16),
-        bg="red",
-        fg="white",
-        width=15,
-        height=1
-    ).pack(side="right", padx=20)
-
-# ======================== Path & File Locations ========================= #
-
-logo_STE_path       = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
-logo_us_army_path   = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
-logo_first_army     = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
-logo_AFC_army       = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
-
-background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
-PDF_FILE_PATH         = os.path.join(BASE_DIR, "STE_SMTP_KIT_GUIDE.pdf")
-bvi_setup_doc_path    = os.path.join(BASE_DIR, "Help_Tutorials", "Bvi_Vbs4_Setup.pdf")
-demo_video_path       = os.path.join(BASE_DIR, "Help_Tutorials", "BattleSpaceSetup.mkv")
-
-BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
-os.makedirs(BATCH_FOLDER, exist_ok=True)
-VBS4_BAT   = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
-BLUEIG_BAT = os.path.join(BATCH_FOLDER, "BlueIg.bat")
-
-def prompt_for_exe(title: str) -> str:
-    """Open a file dialog and return the path to an .exe file."""
-    root = tk.Tk()
-    root.withdraw()
-    path = filedialog.askopenfilename(
-        title=title,
-        filetypes=[("Executable", "*.exe")]
-    )
-    root.destroy()
-    return path
-
-def _write_vbs4_bat(vbs4_exe: str):
-    script = f"""@echo off
-\"{vbs4_exe}\" -admin \"-autoassign=admin\" -forceSimul -window
-exit /b 0
-"""
-    with open(VBS4_BAT, "w", newline="\r\n") as f:
-        f.write(script)
-
-def _write_blueig_bat(blueig_exe: str):
-    script = f"""@echo off
-\"{blueig_exe}\" -hmd=openxr_ctr:oculus -vbsHostExerciseID=Exercise-HAMMERKIT1-1 -splitCPU -DJobThreads=8 -DJobPool=8
-exit /b 0
-"""
-    with open(BLUEIG_BAT, "w", newline="\r\n") as f:
-        f.write(script)
-
-def launch_vbs4():
-    # get or prompt for vbs4.exe
-    exe = config['General'].get('vbs4_path', '').strip()
-    if not os.path.isfile(exe):
-        messagebox.showwarning("VBS4 Not Found", "Please locate VBS4.exe now.")
-        exe = filedialog.askopenfilename(title="Select VBS4.exe", filetypes=[("Exe","*.exe")])
-        if not os.path.isfile(exe):
-            messagebox.showerror("Error", "Invalid VBS4 path.")
-            return
-        config['General']['vbs4_path'] = exe
-        with open(CONFIG_PATH, 'w') as cfg: config.write(cfg)
-
-    _write_vbs4_bat(exe)
-    try:
-        subprocess.Popen(["cmd.exe", "/c", VBS4_BAT], cwd=BATCH_FOLDER)
-        messagebox.showinfo("Launch Successful", "VBS4 has started.")
-        if is_close_on_launch_enabled(): root.destroy()
-    except Exception as e:
-        messagebox.showerror("Launch Failed", f"Couldn’t launch VBS4:\n{e}")
-
-def launch_blueig():
-    # get or prompt for BlueIG.exe
-    exe = config['General'].get('blueig_path', '').strip()
-    if not os.path.isfile(exe):
-        messagebox.showwarning("BlueIG Not Found", "Please locate BlueIG.exe now.")
-        exe = filedialog.askopenfilename(title="Select BlueIG.exe", filetypes=[("Exe","*.exe")])
-        if not os.path.isfile(exe):
-            messagebox.showerror("Error", "Invalid BlueIG path.")
-            return
-        config['General']['blueig_path'] = exe
-        with open(CONFIG_PATH, 'w') as cfg: config.write(cfg)
-
-    _write_blueig_bat(exe)
-    try:
-        subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
-        messagebox.showinfo("Launch Successful", "BlueIG has started.")
-        if is_close_on_launch_enabled(): root.destroy()
-    except Exception as e:
-        messagebox.showerror("Launch Failed", f"Couldn’t launch BlueIG:\n{e}")
-
-def prompt_for_exe(title: str) -> str:
-    """Open a file dialog and return the path to an .exe file."""
-    root = tk.Tk()
-    root.withdraw()
-    path = filedialog.askopenfilename(
-        title=title,
-        filetypes=[("Executable", "*.exe")]
-    )
-    root.destroy()
-    return path
-
-def ensure_executable(config_key: str, defaults: list[str], prompt_title: str) -> str:
-    """Locate or prompt for an executable, persist it to config, and return its path."""
-    # Check saved config and defaults
-    saved = config['General'].get(config_key, '').strip()
-    for candidate in [saved] + defaults:
-        if candidate and os.path.isfile(candidate):
-            return candidate
-
-    # Prompt if none found
-    selected = prompt_for_exe(prompt_title)
-    if not selected or not os.path.isfile(selected):
-        raise FileNotFoundError(f"No executable found for '{config_key}'.")
-
-    # Save selection
-    config['General'][config_key] = selected
-    with open(CONFIG_PATH, 'w') as cfg_file:
-        config.write(cfg_file)
-
-    return selected
-
-# ======================== HELP & DEMO FUNCTIONS ========================= #
-
-def ensure_executable(config_key: str, defaults: list[str], prompt_title: str) -> str:
-    """Locate or prompt for an executable, persist it to config, and return its path."""
-    # Check saved config and defaults
-    saved = config['General'].get(config_key, '').strip()
-    for candidate in [saved] + defaults:
-        if candidate and os.path.isfile(candidate):
-            return candidate
-
-    # Prompt if none found
-    selected = prompt_for_exe(prompt_title)
-    if not selected or not os.path.isfile(selected):
-        raise FileNotFoundError(f"No executable found for '{config_key}'.")
-
-    # Save selection
-    config['General'][config_key] = selected
-    with open(CONFIG_PATH, 'w') as cfg_file:
-        config.write(cfg_file)
-
-    return selected
-
-# ======================== HELP & DEMO FUNCTIONS ========================= #
-
-def open_bvi_setup_doc():
-    if os.path.exists(bvi_setup_doc_path):
-        try: subprocess.Popen([bvi_setup_doc_path], shell=True)
-        except Exception as e: messagebox.showerror("Error", f"Failed to open BVI doc.\n{e}")
-    else:
-        messagebox.showerror("Error", "BVI VBS4 Setup document not found.")
-
-def play_demo_video():
-    if os.path.exists(demo_video_path):
-        try: subprocess.Popen([demo_video_path], shell=True)
-        except Exception as e: messagebox.showerror("Error", f"Failed to play demo video.\n{e}")
-    else:
-        messagebox.showerror("Error", "Demo video not found.")
-
-# ======================== REUSABLE BUTTON FUNCTION ========================= #
-
-def create_button(parent, text, command):
-    return tk.Button(parent, text=text, command=command,
-                     font=("Helvetica", 32),     # bigger text
-                     bg="#444444", fg="white",
-                     width=20, height=2,         # wider & taller buttons
-                     relief="raised")
-
-# ======================== INSTALL‑PATH FINDERS ========================= #
-
-def open_setup_documentation():
-    if os.path.exists(PDF_FILE_PATH):
-        try: subprocess.Popen([PDF_FILE_PATH], shell=True)
-        except Exception as e: messagebox.showerror("Error", f"Failed to open setup doc.\n{e}")
-    else:
-        messagebox.showerror("Error", "Setup documentation not found.")
-
-def find_vbs4():
-    paths = [
-        os.path.join(os.getenv("PROGRAMFILES","C:\\Program Files"), "BISIM","VBS4","VBS4.exe"),
-        os.path.join(os.getenv("PROGRAMFILES(X86)","C:\\Program Files (x86)"), "BISIM","VBS4","VBS4.exe"),
-        r"C:\BISIM\VBS4\VBS4.exe"
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    messagebox.showwarning("VBS4 Not Found", "Select VBS4.exe manually.")
-    f = filedialog.askopenfilename(title="Select VBS4.exe", filetypes=[("EXE","*.exe")])
-    return f if os.path.exists(f) else None
-
-def find_ares():
-    paths = [
-        os.path.join(os.getenv("PROGRAMFILES","C:\\Program Files"), "ARES","ARES-dev-release-v0.9.4-c1d3950","ares.manager","ares.manager.exe"),
-        os.path.join(os.getenv("PROGRAMFILES(X86)","C:\\Program Files (x86)"), "ARES","ARES-dev-release-v0.9.4-c1d3950","ares.manager","ares.manager.exe")
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    messagebox.showwarning("ARES Not Found", "Select ares.manager.exe manually.")
-    f = filedialog.askopenfilename(title="Select ARES Manager", filetypes=[("EXE","*.exe")])
-    return f if os.path.exists(f) else None
-
-vbs4_exe_path     = find_vbs4()
-ares_manager_path = find_ares()
-if not vbs4_exe_path or not ares_manager_path:
-    messagebox.showerror("Error", "Required paths not found. Exiting.")
-    sys.exit()
-
-# ======================== BATCH FILE GENERATORS ========================= #
-
-def create_drone_scenario_batch(vbs4_path):
-    fpath = os.path.join(BATCH_FOLDER, "DroneScenario.bat")
-    with open(fpath, "w") as f:
-        f.write(f'''@echo off
-start "" "{vbs4_path}" -forceSimul -init=hostMission["Leonidas_demo"] -name=Admin -autoassign=Player1 -autostart=1
-exit
-''')
-    return fpath
-
-drone_scenario_batch = create_drone_scenario_batch(vbs4_exe_path)
-
-def create_bvi_batch_file(ares_path):
-    out = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
-    xr  = ares_path.replace("ares.manager\\ares.manager.exe","ares.xr\\Windows\\AresXR.exe")
-    with open(out, "w") as f:
-        f.write(f'''@echo off
-start "" "{ares_path}"
-timeout /t 40 /nobreak
-start "" "{xr}"
-exit
-''')
-    return out
-
-bvi_batch_file = create_bvi_batch_file(ares_manager_path)
-
-# ======================== LAUNCH HELPERS ========================= #
-
-def launch_application(app_path, app_name):
-    if os.path.exists(app_path):
-        try:
-            if is_close_on_launch_enabled():
-                root.destroy()
-            subprocess.Popen(app_path, shell=True)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to launch {app_name}.\n{e}")
-    else:
-        messagebox.showerror("Error", f"{app_name} not found.")
-
-def launch_bvi():
-    launch_application(bvi_batch_file, "BVI (ARES Manager & XR)")
-
-    # ======================== FUNCTION For BVI ========================= #
-def open_bvi_terrain():
-    """Try to hit the local terrain server; if it’s up, open in browser,
-    otherwise tell the user BVI must be running."""
-    url = "http://localhost:9080/terrain"
-    try:
-        # quick check to see if anything is listening
-        urllib.request.urlopen(url, timeout=1)
-        webbrowser.open(url, new=2)
-    except Exception:
-        messagebox.showinfo("BVI", "Note: BVI must be running")
-
-def open_bvi_quickstart():
-    path = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\BVI_Documentation\BVI_TECHNICAL_DOC.pdf"
-    if os.path.exists(path):
-        try:
-            subprocess.Popen([path], shell=True)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
-    else:
-        messagebox.showerror("Error", f"Quick-Start Guide not found:\n{path}")
-
-# ======================== FUNCTION TO SET BACKGROUND IMAGE ========================= #
-def set_background(window):
-    """Applies background image and adds four logos:
-    - STE_CFT Logo (Top Left)
-    - US Army AFC Logo (Next to STE_CFT Logo)
-    - First Army Logo (Next to AFC Logo)
-    - US Army Logo (Top Right)
-    """
-    try:
-        # Load and set background image
-        if os.path.exists(background_image_path):
-            bg_image = Image.open(background_image_path)
-            bg_image = bg_image.resize((1600, 800), Image.Resampling.LANCZOS)
-            bg_photo = ImageTk.PhotoImage(bg_image)
-
-            bg_label = tk.Label(window, image=bg_photo)
-            bg_label.image = bg_photo  # Prevent garbage collection
-            bg_label.place(relwidth=1, relheight=1)  # Stretch image to fit window
-        else:
-            print(" Background image not found!")
-
-        def place_logos():
-            # Top Left Logo: STE_CFT_Logo
-            if os.path.exists(logo_STE_path):
-                ste_cft_logo_image = Image.open(logo_STE_path).convert("RGBA")  
-                ste_cft_logo_image = ste_cft_logo_image.resize((90, 90), Image.Resampling.LANCZOS)
-
-                ste_cft_logo_photo = ImageTk.PhotoImage(ste_cft_logo_image)
-
-                ste_cft_logo_label = tk.Label(window, image=ste_cft_logo_photo, bg="black")  
-                ste_cft_logo_label.image = ste_cft_logo_photo  
-                ste_cft_logo_label.place(x=1, y=1) 
-            else:
-                print(" STE_CFT Logo image not found!")
-
-            # Top Left (Next to STE_CFT Logo): US_Army_AFC_Logo
-            if os.path.exists(logo_AFC_army):
-                afc_army_logo_image = Image.open(logo_AFC_army).convert("RGBA")  
-                afc_army_logo_image = afc_army_logo_image.resize((73, 95), Image.Resampling.LANCZOS)  
-
-                afc_army_logo_photo = ImageTk.PhotoImage(afc_army_logo_image)
-
-                afc_army_logo_label = tk.Label(window, image=afc_army_logo_photo, bg="black")  
-                afc_army_logo_label.image = afc_army_logo_photo  
-                
-                # Position Next to STE_CFT Logo
-                afc_army_logo_label.place(x=180, y=1)  #  Positioned Right of STE_CFT Logo
-
-            else:
-                print(" US Army AFC Logo image not found!")
-
-            # Top Left (Next to US Army AFC Logo): First_Army_Logo
-            if os.path.exists(logo_first_army):
-                first_army_logo_image = Image.open(logo_first_army).convert("RGBA")  
-                first_army_logo_image = first_army_logo_image.resize((60, 90), Image.Resampling.LANCZOS)  
-
-                first_army_logo_photo = ImageTk.PhotoImage(first_army_logo_image)
-
-                first_army_logo_label = tk.Label(window, image=first_army_logo_photo, bg="black")  
-                first_army_logo_label.image = first_army_logo_photo  
-                
-                # Position Next to US Army AFC Logo
-                def position_first_army_logo():
-                    first_army_logo_label.place(x=window.winfo_width() - 380, y=1)  
-
-                window.after(10, position_first_army_logo)  
-
-            else:
-                print(" First Army Logo image not found!")
-
-            # Top Right Logo: New_US_Army_Logo
-            if os.path.exists(logo_us_army_path):
-                us_army_logo_image = Image.open(logo_us_army_path).convert("RGBA")  
-                us_army_logo_image = us_army_logo_image.resize((230, 86), Image.Resampling.LANCZOS)
-
-                us_army_logo_photo = ImageTk.PhotoImage(us_army_logo_image)
-
-                us_army_logo_label = tk.Label(window, image=us_army_logo_photo, bg="black")  
-                us_army_logo_label.image = us_army_logo_photo  
-                
-                # Adjusted for submenus using `.after()` to get correct width
-                def position_us_army_logo():
-                    us_army_logo_label.place(x=window.winfo_width() - 250, y=3)  # Positioned at Top Right
-
-                window.after(10, position_us_army_logo)  # Delay to get correct width
-
-            else:
-                print("New US Army Logo image not found!")
-
-        # Delay placing the logos until the window fully renders
-        window.after(100, place_logos)
-
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to load images.\n{e}")
-
-# ======================== SUBMENU LOGIC ========================= #
-
-def open_submenu(title, buttons):
-    submenu = tk.Toplevel(root)
-    submenu.title(title)
-    submenu.geometry("1600x800")
-    submenu.resizable(False, False)
-
-    # make it a modal dialog on top of root
-    submenu.transient(root)
-    submenu.grab_set()       # route all events to this window
-    submenu.lift()           # raise above other windows
-    submenu.focus_force()    # give it keyboard focus
-
-    submenu.configure(bg=root["bg"])
-    submenu.attributes('-transparentcolor', submenu["bg"])
-    set_background(submenu)
-
-    header = tk.Label(submenu, text=title,
-                      font=("Helvetica", 36, "bold"),
-                      bg="black", fg="white", pady=20)
-    header.pack(fill="x")
-
-    for txt, cmd in buttons.items():
-        btn = tk.Button(submenu, text=txt, command=cmd,
-                        font=("Helvetica", 24), bg="#444444", fg="white",
-                        width=30, height=1, relief="raised")
-        btn.pack(pady=20)
-
-    # Back just destroys this submenu
-    tk.Button(submenu, text="Back", command=lambda: (submenu.grab_release(), submenu.destroy()),
-              font=("Helvetica", 18), bg="red", fg="white",
-              width=30, height=1, relief="raised").pack(pady=30)
-
-    # Exit releases grab then closes the whole app
-    tk.Button(submenu, text="Exit",
-              command=lambda: (submenu.grab_release(), exit_application()),
-              font=("Helvetica", 18), bg="red", fg="white",
-              width=30, height=1, relief="raised").pack(pady=10)
-
-def exit_application():
-    root.destroy()
-# ======================== MAIN WINDOW SETUP ========================= #
-
-root = tk.Tk()
-root.title("STE Mission Planning Toolkit")
-root.geometry("1600x800")
-root.resizable(False, False)
-# ─── bring root to front & focus it ────────────────────────────────────────
-root.lift()
-root.focus_force()
-root.after(100, lambda: (root.lift(), root.focus_force()))
-set_background(root)
-
-tk.Label(root, text="STE Mission Planning Toolkit",
-         font=("Helvetica",36,"bold"),
-         bg="black", fg="white", pady=20).pack(fill="x")
-
-
-# ======================== TUTORIALS “?” BUTTON ========================= #
-
-vbs4_docs = {
-    "VBS4 Official Documentation":          open_vbs4_pdf_docs,
-    "Script Wiki":                          open_script_wiki,
-    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play VBS4 tutorial videos"), #no videos yet
-    "Support Website (requires Internet)":  open_vbs4_official_docs,
-}
-
-blueig_docs = {
-    "Blue IG Official Documentation":      lambda: messagebox.showinfo("BlueIG Doc","Open BlueIG docs in browser"), #not installed yet
-    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BlueIG tutorial videos"), #not installed yet
-    "Support Website (requires Internet)":  lambda: messagebox.showinfo("Support","Open BlueIG support site"), #not installed yet
-}
-
-bvi_docs = {
-    "BVI Official Documentation":           open_bvi_pdf_docs,
-    "Video Tutorials":                      lambda: messagebox.showinfo("Video Tutorials","Play BVI tutorial videos"), #not yet done
-}
-
-quick_start_docs = {
-    "Video Tutorials": lambda: messagebox.showinfo("Quick‑Start","Play quick‑start videos"), #not yet done
-}
-
-oneclick_docs = {
-    "How to collect terrain scans w/ Drone":  lambda: messagebox.showinfo("One‑Click","Show drone collection guide"), #none are active
-    "How to import terrain scans from drone": lambda: messagebox.showinfo("One‑Click","Show drone import guide"),#none are active
-    "How to: Simulated Terrain":              lambda: open_submenu("Simulated Terrain Docs", {#none are active
-        "Create Mesh Documentation": lambda: messagebox.showinfo("Mesh Doc","Show mesh creation guide"),#none are active
-        "One‑Click Documentation":  lambda: messagebox.showinfo("One‑Click","Show one‑click terrain guide"),#none are active
-    }),
-}
-
-tutorials_items = {
-    "VBS4 Documentation":               open_vbs4_pdf_docs,
-    "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs), #not yet done
-    "Setup Documentation":               open_setup_documentation,
-    "BVI Documentation":                open_bvi_pdf_docs,
-    "BVI Quick‑Start Guide for entire kit":  open_bvi_quickstart,
-    "One‑Click Terrain Documentation":         lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs), #do not have
-}
-tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_items),
-          font=("Helvetica",24), bg="#FFD700", fg="black",
-          width=2, height=1, relief="raised").place(x=1550, y=110)
-
-# ======================== MAIN MENU BUTTONS ========================= #
-
-main_buttons = {
-    "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
-         "Launch VBS4":   launch_vbs4,
-      "Launch BlueIG":  launch_blueig,
-        "One-Click Terrain":     lambda: open_submenu("One-Click Terrain",{
-                                      "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
-                                      "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),
-                                      "View Mesh (.obj)":   lambda: messagebox.showinfo("Terrain","View Mesh (.obj)"),
-                                      "One-Click Tutorial": lambda: messagebox.showinfo("Terrain","Launch Tutorial"),}),
-        "External Map":          lambda: open_submenu("External Map", {
-                                      "Select User Profile": lambda: messagebox.showinfo("Map","Select Profile"),
-                                      "Open External Map":   lambda: messagebox.showinfo("Map","Launching Browser"),}),}),
-    "BVI":           lambda: open_submenu("BVI", {
-                          "Launch BVI": launch_bvi,
-                          "Terrains":    open_bvi_terrain,}),
-    "Settings":      lambda: open_submenu("Settings", {
-                          "Launch on Startup":          toggle_startup,
-                          "Close on Software Launch?":  toggle_close_on_launch,
-                          "VBS4 Install Location":      set_vbs4_install_path,
-                          "BlueIG Install Location":             set_blueig_install_path,
-                          "Pick Default Browser":       set_default_browser,}),            
-}
-for text, cmd in main_buttons.items():
-    btn = create_button(root, text, cmd)
-    btn.pack(pady=20)
-
-root.mainloop()
+def get_ares_manager_path() -> str:
+    return config['General'].get('bvi_manager_path', '')
+
+def set_ares_manager_path():
+    path = filedialog.askopenfilename(title="Select ARES Manager.exe", filetypes=[("Executable", "*.exe")])
+    if path:
+        config['General']['bvi_manager_path'] = path
+        with open(CONFIG_PATH, 'w') as f: config.write(f)
+        messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
+# ─── SINGLE‐WINDOW APP ──────────────────────────────────────────────────────
+class MainApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("STE Mission Planning Toolkit")
+        self.geometry("1600x800")
+        self.resizable(False, False)
+
+        set_background(self)
+
+        nav = tk.Frame(self, width=200, bg='#333333')
+        nav.pack(side='left', fill='y')
+        self.content = tk.Frame(self)
+        self.content.pack(side='right', expand=True, fill='both')
+
+        self.panels = {
+            'Main':      MainMenu(self.content, self),
+            'VBS4':      VBS4Panel(self.content, self),
+            'BVI':       BVIPanel(self.content, self),
+            'Settings':  SettingsPanel(self.content, self),
+            'Tutorials': TutorialsPanel(self.content, self),
+        }
+
+        for key, label in [
+            ('Main',     'Home'),
+            ('VBS4',     'VBS4 / BlueIG'),
+            ('BVI',      'BVI'),
+            ('Settings', 'Settings'),
+            ('Tutorials','?'),
+        ]:
+            tk.Button(nav, text=label,
+                      font=("Helvetica",18), bg="#555", fg="white",
+                      width=12,
+                      command=lambda k=key: self.show(k)
+            ).pack(pady=5, padx=5)
+
+        tk.Button(nav, text="Exit", font=("Helvetica",18),
+                  bg="red", fg="white", command=self.destroy
+        ).pack(fill='x', pady=20, padx=5)
+
+        self.current = None
+        self.show('Main')
+
+    def show(self, name):
+        if self.current:
+            self.panels[self.current].pack_forget()
+        panel = self.panels[name]
+        panel.pack(expand=True, fill='both')
+        self.current = name
+
+class MainMenu(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_background(self)
+
+        tk.Label(self, text="STE Mission Planning Toolkit",
+                 font=("Helvetica",36,"bold"),
+                 bg='black', fg='white', pady=20) \
+          .pack(fill='x')
+
+        for txt, cmd in [
+            ("Launch VBS4",    launch_vbs4),
+            ("Launch BlueIG",  launch_blueig),
+            ("Launch BVI",     launch_bvi),
+            ("Settings",       lambda: controller.show('Settings')),
+            ("Tutorials",      lambda: controller.show('Tutorials')),
+            ("Exit",           controller.destroy),
+        ]:
+            tk.Button(self, text=txt,
+                      font=("Helvetica",24), bg="#444444", fg="white",
+                      width=30, height=1, command=cmd) \
+              .pack(pady=10)
+
+class VBS4Panel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_wallpaper(self)
+
+        tk.Label(self, text="VBS4 / BlueIG",
+                 font=("Helvetica",36,"bold"),
+                 bg='black', fg='white', pady=20) \
+          .pack(fill='x')
+
+        tk.Button(self, text="Launch VBS4",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=launch_vbs4) \
+          .pack(pady=8, ipadx=10, ipady=5)
+
+        tk.Button(self, text="Launch BlueIG",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=launch_blueig) \
+          .pack(pady=8, ipadx=10, ipady=5)
+
+        tk.Button(self, text="Back",
+                  font=("Helvetica",18), bg="red", fg="white",
+                  command=lambda: controller.show('Main')) \
+          .pack(pady=20)
+
+class BVIPanel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_wallpaper(self)
+
+        tk.Label(self, text="BVI",
+                 font=("Helvetica",36,"bold"),
+                 bg='black', fg='white', pady=20) \
+          .pack(fill='x')
+
+        tk.Button(self, text="Launch BVI",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=launch_bvi) \
+          .pack(pady=8, ipadx=10, ipady=5)
+
+        tk.Button(self, text="Open Terrain",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=open_bvi_terrain) \
+          .pack(pady=8, ipadx=10, ipady=5)
+
+        tk.Button(self, text="Back",
+                  font=("Helvetica",18), bg="red", fg="white",
+                  command=lambda: controller.show('Main')) \
+          .pack(pady=20)
+
+# ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
+class SettingsPanel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_wallpaper(self)
+
+        tk.Label(self, text="Settings",
+                 font=("Helvetica",36,"bold"),
+                 bg='black', fg='white', pady=20) \
+          .pack(fill='x')
+
+        # Launch on Startup
+        self.startup_var = tk.BooleanVar(value=is_startup_enabled())
+        def _on_startup_toggle():
+            toggle_startup()
+            self.startup_var.set(is_startup_enabled())
+
+        tk.Checkbutton(self,
+                       text="Launch on Startup",
+                       variable=self.startup_var,
+                       command=_on_startup_toggle,
+                       font=("Helvetica",20),
+                       bg="#444444", fg="white",
+                       selectcolor="#444444",
+                       indicatoron=True,
+                       width=30, pady=5) \
+          .pack(pady=8)
+
+        # Close on Launch
+        self.close_var = tk.BooleanVar(value=is_close_on_launch_enabled())
+        def _on_close_toggle():
+            toggle_close_on_launch()
+            self.close_var.set(is_close_on_launch_enabled())
+
+        tk.Checkbutton(self,
+                       text="Close on Software Launch?",
+                       variable=self.close_var,
+                       command=_on_close_toggle,
+                       font=("Helvetica",20),
+                       bg="#444444", fg="white",
+                       selectcolor="#444444",
+                       indicatoron=True,
+                       width=30, pady=5) \
+          .pack(pady=8)
+
+        # VBS4 Install Location
+        frame_vbs4 = tk.Frame(self, bg=self["bg"])
+        frame_vbs4.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_vbs4, text="Set VBS4 Install Location",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_vbs4) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_vbs4 = tk.Label(frame_vbs4,
+                                 text=get_vbs4_install_path() or "[not set]",
+                                 font=("Helvetica",14),
+                                 bg="#222222", fg="white",
+                                 anchor="w", width=50)
+        self.lbl_vbs4.pack(side="left", padx=10, fill="x", expand=True)
+
+        # BlueIG Install Location
+        frame_blueig = tk.Frame(self, bg=self["bg"])
+        frame_blueig.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_blueig, text="Set BlueIG Install Location",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_blueig) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_blueig = tk.Label(frame_blueig,
+                                   text=get_blueig_install_path() or "[not set]",
+                                   font=("Helvetica",14),
+                                   bg="#222222", fg="white",
+                                   anchor="w", width=50)
+        self.lbl_blueig.pack(side="left", padx=10, fill="x", expand=True)
+
+        # ARES Manager Install Location
+        frame_ares = tk.Frame(self, bg=self["bg"])
+        frame_ares.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_ares, text="Set ARES Manager Location",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_ares) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_ares = tk.Label(frame_ares,
+                                 text=get_ares_manager_path() or "[not set]",
+                                 font=("Helvetica",14),
+                                 bg="#222222", fg="white",
+                                 anchor="w", width=50)
+        self.lbl_ares.pack(side="left", padx=10, fill="x", expand=True)
+
+        # Default Browser
+        frame_browser = tk.Frame(self, bg=self["bg"])
+        frame_browser.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_browser, text="Pick Default Browser",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_browser) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_browser = tk.Label(frame_browser,
+                                    text=get_default_browser() or "[not set]",
+                                    font=("Helvetica",14),
+                                    bg="#222222", fg="white",
+                                    anchor="w", width=50)
+        self.lbl_browser.pack(side="left", padx=10, fill="x", expand=True)
+
+        # Back
+        tk.Button(self, text="Back",
+                  font=("Helvetica",18), bg="red", fg="white",
+                  width=30, height=1,
+                  command=lambda: controller.show('Main')) \
+          .pack(pady=20)
+
+    def _on_set_vbs4(self):
+        set_vbs4_install_path()
+        self.lbl_vbs4.config(text=get_vbs4_install_path() or "[not set]")
+
+    def _on_set_blueig(self):
+        set_blueig_install_path()
+        self.lbl_blueig.config(text=get_blueig_install_path() or "[not set]")
+
+    def _on_set_ares(self):
+        set_ares_manager_path()
+        self.lbl_ares.config(text=get_ares_manager_path() or "[not set]")
+
+    def _on_set_browser(self):
+        set_default_browser()
+        self.lbl_browser.config(text=get_default_browser() or "[not set]")
+
+class TutorialsPanel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_background(self)
+
+        tk.Label(self, text="Tutorials ❓",
+                 font=("Helvetica",36,"bold"),
+                 bg='black', fg='white', pady=20)\
+          .pack(fill='x')
+
+        # top-level buttons:
+        specs = [
+            ("VBS4 Help",            lambda: open_submenu("VBS4 Help", vbs4_help_items)),
+            ("BVI Help",             lambda: open_submenu("BVI Help", bvi_help_items)),
+            ("One-Click Terrain Help", lambda: open_submenu("Terrain Help", oct_help_items)),
+            ("Blue IG Help",         lambda: open_submenu("Blue IG Help", blueig_help_items)),
+            ("Back",                 lambda: controller.show('Main')),
+        ]
+
+        for txt, cmd in specs:
+            tk.Button(self, text=txt,
+                      font=("Helvetica",20), bg="#444444", fg="white",
+                      width=30, height=1, command=cmd)\
+              .pack(pady=8)
+
+if __name__ == "__main__":
+    MainApp().mainloop()

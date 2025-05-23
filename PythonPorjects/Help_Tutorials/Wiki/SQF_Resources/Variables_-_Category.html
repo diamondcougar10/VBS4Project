@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Variables - Category - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1512981"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Commands_and_Functions_by_Category.html">Commands and Functions by Category</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1512981"> <span>Variables - Category</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+    <h3 id="src-1512981_VariablesCategory-Subcategories" class="heading "><span>Subcategories</span></h3>
+<p   
+></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Variables_-_Arrays.html">Variables - Arrays</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Boolean.html">Variables - Boolean</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Collections.html">Variables - Collections</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_General.html">Variables - General</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Geometry.html">Variables - Geometry</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Null.html">Variables - Null</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Numbers.html">Variables - Numbers</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Strings.html">Variables - Strings</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Time.html">Variables - Time</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Trigonometry.html">Variables - Trigonometry</a></p>
+</li><li class=" "><p   
+><a   href="Variables_-_Vectors.html">Variables - Vectors</a></p>
+</li></ul><p   
+></p>
+    <h3 id="src-1512981_VariablesCategory-VariablesCommands" class="heading "><span>Variables Commands</span></h3>
+<p   
+></p>
+<ul class="content-by-label "><li class=" "><p   
+>Page:<a   href="%21_a.html">! a</a></p>
+</li><li class=" "><p   
+>Page:<a   href="-_a.html">- a</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_%21%3D_b.html">a != b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_%25_b.html">a % b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_%25%25_b.html">a %% b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a___b.html">a * b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_%2B_b.html">a + b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_-_b.html">a - b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a___b2.html">a &lt; b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a__%3D_b.html">a &lt;= b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_%3D_b.html">a = b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_%3D%3D_b.html">a == b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a___b3.html">a &gt; b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a__%3D_b2.html">a &gt;= b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_and_b.html">a and b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_or_b.html">a or b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="a_xor_b.html">a xor b</a></p>
+</li><li class=" "><p   
+>Page:<a   href="abs.html">abs</a></p>
+</li><li class=" "><p   
+>Page:<a   href="accTime.html">accTime</a></p>
+</li><li class=" "><p   
+>Page:<a   href="acos.html">acos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="addComponentToSlot.html">addComponentToSlot</a></p>
+</li><li class=" "><p   
+>Page:<a   href="addPublicVariableEventHandler.html">addPublicVariableEventHandler</a></p>
+</li><li class=" "><p   
+>Page:<a   href="addQuotes.html">addQuotes</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allDead.html">allDead</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allGroups.html">allGroups</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allMissionObjects.html">allMissionObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allReferenceMarks.html">allReferenceMarks</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allShots.html">allShots</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allStaticVehicles.html">allStaticVehicles</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allSuppressiveFires.html">allSuppressiveFires</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allUnits.html">allUnits</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allVehicles.html">allVehicles</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allVehiclesEx.html">allVehiclesEx</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ammo.html">ammo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="asin.html">asin</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ASLToATL.html">ASLToATL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="atan.html">atan</a></p>
+</li><li class=" "><p   
+>Page:<a   href="atan2.html">atan2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="atg.html">atg</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ATLToASL.html">ATLToASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ceil.html">ceil</a></p>
+</li><li class=" "><p   
+>Page:<a   href="composeText.html">composeText</a></p>
+</li><li class=" "><p   
+>Page:<a   href="configOf.html">configOf</a></p>
+</li><li class=" "><p   
+>Page:<a   href="controlNull.html">controlNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="convertToAGL.html">convertToAGL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="convertToASL.html">convertToASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="coordToPos.html">coordToPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="copyFromClipboard.html">copyFromClipboard</a></p>
+</li><li class=" "><p   
+>Page:<a   href="copyToClipboard.html">copyToClipboard</a></p>
+</li><li class=" "><p   
+>Page:<a   href="cos.html">cos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="count.html">count</a></p>
+</li><li class=" "><p   
+>Page:<a   href="countEnemy.html">countEnemy</a></p>
+</li><li class=" "><p   
+>Page:<a   href="countFriendly.html">countFriendly</a></p>
+</li><li class=" "><p   
+>Page:<a   href="countSide.html">countSide</a></p>
+</li><li class=" "><p   
+>Page:<a   href="countType.html">countType</a></p>
+</li><li class=" "><p   
+>Page:<a   href="countUnknown.html">countUnknown</a></p>
+</li><li class=" "><p   
+>Page:<a   href="date.html">date</a></p>
+</li><li class=" "><p   
+>Page:<a   href="dateToNumber.html">dateToNumber</a></p>
+</li><li class=" "><p   
+>Page:<a   href="daytime.html">daytime</a></p>
+</li><li class=" "><p   
+>Page:<a   href="deg.html">deg</a></p>
+</li><li class=" "><p   
+>Page:<a   href="deleteAt.html">deleteAt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="deleteRange.html">deleteRange</a></p>
+</li><li class=" "><p   
+>Page:<a   href="diag_tickTime.html">diag_tickTime</a></p>
+</li><li class=" "><p   
+>Page:<a   href="dirToVector.html">dirToVector</a></p>
+</li><li class=" "><p   
+>Page:<a   href="displayNull.html">displayNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="exp.html">exp</a></p>
+</li><li class=" "><p   
+>Page:<a   href="false.html">false</a></p>
+</li><li class=" "><p   
+>Page:<a   href="find.html">find</a></p>
+</li><li class=" "><p   
+>Page:<a   href="finite.html">finite</a></p>
+</li><li class=" "><p   
+>Page:<a   href="floor.html">floor</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_aboveGround.html">fn_vbs_aboveGround</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_angleDiff.html">fn_vbs_angleDiff</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_areEqual.html">fn_vbs_areEqual</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arithmeticMean.html">fn_vbs_arithmeticMean</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayAdd.html">fn_vbs_arrayAdd</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayCompare.html">fn_vbs_arrayCompare</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayFindDeep.html">fn_vbs_arrayFindDeep</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayInsert.html">fn_vbs_arrayInsert</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayInsertOrdered.html">fn_vbs_arrayInsertOrdered</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayInterpolate.html">fn_vbs_arrayInterpolate</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayMatch.html">fn_vbs_arrayMatch</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayPop.html">fn_vbs_arrayPop</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayPopStack.html">fn_vbs_arrayPopStack</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayPush.html">fn_vbs_arrayPush</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayPushStack.html">fn_vbs_arrayPushStack</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayRemove.html">fn_vbs_arrayRemove</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayRemoveAt.html">fn_vbs_arrayRemoveAt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arraySetDeep.html">fn_vbs_arraySetDeep</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayShift.html">fn_vbs_arrayShift</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayShiftStack.html">fn_vbs_arrayShiftStack</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayUnShift.html">fn_vbs_arrayUnShift</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_arrayUnShiftStack.html">fn_vbs_arrayUnShiftStack</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_cachedEval.html">fn_vbs_cachedEval</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_cacheDiag.html">fn_vbs_cacheDiag</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_cacheInit.html">fn_vbs_cacheInit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_classIntroInVersion.html">fn_vbs_classIntroInVersion</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_colorByName.html">fn_vbs_colorByName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_conditionalSelect.html">fn_vbs_conditionalSelect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_coordinatesDialog.html">fn_vbs_coordinatesDialog</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_crossProduct.html">fn_vbs_crossProduct</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_cutDecimals.html">fn_vbs_cutDecimals</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dateToDTG.html">fn_vbs_dateToDTG</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dateToString.html">fn_vbs_dateToString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dayofWeek.html">fn_vbs_dayofWeek</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dirTo.html">fn_vbs_dirTo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dirToVector.html">fn_vbs_dirToVector</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_distance2D.html">fn_vbs_distance2D</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_distance2Dsqr.html">fn_vbs_distance2Dsqr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dotProduct.html">fn_vbs_dotProduct</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_dsb_land_155_global_vars.html">fn_vbs_dsb_land_155_global_vars</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_editor_getDisplay.html">fn_vbs_editor_getDisplay</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_editor_getMap.html">fn_vbs_editor_getMap</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_expandSciNotation.html">fn_vbs_expandSciNotation</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_filterString.html">fn_vbs_filterString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_flipArray.html">fn_vbs_flipArray</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_formatSeconds.html">fn_vbs_formatSeconds</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_freeIndex.html">fn_vbs_freeIndex</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_geometricMean.html">fn_vbs_geometricMean</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getKeyValue.html">fn_vbs_getKeyValue</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getLineDist.html">fn_vbs_getLineDist</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getStructValue.html">fn_vbs_getStructValue</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_greatestNum.html">fn_vbs_greatestNum</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_highPrecisionAdd.html">fn_vbs_highPrecisionAdd</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_inAngleSector.html">fn_vbs_inAngleSector</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_joinString.html">fn_vbs_joinString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_linePlaneIntersect.html">fn_vbs_linePlaneIntersect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_lowestNum.html">fn_vbs_lowestNum</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_magnitude.html">fn_vbs_magnitude</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_magnitudeSqr.html">fn_vbs_magnitudeSqr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_matrixMultiply.html">fn_vbs_matrixMultiply</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_moveVariables.html">fn_vbs_moveVariables</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_nearestNum.html">fn_vbs_nearestNum</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_newStructure.html">fn_vbs_newStructure</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_posToCoordString.html">fn_vbs_posToCoordString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_randomIndex.html">fn_vbs_randomIndex</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_randomInt.html">fn_vbs_randomInt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_randomNum.html">fn_vbs_randomNum</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_randomPos.html">fn_vbs_randomPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_relativeDirTo.html">fn_vbs_relativeDirTo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_relativeModelPos.html">fn_vbs_relativeModelPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_relPos.html">fn_vbs_relPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_removeIndex.html">fn_vbs_removeIndex</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_removeKeyValue.html">fn_vbs_removeKeyValue</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_replaceString.html">fn_vbs_replaceString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_rotatePoint.html">fn_vbs_rotatePoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_rotateVector2D.html">fn_vbs_rotateVector2D</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_rotateVector3D.html">fn_vbs_rotateVector3D</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_rotationMatrix.html">fn_vbs_rotationMatrix</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_selectRandom.html">fn_vbs_selectRandom</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_selectRelative.html">fn_vbs_selectRelative</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setComplement.html">fn_vbs_setComplement</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setEach.html">fn_vbs_setEach</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setIntersection.html">fn_vbs_setIntersection</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setKeyValue.html">fn_vbs_setKeyValue</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setPitchBank.html">fn_vbs_setPitchBank</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setStructValue.html">fn_vbs_setStructValue</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setUnion.html">fn_vbs_setUnion</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_sgn.html">fn_vbs_sgn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_sideFromIndex.html">fn_vbs_sideFromIndex</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_sideFromString.html">fn_vbs_sideFromString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_sideToIndex.html">fn_vbs_sideToIndex</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_sortArray.html">fn_vbs_sortArray</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_sortStrings.html">fn_vbs_sortStrings</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_splitString.html">fn_vbs_splitString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_StrIndex.html">fn_vbs_StrIndex</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_StrInStr.html">fn_vbs_StrInStr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_stripExtension.html">fn_vbs_stripExtension</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_StrLeft.html">fn_vbs_StrLeft</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_StrMid.html">fn_vbs_StrMid</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_StrRight.html">fn_vbs_StrRight</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_subSelect.html">fn_vbs_subSelect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_swapVars.html">fn_vbs_swapVars</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_timeDifference.html">fn_vbs_timeDifference</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_timeToString.html">fn_vbs_timeToString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_trimString.html">fn_vbs_trimString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_unitVector.html">fn_vbs_unitVector</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_validateCode.html">fn_vbs_validateCode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_validateCoords.html">fn_vbs_validateCoords</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_validateGPSCoord.html">fn_vbs_validateGPSCoord</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_validateNumber.html">fn_vbs_validateNumber</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorAdd.html">fn_vbs_vectorAdd</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorAngle.html">fn_vbs_vectorAngle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorDiff.html">fn_vbs_vectorDiff</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorDistance.html">fn_vbs_vectorDistance</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorDistanceSqr.html">fn_vbs_vectorDistanceSqr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorFromXToY.html">fn_vbs_vectorFromXToY</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorMultiply.html">fn_vbs_vectorMultiply</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vectorToDir.html">fn_vbs_vectorToDir</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_wrapAngle.html">fn_vbs_wrapAngle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="format.html">format</a></p>
+</li><li class=" "><p   
+>Page:<a   href="formatText.html">formatText</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getComponents.html">getComponents</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGroundIntercept.html">getGroundIntercept</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGroundInterceptASL.html">getGroundInterceptASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getSunRise.html">getSunRise</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getSunSet.html">getSunSet</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getVariable.html">getVariable</a></p>
+</li><li class=" "><p   
+>Page:<a   href="gridCenterToPosition.html">gridCenterToPosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="gridToPosition.html">gridToPosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="grpNull.html">grpNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="image.html">image</a></p>
+</li><li class=" "><p   
+>Page:<a   href="import.html">import</a></p>
+</li><li class=" "><p   
+>Page:<a   href="in_Array.html">in_Array</a></p>
+</li><li class=" "><p   
+>Page:<a   href="in_String.html">in_String</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isArray.html">isArray</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isNil.html">isNil</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isNull.html">isNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isNumber.html">isNumber</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isProtected.html">isProtected</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isValidFileName.html">isValidFileName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isValidVarName.html">isValidVarName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lightObjects.html">lightObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lineBreak.html">lineBreak</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ln.html">ln</a></p>
+</li><li class=" "><p   
+>Page:<a   href="log.html">log</a></p>
+</li><li class=" "><p   
+>Page:<a   href="mapGridPosition.html">mapGridPosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="max.html">max</a></p>
+</li><li class=" "><p   
+>Page:<a   href="min.html">min</a></p>
+</li><li class=" "><p   
+>Page:<a   href="missionNamespace.html">missionNamespace</a></p>
+</li><li class=" "><p   
+>Page:<a   href="mod.html">mod</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelToWorld.html">modelToWorld</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelToWorldASL2.html">modelToWorldASL2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveComponentToSlot.html">moveComponentToSlot</a></p>
+</li><li class=" "><p   
+>Page:<a   href="NetObjNull.html">NetObjNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nil.html">nil</a></p>
+</li><li class=" "><p   
+>Page:<a   href="not.html">not</a></p>
+</li><li class=" "><p   
+>Page:<a   href="NumberToDate.html">NumberToDate</a></p>
+</li><li class=" "><p   
+>Page:<a   href="numToStr.html">numToStr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="objNull.html">objNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="parseNumber.html">parseNumber</a></p>
+</li><li class=" "><p   
+>Page:<a   href="parseText.html">parseText</a></p>
+</li><li class=" "><p   
+>Page:<a   href="parsingNamespace.html">parsingNamespace</a></p>
+</li><li class=" "><p   
+>Page:<a   href="pi.html">pi</a></p>
+</li><li class=" "><p   
+>Page:<a   href="playableUnitNames.html">playableUnitNames</a></p>
+</li><li class=" "><p   
+>Page:<a   href="playableUnits.html">playableUnits</a></p>
+</li><li class=" "><p   
+>Page:<a   href="plus_a.html">plus_a</a></p>
+</li><li class=" "><p   
+>Page:<a   href="positionToGrid.html">positionToGrid</a></p>
+</li><li class=" "><p   
+>Page:<a   href="posScreenToWorld.html">posScreenToWorld</a></p>
+</li><li class=" "><p   
+>Page:<a   href="posToCoord.html">posToCoord</a></p>
+</li><li class=" "><p   
+>Page:<a   href="posWorldToScreen.html">posWorldToScreen</a></p>
+</li><li class=" "><p   
+>Page:<a   href="private.html">private</a></p>
+</li><li class=" "><p   
+>Page:<a   href="privateAll.html">privateAll</a></p>
+</li><li class=" "><p   
+>Page:<a   href="profileNamespace.html">profileNamespace</a></p>
+</li><li class=" "><p   
+>Page:<a   href="protect.html">protect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="publicVariable.html">publicVariable</a></p>
+</li><li class=" "><p   
+>Page:<a   href="pushBack.html">pushBack</a></p>
+</li><li class=" "><p   
+>Page:<a   href="rad.html">rad</a></p>
+</li><li class=" "><p   
+>Page:<a   href="random.html">random</a></p>
+</li><li class=" "><p   
+>Page:<a   href="removeComponent.html">removeComponent</a></p>
+</li><li class=" "><p   
+>Page:<a   href="resize.html">resize</a></p>
+</li><li class=" "><p   
+>Page:<a   href="round.html">round</a></p>
+</li><li class=" "><p   
+>Page:<a   href="saveProfileNamespace.html">saveProfileNamespace</a></p>
+</li><li class=" "><p   
+>Page:<a   href="screenToWorld.html">screenToWorld</a></p>
+</li><li class=" "><p   
+>Page:<a   href="select.html">select</a></p>
+</li><li class=" "><p   
+>Page:<a   href="select_string.html">select_string</a></p>
+</li><li class=" "><p   
+>Page:<a   href="serverTime.html">serverTime</a></p>
+</li><li class=" "><p   
+>Page:<a   href="set.html">set</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setAttributes.html">setAttributes</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDate.html">setDate</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVariable.html">setVariable</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleVarName.html">setVehicleVarName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="sideToString.html">sideToString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="sin.html">sin</a></p>
+</li><li class=" "><p   
+>Page:<a   href="skipTime.html">skipTime</a></p>
+</li><li class=" "><p   
+>Page:<a   href="sqrt.html">sqrt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="str.html">str</a></p>
+</li><li class=" "><p   
+>Page:<a   href="strLen.html">strLen</a></p>
+</li><li class=" "><p   
+>Page:<a   href="supportInfo.html">supportInfo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="switchableUnits.html">switchableUnits</a></p>
+</li><li class=" "><p   
+>Page:<a   href="systemTime.html">systemTime</a></p>
+</li><li class=" "><p   
+>Page:<a   href="tan.html">tan</a></p>
+</li><li class=" "><p   
+>Page:<a   href="text.html">text</a></p>
+</li><li class=" "><p   
+>Page:<a   href="tg.html">tg</a></p>
+</li><li class=" "><p   
+>Page:<a   href="time.html">time</a></p>
+</li><li class=" "><p   
+>Page:<a   href="toArray.html">toArray</a></p>
+</li><li class=" "><p   
+>Page:<a   href="toLower.html">toLower</a></p>
+</li><li class=" "><p   
+>Page:<a   href="toString.html">toString</a></p>
+</li><li class=" "><p   
+>Page:<a   href="toUpper.html">toUpper</a></p>
+</li><li class=" "><p   
+>Page:<a   href="transform.html">transform</a></p>
+</li><li class=" "><p   
+>Page:<a   href="trim.html">trim</a></p>
+</li><li class=" "><p   
+>Page:<a   href="true.html">true</a></p>
+</li><li class=" "><p   
+>Page:<a   href="typeName.html">typeName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="uiNamespace.html">uiNamespace</a></p>
+</li><li class=" "><p   
+>Page:<a   href="unitsBelowHeight.html">unitsBelowHeight</a></p>
+</li><li class=" "><p   
+>Page:<a   href="unprotect.html">unprotect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Arrays.html">Variables - Arrays</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Boolean.html">Variables - Boolean</a></p>
+</li><li class=" "><p   
+>Page:<a   href="#">Variables - Category</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Collections.html">Variables - Collections</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_General.html">Variables - General</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Geometry.html">Variables - Geometry</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Null.html">Variables - Null</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Numbers.html">Variables - Numbers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Strings.html">Variables - Strings</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Time.html">Variables - Time</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Trigonometry.html">Variables - Trigonometry</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Variables_-_Vectors.html">Variables - Vectors</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorAdd.html">vectorAdd</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorCos.html">vectorCos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorCrossProduct.html">vectorCrossProduct</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorDiff.html">vectorDiff</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorDistance.html">vectorDistance</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorDistanceSqr.html">vectorDistanceSqr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorDotProduct.html">vectorDotProduct</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorMagnitude.html">vectorMagnitude</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorMagnitudeSqr.html">vectorMagnitudeSqr</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorMultiply.html">vectorMultiply</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorNormalized.html">vectorNormalized</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vehicles.html">vehicles</a></p>
+</li><li class=" "><p   
+>Page:<a   href="weapons.html">weapons</a></p>
+</li><li class=" "><p   
+>Page:<a   href="with.html">with</a></p>
+</li><li class=" "><p   
+>Page:<a   href="worldToModel.html">worldToModel</a></p>
+</li><li class=" "><p   
+>Page:<a   href="worldToModelASL2.html">worldToModelASL2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="worldToScreen.html">worldToScreen</a></p>
+</li></ul><p   
+></p>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Towing.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Towing</span>
+        </a>
+                <a href="Variables_-_Arrays.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Variables - Arrays</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Editor Objects - Vehicles - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=2851448"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Commands_and_Functions_by_Category.html">Commands and Functions by Category</a></li>
+                                                                                     <li><a href="Editor_Objects.html">Editor Objects</a></li>
+                                                            </ul>
+</div>            <h1 id="src-2851448"> <span>Editor Objects - Vehicles</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+    <h3 id="src-2851448_EditorObjectsVehicles-Subcategories" class="heading "><span>Subcategories</span></h3>
+<p   
+></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_Air.html">Editor Objects - Vehicles - Air</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_Crew.html">Editor Objects - Vehicles - Crew</a></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_Crew_-_Get.html">Editor Objects - Vehicles - Crew - Get</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_Crew_-_Set.html">Editor Objects - Vehicles - Crew - Set</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_General.html">Editor Objects - Vehicles - General</a></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_General_-_Get.html">Editor Objects - Vehicles - General - Get</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_General_-_Set.html">Editor Objects - Vehicles - General - Set</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_Land.html">Editor Objects - Vehicles - Land</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_Vehicles_-_Systems_Menu.html">Editor Objects - Vehicles - Systems Menu</a></p>
+</li></ul><p   
+></p>
+    <h3 id="src-2851448_EditorObjectsVehicles-EditorObjects-VehiclesCommands" class="heading "><span>Editor Objects - Vehicles Commands</span></h3>
+<p   
+></p>
+<ul class="content-by-label "><li class=" "><p   
+>Page:<a   href="alignTo.html">alignTo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allowCrewInImmobile.html">allowCrewInImmobile</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allowGetIn.html">allowGetIn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allVehicles.html">allVehicles</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allVehiclesEx.html">allVehiclesEx</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignAsCargo.html">assignAsCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignAsCommander.html">assignAsCommander</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignAsDriver.html">assignAsDriver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignAsGunner.html">assignAsGunner</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedCargo.html">assignedCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedCommander.html">assignedCommander</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedDriver.html">assignedDriver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedGunner.html">assignedGunner</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedTarget.html">assignedTarget</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedVehicle.html">assignedVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignedVehicleRole.html">assignedVehicleRole</a></p>
+</li><li class=" "><p   
+>Page:<a   href="assignToAirport.html">assignToAirport</a></p>
+</li><li class=" "><p   
+>Page:<a   href="autoAssignVehicle.html">autoAssignVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="canFire.html">canFire</a></p>
+</li><li class=" "><p   
+>Page:<a   href="canMove.html">canMove</a></p>
+</li><li class=" "><p   
+>Page:<a   href="canUnloadInCombat.html">canUnloadInCombat</a></p>
+</li><li class=" "><p   
+>Page:<a   href="commander.html">commander</a></p>
+</li><li class=" "><p   
+>Page:<a   href="commanderOverride.html">commanderOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="commandGetOut.html">commandGetOut</a></p>
+</li><li class=" "><p   
+>Page:<a   href="crew.html">crew</a></p>
+</li><li class=" "><p   
+>Page:<a   href="disableFireArc.html">disableFireArc</a></p>
+</li><li class=" "><p   
+>Page:<a   href="disableGunnerInput.html">disableGunnerInput</a></p>
+</li><li class=" "><p   
+>Page:<a   href="driver.html">driver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="driverOverride.html">driverOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="#">Editor Objects - Vehicles</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_Air.html">Editor Objects - Vehicles - Air</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_Crew.html">Editor Objects - Vehicles - Crew</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_Crew_-_Get.html">Editor Objects - Vehicles - Crew - Get</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_Crew_-_Set.html">Editor Objects - Vehicles - Crew - Set</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_General.html">Editor Objects - Vehicles - General</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_General_-_Get.html">Editor Objects - Vehicles - General - Get</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_General_-_Set.html">Editor Objects - Vehicles - General - Set</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_Land.html">Editor Objects - Vehicles - Land</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_Vehicles_-_Systems_Menu.html">Editor Objects - Vehicles - Systems Menu</a></p>
+</li><li class=" "><p   
+>Page:<a   href="effectiveCommander.html">effectiveCommander</a></p>
+</li><li class=" "><p   
+>Page:<a   href="emptyPositions.html">emptyPositions</a></p>
+</li><li class=" "><p   
+>Page:<a   href="enableLightSystem.html">enableLightSystem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="engineOn.html">engineOn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="flyInHeight.html">flyInHeight</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_canHitch.html">fn_tow_canHitch</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_canTow.html">fn_tow_canTow</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_getAvailableTowPoints.html">fn_tow_getAvailableTowPoints</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_getRopeTowConnections.html">fn_tow_getRopeTowConnections</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_setPointLocked.html">fn_tow_setPointLocked</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_startHitch.html">fn_tow_startHitch</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_startRopeTow.html">fn_tow_startRopeTow</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_startTow.html">fn_tow_startTow</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_stopHitch.html">fn_tow_stopHitch</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_stopRopeTow.html">fn_tow_stopRopeTow</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_stopTow.html">fn_tow_stopTow</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_towChild.html">fn_tow_towChild</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_tow_towParent.html">fn_tow_towParent</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_addSystemItem.html">fn_vbs_addSystemItem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_allowDamage.html">fn_vbs_allowDamage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_boatRadar.html">fn_vbs_boatRadar</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_chemlight.html">fn_vbs_chemlight</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_controlLink.html">fn_vbs_controlLink</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_convoy.html">fn_vbs_convoy</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_createLocalSystem.html">fn_vbs_createLocalSystem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_createSystem.html">fn_vbs_createSystem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_createVehicle.html">fn_vbs_createVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_damageHitpart.html">fn_vbs_damageHitpart</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_DROPS.html">fn_vbs_DROPS</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_fillCrewPositions.html">fn_vbs_fillCrewPositions</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_findCargoPos.html">fn_vbs_findCargoPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getCargo.html">fn_vbs_getCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getCrewAction.html">fn_vbs_getCrewAction</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getCrewPos.html">fn_vbs_getCrewPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getDefaultSystem.html">fn_vbs_getDefaultSystem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemCode.html">fn_vbs_getSystemItemCode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemCodeParam.html">fn_vbs_getSystemItemCodeParam</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemName.html">fn_vbs_getSystemItemName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemParent.html">fn_vbs_getSystemItemParent</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemShortcut.html">fn_vbs_getSystemItemShortcut</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemShowCondition.html">fn_vbs_getSystemItemShowCondition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemTooltip.html">fn_vbs_getSystemItemTooltip</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystemItemType.html">fn_vbs_getSystemItemType</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getSystems.html">fn_vbs_getSystems</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getUAVModuleLinks.html">fn_vbs_getUAVModuleLinks</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getVehiclePos.html">fn_vbs_getVehiclePos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_groupCargo.html">fn_vbs_groupCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isSystemItemActive.html">fn_vbs_isSystemItemActive</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isSystemItemEnabled.html">fn_vbs_isSystemItemEnabled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isSystemItemLocal.html">fn_vbs_isSystemItemLocal</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isUnmannedVehicle.html">fn_vbs_isUnmannedVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_loadVehicle.html">fn_vbs_loadVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_loadVehicleToVehicleHold.html">fn_vbs_loadVehicleToVehicleHold</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_moveIn.html">fn_vbs_moveIn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_objectCargo_add.html">fn_vbs_objectCargo_add</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_objectCargo_get.html">fn_vbs_objectCargo_get</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_objectCargo_remove.html">fn_vbs_objectCargo_remove</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_openSystemsMenu.html">fn_vbs_openSystemsMenu</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_putUnitsInVehicle.html">fn_vbs_putUnitsInVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_removeSystemItem.html">fn_vbs_removeSystemItem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_repairHitpart.html">fn_vbs_repairHitpart</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setDefaultSystem.html">fn_vbs_setDefaultSystem</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemActive.html">fn_vbs_setSystemItemActive</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemCode.html">fn_vbs_setSystemItemCode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemCodeParam.html">fn_vbs_setSystemItemCodeParam</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemEnabled.html">fn_vbs_setSystemItemEnabled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemName.html">fn_vbs_setSystemItemName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemShortcut.html">fn_vbs_setSystemItemShortcut</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemShowCondition.html">fn_vbs_setSystemItemShowCondition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setSystemItemTooltip.html">fn_vbs_setSystemItemTooltip</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setUnitNBCLevel.html">fn_vbs_setUnitNBCLevel</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_SetupCargoAreaForVehicle.html">fn_vbs_SetupCargoAreaForVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_systemItemExists.html">fn_vbs_systemItemExists</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_towing.html">fn_vbs_towing</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_unitCanEject.html">fn_vbs_unitCanEject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_unloadVehicleFromVehicleHold.html">fn_vbs_unloadVehicleFromVehicleHold</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_vehicleECM.html">fn_vbs_vehicleECM</a></p>
+</li><li class=" "><p   
+>Page:<a   href="forceCrewInOut.html">forceCrewInOut</a></p>
+</li><li class=" "><p   
+>Page:<a   href="forceCrewInOutDriver.html">forceCrewInOutDriver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="forceCrewInOutTurrets.html">forceCrewInOutTurrets</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fuel.html">fuel</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getBlockedSeats.html">getBlockedSeats</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getCargoPos.html">getCargoPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getCenterOfMass.html">getCenterOfMass</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getConvoySpacing.html">getConvoySpacing</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getCrewPos.html">getCrewPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getEngineStrengthCoef.html">getEngineStrengthCoef</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getFlyInHeight.html">getFlyInHeight</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getForceSpeed.html">getForceSpeed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGear.html">getGear</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGunnerInputStatus.html">getGunnerInputStatus</a></p>
+</li><li class=" "><p   
+>Page:<a   href="GetIFFClassification.html">GetIFFClassification</a></p>
+</li><li class=" "><p   
+>Page:<a   href="GetIFFCode.html">GetIFFCode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getMass.html">getMass</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getMaxBank.html">getMaxBank</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getMaxDive.html">getMaxDive</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getMaxSpeedLimit.html">getMaxSpeedLimit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getNewConvoy.html">getNewConvoy</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getRepairParts.html">getRepairParts</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getRpm.html">getRpm</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getTotalWeightKg.html">getTotalWeightKg</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getTowParent.html">getTowParent</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getUnitAtCargoPos.html">getUnitAtCargoPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getVehicleLights.html">getVehicleLights</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getVehicleTiPars.html">getVehicleTiPars</a></p>
+</li><li class=" "><p   
+>Page:<a   href="gunner.html">gunner</a></p>
+</li><li class=" "><p   
+>Page:<a   href="in_vehicle.html">in_vehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="indicators.html">indicators</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isAirborne.html">isAirborne</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isAutoHoverOn.html">isAutoHoverOn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isDrivingOn.html">isDrivingOn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isEngineDisabled.html">isEngineDisabled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isEngineOn.html">isEngineOn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isLightOn.html">isLightOn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isTurnedOut.html">isTurnedOut</a></p>
+</li><li class=" "><p   
+>Page:<a   href="IsTurnedOutHatch.html">IsTurnedOutHatch</a></p>
+</li><li class=" "><p   
+>Page:<a   href="land.html">land</a></p>
+</li><li class=" "><p   
+>Page:<a   href="landAt.html">landAt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="landResult.html">landResult</a></p>
+</li><li class=" "><p   
+>Page:<a   href="leaveVehicle.html">leaveVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lightSystemEnabled.html">lightSystemEnabled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="limitSpeed.html">limitSpeed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lock.html">lock</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lockCargo.html">lockCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lockDriver.html">lockDriver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="locked.html">locked</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lockedCargo.html">lockedCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lockedDriver.html">lockedDriver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lockedTurret.html">lockedTurret</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lockTurret.html">lockTurret</a></p>
+</li><li class=" "><p   
+>Page:<a   href="makeAirborne.html">makeAirborne</a></p>
+</li><li class=" "><p   
+>Page:<a   href="maxFordingDepth.html">maxFordingDepth</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveInCargo.html">moveInCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveInCommander.html">moveInCommander</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveInDriver.html">moveInDriver</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveInGunner.html">moveInGunner</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveInTurret.html">moveInTurret</a></p>
+</li><li class=" "><p   
+>Page:<a   href="moveOut.html">moveOut</a></p>
+</li><li class=" "><p   
+>Page:<a   href="orderGetIn.html">orderGetIn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="remoteControl.html">remoteControl</a></p>
+</li><li class=" "><p   
+>Page:<a   href="respawnVehicle.html">respawnVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="rtdFixedTimeStep.html">rtdFixedTimeStep</a></p>
+</li><li class=" "><p   
+>Page:<a   href="scudState.html">scudState</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setAmmoCargo.html">setAmmoCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setBlockedSeat.html">setBlockedSeat</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setBrakesOverride.html">setBrakesOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setCenterOfMass.html">setCenterOfMass</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setCommanderOverride.html">setCommanderOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setConvoySpacing.html">setConvoySpacing</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDriverOverride.html">setDriverOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setEffectiveCommander.html">setEffectiveCommander</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setEngineDisabled.html">setEngineDisabled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setEngineStrengthCoef.html">setEngineStrengthCoef</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setFuel.html">setFuel</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setFuelCargo.html">setFuelCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setGear.html">setGear</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setGlobalRepairRate.html">setGlobalRepairRate</a></p>
+</li><li class=" "><p   
+>Page:<a   href="SetIFFClassification.html">SetIFFClassification</a></p>
+</li><li class=" "><p   
+>Page:<a   href="SetIFFCode.html">SetIFFCode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setManualControlled.html">setManualControlled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setMass.html">setMass</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setMaxBank.html">setMaxBank</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setMaxDive.html">setMaxDive</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setMaxFordingDepth.html">setMaxFordingDepth</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setMaxSpeedLimit.html">setMaxSpeedLimit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setNewConvoy.html">setNewConvoy</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setRepairCargo.html">setRepairCargo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setRepairParts.html">setRepairParts</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setRotorWash.html">setRotorWash</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setRtdFixedTimeStep.html">setRtdFixedTimeStep</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setSoundListener.html">setSoundListener</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setThrustLWanted.html">setThrustLWanted</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setThrustRWanted.html">setThrustRWanted</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setThrustWanted.html">setThrustWanted</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setTowParent.html">setTowParent</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setTurnWanted.html">setTurnWanted</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleAmmo.html">setVehicleAmmo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleArmor.html">setVehicleArmor</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleLights.html">setVehicleLights</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleLock.html">setVehicleLock</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleTiPars.html">setVehicleTiPars</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleTracks.html">setVehicleTracks</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setWaypointConvoySpacing.html">setWaypointConvoySpacing</a></p>
+</li><li class=" "><p   
+>Page:<a   href="showProxies.html">showProxies</a></p>
+</li><li class=" "><p   
+>Page:<a   href="unassignVehicle.html">unassignVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vehicle.html">vehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vehicles.html">vehicles</a></p>
+</li><li class=" "><p   
+>Page:<a   href="waypointConvoySpacing.html">waypointConvoySpacing</a></p>
+</li></ul><p   
+></p>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Editor_Objects_-_Structures_-_Lamps.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Editor Objects - Structures - Lamps</span>
+        </a>
+                <a href="Editor_Objects_-_Vehicles_-_Air.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Editor Objects - Vehicles - Air</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

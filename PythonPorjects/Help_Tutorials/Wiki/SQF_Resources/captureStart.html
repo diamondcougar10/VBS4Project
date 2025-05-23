@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>captureStart - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1512573"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Commands_A-Z.html">Commands A-Z</a></li>
+                                                                                     <li><a href="C.html">C</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1512573"> <span>captureStart</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/vbs2_1.24-version-2-modificationdate-1505467001149-api-v2.gif" alt="images/download/attachments/1507348/vbs2_1.24-version-2-modificationdate-1505467001149-api-v2.gif"   />
+    </p>
+<p   
+><br/><br/></p>
+    <div  class="confbox admonition admonition-warning">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+>This command / function is broken and / or unreliable in VBS4.</p>
+        </div>
+    </div>
+<p   
+></p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512573_captureStart-Introducedin" class="heading "><span> Introduced in </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Version:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>1.24</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512573_captureStart-Description" class="heading "><span> Description </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Description:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Records in-game video. The command changes the current video image into a smaller one and sends it into a system memory buffer. The buffer is locked and read with a delay to speed up asynchronous sending. The command sends the bitmaps into an encoder to produce an AVI video file. The image capture is done using the specified frame rate, which means that some images may not be taken at all, if the actual frame rate is higher than the one specified. When recording sound too, see <a   href="Audio_recording.html">Audio recording</a>.</p>
+<p   
+>    <span style="color: #000000;">
+For more information on using this command, see Live Stream Broadcast in the VBS3 Administrator Manual.    </span>
+</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512573_captureStart-Syntax" class="heading "><span>Syntax</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Syntax:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">captureStart</strong> [filename, width, height, framerate, codecs, sound, ui, buffersize, thread, cliprectangle]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Parameters:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>filename: <a   href="String.html">String</a> -     <span style="color: #000000;">
+Path to save video in (backslashes need to be specified in the following way: for example, <tt class=" ">&quot;O:\\fp\\vbs-video.avi&quot;</tt>). If the path does not contain a backslash, it is regarded as a relative path with respect to     </span>
+<tt class=" ">$HOME\Documents\VBS2\videos</tt>    <span style="color: #000000;">
+. Files are recorded in the AVI video-file format. If no file extension is used, an     </span>
+<tt class=" ">.avi</tt>    <span style="color: #000000;">
+ file is appended to the path automatically. If     </span>
+&quot;live&quot;    <span style="color: #000000;">
+ (    </span>
+<i class=" ">V3.8.1+</i>    <span style="color: #000000;">
+) is used instead of a path, live streaming is started, and when     </span>
+&quot;live&quot;    <span style="color: #000000;">
+ is used and the resolution specified by     </span>
+width    <span style="color: #000000;">
+ and     </span>
+height    <span style="color: #000000;">
+ is higher than the limit of 480K (for example, 800x600), then the resolution is down-scaled to that limit. You can stream to a port, using     </span>
+<tt class=" ">&quot;live:&lt;portNumber&gt;&quot;</tt> (    <span style="color: #000000;">
+for example,     </span>
+<tt class=" ">&quot;live:9534&quot;</tt>)     <span style="color: #000000;">
+(the default port is 11234).<br/><strong class=" ">Note:</strong> If the specified file already exists, the existing file is overwritten by the new one, without any warning. Also, in <i class=" ">V19.1.0+</i>, if the file size exceeds 3.5GB, the file is split into several files.    </span>
+</p>
+</li><li class=" "><p   
+>width: <a   href="Number.html">Number</a> - Capture video width (optional, default: 640, has to be a multiple of 4).</p>
+</li><li class=" "><p   
+>height: <a   href="Number.html">Number</a> - Captured video height (optional, default: 480, has to be a multiple of 4).</p>
+</li><li class=" "><p   
+>framerate: <a   href="Number.html">Number</a> - Frames / seconds. The recommended value is between 20-25 (optional, default: 20).</p>
+</li><li class=" "><p   
+>codecs: <a   href="Array.html">Array</a> - List of codecs (set by their standard four letter names: <tt class=" ">[&quot;MPG4&quot;, &quot;DIVX&quot;, &quot;XVID&quot;, &quot;MPG2&quot;, &quot;MPG1&quot;, &quot;MJPG&quot;, &quot;MSVC&quot;]</tt>) that are tried one by one (even if the <tt class=" ">codecs</tt> parameter is omitted). If none works, raw data (<tt class=" ">&quot;RAW&quot;</tt>) is written (optional).<br/><strong class=" ">Note:</strong> The MSVC codec is generally available in Windows. However, it produces low-quality video.</p>
+</li><li class=" "><p   
+>sound: <a   href="Number.html">Number</a> - Record sound on / off (optional, default: 1).</p>
+</li><li class=" "><p   
+>ui: <a   href="Number.html">Number</a> - Record video with UI shown / hidden (optional, default: 1).</p>
+</li><li class=" "><p   
+>buffersize: <a   href="Number.html">Number</a> - Buffer size in MB. Can be up-to 100MB. It is not necessary to use such a large amount unless raw data is saved (when no codec is used). In those cases, the buffer helps for the periods of disk writes. For example, the raw data case works well with <tt class=" ">framerate</tt> set to 10 and <tt class=" ">buffersize</tt> set to 100 (optional, default: 10).</p>
+</li><li class=" "><p   
+>thread: <a   href="Number.html">Number</a> - Obsolete in <i class=" ">V1.30+</i>. A worker thread can be used for the video encoding task. Disable it by setting the argument to 0 (optional, default: 1).</p>
+</li><li class=" "><p   
+>cliprectangle: <a   href="Array.html">Array</a> - Rectangular area of screen that is streamed instead of the whole screen. The whole screen is streamed, if <tt class=" ">cliprectangle</tt> is not specified. The rectangular area is specified by an array containing exactly 4 non-negative numbers: origin_X, origin_Y, width, and height of the rectangle (in screen coordinates). If the given rectangle is partly outside the screen, it is clipped to fit the screen. If the given rectangle is completely outside the screen or if the rectangle area is zero, clipping is stopped and streaming of the whole screen begins (optional, default: none) (<i class=" ">V17.4.0+</i>).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Return Value:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Boolean.html">Boolean</a> - Returns <tt class=" ">false,</tt> when already recording.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512573_captureStart-Examples" class="heading "><span>Examples</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Examples:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">captureStart [&quot;O:\\fp\\vbs-video.avi&quot;, 640, 480, 20, [&quot;MPG4&quot;, &quot;DIVX&quot;, &quot;XVID&quot;, &quot;MPG2&quot;, &quot;MPG1&quot;, &quot;MJPG&quot;], 1, 0, 10] </pre><pre class=" ">captureStart [&quot;my_video.avi&quot;]</pre>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512573_captureStart-AdditionalInformation" class="heading "><span>Additional Information</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>See also:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" "><a   href="captureStop.html">captureStop</a>, <a   href="captureTest.html">captureTest</a>, <a   href="Audio_recording.html">Audio recording</a>, <a   href="VBS_screenshot.html">VBS screenshot</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Multiplayer:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Problems:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+    <div class="section section-1" id="src-1512573_captureStart-Notes">
+        <h1 class="heading "><span>Notes</span></h1>
+<p   
+><br/></p>
+<p   
+><br/></p>
+<p   
+><br/></p>
+<p   
+><br/></p>
+<p   
+><br/></p>
+<p   
+><br/></p>
+<p   
+><br/></p>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="captiveNum.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>captiveNum</span>
+        </a>
+                <a href="captureStop.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>captureStop</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

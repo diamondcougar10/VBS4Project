@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>addAction - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1512870"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Commands_A-Z.html">Commands A-Z</a></li>
+                                                                                     <li><a href="A.html">A</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1512870"> <span>addAction</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/vbs2_1.20-version-2-modificationdate-1505466997137-api-v2.gif" alt="images/download/attachments/1507348/vbs2_1.20-version-2-modificationdate-1505466997137-api-v2.gif"   />
+    </p>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/arguments_global-version-2-modificationdate-1505466796203-api-v2.gif" alt="images/download/attachments/1507348/arguments_global-version-2-modificationdate-1505466796203-api-v2.gif"   />
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/effects_local-version-2-modificationdate-1505466840347-api-v2.gif" alt="images/download/attachments/1507348/effects_local-version-2-modificationdate-1505466840347-api-v2.gif"   />
+</p>
+<p   
+><br/></p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col  width="7.13604%"/>
+                                    <col  width="92.9058%"/>
+                            </colgroup>
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_addAction-Introducedin" class="heading "><span> Introduced in </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Version:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>1.20</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_addAction-Description" class="heading "><span> Description </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Description:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Add an action to an object. The action is usable by the object itself, as well as anyone who is within proximity of the object and is looking at it.</p>
+<p   
+>If an action is added to a unit, the action is only visible when the unit is on foot. If the unit enters a vehicle, the action is not visible either to the unit, or to anyone in / near the unit vehicle. To make the action stay visible even after the unit enters a vehicle, use <a   href="fn_vbs_addActionEx.html">fn vbs addActionEx</a>.</p>
+    <div  class="confbox admonition admonition-info">
+                            <span class="admonition-icon confluence-information-macro-icon"></span>
+                <div class="admonition-body">
+<p   
+><a   href="fn_vbs_addActionEx.html">fn_vbs_addActionEx</a>    <span style="color: #172b4d;">
+ is deprecated by the <tt class=" ">addAction</tt> VBS4 Alternative Syntax (<i class=" ">VBS4 23.2+</i>). To place an action that should be visible inside vehicles, the <tt class=" ">addAction</tt> command should be used in VBS4.    </span>
+</p>
+        </div>
+    </div>
+<p   
+>The action runs a script, which has the following parameters passed to it in the <strong class=" ">_this</strong> variable:</p>
+<p   
+><tt class=" ">[target, caller, ID, data]</tt></p>
+<ul class=" "><li class=" "><p   
+>target: <a   href="Object.html">Object</a> - Object which the action is assigned to.</p>
+</li><li class=" "><p   
+>caller: <a   href="Object.html">Object</a> - Unit that activates the action.</p>
+</li><li class=" "><p   
+>ID: <a   href="Number.html">Number</a> - Index of the activated action (used to remove the action with <a   href="removeAction.html">removeAction</a>).</p>
+</li><li class=" "><p   
+>data: <a   href="Anything.html">Anything</a> - Extra arguments passed to the <tt class=" ">addAction</tt> command (see Syntax).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_addAction-Syntax" class="heading "><span>Syntax</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Syntax:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>holder <strong class=" ">addAction</strong> [title, filename, arguments, priority, showWindow, hideOnUse, shortcut, condition]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Parameters:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>holder: <a   href="Object.html">Object</a> - Object to assign the action to.</p>
+</li><li class=" "><p   
+>title: <a   href="String.html">String</a> - Action name which is displayed in the Action Menu.</p>
+</li><li class=" "><p   
+>filename: <a   href="String.html">String</a> - Path to the script (relative to the mission folder) that is called when the action is activated.</p>
+</li><li class=" "><p   
+>arguments: <a   href="Anything.html">Anything</a> - Extra data to pass to the script (uses <tt class=" ">_this select 3</tt> for the script) (optional).</p>
+</li><li class=" "><p   
+>priority: <a   href="Number.html">Number</a> - Priority value of the action (determines how high it appears in the Action Menu). Actions are arranged in descending order according to this. Every game action has a preset priority value, which can be negative. Actions with the same values are arranged in the order in which they were created (newest at the bottom) (optional).</p>
+</li><li class=" "><p   
+>showWindow: <a   href="Boolean.html">Boolean</a> - If set <a   href="true.html">true</a>, Action Menu appears on screen, as soon as the action is available. If <a   href="false.html">false</a>, the action is still added to the Action Menu, but does not cause it to appear, if hidden (optional).</p>
+</li><li class=" "><p   
+>hideOnUse: <a   href="Boolean.html">Boolean</a> - If set to <a   href="true.html">true</a>, the Action Menu hides itself after the action is used. If <a   href="false.html">false</a>, the Action Menu stays open on the selected action after use (optional).</p>
+</li><li class=" "><p   
+>shortcut: <a   href="String.html">String</a> - <a   href="VBS_Key_Actions.html">VBS Key Actions</a> that activate the action. <a   href="DIK_KeyCodes.html">DIK KeyCodes</a> can also be used. Use empty string (&quot;&quot;) for no keyboard shortcut (optional).</p>
+</li><li class=" "><p   
+>condition: <a   href="String.html">String</a> - Code that must return <a   href="true.html">true</a> for the action to be shown. Variables <tt class=" ">_target</tt> (the object the action is attached to) and <tt class=" ">_this</tt> (executing unit) can be used in the evaluation (optional, default: <a   href="true.html">true</a>).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Return Value:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html">Number</a> - Index of the added action. Used to remove the action with <a   href="removeAction.html">removeAction</a>.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_addAction-AlternativeSyntax" class="heading "><span>Alternative Syntax</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Syntax:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>holder <strong class=" ">addAction</strong> [[aim, fov, los, tolerance], title, filename, ...] (<i class=" ">V2.00+</i>)</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Parameters:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>holder: <a   href="Object.html">Object</a> - Object to assign the action to.</p>
+</li><li class=" "><p   
+>aim: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, then the player cursor must be aimed at the <tt class=" ">holder</tt> (if the object is obstructed, <tt class=" ">aim</tt> is always <a   href="false.html">false</a>, even when the player points at it, and the <tt class=" ">los</tt> check has been disabled).</p>
+</li><li class=" "><p   
+>fov: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, then the <tt class=" ">holder</tt> must be within the player field of view (even if disabled, the action disappears if the player view angle is about 90 degrees away from the object).</p>
+</li><li class=" "><p   
+>los: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, then the <tt class=" ">holder</tt> must be within the player line of sight (not obstructed).</p>
+</li><li class=" "><p   
+>tolerance: <a   href="Number.html">Number</a> - Distance (in meters) the <tt class=" ">holder</tt> can be outside of the player line of sight, and still be considered visible (some objects, even small ones, may need a tolerance &gt; 0 in order for <tt class=" ">los</tt> to return <a   href="true.html">true</a>, even if there are no external obstructions between the player and the object).</p>
+</li><li class=" "><p   
+>title: <a   href="String.html">String</a> - Action name which is displayed in the Action Menu.</p>
+</li><li class=" "><p   
+>filename: <a   href="String.html">String</a> - Path to the script that is called when the action is activated. Relative to the mission folder.</p>
+</li><li class=" "><p   
+>... - All other arguments as described in the Syntax section.</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Return Value:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html">Number</a> - Index of the added action. Used to remove the action with <a   href="removeAction.html">removeAction</a>.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_safe-id-YWRkQWN0aW9uLVZCUzRBbHRlcm5hdGl2ZVN5bnRheChWQlM0MjMuMiApVXBkYXRlaWZ0aGVyZWlzYWx0ZXJuYXRlc3ludGF4dXNhZ2UscmVtb3ZlaWZ0aGVyZWlzbid0Lg" class="heading "><span>VBS4 Alternative Syntax (VBS4 23.2+) </span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Syntax:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>holder <strong class=" ">addAction </strong>[[aim, fov, los, tolerance, inVehicle, radius], title, filename, arguments, priority, showWindow, hideOnUse, shortcut, condition, position, category, enableCondition]</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Parameters:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <ul class=" "><li class=" "><p   
+>holder: <a  class="external-link" href="http://kb.bisimulations.com:8090/display/SQF/Object">Object</a> -     <span style="color: #172b4d;">
+Object to assign the action to.    </span>
+</p>
+</li><li class=" "><p   
+>    <span style="color: #172b4d;">
+action visibility parameters:     <span style="color: #000000;">
+<a   href="Array.html">Array</a>    </span>
+ - Contains visibility parameters for the action (optional, can be set to <a   href="nil.html">nil</a> or an empty array, to use the engine default value).    </span>
+</p>
+<ul class=" "><li class=" "><p   
+>aim: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, the player must aim at the <tt class=" ">holder</tt> to make the action available. If there is an obstacle obstructing the shooting line, the action is not displayed, even if the <tt class=" ">fov</tt> parameter is set to true (optional, default: <a   href="false.html">false</a>, can be set to <a   href="nil.html">nil</a> to use the engine default value).</p>
+</li><li class=" "><p   
+>fov: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, the <tt class=" ">holder</tt> must be within the player field of view to make the action available. Even if disabled, the action disappears if the player view angle is about 90 degrees away from the object (optional, default: <a   href="false.html">false</a>, can be set to <a   href="nil.html">nil</a> to use the engine default value).</p>
+</li><li class=" "><p   
+>los: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, the <tt class=" ">holder</tt> must be inside the player line of sight and not obstructed to make the action available (optional, default: <a   href="false.html">false</a>, can be set to <a   href="nil.html">nil</a> to use the engine default value).</p>
+</li><li class=" "><p   
+>tolerance: <a   href="Number.html">Number</a> - Distance (in meters) the <tt class=" ">holder</tt> can be outside of the player line of sight, and still be considered visible to spawn the action. Some objects, even small ones, may need a tolerance &gt; 0 to be considered inside the <tt class=" ">los</tt>, even if there are not obstructions (optional, default: 0, can be set to <a   href="nil.html">nil</a> to use the engine default value).</p>
+</li><li class=" "><p   
+>inVehicle: <a   href="Boolean.html">Boolean</a> - If <a   href="true.html">true</a>, the action is also available inside vehicles (optional, default: <a   href="false.html">false</a>, can be set to <a   href="nil.html">nil</a> to use the engine default value).</p>
+</li><li class=" "><p   
+>radius: <a   href="Number.html">Number</a> - Defines the range in meters from the object to make the action available (optional, default: 10m, can be set to <a   href="nil.html">nil</a> to use the engine default value).</p>
+</li></ul></li><li class=" "><p   
+>title: <a   href="String.html">String</a> - Action name displayed in the action list or radial menu.</p>
+</li><li class=" "><p   
+>filename: <a   href="String.html">String</a> - Path to the script (relative to the mission folder) that is called when the action is activated. OR <a   href="Code.html">Code</a> - Code executed when the action is triggered.</p>
+</li><li class=" "><p   
+>arguments: <a   href="Anything.html">Anything</a> - Extra data to pass to the script. Use <tt class=" ">_this select 3</tt> to access this arguments list (optional).</p>
+</li><li class=" "><p   
+>priority: <a   href="Number.html">Number</a> - This parameter is deprecated in VBS4 and is ignored. The best practice is to use <a   href="nil.html">nil</a> for it</p>
+</li><li class=" "><p   
+>showWindow: <a   href="Boolean.html">Boolean</a> - This parameter is deprecated in VBS4 and is ignored. The best practice is to use <a   href="nil.html">nil</a> for it.</p>
+</li><li class=" "><p   
+>hideOnUse: <a   href="Boolean.html">Boolean</a> - If set to <a   href="true.html">true</a>, the radial Quick Menu gets hidden after the action is used. If <a   href="false.html">false</a>, it stays open on the selected action after use. This parameter has no effect on 3D World Actions, since they are not in the radial Quick Menu. The best practice is to use <a   href="nil.html">nil</a> for it, if needed (optional, default: <a   href="true.html">true</a>).</p>
+</li><li class=" "><p   
+>shortcut: <a   href="String.html">String</a> - <a   href="VBS_Key_Actions.html">VBS Key Actions</a> that activate the action. <a   href="DIK_KeyCodes.html">DIK KeyCodes</a> can also be used. Use empty string (&quot;&quot;) for no keyboard shortcut.</p>
+</li><li class=" "><p   
+>condition: <a   href="String.html">String</a> - Code that must return <a   href="true.html">true</a> for the action to be shown. Variables <tt class=" ">_target</tt> (the object the action is attached to) and <tt class=" ">_this</tt> (executing unit) can be used in the evaluation (optional, default: <a   href="true.html">true</a>).</p>
+</li><li class=" "><p   
+>position: <a   href="String.html">String</a> or <a   href="Position_-_Data_Type.html">Position3D</a> - Defines either the memory point designating the source (<a   href="String.html">String</a>) or the relative position to the object center of mass (<a   href="Position_-_Data_Type.html">Position3D</a>) (optional, default: [0,0,0], can be set to <a   href="nil.html">nil</a>, an empty array, or an empty string to use the engine default value).</p>
+</li><li class=" "><p   
+>category: <a   href="String.html">String</a> - ID handle of the parent category in the Quick Menu. Use the class name string for categories defined in configuration files (see CfgQuickMenu in Quick Menu Classes in the VBS Developer Suite Reference). The default and fallback value is an empty string (which means that the new action is added at the root level of the Quick Menu).</p>
+</li><li class=" "><p   
+>enableCondition: <a   href="String.html">String</a> - Code that must return <a   href="true.html">true</a> for the action to be enabled. Disabled actions appear grayed out in the Quick Menu. Variables <tt class=" ">_target</tt> (the object the action is attached to) and <tt class=" ">_this</tt> (executing unit) can be used in the evaluation (optional, default: <a   href="true.html">true</a>).</p>
+</li></ul>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Return Value:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html">Number</a>    <span style="color: #172b4d;">
+ - Index of the added action. Used to remove the action with     </span>
+<a   href="removeAction.html">removeAction</a>    <span style="color: #172b4d;">
+.    </span>
+</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_addAction-Examples" class="heading "><span>Examples</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Examples:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">// Adds &quot;hello&quot; to the player Action Menu. On execution, passes an array of the caller, target, and index to hello.sqf.<br/>IDindex = player addAction [&quot;Hello&quot;, &quot;hello.sqf&quot;];<br/><br/>hello.sqf:<br/><br/>_target = _this select 0;<br/>_caller = _this select 1;<br/>hint format [&quot;%1 says hello to %2&quot;, name _caller, name _target];<br/><br/>// Adds &quot;hello&quot; to the Action Menu of the player driving vic1. On execution, passes an array to hello.sqf.<br/>IDindex = vehicle vic1 addAction[&quot;Hello&quot;, &quot;hello.sqf&quot;, [], 6, true, true, &quot;&quot;, &quot;driver _target == player&quot;];<br/><br/>// (VBS4 23.2+) 3D World Action<br/>// Action assigned to a vehicle called &quot;vehicle1&quot; to display its side when triggered<br/>vehicle1 addAction<br/>[<br/>    [<br/>        false, // It is not necessary to aim exactly at the vehicle to see the action<br/>        true, // The vehicle must be within the player FOV to see the action<br/>        true, // The player must have a clear line of sight of the vehicle to see the action<br/>        nil, // Use the engine default value<br/>        false, // The action is not available if the player is in a vehicle<br/>        5 // The action appears when the player is within 5 meters of the vehicle<br/>    ],<br/>    &quot;Inspect vehicle&quot;, // Name of the action<br/>    { // Code to execute when the action is triggered<br/>        _vehicleSide = side (_this select 0);<br/>        cutText [format [&quot;Vehicle side: %1&quot;, _vehicleSide], &quot;PLAIN DOWN&quot;];<br/>    },<br/>    [], // No arguments are passed<br/>    nil, // Deprecated<br/>    nil, // Deprecated<br/>    nil, // Ignored for 3D World Actions.<br/>    &quot;Jump&quot;, // The action can be triggered by pressing the key assigned to Jump<br/>    &quot;(side player) == west&quot;, // The action is displayed only to BLUFOR players<br/>    [0, 0, 2] // The action is positioned 2 meters higher from the center of mass<br/>];<br/><br/>// (VBS4 23.2+) Personal action<br/>// Action assigned to players to remove all their weapons, even when inside a vehicle<br/>// Visible in the Quick Menu, but grayed out for OPFOR players<br/>player addAction<br/>[<br/>  [ // To use the default value here, you can pass either an empty array or nil.<br/>        nil, // Use engine default value<br/>        nil, // Use engine default value<br/>        nil, // Use engine default value<br/>        nil, // Use engine default value<br/>        true // The action is visible even if the player is in a vehicle<br/>        // The radius is not defined, so the default value is used<br/>    ],<br/>    &quot;Remove all weapons&quot;, // Name of the action<br/>    { // Code to execute when the action is triggered<br/>        removeAllWeapons player;<br/>    }, <br/>    [], // No arguments are passed<br/>    nil, // Deprecated<br/>    nil, // Deprecated<br/>    false, // The Quick Menu remains open after triggering the action<br/>    &quot;&quot;, // Use the default value (no shortcut)<br/>    &quot;&quot;, // Use the default condition value (true)<br/>    &quot;&quot;, // Use the default position value (center of mass). To use the default value here, you can pass either an empty array [0, 0, 0], an empty string, or nil.<br/>    &quot;Weapon&quot;, // ClassName of the Quick Menu category<br/>    &quot;side player == west&quot; // Condition to allow triggering is set to BLUFOR - OPFOR players still see the action, but it is grayed out<br/>];</pre>            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="2">
+        <h4 id="src-1512870_addAction-AdditionalInformation" class="heading "><span>Additional Information</span></h4>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>See also:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" "><a   href="removeAction.html">removeAction</a>, <a   href="fn_vbs_addActionEx.html">fn vbs addActionEx</a>, <a   href="availableActions.html">availableActions</a></strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Multiplayer:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Multiplayer usage of this command can be complicated, because everything about the command is local. This has a number of implications. For example, a given object might have no actions on client A, 1 action on client B, and 2 actions on client C. Each client sees and uses separate actions - nothing is shared across the network.</p>
+<p   
+>This means:</p>
+<ul class=" "><li class=" "><p   
+>The script that runs, when the action is used, only runs on the client that uses the action.</p>
+</li><li class=" "><p   
+>Actions are only visible on the computer where they were added. To make an action visible to all clients, the <tt class=" ">addAction</tt> command must be executed on all of them. When doing this, however, the index returned by the command can vary across all clients.</p>
+</li><li class=" "><p   
+>Actions are only removed on the computer where the <a   href="removeAction.html">removeAction</a> command is issued.</p>
+</li></ul><p   
+>This means, for example, that the self-removing Action Menu example in the Examples section would not work properly in a network environment. If one client uses the generator, it would no longer see the generator action. However, all other clients would still see the action, until they themselves use it.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Problems:</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="addAAREventHandler.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>addAAREventHandler</span>
+        </a>
+                <a href="addActionCategory.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>addActionCategory</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

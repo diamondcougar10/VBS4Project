@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Editor Objects - General - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1512262"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Commands_and_Functions_by_Category.html">Commands and Functions by Category</a></li>
+                                                                                     <li><a href="Editor_Objects.html">Editor Objects</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1512262"> <span>Editor Objects - General</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+    <h3 id="src-1512262_EditorObjectsGeneral-Subcategories" class="heading "><span>Subcategories</span></h3>
+<p   
+></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Attachments.html">Editor Objects - General - Attachments</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Health.html">Editor Objects - General - Health</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Other.html">Editor Objects - General - Other</a></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Other_-_Get.html">Editor Objects - General - Other - Get</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Other_-_Set.html">Editor Objects - General - Other - Set</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Positioning.html">Editor Objects - General - Positioning</a></p>
+<ul class="childpages-macro "><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Positioning_-_Get.html">Editor Objects - General - Positioning - Get</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Positioning_-_Set.html">Editor Objects - General - Positioning - Set</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Size.html">Editor Objects - General - Size</a></p>
+</li><li class=" "><p   
+><a   href="Editor_Objects_-_General_-_Visibility.html">Editor Objects - General - Visibility</a></p>
+</li></ul><p   
+></p>
+    <h3 id="src-1512262_EditorObjectsGeneral-EditorObjects-GeneralCommands" class="heading "><span>Editor Objects - General Commands</span></h3>
+<p   
+></p>
+<ul class="content-by-label "><li class=" "><p   
+>Page:<a   href="acceleration.html">acceleration</a></p>
+</li><li class=" "><p   
+>Page:<a   href="addForce.html">addForce</a></p>
+</li><li class=" "><p   
+>Page:<a   href="aimPos.html">aimPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="AISFinishHeal.html">AISFinishHeal</a></p>
+</li><li class=" "><p   
+>Page:<a   href="alive.html">alive</a></p>
+</li><li class=" "><p   
+>Page:<a   href="allowDamage.html">allowDamage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ASLToECEF.html">ASLToECEF</a></p>
+</li><li class=" "><p   
+>Page:<a   href="attachChild.html">attachChild</a></p>
+</li><li class=" "><p   
+>Page:<a   href="attachedObject.html">attachedObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="attachedObjects.html">attachedObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="attachObject.html">attachObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="attachTo.html">attachTo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="boundingBox.html">boundingBox</a></p>
+</li><li class=" "><p   
+>Page:<a   href="boundingCenter.html">boundingCenter</a></p>
+</li><li class=" "><p   
+>Page:<a   href="calculateLineOfSight.html">calculateLineOfSight</a></p>
+</li><li class=" "><p   
+>Page:<a   href="canFloat.html">canFloat</a></p>
+</li><li class=" "><p   
+>Page:<a   href="chainedObjects.html">chainedObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="childAttached.html">childAttached</a></p>
+</li><li class=" "><p   
+>Page:<a   href="clearVehicleInit.html">clearVehicleInit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="collisionDetection.html">collisionDetection</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createIndirectDamage.html">createIndirectDamage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJoint.html">createJoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJointExt.html">createJointExt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJointExt_-_6DOFJoint.html">createJointExt_-_6DOFJoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJointExt_-_DistanceJoint.html">createJointExt_-_DistanceJoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJointExt_-_FixedJoint.html">createJointExt_-_FixedJoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJointExt_-_RevoluteJoint.html">createJointExt_-_RevoluteJoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createJointExt_-_SphereJoint.html">createJointExt_-_SphereJoint</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createVehicle.html">createVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="createVehicleLocal.html">createVehicleLocal</a></p>
+</li><li class=" "><p   
+>Page:<a   href="cylinderCollision.html">cylinderCollision</a></p>
+</li><li class=" "><p   
+>Page:<a   href="damage.html">damage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="defineCollisionVolume.html">defineCollisionVolume</a></p>
+</li><li class=" "><p   
+>Page:<a   href="deleteJointExt.html">deleteJointExt</a></p>
+</li><li class=" "><p   
+>Page:<a   href="deleteVehicle.html">deleteVehicle</a></p>
+</li><li class=" "><p   
+>Page:<a   href="detach.html">detach</a></p>
+</li><li class=" "><p   
+>Page:<a   href="detachChild.html">detachChild</a></p>
+</li><li class=" "><p   
+>Page:<a   href="direction.html">direction</a></p>
+</li><li class=" "><p   
+>Page:<a   href="disableGeo.html">disableGeo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="distance.html">distance</a></p>
+</li><li class=" "><p   
+>Page:<a   href="drawGeometry.html">drawGeometry</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ECEFToASL.html">ECEFToASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="#">Editor Objects - General</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Attachments.html">Editor Objects - General - Attachments</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Health.html">Editor Objects - General - Health</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Other.html">Editor Objects - General - Other</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Other_-_Get.html">Editor Objects - General - Other - Get</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Other_-_Set.html">Editor Objects - General - Other - Set</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Positioning.html">Editor Objects - General - Positioning</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Positioning_-_Get.html">Editor Objects - General - Positioning - Get</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Positioning_-_Set.html">Editor Objects - General - Positioning - Set</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Size.html">Editor Objects - General - Size</a></p>
+</li><li class=" "><p   
+>Page:<a   href="Editor_Objects_-_General_-_Visibility.html">Editor Objects - General - Visibility</a></p>
+</li><li class=" "><p   
+>Page:<a   href="enableCollisionVolumeDetection.html">enableCollisionVolumeDetection</a></p>
+</li><li class=" "><p   
+>Page:<a   href="enableSimulation.html">enableSimulation</a></p>
+</li><li class=" "><p   
+>Page:<a   href="eyePos.html">eyePos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="findCover.html">findCover</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_absSpeed.html">fn_vbs_absSpeed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_cargo_drop.html">fn_vbs_cargo_drop</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_cargo_status.html">fn_vbs_cargo_status</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_distance2D.html">fn_vbs_distance2D</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_findEdge.html">fn_vbs_findEdge</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_findEmptyLocation.html">fn_vbs_findEmptyLocation</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getBBVolume.html">fn_vbs_getBBVolume</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getHitpointName.html">fn_vbs_getHitpointName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getLockTarget.html">fn_vbs_getLockTarget</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getPitchBank.html">fn_vbs_getPitchBank</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_getVisibility.html">fn_vbs_getVisibility</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isCollisionIWA.html">fn_vbs_isCollisionIWA</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isInFrontOf.html">fn_vbs_isInFrontOf</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_isVisible.html">fn_vbs_isVisible</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_placeOnSurface.html">fn_vbs_placeOnSurface</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_positionObjectRelToObject.html">fn_vbs_positionObjectRelToObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_setPitchBank.html">fn_vbs_setPitchBank</a></p>
+</li><li class=" "><p   
+>Page:<a   href="fn_vbs_underlyingSurface.html">fn_vbs_underlyingSurface</a></p>
+</li><li class=" "><p   
+>Page:<a   href="forceSpeed.html">forceSpeed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getDammage.html">getDammage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getDir.html">getDir</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getDrawMode.html">getDrawMode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getEntityOverride.html">getEntityOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGlobalOverride.html">getGlobalOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGroundIntercept.html">getGroundIntercept</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGroundInterceptASL.html">getGroundInterceptASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getGroundInterceptECEF.html">getGroundInterceptECEF</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getHit.html">getHit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getHitPoints.html">getHitPoints</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getObjectSimulation.html">getObjectSimulation</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getObjMaterial.html">getObjMaterial</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getObjTexture.html">getObjTexture</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getPos.html">getPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getPosASL.html">getPosASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getPosASL2.html">getPosASL2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getPosATL.html">getPosATL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getScale.html">getScale</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getSimulationParameter.html">getSimulationParameter</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getSimulationParameters.html">getSimulationParameters</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getTerrainHeightASL.html">getTerrainHeightASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getVisibility.html">getVisibility</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getVisibilityFromCamPos.html">getVisibilityFromCamPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="getVisiblePos.html">getVisiblePos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="groupFromNetId.html">groupFromNetId</a></p>
+</li><li class=" "><p   
+>Page:<a   href="IdToObj.html">IdToObj</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ignoreObjects.html">ignoreObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="interpolate.html">interpolate</a></p>
+</li><li class=" "><p   
+>Page:<a   href="intersect.html">intersect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isAttached.html">isAttached</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isCollision.html">isCollision</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isDamageAllowed.html">isDamageAllowed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isDrivingOn.html">isDrivingOn</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isEPE.html">isEPE</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isGeoDisabled.html">isGeoDisabled</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isMapPlaced.html">isMapPlaced</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isOnRoad.html">isOnRoad</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isTouchingGround.html">isTouchingGround</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isTouchingObject.html">isTouchingObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="isTouchingWater.html">isTouchingWater</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lifeState.html">lifeState</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lightAttachedObject.html">lightAttachedObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lightAttachObject.html">lightAttachObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lineIntersects.html">lineIntersects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="lineIntersectsWith.html">lineIntersectsWith</a></p>
+</li><li class=" "><p   
+>Page:<a   href="local_%28Command%29.html">local_(Command)</a></p>
+</li><li class=" "><p   
+>Page:<a   href="mapIdToObj.html">mapIdToObj</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelBinarizeVer.html">modelBinarizeVer</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelPath.html">modelPath</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelToWorld.html">modelToWorld</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelToWorldASL2.html">modelToWorldASL2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="modelToWorldVector.html">modelToWorldVector</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearEntities.html">nearEntities</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearEntitiesASL.html">nearEntitiesASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearestBuilding.html">nearestBuilding</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearestObject.html">nearestObject</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearestObjects.html">nearestObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearObjects.html">nearObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="nearObjectsReady.html">nearObjectsReady</a></p>
+</li><li class=" "><p   
+>Page:<a   href="netId.html">netId</a></p>
+</li><li class=" "><p   
+>Page:<a   href="objNull.html">objNull</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ObjToId.html">ObjToId</a></p>
+</li><li class=" "><p   
+>Page:<a   href="ObjToIdEx.html">ObjToIdEx</a></p>
+</li><li class=" "><p   
+>Page:<a   href="objToMapId.html">objToMapId</a></p>
+</li><li class=" "><p   
+>Page:<a   href="owner.html">owner</a></p>
+</li><li class=" "><p   
+>Page:<a   href="parentAttached.html">parentAttached</a></p>
+</li><li class=" "><p   
+>Page:<a   href="placeOnSurface.html">placeOnSurface</a></p>
+</li><li class=" "><p   
+>Page:<a   href="position.html">position</a></p>
+</li><li class=" "><p   
+>Page:<a   href="precision.html">precision</a></p>
+</li><li class=" "><p   
+>Page:<a   href="previewPicture.html">previewPicture</a></p>
+</li><li class=" "><p   
+>Page:<a   href="processInitCommands.html">processInitCommands</a></p>
+</li><li class=" "><p   
+>Page:<a   href="relativeSpeed.html">relativeSpeed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="screenToWorldECEF.html">screenToWorldECEF</a></p>
+</li><li class=" "><p   
+>Page:<a   href="selectionPosition.html">selectionPosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="selectionVectorDirAndUp.html">selectionVectorDirAndUp</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setComponentDecal.html">setComponentDecal</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDamage.html">setDamage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDammage.html">setDammage</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDir.html">setDir</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDirection.html">setDirection</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDriveAngularVelocity.html">setDriveAngularVelocity</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDriveLinearVelocity.html">setDriveLinearVelocity</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDriveOrientation.html">setDriveOrientation</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setDrivePosition.html">setDrivePosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setEntityOverride.html">setEntityOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setGlobalOverride.html">setGlobalOverride</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setHit.html">setHit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setLocalityTo.html">setLocalityTo</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setObjectMaterial.html">setObjectMaterial</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setObjectMaterialGlobal.html">setObjectMaterialGlobal</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setObjectSimulation.html">setObjectSimulation</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setObjectTexture.html">setObjectTexture</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setObjectTextureGlobal.html">setObjectTextureGlobal</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setPos.html">setPos</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setPosASL.html">setPosASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setPosASL2.html">setPosASL2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setPosATL.html">setPosATL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setPosition.html">setPosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setScale.html">setScale</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setSimulationMode.html">setSimulationMode</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setSimulationParameter.html">setSimulationParameter</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setUnconscious.html">setUnconscious</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVariable.html">setVariable</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVectorDir.html">setVectorDir</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVectorDirAndUp.html">setVectorDirAndUp</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVectorUp.html">setVectorUp</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleInit.html">setVehicleInit</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehiclePosition.html">setVehiclePosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVehicleVarName.html">setVehicleVarName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVelocity.html">setVelocity</a></p>
+</li><li class=" "><p   
+>Page:<a   href="setVelocityAng.html">setVelocityAng</a></p>
+</li><li class=" "><p   
+>Page:<a   href="showSoundTriggers.html">showSoundTriggers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="showVolumetricTriggers.html">showVolumetricTriggers</a></p>
+</li><li class=" "><p   
+>Page:<a   href="sizeOf.html">sizeOf</a></p>
+</li><li class=" "><p   
+>Page:<a   href="speed.html">speed</a></p>
+</li><li class=" "><p   
+>Page:<a   href="synchronizedObjects.html">synchronizedObjects</a></p>
+</li><li class=" "><p   
+>Page:<a   href="synchronizeObjectsAdd.html">synchronizeObjectsAdd</a></p>
+</li><li class=" "><p   
+>Page:<a   href="synchronizeObjectsRemove.html">synchronizeObjectsRemove</a></p>
+</li><li class=" "><p   
+>Page:<a   href="terrainIntersect.html">terrainIntersect</a></p>
+</li><li class=" "><p   
+>Page:<a   href="terrainIntersectASL.html">terrainIntersectASL</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorDir.html">vectorDir</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vectorUp.html">vectorUp</a></p>
+</li><li class=" "><p   
+>Page:<a   href="vehicleVarName.html">vehicleVarName</a></p>
+</li><li class=" "><p   
+>Page:<a   href="velocity.html">velocity</a></p>
+</li><li class=" "><p   
+>Page:<a   href="velocityAng.html">velocityAng</a></p>
+</li><li class=" "><p   
+>Page:<a   href="visiblePosition.html">visiblePosition</a></p>
+</li><li class=" "><p   
+>Page:<a   href="volumeOf.html">volumeOf</a></p>
+</li><li class=" "><p   
+>Page:<a   href="weightOf.html">weightOf</a></p>
+</li><li class=" "><p   
+>Page:<a   href="worldToModel.html">worldToModel</a></p>
+</li><li class=" "><p   
+>Page:<a   href="worldToModelASL2.html">worldToModelASL2</a></p>
+</li><li class=" "><p   
+>Page:<a   href="worldToModelVector.html">worldToModelVector</a></p>
+</li></ul><p   
+></p>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Editor_Objects.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Editor Objects</span>
+        </a>
+                <a href="Editor_Objects_-_General_-_Attachments.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Editor Objects - General - Attachments</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

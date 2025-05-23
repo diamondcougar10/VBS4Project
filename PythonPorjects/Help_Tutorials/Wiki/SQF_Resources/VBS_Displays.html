@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>VBS Displays - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1509011"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Scripting_References.html">Scripting References</a></li>
+                                                                                     <li><a href="VBS_Dialogs.html">VBS Dialogs</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1509011"> <span>VBS Displays</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+>Defines the block height</p>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/ControlEdit-version-2-modificationdate-1505466815086-api-v2.jpg" alt="images/download/attachments/1507348/ControlEdit-version-2-modificationdate-1505466815086-api-v2.jpg"   />
+    <img  class="confluence-embedded-image"  src="images/download/attachments/1507348/ControlStructuredText-version-1-modificationdate-1505466815609-api-v2.jpg" alt="images/download/attachments/1507348/ControlStructuredText-version-1-modificationdate-1505466815609-api-v2.jpg"   />
+    <img  class="confluence-embedded-image"  src="images/download/attachments/1507348/2DListbox-version-1-modificationdate-1505466782065-api-v2.jpg" alt="images/download/attachments/1507348/2DListbox-version-1-modificationdate-1505466782065-api-v2.jpg"   />
+    <img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Dialog_Control_AdvTree-version-2-modificationdate-1505466829714-api-v2.gif" alt="images/download/attachments/1507348/Dialog_Control_AdvTree-version-2-modificationdate-1505466829714-api-v2.gif"   />
+    <ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Introduction">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Usage">Usage</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Dialogs">Dialogs</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Properties">Properties</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Example">Example</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-HUDs">HUDs</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Properties.1">Properties</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Example.1">Example</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Controls">Controls</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Controldefinitions">Control definitions</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Properties.2">Properties</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-BestPractices">Best Practices</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Constants">Constants</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Controltypes">Control types</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Controlstyles">Control styles</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Inheritance">Inheritance</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-ControlTypeDetails">Control Type Details</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-EventHandlers">Event Handlers</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-Sounds">Sounds</a></p>
+</li><li class=" "><p   
+><a   href="#src-1509011_VBSDisplays-DemoMissions">Demo Missions</a></p>
+</li></ul>    <div class="section section-1" id="src-1509011_VBSDisplays-Introduction">
+        <h1 class="heading "><span>Introduction</span></h1>
+<p   
+>Displays are a way to create custom graphical user interfaces (GUIs) for missions or addons, in order to present relevant information to the player, or to act as a selection tool, to decide further actions.<br/>They can range from simple message boxes, to complex, multi-layered and conditional menus, which are fully controlled by the developer.</p>
+<p   
+>Since the naming for the different types of displays is sometimes a bit confusing (even in some of the script commands), here&#39;s the definition as used in the documentation:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">Displays</strong>: Any user-created screen element.</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="#src-1509011_VBSDisplays-Dialogs">Dialogs</a></strong>: A display that interrupts normal user actions. It can be interactive (e.g. to push a button or enter text), and only one dialog at a time can be shown. (<i class=" ">Often used interchangeably with &quot;Displays&quot;.</i>)</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="#src-1509011_VBSDisplays-HUDs">HUDs</a></strong>: A display that doesn&#39;t interfere with normal user actions. Cannot be interactive, and multiple HUDs can be displayed at the same time. (<i class=" ">Sometimes referred to as &quot;resources&quot;.</i>)</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="#src-1509011_VBSDisplays-Controls">Controls</a></strong>: Individual components in a display that have specific looks or functions (e.g. buttons, sliders or text boxes).</p>
+</li></ul>    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-Usage">
+        <h1 class="heading "><span>Usage</span></h1>
+<p   
+>For missions, displays are defined in the Description.ext file, and for addons they are defined in the addon&#39;s respective config file.<br/>To keep either of those files to a manageable size, it is possible to put the display definitions into a separate file, and to then include it via the #include command.</p>
+<p   
+>Changes to the description.ext file, while the mission is still open in the editor, are only applied once the mission is saved or re-loaded. Just restarting the preview will <i class=" ">not</i> load the new version of the file!</p>
+<p   
+>Position and dimension values (x, y, w, h), as well as font sizes, are relative to the screen (i.e. <i class=" ">not</i> pixel values), normally ranging from 0.0 to 1.0 (for a 4:3 screen ratio). An x position of 0 indicates the left edge of the screen, and an x position of 1 is the right edge. A width (w) of 0.1 would set a control&#39;s width to one-tenth of the overall screen width. (Other screen ratios will have different ranges - see the <a   href="SafeZones.html">SafeZones</a> article for an in-depth explanation.)<br/>Some data types use a different syntax in config files than they do in scripts (e.g. <a   href="Array.html">Array</a> and <a   href="Boolean.html">Boolean</a>). See the specific <a   href="Data_Types.html">Category Data Types</a> explanations for details.</p>
+<p   
+>A complete list of display-related scripting functions is available in the <a   href="Interactions_-_User_Dialogs.html">Interactions - User Dialogs</a>.</p>
+    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-Dialogs">
+        <h1 class="heading "><span>Dialogs</span></h1>
+<p   
+>A <i class=" ">dialog</i> is the parent class of an interactive display, and contains one or more <a   href="#src-1509011_VBSDisplays-Controls">Controls</a>.</p>
+<p   
+>It can have any name, and is referred to by that name when it is opened in-game via the <a   href="createDialog.html">createDialog</a> command.<br/>Multiple, different dialogs can be defined in the config file (as long as they have different names), but only one can be displayed at a time. If one dialog is already open when another one is created, the previous one will be hidden until the second one is closed.<br/>A dialog is closed by either pressing the &lt;Esc&gt; key, or by executing the <a   href="closeDialog.html">closeDialog</a> command.<br/>To reference the dialog use the <a   href="findDisplay.html">findDisplay</a> command.</p>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Properties">
+        <h2 class="heading "><span>Properties</span></h2>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Name</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Type</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Required</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Remark</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">idd</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>A unique ID number of the dialog.<br/>Can be set to -1 if none of the dialog&#39;s controls need to be accessed by scripts, once displayed.<br/>For user dialogs, numbers over 10,000 should be used.<br/>A list of reserved IDCs, used by the engine, is available <a   href="VBS_Reserved_Resources.html">VBS Reserved Resources</a>.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">movingEnable</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Boolean.html">Boolean</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes<br/>(in V1.x)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Whether the dialog can be moved or not (if enabled, one of the dialog controls must have the &#39;moving&#39; property set to 1 so it becomes the &quot;handle&quot; the dialog can be moved with).<br/><i class=" ">Not required or interpreted in V2.0+ (dialogs can always be moved).</i></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Controls</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Class or <a   href="Arrays.html#src-1512340_Arrays-Propertyarrays">Property arrays</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Contains classes (or class names) of all foreground <a   href="#src-1509011_VBSDisplays-Controls">Controls</a> shown in this dialog.<br/></p>
+<p   
+>The first entry in this array will be the control that has focus when the dialog is loaded.<br/>The sequence in which the controls are defined will decide their z-index (i.e. the last ones will on top of the first ones).</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">ControlsBackground</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Class or <a   href="Arrays.html#src-1512340_Arrays-Propertyarrays">Property arrays</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Contains classes (or class names) of all background <a   href="#src-1509011_VBSDisplays-Controls">Controls</a> shown in this dialog.<br/></p>
+<p   
+>The sequence in which the controls are listed will decide their z-index (i.e. the last ones will on top of the first ones).<br/>Controls in this group will always show up <i class=" ">behind</i> those in the &#39;Controls&#39; or &#39;Objects&#39; group, otherwise the functionality is the same.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Objects</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Class or <a   href="Arrays.html#src-1512340_Arrays-Propertyarrays">Property arrays</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Contains classes (or class names) of all <a   href="Dialogs_Object.html">Dialogs Object</a> shown in this dialog.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">tooltipDelay</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Sets the delay in seconds before a tooltip is displayed when hovering over a control. Setting the delay to <strong class=" ">0</strong> will make the tooltips appear instantly. Optional, if not specified the delay is <strong class=" ">1.2</strong> seconds. <i class=" ">(Introduced in 3.7)</i></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">onLoad</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Command to execute when dialog is first loaded (see <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a>)</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">onUnload</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Command to execute when dialog is closed (see <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a>)</p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+<p   
+>Some event handlers (&#39;onLoad&#39; &amp; &#39;onUnload&#39;) have been included in this list as an example. Further ones can be added in the same manner, and are documented in the <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a> list.</p>
+    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Example">
+        <h2 class="heading "><span>Example</span></h2>
+<p   
+>A minimalistic example, displaying a single line of text, could be created like this:</p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">description.ext</strong><br/>Resides in the mission folder, and is automatically interpreted when the mission is started.</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">dialog.sqf</strong><br/>Resides in the mission folder, and has to be started by the player somehow (e.g. via a <a   href="addAction.html">addAction</a>).</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" "> class Dlg {                              <br/>  idd = 20000;                            // id of dialog<br/>  movingEnable = 0;                       // cannot be moved<br/>  <br/>  class Controls {<br/>    class MyMsg {<br/>      idc = 20000;                        // id of control<br/>      type = 0;                           // control type (text)<br/>      style = 2;                          // text is centered<br/>      x = .3; y = .4;                     // control position<br/>      w = 0.4; h = 0.05;                  // control size<br/>      colorText[] = {1, 1, 1, 1};         // color for text <br/>      colorBackground[] = {1, .5, 0, .6}; // and background<br/>      font = &quot;TahomaB&quot;;                   // font to use<br/>      SizeEx = .04;                       // font size<br/>      text = &quot;Hello, VBS&quot;;                // displayed text<br/>    };<br/>  };<br/> }; </pre>            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">// opens the dialog (named &quot;Dlg&quot;)<br/>createDialog &quot;Dlg&quot;;<br/><br/>sleep 2;  // show the default text for a while<br/><br/>// then change the control&#39;s text to a new message<br/>ctrlSetText [20000,format[&quot;Hello, %1&quot;,name player]];</pre><p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/hello-version-2-modificationdate-1505466860431-api-v2.gif" alt="images/download/attachments/1507348/hello-version-2-modificationdate-1505466860431-api-v2.gif"   />
+    </p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-HUDs">
+        <h1 class="heading "><span>HUDs</span></h1>
+<p   
+>Regular dialogs are used in situations where the user will stop his normal actions, and concentrate on filling out (or examining) the displayed components, and then continue with his previous task.<br/>For situations where a display should be shown continuously, while the user performs his normal tasks, a &quot;HUD&quot; can be created. Its main difference to a dialog is that it will not impede the player&#39;s actions, and that it can only <i class=" ">display</i> information, but not <i class=" ">receive</i> any (i.e. the user cannot click any of the displayed controls, or enter data).</p>
+<p   
+>HUDs are defined as a sub-class under RscTitles, and can contain the same controls as a regular dialog (<i class=" ">even though interactive controls like buttons or text entry fields wouldn&#39;t make much sense in a HUD</i>).<br/>To display a HUD, use the <a   href="titleRsc.html">titleRsc</a> or <a   href="cutRsc.html">cutRsc</a> command, with the HUD&#39;s class name.<br/>To remove it, execute the same command that was used to <i class=" ">display</i> it, but with &quot;Default&quot; as the class name.</p>
+<p   
+>If HUD elements should be modified while being displayed, a different method to regular dialogs has to be used to get the display object, as <a   href="findDisplay.html">findDisplay</a> will not work with HUDs.<br/>To get a reference to the HUD itself (similar to what <a   href="findDisplay.html">findDisplay</a> returns), the HUD must be stored in a globally accessible location when it is created (i.e. during the <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a>). Typically this is done by using a global variable, but different <a   href="Namespace.html">Namespace</a> could be used for this purpose as well.</p>
+<pre class=" ">onLoad = &quot;tst_hud = _this select 0&quot;; // we can now use &#39;tst_hud&#39; to point to the HUD</pre><p   
+>Be aware that any HUD displays are destroyed when the editor is opened, so one should <a   href="VBS_Custom_Event_Handlers.html#src-1509016_VBSCustomEventHandlers-editorLoad.2CeditorUnload">editorLoad.2C editorUnload</a> this event, so that the HUD can be restored, once the editor is closed again.</p>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Properties.1">
+        <h2 class="heading "><span>Properties</span></h2>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="4">
+    <p   
+>Properties</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Name</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Type</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Required</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Remark</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">idd</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>The unique ID number of this display. Can always be -1 for HUDs, as <a   href="findDisplay.html">findDisplay</a> doesn&#39;t work with them.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Controls</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Class or <a   href="Arrays.html#src-1512340_Arrays-Propertyarrays">Property arrays</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Contains classes (or class names) of all foreground <a   href="#src-1509011_VBSDisplays-Controls">Controls</a> shown in this dialog.<br/></p>
+<p   
+>The first entry in this array will be the control that has focus when the display is loaded.<br/>The sequence in which the controls are defined will decide their z-index (i.e. the last ones will on top of the first ones).</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">ControlsBackground</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Class or <a   href="Arrays.html#src-1512340_Arrays-Propertyarrays">Property arrays</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Contains classes (or class names) of all background <a   href="#src-1509011_VBSDisplays-Controls">Controls</a> shown in this dialog.<br/></p>
+<p   
+>The sequence in which the controls are listed will decide their z-index (i.e. the last ones will on top of the first ones).<br/>Controls in this group will always show up <i class=" ">behind</i> those in the &#39;Controls&#39; and &#39;Objects&#39; group, otherwise the functionality is the same.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">Objects</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Class or <a   href="Arrays.html#src-1512340_Arrays-Propertyarrays">Property arrays</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Contains classes (or class names) of all <a   href="Dialogs_Object.html">Dialogs Object</a> shown in this dialog.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">duration</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html">Number</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>After how many seconds the HUD should be closed again. Use a very large number (e.g. 999999) to make it &quot;infinite&quot;.</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">fadeIn</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html">Number</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>How many seconds it should take for the HUD to fade in. <strong class=" ">Case-sensitive!</strong></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">fadeOut</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html">Number</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>How many seconds it should take for the HUD to fade out after the &#39;duration&#39; has been reached. <strong class=" ">Case-sensitive!</strong></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Example.1">
+        <h2 class="heading "><span>Example</span></h2>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">description.ext</strong><br/>Resides in the mission folder, and is automatically interpreted when the mission is started.</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">dialog.sqf</strong><br/>Resides in the mission folder, and has to be started by the player somehow (e.g. via a <a   href="addAction.html">addAction</a>).</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">// MUST be in RscTitles<br/>class RscTitles {<br/>  class MyHUD {<br/>    idd = -1;           // IDD not needed<br/>    duration = 999999;  // show &quot;forever&quot;<br/><br/>    // store HUD in global var &#39;tst_hud&#39;<br/>    onLoad = &quot;tst_hud = _this select 0&quot;;<br/>      <br/>    // define a regular static text control<br/>    class Controls {<br/>      class TXT {<br/>        idc = 20000;<br/>        type = 0;                           <br/>        style = 2;                          <br/>        x = .45; y = .0;                     <br/>        w = 0.1; h = 0.05;                  <br/>        colorText[] = {1, 1, 1, 1};         <br/>        colorBackground[] = {1, .5, 0, .6}; <br/>        font = &quot;TahomaB&quot;;                   <br/>        SizeEx = .04;                       <br/>        text = &quot;&quot;;     <br/>      };<br/>    };<br/>  };<br/>}; </pre>            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">// create the HUD<br/>titleRsc[&quot;MyHUD&quot;, &quot;PLAIN&quot;];<br/>waitUntil {!isNull tst_hud};<br/><br/>// get the control<br/>_hud = tst_hud displayCtrl 20000;<br/><br/>// constantly update the player direction in the control<br/>waitUntil {<br/>  _hud ctrlSetText format[&quot;Dir: %1&quot;,round(getDir player)];<br/>  // until the player presses &lt;Esc&gt;<br/>  (isKeyPressed 0x01) <br/>};<br/><br/>// then destroy the HUD via an empty titleText message<br/>titleText[&quot;&quot;, &quot;PLAIN&quot;];</pre><p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/CompassHUD-version-2-modificationdate-1505466813446-api-v2.gif" alt="images/download/attachments/1507348/CompassHUD-version-2-modificationdate-1505466813446-api-v2.gif"   />
+    </p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-Controls">
+        <h1 class="heading "><span>Controls</span></h1>
+<p   
+>Controls are the actual visible elements inside a display.<br/>Many different types of controls are available in VBS, to be able to support different functionalities, e.g. simple blocks of color, text fields for reading or entering, buttons, sliders, listboxes, checkboxes, maps, etc.</p>
+<p   
+>Each control type has different capabilities and different properties.<br/>The common properties are shown in the list below, and for type-specific properties, refer to the detailed page for each type (as listed in the <a   href="#src-1509011_VBSDisplays-ControlTypeDetails">Control Type Details</a> section.</p>
+<p   
+>The different script commands that can be used to interact with controls can be found in <a   href="Interactions_-_User_Dialogs.html">Interactions - User Dialogs</a>.</p>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Controldefinitions">
+        <h2 class="heading "><span>Control definitions</span></h2>
+<p   
+>There are two ways of defining controls inside a display class.<br/>Either enclose all controls within the Controls <i class=" ">class</i>, or define them separately, and then refer to their names in the Controls <i class=" ">array</i>.<br/>(The same applies to the ControlsBackground and Objects group.)</p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Controls as child classes</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Controls as array elements</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">class MyDialog {<br/><br/>  // &#39;Controls&#39; class contains all controls<br/>  // as child classes<br/>  class Controls {<br/><br/>    // first control (text box)<br/>    class TXT {<br/>      idc = 20000;<br/>      type = 0;<br/>      ...<br/>    };<br/>    // second control (button)<br/>    class BTN {<br/>      idc = 20001;<br/>      type = 2;<br/>      ...<br/>    };<br/>  };<br/>};</pre>            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <pre class=" ">class MyDialog {<br/><br/>  // &#39;Controls&#39; definition as array<br/>  // contains names of all individual controls<br/>  Controls[] = {TXT,BTN};<br/><br/>  // first control (text box)<br/>  class TXT {<br/>    idc = 20000;<br/>    type = 0;<br/>    ...<br/>  };<br/>  // second control (button)<br/>  class BTN {<br/>    idc = 20001;<br/>    type = 2;<br/>    ...<br/>  };<br/>};</pre>            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Properties.2">
+        <h2 class="heading "><span>Properties</span></h2>
+<p   
+>The following properties are used in most control types.<br/>Any properties specific to a certain control type will be listed in their <a   href="#src-1509011_VBSDisplays-ControlTypes">Control Types</a>.<br/>Properties that are marked as &quot;required&quot; will cause an error message to come up if not defined (even though the dialog may still work, using some default values).<br/>The &quot;Script&quot; column shows the command that can be used to change the property (this requires the control to have an IDC defined).</p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                                    <col />
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Name</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Type</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Required</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Remark</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Script</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">idc</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>A unique ID number of the control (must exist, otherwise control won&#39;t be displayed).<br/>Can be set to -1 if control doesn&#39;t need to be manipulated anymore, once displayed.<br/>For user displays, numbers over 10,000 should be used.<br/>A list of reserved IDCs, used by the engine, is available <a   href="VBS_Reserved_Resources.html">VBS Reserved Resources</a>.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>n/a</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">type</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>The kind of control to create (e.g. text or button). Normally defined via a <a   href="#src-1509011_VBSDisplays-Constants">Constants</a>.<br/>See the <a   href="#src-1509011_VBSDisplays-ControlTypes">Control Types</a> section below for available types.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>n/a</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">style</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Display style of control, e.g. how to align text, or whether to draw borders. Normally defined via a <a   href="#src-1509011_VBSDisplays-Constants">Constants</a>.<br/>The available style options depend on the specific control type, and are listed in their <a   href="#src-1509011_VBSDisplays-ControlTypes">Control Types</a>.<br/>Multiple style options can be combined by adding them (e.g. style= ST_RIGHT + ST_MULTI).</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>n/a</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">moving</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Boolean.html">Boolean</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>whether the dialog will be moved if this control is dragged (should be set in a background control)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>n/a</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">x</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Left edge of control, relative to either the parent control or the screen (0...1, see <a   href="SafeZones.html">SafeZones</a> for details).</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetPosition.html">ctrlSetPosition</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">y</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Top edge of control, relative to either the parent control or the screen (0...1, see <a   href="SafeZones.html">SafeZones</a> for details)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetPosition.html">ctrlSetPosition</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">w</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Width of control (0...1, see <a   href="SafeZones.html">SafeZones</a> for details)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetPosition.html">ctrlSetPosition</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">h</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Yes</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Height of control (0...1, see <a   href="SafeZones.html">SafeZones</a> for details)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetPosition.html">ctrlSetPosition</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">font</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>(Yes, if control displays text)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Name of font to use. See the <a   href="Fonts.html#src-1508346_Fonts-AvailableTypefaces">Available Typefaces</a> article for possible values.<br/>Needs to be set to a valid font name, even if no text is displayed (e.g. for images), or an error message will come up.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetFont.html">ctrlSetFont</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">sizeEx</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>(Yes, if control displays text)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/fontSize-version-1-modificationdate-1505466852133-api-v2.gif" alt="images/download/attachments/1507348/fontSize-version-1-modificationdate-1505466852133-api-v2.gif"   />
+    </p>
+<p   
+>Defines the block height (or &quot;Em&quot;) of the text to be output. This height includes any ascenders or descenders the font may have, and the actual cap height (e.g. of the letter &quot;H&quot;) is normally around 70% of the block height. In the attached image the light gray area indicates the block height. Has no effect on images.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetFontHeight.html">ctrlSetFontHeight</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">timer</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Specifies how many seconds after the control has been opened, the <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a> event handler should fire.<br/>Only works with <i class=" ">dialog</i> controls (i.e. not in HUDs). Default is -1 (disabled). (<i class=" ">V3.4+</i>)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">toolTip</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Hint popup that is displayed after the mouse has been hovering over the control for a while.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetTooltip.html">ctrlSetTooltip</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">tooltipColorBox</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Color of tooltip border.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetTooltipColorBox.html">ctrlSetTooltipColorBox</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">tooltipColorText</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Color of tooltip text.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetTooltipColorText.html">ctrlSetTooltipColorText</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">tooltipColorShade</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>No</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Color of tooltip background.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetTooltipColorShade.html">ctrlSetTooltipColorShade</a></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-BestPractices">
+        <h2 class="heading "><span>Best Practices</span></h2>
+<p   
+>In order to improve the readability of dialog definitions, it is suggested to use constants for common properties, and to create base classes from which to inherit individual controls.<br/>These definitions are normally kept in a separate file, that is then <a   href="PreProcessor_Commands.html#src-1508441_PreProcessorCommands-.23include">.23include</a> in the dialog&#39;s config file.</p>
+<p   
+>A file with the most common definition is available <a   href="attachments/1515369_1_description_dialogs.zip">here</a>.</p>
+    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Constants">
+        <h2 class="heading "><span>Constants</span></h2>
+<p   
+>Constants are <a   href="PreProcessor_Commands.html#src-1508441_PreProcessorCommands-.23include">.23include</a> used for common properties.<br/>They make the definitions more readable; e.g. instead of style=2 you can use style=ST_CENTER, and it will be immediately obvious that the text is supposed to be centered (instead of having to remember that a &quot;2&quot; means centering).<br/>The constants below are the standard definitions for <i class=" ">type</i> and <i class=" ">style</i> properties, but further constants can be added by the user (e.g. for font names), and used in the same manner.</p>
+    <div class="section section-3" id="src-1509011_VBSDisplays-Controltypes">
+        <h3 class="heading "><span>Control types</span></h3>
+<pre class=" "> <br/>#define CT_STATIC           0<br/>#define CT_BUTTON           1<br/>#define CT_EDIT             2<br/>#define CT_SLIDER           3<br/>#define CT_COMBO            4<br/>#define CT_LISTBOX          5<br/>#define CT_TOOLBOX          6<br/>#define CT_CHECKBOXES       7<br/>#define CT_PROGRESS         8<br/>#define CT_HTML             9<br/>#define CT_STATIC_SKEW      10<br/>#define CT_ACTIVETEXT       11<br/>#define CT_TREE             12<br/>#define CT_STRUCTURED_TEXT  13<br/>#define CT_CONTEXT_MENU     14<br/>#define CT_CONTROLS_GROUP   15<br/>#define CT_SHORTCUT_BUTTON  16 <br/>#define CT_XKEYDESC         40<br/>#define CT_XBUTTON          41<br/>#define CT_XLISTBOX         42<br/>#define CT_XSLIDER          43<br/>#define CT_XCOMBO           44<br/>#define CT_ANIMATED_TEXTURE 45<br/>#define CT_OBJECT           80<br/>#define CT_OBJECT_ZOOM      81<br/>#define CT_OBJECT_CONTAINER 82<br/>#define CT_OBJECT_CONT_ANIM 83<br/>#define CT_LINEBREAK        98<br/>#define CT_USER             99<br/>#define CT_MAP              100<br/>#define CT_MAP_MAIN         101<br/>#define CT_LISTNBOX         102<br/>#define CT_ADV_TREE         107<br/>#define CT_SELECT_SCROLLBAR 110<br/>#define CT_STATEBOX         112<br/>#define CT_SECTION_VIEWER   113</pre>    </div>
+    <div class="section section-3" id="src-1509011_VBSDisplays-Controlstyles">
+        <h3 class="heading "><span>Control styles</span></h3>
+<pre class=" ">// Static styles<br/>#define ST_LEFT                  0  // Left aligned text<br/>#define ST_RIGHT                 1  // Right aligned text<br/>#define ST_CENTER                2  // Center aligned text<br/><br/>#define ST_SINGLE                0  // Single line textbox<br/>#define ST_MULTI                16  // Multi-line textbox (text will wrap, and newline character can be used). There is no scrollbar, but mouse wheel/arrows can scroll it. Control will be outlined with a line (color = text color).<br/>#define ST_TITLE_BAR            32  // Light gray background with 3D border<br/>#define ST_PICTURE              48  // &#39;Text&#39; property is interpreted as an image path.<br/>#define ST_FRAME                64  // Transparent background with 2D border and text in upper left edge.<br/>#define ST_BACKGROUND           80  // Gray background with 3D border.<br/>#define ST_GROUP_BOX            96  // Light gray with with 2D border.<br/>#define ST_GROUP_BOX2          112  // Gray with with 2D border .<br/>#define ST_HUD_BACKGROUND      128  // Light green background with rounded corners (like a hint box).<br/>#define ST_WITH_RECT           160  // Transparent background with 2D border.<br/>#define ST_LINE                176  // A line is drawn between the top left and bottom right of the control (color = text color), with transparent Background.<br/><br/>#define ST_SHADOW              256  // Text or image is given a shadow (V1.x).<br/>#define ST_NO_RECT             512  // When combined with ST_MULTI, border is suppressed.<br/>#define ST_KEEP_ASPECT_RATIO  2048  // Used with pictures, to keep its aspect ratio.<br/>#define ST_CODE               4096  // Prevents the control from flipping when the UI flips in RTL languages (by rightToLeftInput = 1)<br/><br/>// Slider styles<br/>#define SL_VERT                  0  // Vertical<br/>#define SL_HORZ               1024  // Horizontal <br/><br/>// Listbox styles<br/>#define LB_TEXTURES             16   // Removes all extra border lines from listbox, leaving only a gradient scrollbar. Useful when LB has a painted background behind it.<br/>#define LB_MULTI                32   // Allows multiple elements of the LB to be selected (by holding Shift / Ctrl)</pre>    </div>
+    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-Inheritance">
+        <h2 class="heading "><span>Inheritance</span></h2>
+<p   
+>Most controls will look very similar (i.e. have similar properties), so, rather than defining each property again, each time another control is created, it is best to have the base properties defined <i class=" ">once</i>, and then refer to <i class=" ">them</i>, and only change those properties that are unique.</p>
+<p   
+>File with base class definition: baseClasses.cpp</p>
+<pre class=" ">//Standard static text.<br/>class RscText {<br/>  type = CT_STATIC;<br/>  style = ST_LEFT;<br/>  idc = -1;<br/>  colorText[] = {0, 0, 0, 1};<br/>  colorSelect[] = {0, 0, 0, 1};<br/>  colorBackground[] = {0, 0, 0, 0};<br/>  font = &quot;TahomaB&quot;;<br/>  sizeEx = 0.028;<br/>  text = &quot;&quot;;<br/>};</pre><p   
+>This file is then included ahead of the dialog definition, which can then inherit the defined base classes: description.ext</p>
+<pre class=" ">#include &quot;baseClasses.cpp&quot;<br/><br/>class Dlg {<br/>  idd = 20000;<br/>  movingEnable = 0;<br/><br/>  class Controls {<br/>    // we are using the &#39;RscText&#39; base class to create a new text control<br/>    class TXT1 : RscText {<br/>      style = ST_CENTER; <br/>      idc = 20000;<br/>      x = 0.4; y = 0.4; <br/>      w = 0.2; h = 0.05;<br/>      text = &quot;ONE&quot;;<br/>    };<br/>    // the 2nd text control inherits from the 1st, and only modifies some properties<br/>    class TXT2 : TXT1 { <br/>      idc = 20001;<br/>      y = 0.4; <br/>      text = &quot;TWO&quot;;<br/>    };<br/>  };<br/>};</pre>    </div>
+    <div class="section section-2" id="src-1509011_VBSDisplays-ControlTypeDetails">
+        <h2 class="heading "><span>Control Type Details</span></h2>
+<p   
+>Detailed descriptions for the different control types can be found in the dedicated control pages:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" "><a   href="Dialogs_ActiveText.html">Dialogs_ActiveText</a></strong>: Clickable text</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Button.html">Dialogs Button</a></strong>: Clickable buttons</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Checkboxes.html">Dialogs Checkboxes</a></strong>: Collection of clickable labels (multiple selections allowed)</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Group.html">Dialogs Group</a></strong>: Grouped controls</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_HTML.html">Dialogs HTML</a></strong>: Display of external HTML file</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Listbox.html">Dialogs Listbox</a></strong>: Listboxes and Comboboxes</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Map.html">Dialogs Map</a></strong>: Game map</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Object.html">Dialogs Object</a></strong>: 3D Objects</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_PlanView.html">Dialogs PlanView</a></strong>: Building or vehicle plans</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_ProgressBar.html">Dialogs ProgressBar</a></strong>: Progress bar</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Scrollbars.html">Dialogs_Scrollbars</a></strong>: Scrollbars (required for some control types)</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Slider.html">Dialogs Slider</a></strong>: Horizontal or vertical scales</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Statebox.html">Dialogs Statebox</a></strong>: Advanced checkboxes</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Static.html">Dialogs Static</a></strong>: Static text and images</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_StructuredText.html">Dialogs StructuredText</a></strong>: Formattable text and images</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_TextBox.html">Dialogs TextBox</a></strong>: Editable text</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Toolbox.html">Dialogs Toolbox</a></strong>: Collection of clickable labels (one selection at a time)</p>
+</li><li class=" "><p   
+><strong class=" "><a   href="Dialogs_Tree.html">Dialogs Tree</a></strong>: Hierarchical trees</p>
+</li></ul>    </div>
+    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-EventHandlers">
+        <h1 class="heading "><span>Event Handlers</span></h1>
+<p   
+>Dialog events (e.g. clicking the mouse, or pressing a key) can be captured via different event handlers.<br/>The complete list is described in <a   href="VBS_User_Interface_Event_Handlers.html">VBS User Interface Event Handlers</a>.</p>
+    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-Sounds">
+        <h1 class="heading "><span>Sounds</span></h1>
+<p   
+>Some controls or event can have sounds assigned to them (e.g. as in mission <a   href="attachments/1514452_2_Dialog_Sounds.zip">Dialog Sounds.zip</a>).<br/>In order for them to be heard, the volume for &quot;UI sounds&quot; in the &quot;Audio Options&quot; has to be set to an audible level.</p>
+    </div>
+    <div class="section section-1" id="src-1509011_VBSDisplays-DemoMissions">
+        <h1 class="heading "><span>Demo Missions</span></h1>
+<p   
+>Miscellaneous demo missions are available on the <a   href="#src-1509011_VBSDisplays-Dialogs">Dialogs</a>, as well as in the individual <a   href="#src-1509011_VBSDisplays-ControlTypeDetails">Control Type Details</a>.</p>
+<p   
+><br/></p>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="SafeZones.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>SafeZones</span>
+        </a>
+                <a href="VBS_Event_Handlers.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>VBS Event Handlers</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

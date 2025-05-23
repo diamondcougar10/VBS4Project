@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>PreProcessor Commands - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1508441"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                     <li><a href="Scripting_References.html">Scripting References</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1508441"> <span>PreProcessor Commands</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Introduction">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-PreprocessorCommands">Preprocessor Commands</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2RlZmluZQ">#define</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Definesinstrings">Defines in strings</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Nesteddefines">Nested defines</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Definedelimiters">Define delimiters</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Datatypes">Data types</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Code">Code</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-InScripts">In Scripts</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-InConfigs">In Configs</a></p>
+</li></ul></li></ul></li></ul></li><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI3VuZGVm">#undef</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2lmZGVm">#ifdef</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2lmbmRlZg">#ifndef</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2Vsc2U">#else</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2VuZGlm">#endif</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2luY2x1ZGU">#include</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-__LINE__">__LINE__</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-__FILE__">__FILE__</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-config">config</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-other">other</a></p>
+</li></ul></li></ul></li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-ConfigParserCommands">Config Parser Commands</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-UseofVariables">Use of Variables</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-__EXEC">__EXEC</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-__EVAL">__EVAL</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Comments">Comments</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Single-linecomment">Single-line comment</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Multi-linecomments">Multi-line comments</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Multi-linemacros">Multi-line macros</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-MacroExpansion">Macro Expansion</a></p>
+</li></ul></li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Fileformatting">File formatting</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Errors">Errors</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Example">Example</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Definitionofdialogcontrols">Definition of dialog controls</a></p>
+</li><li class=" "><p   
+><a   href="#src-1508441_PreProcessorCommands-Definitionofcustomsounds">Definition of custom sounds</a></p>
+</li></ul></li></ul>    <div class="section section-1" id="src-1508441_PreProcessorCommands-Introduction">
+        <h1 class="heading "><span>Introduction </span></h1>
+<p   
+>Before a file is processed by VBS, the engine looks for certain codes (the preprocessor and config parser commands), and executes them before anything else.<br/>This capability is mainly used include other files, and to define global macros.</p>
+<p   
+>Commands start either with a pound symbol (<strong class=" ">#</strong>) or with a double-underscore (<strong class=" ">__</strong>), and have NO semicolon at the end of the line.<br/>They can be indented, just like regular script commands.</p>
+<pre class=" ">#define SIZE 0<br/>#ifdef DEBUG<br/>  #define SIZE 5<br/>  #ifdef DEBUG1<br/>    #define SIZE 10<br/>  #endif<br/>#endif</pre><p   
+>When, and how often, these commands are executed depends on their application:</p>
+<ul class=" "><li class=" "><p   
+>Addons config files: Once, when VBS is started.</p>
+</li><li class=" "><p   
+>Missions (<tt class=" ">description.ext</tt>): Each time a mission is loaded or saved. (A restart of a mission does <i class=" ">not</i> cause the preprocessor to re-interpret the file!)</p>
+</li><li class=" "><p   
+>Addon or mission script files: Each time the script is executed.</p>
+</li></ul><p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-PreprocessorCommands">
+        <h1 class="heading "><span>Preprocessor Commands</span></h1>
+<p   
+>All of the commands listed below are case-sensitive.</p>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2RlZmluZQ">
+        <h2 class="heading "><span>#define</span></h2>
+<p   
+>Creates a named macro, which can be empty, or contain an assigned value.<br/>Once the file is loaded, all occurrences beneath the define that match the name, will be replaced with its assigned value.<br/>The defined name is case sensitive, alphanumeric, and must start with a letter or underscore.<br/>The value contained by the define is of no specific type.</p>
+<p   
+><strong class=" ">Syntax:</strong></p>
+<pre class=" ">#define NAME           // macro &#39;NAME&#39; is defined, but empty<br/>#define NAME1 value     // macro &#39;NAME1&#39; is defined, and contains &#39;value&#39;<br/>#define Name1 value1    // macro &#39;Name1&#39; (different from &#39;NAME1&#39;) is defined, and contains &#39;value1&#39;</pre><p   
+>All occasions where the macro is used are replaced by its assigned value:<br/>e.g. in a script:</p>
+<pre class=" ">#define GREETING &quot;Hello&quot;<br/>hint GREETING;                         // outputs &quot;Hello&quot;<br/>hint format[&quot;%1, Stranger&quot;,GREETING];  // outputs &quot;Hello, Stranger&quot;</pre><p   
+>or</p>
+<pre class=" ">#define MARGIN 100<br/>if ((player distance enemy) &lt; MARGIN) then {<br/>  hint format[&quot;Enemy closer than %m&quot;,MARGIN]<br/>};</pre><p   
+>Or in a config file:</p>
+<pre class=" ">#define __CURRENTDIR__ \myAddon\myTank<br/>...<br/>model = __CURRENTDIR__\data\Cartridge\cartridge;</pre><p   
+>The replacement <i class=" ">only</i> works forward (i.e. for anything that comes <i class=" ">after</i> the define):</p>
+<pre class=" ">#define WORD &quot;one&quot;  // initial definition of &#39;word&#39;<br/>systemChat WORD;    // outputs &quot;one&quot;<br/>#define WORD &quot;two&quot;  // new definition of &#39;word&#39;<br/>systemChat WORD;    // outputs &quot;two&quot;</pre><p   
+>The scope of a define is limited to the file it is created in, so in order to share a define among several files it is recommended to place them into a separate definition file, and <a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2luY2x1ZGU">#include</a> this wherever the defines are required.</p>
+<p   
+>Be aware that a define will replace every occurrence of the defined name in the whole file, including any script commands, config properties, variable names or constants.</p>
+<pre class=" ">systemChat &quot;hello1&quot;;     // outputs chat message &quot;hello1&quot;<br/>#define systemChat hint  // OVERWRITES the chat command with the hint command<br/>systemChat &quot;hello2&quot;;     // outputs &quot;hello2&quot; via a hint message (as &#39;systemChat&#39; is now &#39;hint&#39;)<br/>...<br/>#define tank tank33           // defines &#39;tank&#39; as &#39;tank33&#39;<br/>systemChat name driver tank;  // returns the driver name for &#39;tank33&#39;</pre>    <div class="section section-3" id="src-1508441_PreProcessorCommands-Definesinstrings">
+        <h3 class="heading "><span>Defines in strings</span></h3>
+<p   
+>Defines within strings are <i class=" ">only</i> processed if single quotes are used.<br/>Strings delimited by double quotes are not modified:</p>
+<pre class=" ">#define MY_NUM 2<br/>player sidechat &#39;The number is MY_NUM&#39;; // shows &quot;The number is 2&quot;<br/>// with double quotes the define will be output verbatim:<br/>player sidechat &quot;The number is MY_NUM&quot;; // shows &quot;The number is MY_NUM&quot;</pre><p   
+>Alternatively, the define can be used with a <a   href="format.html">format</a> command:</p>
+<pre class=" ">player sidechat format[&quot;The number you are thinking of is %1&quot;,MY_NUM];</pre>    </div>
+    <div class="section section-3" id="src-1508441_PreProcessorCommands-Nesteddefines">
+        <h3 class="heading "><span>Nested defines</span></h3>
+<p   
+>Defines can be nested, and all levels will be expanded.<br/>Line continuations defines though, cannot be used inside of another define, or passed as a parameter of a macro.</p>
+    </div>
+    <div class="section section-3" id="src-1508441_PreProcessorCommands-Definedelimiters">
+        <h3 class="heading "><span>Define delimiters</span></h3>
+<p   
+>The preprocessor finds the location of the defines in a file, by looking for certain delimiters (e.g. spaces, operators, punctuation marks, quotes, etc.).</p>
+<pre class=" ">#define two 2<br/>hint &#39;onetwothree&#39;;   // no delimiters at all around &#39;two&#39;, so the output is &quot;onetwothree&quot;<br/>hint &#39;one two three&#39;; // &#39;two&#39; has spaces on both sides, so it&#39;s recognized, and the output will be &quot;one 2 three&quot;<br/>hint &#39;one two three&#39;; // all of the following delimiters are recognized, and &#39;two&#39; will be replaced by &#39;2&#39;<br/>hint &#39;one-two+three&#39;; <br/>hint &#39;one\two/three&#39;; <br/>hint &#39;one:two;three&#39;; </pre><p   
+>Underscores are <i class=" ">not</i> recognized as a delimiter, so the following would not be modified:</p>
+<pre class=" ">hint &#39;one_two_three&#39;; // outputs &quot;one_two_three&quot;</pre><p   
+>In strings, this limitation can easily be circumvented, by breaking up the string:</p>
+<pre class=" ">hint (&#39;one&#39;+&#39;two&#39;+&#39;three&#39;);   // outputs &quot;one2three&quot;</pre><p   
+>In other cases though, where it is not possible to break up the surrounding parts, explicit delimiters can be used. They consist of double pound signs (##), and should be placed at the locations needed:</p>
+<pre class=" ">#define IDX 2<br/>class Button_IDX {...   // &#39;idx&#39; is not recognized as a define (underscore not a delimiter), and wouldn&#39;t be replaced<br/>...<br/>class Button_##IDX {... // with ## placed at the start of the define, &#39;idx&#39; will now be replaced with a &#39;2&#39; <br/>                           (no ## is needed after the &#39;idx&#39;, since there&#39;s already a space delimiter there)<br/>...<br/>class Button_##IDX##_top {...  // this situation would require two explicit delimiters (no space at end)</pre><p   
+>This method can also be used in nested defines:</p>
+<pre class=" ">#define TWO 2<br/>#define twenty ##TWO##0<br/>hint str twenty; // outputs &quot;20&quot;</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-3" id="src-1508441_PreProcessorCommands-Datatypes">
+        <h3 class="heading "><span>Data types</span></h3>
+<p   
+>The data contained in a define is plain text (NOT a string!), and does not have any defined type.<br/>While the examples below seem to be of an obvious type, that interpretation actually only happens once it is substituted and used in a specific environment (as in this case, the <a   href="format.html">format</a> and <a   href="typeName.html">typeName</a> commands):</p>
+<pre class=" ">#define A &quot;aaa&quot;<br/>#define B 100<br/>#define C [1]<br/>#define D true<br/>#define E {!alive _x}count (units group player)==0<br/><br/>systemChat format[&quot;%1, %2, %3, %4&quot;,typeName A,typeName B,typeName C,typeName D,typeName #];<br/>// returns &quot;STRING, SCALAR, ARRAY, BOOL, CODE&quot;</pre><p   
+>But a define can also hold values that are not of any obvious data type:</p>
+<pre class=" ">#define two deux<br/>#define COMPARISON (a&gt;b)<br/>#define OPERATOR *</pre><p   
+>These types of values only make sense once they have been applied to a specific command of config:</p>
+<pre class=" ">#define two deux<br/>hint &#39;one two three&#39;; // would output: one deux three<br/>// This is different from &lt;tt&gt;#define two &quot;deux&quot;&lt;/tt&gt;, <br/>// as that would include the quotation marks in the replacement:<br/>#define two &quot;deux&quot;<br/>hint &#39;one two three&#39;; // would output: one &quot;deux&quot; three<br/><br/>// defines can contain script commands, operators or a combination of them:<br/>#define OPERATOR *<br/>#define COMPARISON ((3 OPERATOR 2)&gt;5)<br/>systemChat (if COMPARISON then {&quot;bigger&quot;} else {&quot;smaller&quot;});  // outputs &quot;bigger&quot; (as (3*2)&gt;5 is true)<br/><br/>#define OPERATOR -<br/>systemChat (if COMPARISON then {&quot;bigger&quot;} else {&quot;smaller&quot;});  // outputs &quot;smaller&quot; (as (3-2)&gt;5 is false)</pre>    <div class="section section-4" id="src-1508441_PreProcessorCommands-Code">
+        <h4 class="heading "><span>Code</span></h4>
+<p   
+>If the defined value contains script commands, then the differences between how code can be used in a script file vs. a config has to be considered.</p>
+    <div class="section section-5" id="src-1508441_PreProcessorCommands-InScripts">
+        <h5 class="heading "><span>In Scripts</span></h5>
+<p   
+>A define can contain any kinds of commands whose result can be used directly in other script constructs.<br/>Both of the methods shown below will output &quot;2 is BIGGER THAN 1&quot;</p>
+<pre class=" ">#define BIGGER1 (2&gt;1)<br/>#define BIGGER2 (format[&quot;2 is %1 than 1&quot;,if (2&gt;1) then {&quot;BIGGER&quot;} else {&quot;SMALLER&quot;}])<br/><br/>systemChat format[&quot;2 is %1 than 1&quot;,if BIGGER1 then {&quot;BIGGER&quot;} else {&quot;SMALLER&quot;}];<br/>systemChat BIGGER2;</pre>    </div>
+    <div class="section section-5" id="src-1508441_PreProcessorCommands-InConfigs">
+        <h5 class="heading "><span>In Configs</span></h5>
+<p   
+>While in a script, commands can be executed right in the define statement, in config files this has to be done via <a   href="#src-1508441_PreProcessorCommands-__EVAL">__EVAL</a> or <a   href="#src-1508441_PreProcessorCommands-__EXEC">__EXEC</a>.<br/>Also, be aware that mission objects, global variables or status returns may not be defined yet, when the preprocessor evaluates these defines.</p>
+<pre class=" ">#define BIGGER1 (2&gt;1)<br/>#define BIGGER2 __EVAL(format[&quot;2 is %1 than 1&quot;,if (2&gt;1) then {&quot;BIGGER1&quot;} else {&quot;SMALLER1&quot;}])<br/>text1 = __EVAL(format[&quot;2 is %1 than 1&quot;,if BIGGER1 then {&quot;BIGGER&quot;} else {&quot;SMALLER&quot;}]); <br/>text2 = BIGGER2;</pre><p   
+><br/></p>
+    </div>
+    </div>
+    </div>
+    </div>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI3VuZGVm">
+        <h2 class="heading "><span>#undef</span></h2>
+<p   
+>Undefines (deletes) a macro previously created by #define.<br/>If the define is subsequently checked with <a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2lmZGVm">#ifdef</a>, the condition will not be fulfilled. (The <a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2lmbmRlZg">#ifndef</a> condition will be fulfilled.)<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">#undef NAME</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2lmZGVm">
+        <h2 class="heading "><span>#ifdef</span></h2>
+<p   
+>Executes enclosed code only if the define exists.<br/>The define does not have to have a value assigned, in order to fulfill this test. ifdefs can be nested. <strong class=" ">Syntax:</strong></p>
+<pre class=" ">#ifdef NAME<br/>  conditional segment<br/>#endif</pre><p   
+>e.g.</p>
+<pre class=" ">#define DEBUG<br/>_dist = player distance enemy;<br/>#ifdef DEBUG<br/>  hint str _dist;<br/>#endif<br/>if (_dist&lt;100) then {...</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2lmbmRlZg">
+        <h2 class="heading "><span>#ifndef</span></h2>
+<p   
+>Executes enclosed code only if the define does NOT exist (either never defined in the first place, or deleted via <a   href="#src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI3VuZGVm">#undef</a>.<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">#ifndef NAME<br/>  conditional segment<br/>#endif</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2Vsc2U">
+        <h2 class="heading "><span>#else</span></h2>
+<p   
+>Executes an alternative segment, in case the #ifdef condition failed.<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">#ifdef NAME<br/>  conditional segment (used if NAME IS defined)<br/>#else<br/>  conditional segment (used if NAME IS NOT defined)<br/>#endif</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2VuZGlm">
+        <h2 class="heading "><span>#endif</span></h2>
+<p   
+>This ends a conditional block as shown in the descriptions of #ifdef and #ifndef above.</p>
+<p   
+><br/></p>
+    </div>
+    <div class="section section-2" id="src-1508441_safe-id-UHJlUHJvY2Vzc29yQ29tbWFuZHMtI2luY2x1ZGU">
+        <h2 class="heading "><span>#include</span></h2>
+<p   
+>Reads the content of the referenced file, and inserts it into the position of the #include statement.<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">#include &quot;PathAndFileName&quot;  // either double quotes or <br/>#include &lt;PathAndFileName&gt;  // greater/smaller brackets can be used to delimit the path definition</pre><p   
+>The purpose of an include statement is to share common definitions among several files (e.g. constants or functions).<br/>e.g. If there is one file that contains all the IDD &amp; IDC definitions for a dialog, then it is easier (and less error-prone) to change <i class=" ">only</i> that definition file in case something needs to be re-arranged, rather than every occurrence in every dialog control: dialog_defines.hpp contains:</p>
+<pre class=" ">#define DLG_IDD 20000<br/>#define TEXT1_IDC 20001<br/>...<br/>#define TRUE 1<br/>#define FALSE 0</pre><p   
+>A dialog config (e.g. in description.ext) would then include this file, and use those #defines:</p>
+<pre class=" "> #include &quot;dialog_defines.hpp&quot;<br/> class MyDialog {<br/>   idd = DLG_IDD;       // DLG_IDD defined in include<br/>   movingEnable = TRUE; // TRUE defined in include<br/>   class Controls {<br/>     idc = TEXT1_IDC;   // TEXT1_IDC defined in include<br/>     shadow = TRUE;     // TRUE defined in include<br/>     ...</pre><p   
+>The included file is first merged into the location of the #include statement, after which the combined file is being processed.<br/>Multiple includes can be used, and they can be nested (i.e. an included files can include other files).<br/>Included files (just like regular scripts) are interpreted sequentially, i.e. any macro that is used in the included file must be defined before the include statement, e.g.</p>
+<pre class=" ">#define DEBUG_OUTPUT<br/>#include &quot;functions.hpp&quot; // functions.hpp can use the define DEBUG_OUTPUT</pre><p   
+>The file path is relative to the file the #include statement is executed from (i.e. the mission folder for <tt class=" ">description.ext</tt>, and the addon folder for addons).<br/>If the path starts with a backslash, then the file is read from either the standard VBS or custom addons. No absolute paths can be used. The extension is not relevant.</p>
+<pre class=" ">// If called from mission&#39;s init.sqf:<br/>// uses the file incl.hpp from the missions&#39;s sub-folder \data<br/>#include &quot;data\incl.hpp&quot; <br/><br/>// If called from *anywhere*:<br/>// reads the file from the \vbs2\headers folder, which is part of the default VBS addons <br/>// (it contains a list of DIK codes, e.g. #define DIK_TAB 0x0F)<br/>#include &quot;\vbs2\headers\dikCodes.hpp&quot;  <br/>systemChat str DIK_TAB                 // outputs 15 (0x0F is hex for 15)</pre><p   
+>It is not possible to use a #define in an #include statement:</p>
+<pre class=" ">#define path &quot;incl.hpp&quot;<br/>#include path  // ILLEGAL!</pre>    </div>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-__LINE__">
+        <h2 class="heading "><span>__LINE__</span></h2>
+<p   
+>This keyword gets replaced with the line number in the file where it is found. For example, if __LINE__ is found on the 10th line of a file, the word __LINE__ will be replaced with the number 10.</p>
+    </div>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-__FILE__">
+        <h2 class="heading "><span>__FILE__</span></h2>
+<p   
+>This keyword gets replaced with the path to the currently processed file.</p>
+    <div class="section section-3" id="src-1508441_PreProcessorCommands-config">
+        <h3 class="heading "><span>config</span></h3>
+<p   
+>For a config.cpp (when converted to a bin) the created string depends on the context of when it&#39;s encountered. Either:</p>
+<ul class=" "><li class=" "><p   
+>the command line parameter, OR</p>
+</li><li class=" "><p   
+>the current include statement</p>
+</li></ul><p   
+>Example:</p>
+<pre class=" ">			<br/>_file=__FILE__;<br/>_file=&quot;P:\CWR2\Cars\cwr2_brdm\config.cpp&quot;; // from command line<br/>_file=&quot;this\included\folder\anything.hpp&quot;; // via an include</pre><p   
+>Note that you cannot rely on a fully qualified filename via the command line.</p>
+    </div>
+    <div class="section section-3" id="src-1508441_PreProcessorCommands-other">
+        <h3 class="heading "><span>other</span></h3>
+<p   
+>For scripts packed into an addon, a relative path is created (relative to the program&#39;s exe file). For scripts in a mission folder, a direct path is created (drive letter and full path).</p>
+<p   
+>Example:</p>
+<pre class=" ">//recurse.sqf<br/>_i = _this select 0;<br/>if (_i &lt; 100) then {[_i + 1] execVM __FILE__};</pre><p   
+><br/></p>
+    </div>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-ConfigParserCommands">
+        <h1 class="heading "><span>Config Parser Commands</span></h1>
+<p   
+>While the functionality and syntax of config parser commands is similar to that of preprocessor ones (and are normally used in connection with each other), the following two config parser commands can only be used in config files, but <strong class=" ">not</strong> in scripts!</p>
+<p   
+>A config file can contain multiple occurrences of these commands, and they will be interpreted sequentially. They are executed <i class=" ">before</i> the preprocessor commands are interpreted.</p>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-UseofVariables">
+        <h2 class="heading "><span>Use of Variables</span></h2>
+<p   
+>The variables used in config parser commands exist in their own <a   href="Namespace.html">Namespace</a> (the <a   href="parsingNamespace.html">parsingNamespace</a>), and therefore do not overlap the <a   href="missionNamespace.html">missionNamespace</a>.<br/>This means that any global variables defined in mission scripts are <i class=" ">not</i> available within the parser, and that the parser can use the same variable names as some script, without affecting those script variables.</p>
+<p   
+>A variable used in this <a   href="parsingNamespace.html">parsingNamespace</a> can be evaluated from a script via the <a   href="getVariable.html">getVariable</a> command: parsingNamespace getVariable &quot;someVar&quot;.<br/>Due to the fact that config files are interpreted when an addon or mission is first loaded (i.e. <i class=" ">before</i> any scripts are executed), it is not possible to <i class=" ">modify</i> these variables via the <a   href="setVariable.html">setVariable</a> command.</p>
+    </div>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-__EXEC">
+        <h2 class="heading "><span>__EXEC</span></h2>
+<p   
+>Executes a script command (or several, if separated by semicolons). Typically used to assign variables in config files, which are then utilized in other calculations, or interpreted via the __EVAL command.<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">__EXEC(expression)</pre><pre class=" "> __EXEC (_y = .345);    // assign an initial value to variable _y<br/><br/> class Ctrl1 {<br/>   y = __EVAL(_y)       // use this variable in a config property (via __EVAL)<br/>   ...<br/> };<br/> __EXEC (_y = _y + .1)  // increment _y<br/><br/> class Ctrl2 {<br/>   y = __EVAL(_y)       // and use it again<br/>   ...<br/> };</pre><p   
+><strong class=" ">__EXEC terminates at the first closed parenthesis &quot;</strong>)<strong class=" ">&quot; it encounters, so expressions like the following will cause an error:</strong></p>
+<pre class=" ">__EXEC (_val = (_arr select 0)*10);           // ILLEGAL!<br/>__EXEC (_str = (_this select 0) setDamage 1); // ILLEGAL!</pre>    </div>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-__EVAL">
+        <h2 class="heading "><span>__EVAL</span></h2>
+<p   
+>Executes one script command, a variable defined by __EXEC, or a combination of those, and returns the result.<br/>Typically, this result is used in a config property. <strong class=" ">Syntax:</strong></p>
+<pre class=" ">__EVAL(expression)</pre><pre class=" "> __EXEC (_y = .1; _str1 = &#39;hello &#39;; _str2 = &#39;world&#39;)<br/> y = __EVAL (_y);<br/> text = __EVAL (_str1 + _str2);</pre><p   
+>Unlike the __EXEC command, __EVAL <i class=" ">can</i> contain other parentheses, making more complex, and even conditional operations possible:</p>
+<pre class=" ">x = __EVAL (if (_idx&gt;5) then {0} else {.5});</pre><p   
+>__EVAL will not allow semi-colons to be used in expressions, so the following will generate an error:</p>
+<pre class=" ">condition = __EVAL (_result=time&gt;5; _result);</pre><p   
+>If you need to make use of a #defined value in your __EXEC or __EVAL string and you need to convert it to string using &#39;str&#39;, remember not to add extra brackets like this:</p>
+<pre class=" ">onSliderPosChanged = __EVAL(&quot;[&quot; + str (MY_NUMERIC_DEFINE) + &quot;] call compile preProcessFile &#39;my.sqf&#39;&quot;);</pre><p   
+>The above will fail when parsing the __EVAL, the correct line would be:</p>
+<pre class=" ">onSliderPosChanged = __EVAL(&quot;[&quot; + str MY_NUMERIC_DEFINE + &quot;] call compile preProcessFile &#39;my.sqf&#39;&quot;);</pre><p   
+>Be aware that, when using these evaluations in a mission&#39;s description.ext, that at that point the mission information is not available yet (i.e. the mission objects have not been created yet).</p>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-Comments">
+        <h1 class="heading "><span>Comments</span></h1>
+<p   
+>Two types of comments can be used in connection with preprocessor commands:</p>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-Single-linecomment">
+        <h2 class="heading "><span>Single-line comment</span></h2>
+<p   
+>Comment starts with two forward slashes (//), and ends at the next line break.<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">// line consists only of a comment<br/>#define TRUE 1 // only this part of the line is commented out</pre><p   
+><br/>Be aware that the preprocessor will interpret the double-slashes even in strings, making constructs like the following impossible:</p>
+<pre class=" ">#define URL &quot;http://www.vbs2.com&quot;  // &lt;== THIS WILL NOT WORK</pre><p   
+>To circumvent this issue, either define the slashes separately:</p>
+<pre class=" ">#define SLASH &quot;/&quot;<br/>#define URL __EVAL(&quot;http:&quot; + SLASH + SLASH + &quot;www.vbs2.com&quot;)</pre><p   
+>or exclude the protocol part from the define (the &quot;http://&quot;), and merge it later, as a regular string:</p>
+<pre class=" ">#define URL &quot;www.vbs2.com&quot;<br/>openURL (&quot;http://&quot; + URL)</pre>    </div>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-Multi-linecomments">
+        <h2 class="heading "><span>Multi-line comments</span></h2>
+<p   
+>Comment starts with the characters /* and ends with the characters */<br/><strong class=" ">Syntax:</strong></p>
+<pre class=" ">/* This<br/>is a multi-line<br/>comment */</pre><p   
+>Both comment types can start anywhere in a line (they don&#39;t have to be at the beginning of a line).<br/>Special rules apply to comments in multi-line macros. See the section below for details.</p>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-Multi-linemacros">
+        <h1 class="heading "><span>Multi-line macros</span></h1>
+<p   
+>Macros that are longer than one line need the line-continuation symbol (&quot;\&quot;) at the end of each line.<br/>The continuation symbol <strong class=" ">must</strong> be the last symbol in the line; <strong class=" ">nothing</strong> is allowed to follow after it - no comments, and not even spaces!</p>
+<pre class=" ">#define ICONS(icn) icon=\SomeAddon\icons\##icn;  \ // this comment would cause an error during preprocessing!<br/>                   model=\SomeAddon\##icn.p3d;   </pre><p   
+>To insert comments they have to take up their own line, and use the multi-line comment syntax, i.e. the following would work (it still needs the continuation symbol at then end):</p>
+<pre class=" ">#define ICONS(icn) icon=\SomeAddon\icons\##icn;  \<br/>                   /* this comment is legal */ \   <br/>                   model=\SomeAddon\##icn.p3d;   </pre><p   
+><br/></p>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-MacroExpansion">
+        <h2 class="heading "><span>Macro Expansion</span></h2>
+<p   
+>Defines can include tokens, which are substituted when expanded, as in the following example:</p>
+<pre class=" ">#define ADD(x,y) (x + y)                                // the define expects to be called with two tokens<br/>hint str ADD(5,3);                                      // outputs &quot;8&quot;</pre><pre class=" ">#define SHOW(x,y) player sidechat format[&quot;%2, %1&quot;,x,y]  // the define expects two tokens, that are used in a command<br/>SHOW(1,2);                                              // outputs &quot;2, 1&quot;<br/>SHOW(&quot;World&quot;,&quot;Hello&quot;);                                  // outputs &quot;Hello, World&quot;</pre><pre class=" ">#define ISALIVE(_x_) alive _x_                          // the one passed token is used the &#39;alive&#39; command<br/>#define PRINT(_y_) player sideChat _y_                  // another define uses a token with &#39;sideChat&#39;<br/>if (ISALIVE(soldier1)) then {PRINT(&quot;still alive&quot;)};     // if &#39;soldier1&#39; is alive, outputs &quot;still alive&quot;</pre><p   
+>The purpose of expanded macros is to make a config file easier to read, faster to enter, and to reduce the chance of typos.<br/>In the example at the bottom of this page we define eight buttons and eight custom sounds with the help of two macros:</p>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-Fileformatting">
+        <h1 class="heading "><span>File formatting</span></h1>
+<p   
+>Files should be encoded in ANSI.</p>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-Errors">
+        <h1 class="heading "><span>Errors</span></h1>
+<p   
+>If a file is failing to be preprocessed and is giving an error, but the contents of the file works elsewhere, or it seems like the file is not being read, then the file could be encoded incorrectly. To fix the encoding selecting the whole file content, then activate &quot;Encoding | Encode in ANSI&quot; (in <i class=" ">Notepad++</i> - naming might be slightly different in other editors).</p>
+<p   
+>If the preprocessor runs in to an error, and shows an error number, use the table below to pinpoint the cause:</p>
+<ul class=" "><li class=" "><p   
+><strong class=" ">Error 0:</strong> Incorrect condition. Missing #endif after condition statement.</p>
+</li></ul><pre class=" ">#ifdef something </pre><ul class=" "><li class=" "><p   
+><strong class=" ">Error 2</strong>: Incorrect include. (If a file could not be found, then this will be stated in clear text.)</p>
+</li></ul><pre class=" ">#include 999</pre><ul class=" "><li class=" "><p   
+><strong class=" ">Error 4</strong>: Incorrect macro arguments. Token name doesn&#39;t start with a letter, or closing parenthesis missing.</p>
+</li></ul><pre class=" ">#define func(100)<br/>#define func(arg</pre><ul class=" "><li class=" "><p   
+><strong class=" ">Error 6</strong>: Incorrect condition. Preceding #ifdef missing when interpreting #else or #endif.</p>
+</li></ul><pre class=" ">#define something<br/>#endif </pre><ul class=" "><li class=" "><p   
+><strong class=" ">Error 7</strong>: Unknown command.</p>
+</li></ul><pre class=" ">#whatsthis</pre><ul class=" "><li class=" "><p   
+><strong class=" ">Error 11</strong>: Incorrect argument in conditional command. Argument is missing or doesn&#39;t start with a letter.</p>
+</li></ul><pre class=" ">#ifdef <br/>#ifdef 100</pre><p   
+><br/></p>
+    </div>
+    <div class="section section-1" id="src-1508441_PreProcessorCommands-Example">
+        <h1 class="heading "><span>Example</span></h1>
+<p   
+>Two macros are used to create 8 dialog buttons and 8 custom sounds.<br/>When clicking any of these buttons, the associated custom sound is played.</p>
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Preprocessor-version-2-modificationdate-1505466914494-api-v2.jpg" alt="images/download/attachments/1507348/Preprocessor-version-2-modificationdate-1505466914494-api-v2.jpg"   />
+    </p>
+<p   
+>The full example, integrated in a mission, contains more extensive comments, and can be downloaded from <a   href="attachments/1514742_2_Preprocessor.zip">Preprocessor.zip</a>.</p>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-Definitionofdialogcontrols">
+        <h2 class="heading "><span>Definition of dialog controls</span></h2>
+<p   
+><strong class=" ">The comment syntax used here (&quot;//&quot; after &quot;\&quot;) <a   href="#src-1508441_PreProcessorCommands-Multi-linemacros">Multi-line macros</a> be used in a real config file!</strong> We just use this arrangement for ease of overview in the wiki article.</p>
+<pre class=" ">#include &quot;description_dialogs.hpp&quot;         // general dialog classes are defined in this include<br/><br/>__EXEC(startRow = .2; startCol = .05)      // 2 variables used in the macro to calculate the control position<br/><br/>// four tokens are passed to the macro, which are used to define the position, label, tooltip and action.<br/>#define MAKE_BUTTON(row,col,gender,word) \<br/>  class TEXT##row##col : RscButton { \     // the &#39;row&#39; and &#39;col&#39; tokens are used to create unique class names<br/>  idc = __EVAL(20000+row##col); \          // &#39;row&#39; and &#39;col&#39; values are used to generate unique IDC numbers,<br/>  x = __EVAL(startCol+col*.16); \          // as well as x and y positions for the controls<br/>  y = __EVAL(startRow+row*.1); \<br/>  w = .15; \<br/>  h = .05; \<br/>  text = gender: word; \                   // &#39;word&#39; and &#39;gender&#39; will be replaced in the actual button caption<br/>  tooltip = Click to play &#39;word&#39; sound, spoken by a gender.; \           // same for the tooltip and the action<br/>  action = playSound &#39;Sound_##gender##_##word##&#39;; \          // We need delimiters here, due to the underscores<br/>};<br/><br/>// create a dialog with 8 buttons, using the macro above<br/>class DlgInput {<br/>  idd = 20000;<br/>  class controls {<br/>    MAKE_BUTTON(1,1,Man,one);     // macro is called with unique arguments for each control that&#39;s created<br/>    MAKE_BUTTON(1,2,Man,two);<br/>    MAKE_BUTTON(1,3,Man,three);<br/>    MAKE_BUTTON(1,4,Man,four);<br/>    MAKE_BUTTON(2,1,Woman,one);<br/>    MAKE_BUTTON(2,2,Woman,two);<br/>    MAKE_BUTTON(2,3,Woman,three);<br/>    MAKE_BUTTON(2,4,Woman,four);<br/><br/>    /* Once everything has been substituted, the first button define will look (internally) like this:<br/>    class TEXT11 : RscButton {<br/>      idc = 20011;<br/>      x = 0.21;<br/>      y = 0.3;<br/>      w = 0.15;<br/>      h = 0.05;<br/>      text = &quot;Man: one&quot;;<br/>      tooltip = &quot;Click to play &#39;one&#39; sound, spoken by a Man.&quot;;<br/>      action = &quot;playSound &#39;Sound_Man_one&#39;&quot;;<br/>    };<br/>    */<br/>  };<br/>};</pre>    </div>
+    <div class="section section-2" id="src-1508441_PreProcessorCommands-Definitionofcustomsounds">
+        <h2 class="heading "><span>Definition of custom sounds</span></h2>
+<pre class=" ">//The passed tokens are used to define the sounds&#39; class and sound name, as well as its path and subtitle:<br/>#define MAKE_SOUND(type,word) \<br/>  class Sound_##type##_##word {  \<br/>    name = &quot;&quot;;  \<br/>    sound[] = {\sounds\type\word.ogg, 5, 1}; \<br/>    titles[] = {0, type says &#39;word&#39;}; \<br/>  };<br/><br/>// CfgSounds is expanded with  8 custom sounds, defined via the macro above<br/>class CfgSounds {<br/>  MAKE_SOUND(Man,one);<br/>  MAKE_SOUND(Man,two);<br/>  MAKE_SOUND(Man,three);<br/>  MAKE_SOUND(Man,four);<br/>  MAKE_SOUND(Woman,one);<br/>  MAKE_SOUND(Woman,two);<br/>  MAKE_SOUND(Woman,three);<br/>  MAKE_SOUND(Woman,four);<br/>};</pre>    </div>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="ParticleTemplates.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>ParticleTemplates</span>
+        </a>
+                <a href="Script.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Script</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

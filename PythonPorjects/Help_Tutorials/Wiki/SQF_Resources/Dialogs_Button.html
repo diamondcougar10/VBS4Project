@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Dialogs Button - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1508569"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Scripting_References.html">Scripting References</a></li>
+                                                                                     <li><a href="VBS_Dialogs.html">VBS Dialogs</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1508569"> <span>Dialogs Button</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p   
+><img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Dialog_Button_Header-version-2-modificationdate-1505466828867-api-v2.gif" alt="images/download/attachments/1507348/Dialog_Button_Header-version-2-modificationdate-1505466828867-api-v2.gif"   />
+    </p>
+    <div class="section section-1" id="src-1508569_DialogsButton-Introduction">
+        <h1 class="heading "><span>Introduction</span></h1>
+<p   
+>Button controls display a line of text over a rectangular background, which can have an optional drop shadow.<br/>When the control is clicked, the text &amp; background are moved a bit, to simulate a depressed button, and one or more script commands can be executed.</p>
+<p   
+><strong class=" ">Related commands:</strong> <a   href="Interactions_-_User_Dialogs_-_Buttons.html">Interactions - User Dialogs - Buttons</a></p>
+    </div>
+    <div class="section section-1" id="src-1508569_DialogsButton-Properties">
+        <h1 class="heading "><span>Properties</span></h1>
+<p   
+><i class=" ">Only properties unique to this control type are listed. For general properties, see the <a   href="VBS_Displays.html#src-1509011_VBSDisplays-Properties">Properties</a> page.<br/>If a property doesn&#39;t have a default value, then it must be defined explicitly.</i></p>
+    <div class="section section-2" id="src-1508569_DialogsButton-Sounds">
+        <h2 class="heading "><span>Sounds</span></h2>
+<p   
+>Different sounds can be assigned to specific button states, via the properties &#39;soundClick&#39;, &#39;soundEnter&#39;, etc.<br/>These definition though, can <i class=" ">only</i> use sound files that reside in an addon. Sound files from a mission <i class=" ">cannot</i> be used this way! In order to use sounds from mission folders, use <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a> instead. (see demo mission <a   href="attachments/1514452_2_Dialog_Sounds.zip">Dialog Sounds.zip</a> for examples)</p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+                    <colgroup>
+                                    <col />
+                                    <col />
+                                    <col />
+                                    <col />
+                                    <col />
+                            </colgroup>
+        <thead class=" ">    <tr>
+            <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Name</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Type</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Default</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Remark</p>
+            </td>
+                <td  class="confluenceTh" rowspan="1" colspan="1">
+    <p   
+>Script</p>
+            </td>
+        </tr>
+</thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">type</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Control type: 1 (or CT_BUTTON, if using constants)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">style</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Integer">Integer</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Display options:</p>
+<ul class=" "><li class=" "><p   
+>0 (ST_LEFT) : Text is left-aligned.</p>
+</li><li class=" "><p   
+>1 (ST_RIGHT) : Text is right-aligned.</p>
+</li><li class=" "><p   
+>2 (ST_CENTER) : Text is centered.</p>
+</li><li class=" "><p   
+>48 (ST_PICTURE): &#39;text&#39; property points to an image.</p>
+</li></ul>            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">action</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Script command(s) to execute when button is pressed.<br/>Must use double quotes; single quotes or curly brackets will <i class=" ">not</i> work.<br/>Since V3.6 the array <strong class=" ">_this</strong> is also available; its first (and only) element contains the current control (i.e. the button).</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="buttonSetAction.html">buttonSetAction</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">borderSize</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>If &gt; 0 then a background (in the color defined in &#39;colorBorder&#39;) is drawn behind the button. It extends to the left by the distance defined here, its height is slightly less than that of the button, and it is vertically centered. The width extends to the right, to where the drop shadow starts. Stays static when button is pressed.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorBackground</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Button&#39;s background color if not &quot;active&quot; (i.e. the mouse isn&#39;t hovering over it).<br/><a   href="ctrlSetBackgroundColor.html">ctrlSetBackgroundColor</a> has no effect.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorBackgroundActive</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Background color if &quot;active&quot; (i.e. mouse pointer is over it).<br/><a   href="ctrlSetActiveColor.html">ctrlSetActiveColor</a> has no effect.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorBackgroundDisabled</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Background color if control is disabled.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorBorder</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><br/></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorDisabled</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Text color if control is disabled (via <a   href="ctrlEnable.html">ctrlEnable</a>)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorFocused</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Alternating background color. While the control has focus (but <i class=" ">without</i> the mouse pointer being over it) the background will cycle between &#39;colorFocused&#39; and &#39;colorFocused2&#39;. If both are the same, then the color will be steady.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorFocused2</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>&#39;colorBackground&#39;</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Alternating background color when control has focus.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorShadow</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Color of drop shadow behind button (not visible if button disabled)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">colorText</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Color.html">Color</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Color of text.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetTextColor.html">ctrlSetTextColor</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">default</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Boolean.html">Boolean</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>0</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Whether the button will have focus upon loading the dialog.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetFocus.html">ctrlSetFocus</a></p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">offsetPressedX<br/>offsetPressedY</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>The button&#39;s text &amp; background will move by this distance when pressed. (If a shadow is defined, it will stay in place.)</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">offsetX<br/>offsetY</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Number.html#src-1508426_Number-Float">Float</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Horizontal and vertical offset of drop shadow. if 0, then shadow will be placed directly behind button</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">soundClick</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Array_Sound.html">Array Sound</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>{}</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Sound to play when button is released after a click.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">soundEnter</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Array_Sound.html">Array Sound</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>{}</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Sound to play when the mouse cursor is moved over the button.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">soundEscape</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Array_Sound.html">Array Sound</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>{}</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Sound to play when the button was clicked via the mouse, and then released <i class=" ">outside</i> the button area.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">soundPush</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="Array_Sound.html">Array Sound</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>{}</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Sound to play when button is clicked.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>-</p>
+            </td>
+        </tr>
+    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><strong class=" ">text</strong></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="String.html">String</a></p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>&quot;&quot;</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+>Text to display. Will be vertically centered.<br/>If the text is too long, it will be cut off - Button controls do not support multi-line text, neither via style options nor line breaks.</p>
+            </td>
+                <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><a   href="ctrlSetText.html">ctrlSetText</a></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+    </div>
+    </div>
+    <div class="section section-1" id="src-1508569_DialogsButton-EventHandlers">
+        <h1 class="heading "><span>Event Handlers</span></h1>
+<p   
+>Several event handlers can be assigned to buttons. Check <a   href="VBS_User_Interface_Event_Handlers.html#src-1509050_VBSUserInterfaceEventHandlers-ReferenceList">Reference List</a> for details (if the column &quot;scope&quot; contains a &quot;B&quot;, then that respective event can be used with buttons).</p>
+    </div>
+    <div class="section section-1" id="src-1508569_DialogsButton-Examples">
+        <h1 class="heading "><span>Examples</span></h1>
+<p   
+>The mission <a   href="attachments/1514531_2_Dialog_Button.zip">Dialog Button.zip</a> contains a demonstration of all of the styles shown below.</p>
+    <div class="section section-2" id="src-1508569_DialogsButton-Buttonwithtextcaption">
+        <h2 class="heading "><span>Button with text caption</span></h2>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Dialog_Button-version-1-modificationdate-1505466828526-api-v2.gif" alt="images/download/attachments/1507348/Dialog_Button-version-1-modificationdate-1505466828526-api-v2.gif"   />
+    <p   
+><tt class=" ">class Dlg { idd = -1; movingEnable = true; class controls { class BUTTON { type = 1; // CT_BUTTON style = 2; // ST_CENTER idc = -1; x = .4; y = .1; w = .2; h = .1; text = &quot;Button&quot;; font = &quot;TahomaB&quot;; sizeEx = .05; colorText[] = {1,0,0,1}; // colors of text and background colorBackground[] = {0,0,1,.8}; // red text on blue background colorFocused[] = {0,0,1,.5}; // background&#39;s opacity changes when having focus colorBackgroundActive[] = {0,1,0,.5}; // background turns green on mouseOver colorDisabled[] = {.3,.3,.3,1}; // colors if disabled colorBackgroundDisabled[] = {.1,.1,.1,1}; colorShadow[] = {0,0,0,.3}; // color and offset of drop shadow offsetX = .01; offsetY = .01; offsetPressedX = .01; // offset when pressed offsetPressedY = .01; borderSize = 0; // no left-hand border colorBorder[] = {}; soundEnter[] = {}; // no sounds soundPush[] = {}; soundClick[] = {}; soundEscape[] = {}; action = &quot;player sidechat &#39;button pressed&#39;&quot;; // action when pressed toolTip = &quot;click me&quot;; // tooltip }; }; };</tt></p>
+    </div>
+    <div class="section section-2" id="src-1508569_DialogsButton-Buttonwithtoggledstate">
+        <h2 class="heading "><span>Button with toggled state</span></h2>
+<p   
+>Normally, button presses are momentary (only stay down while the mouse is pressed). This method allows the use of a toggled state.<br/>The secondary button (ON mode) has to be initially hidden by the script that opens the dialog, e.g. via ((findDisplay 10500) displayCtrl 10502) ctrlShow false</p>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Dialog_Button_Toggle-version-2-modificationdate-1505466829236-api-v2.gif" alt="images/download/attachments/1507348/Dialog_Button_Toggle-version-2-modificationdate-1505466829236-api-v2.gif"   />
+    <p   
+><tt class=" ">class Dlg { idd = -1; movingEnable = true; class controls { // first button, for &quot;OFF&quot; mode class BUTTON1 { type = 1; // CT_BUTTON style = 2; // ST_CENTER idc = 10501; x = .4; y = .4; w = .2; h = .1; font = &quot;TahomaB&quot;; sizeEx = .05; colorText[] = {1,0,0,1}; colorBackground[] = {0,0,1,.8}; colorFocused[] = {0,0,1,1}; colorBackgroundActive[] = {0,0,1,1}; colorDisabled[] = {.3,.3,.3,1}; colorBackgroundDisabled[] = {.1,.1,.1,1}; colorShadow[] = {0,0,0,.3}; offsetX = .01; offsetY = .01; offsetPressedX = .006; // leave a bit of the drop shadow visible offsetPressedY = .006; // when button is pressed borderSize = 0; colorBorder[] = {}; soundEnter[] = {}; soundPush[] = {}; soundClick[] = {}; soundEscape[] = {}; text = &quot;OFF&quot;; // when pressed, hide this button, and show the other one action = &quot;ctrlShow [10502,true]; ctrlShow [10501,false]&quot;; toolTip = &quot;Activate&quot;; }; // first button, for &quot;ON&quot; mode class BUTTON2 : BUTTON1 { idc = 10502; x = .406; // default button position offset to match y = .406; // the pressed position of the first one offsetX = .004; // smaller offset of drop shadow offsetY = .004; offsetPressedX = 0; // no movement when pressed offsetPressedY = 0; text = &quot;ON&quot;; action = &quot;ctrlShow [10501,true]; ctrlShow [10502,false]&quot;; toolTip = &quot;Deactivate&quot;; }; }; };</tt></p>
+    </div>
+    <div class="section section-2" id="src-1508569_DialogsButton-Buttonwithsoundandtoggledimage">
+        <h2 class="heading "><span>Button with sound and toggled image</span></h2>
+<p   
+>To use images with buttons, an image has to be displayed as a <a   href="Dialogs_Static.html#src-1508589_DialogsStatic-Images">Images</a>, and then overlaid by an invisible button. The button control can then change the image when clicked. An alternative way to use button images is with an <a   href="Dialogs_ActiveText.html">Dialogs_ActiveText</a> control.</p>
+<img  class="confluence-embedded-image"  src="images/download/attachments/1507348/Dialog_Button_Image-version-1-modificationdate-1505466829068-api-v2.gif" alt="images/download/attachments/1507348/Dialog_Button_Image-version-1-modificationdate-1505466829068-api-v2.gif"   />
+    <p   
+><tt class=" ">// sound definition, to be used in button control class CfgSounds { class click { sound[] = {&quot;\click.ogg&quot;, 20, 1}; titles[] = {}; }; }; class Dlg { idd = 10500; movingEnable = true; class controls { // background image, to be changed by button control class IMG { type = 0; // CT_STATIC style = 48; // ST_PICTURE idc = 10500; // IDC required, as image (text) will be changed x = .45; y = .4; w = .1; h = .16; text = &quot;Off.paa&quot;; // default image, switch is up colorBackground[] = {}; colorText[] = {}; font = &quot;TahomaB&quot;; sizeEx = .1; }; // invisible button, overlays background image class BUTTON1 : IMG { type = 1; style = 0; idc = -1; colorText[] = {0,0,0,0}; // colors have to be defined with alpha==0 (totally transparent) colorBackground[] = {0,0,0,0}; colorFocused[] = {0,0,0,0}; colorBackgroundActive[] = {0,0,0,0}; colorDisabled[] = {0,0,0,0}; colorBackgroundDisabled[] = {0,0,0,0}; colorShadow[] = {0,0,0,0}; offsetX = 0; offsetY = 0; offsetPressedX = 0; offsetPressedY = 0; borderSize = 0 colorBorder[] = {}; soundEnter[] = {}; soundPush[] = {}; soundClick[] = {}; soundEscape[] = {}; tooltip = &quot;Flip switch&quot;; // when button is clicked, sound is played, and background image is toggled action = &quot;playSound &#39;click&#39;; \ _imgCtrl=(findDisplay 10500) displayCtrl 10500; \ _img=ctrlText _imgCtrl; \ _newImg = if (&#39;Off&#39; in _img) then {&#39;On.paa&#39;} else {&#39;Off.paa&#39;}; \ _imgCtrl ctrlSetText _newImg&quot;; }; }; };</tt></p>
+    </div>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Dialogs_Scrollbars.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Dialogs_Scrollbars</span>
+        </a>
+                <a href="Dialogs_Checkboxes.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Dialogs Checkboxes</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>

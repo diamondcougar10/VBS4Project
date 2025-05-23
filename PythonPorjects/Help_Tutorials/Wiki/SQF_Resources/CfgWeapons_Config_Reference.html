@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>CfgWeapons_Config_Reference - VBS Scripting Reference</title>
+
+    
+    <link rel="stylesheet" href="assets/css/expand-macro.css">
+
+            <meta name="scroll-content-language-key" content="">
+    
+    <meta name="description" content="">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+
+<script type="text/javascript" src="assets/js/jquery.min.js"></script>
+<script type="text/javascript" src="assets/js/jquery.scrollTo.min.js"></script>
+
+
+<script type="text/javascript" src="assets/js/translate.js"></script>
+
+<script type="text/javascript" src="assets/js/theme.main.js"></script>
+
+    <script type="text/javascript" src="assets/js/iframeResizer.min.js"></script>
+
+<link rel="stylesheet" href="assets/css/content-style.css">
+    <link rel="stylesheet" href="assets/css/search.css">
+
+<link rel="stylesheet" href="assets/css/theme.main.css">
+<link rel="stylesheet" href="assets/css/theme.colors.css">
+
+            <!-- ES5 support for older browsers, needed by lunr -->
+        <script src="js/augment.js"></script>
+        <script id="worker" type="javascript/worker">
+
+        startIndex = function() {
+            idx = lunr.Index.load(lunrIndex);
+            idx.pipeline.remove(lunr.stopWordFilter);
+            postMessage({type: "setup-complete"});
+        }
+
+        onmessage = function (event) {
+            var message = event.data;
+
+            if ((message.type === 'setup') && message.baseUrl) {
+                var url = message.baseUrl;
+                importScripts(url + 'js/lunr.js');
+                importScripts(url + 'js/lunr-extras.js');
+                importScripts(url + 'js/lunr-index.js');
+                importScripts(url + 'js/lunr-data.js');
+                startIndex();
+            }
+
+            if (idx && (message.type === 'search-request') && message.query) {
+                var searchWord = message.query;
+                var results = idx.search(searchWord).map(function (result) {
+                    return lunrData.filter(function (d) {
+                        return d.id === parseInt(result.ref, 10)
+                    })[0]
+                });
+                postMessage({type: 'search-results', results: results, query: searchWord, queryId: message.queryId});
+            }
+        }
+
+    </script>
+    </head>
+
+<body pageid="1513356">
+
+<div id="ht-loader">
+    <noscript>
+        <p style="width: 100%; text-align:center; position: absolute; margin-top: 200px;">This content cannot be displayed without JavaScript.<br>Please enable JavaScript and reload the page.</p>
+    </noscript>
+</div>
+
+<div>
+   	<header id="ht-headerbar">
+    <div class="ht-headerbar-left">
+        <a href="" id="ht-menu-toggle" class="sp-aui-icon-small sp-aui-iconfont-appswitcher"></a>
+    </div>
+    <div class="ht-headerbar-right">
+            <div class="sp-aui-icon-small ht-search-index-loader ht-header-icon"></div>
+
+        <div id="ht-search">
+            <div class="ht-search-input" style="display: none;">
+              	<a href="#" class="sp-aui-icon-small sp-aui-iconfont-remove ht-search-clear"></a>
+
+                <form action="#" method="GET" id="search">
+                    <input class="search-input" type="text" placeholder="Search" tabindex="-1" autocomplete="off" name="q" value="">
+                    <input type="hidden" name="max" value="15" />
+                    <input type="submit" style="display:none" tabindex="-4"/>
+                </form>
+
+                <a href="#" id="ht-search-button" class="ht-header-icon ht-header-icon-svg">
+                                        <svg width="40px" height="40px" viewBox="0 0 40 40" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <g>
+                            <path d="M29.572,28.802 L28.801,29.571 C28.515,29.857 28.187,30 27.816,30 C27.445,30 27.116,29.857 26.831,29.571 L21.392,24.134 C20.193,24.762 18.908,25.076 17.538,25.076 C15.396,25.076 13.605,24.348 12.163,22.892 C10.721,21.436 10,19.651 10,17.538 C10,15.397 10.721,13.605 12.163,12.163 C13.605,10.721 15.396,10 17.538,10 C19.651,10 21.434,10.721 22.89,12.163 C24.347,13.605 25.075,15.397 25.075,17.538 C25.075,18.937 24.761,20.222 24.132,21.393 L29.572,26.832 C29.857,27.118 30,27.446 30,27.817 C30,28.188 29.857,28.517 29.572,28.802 L29.572,28.802 Z M13.662,21.414 C14.732,22.485 16.024,23.02 17.538,23.02 C19.051,23.02 20.343,22.485 21.413,21.414 C22.484,20.344 23.019,19.052 23.019,17.538 C23.019,16.025 22.484,14.733 21.413,13.662 C20.343,12.592 19.051,12.056 17.538,12.056 C16.024,12.056 14.732,12.592 13.662,13.662 C12.591,14.733 12.056,16.025 12.056,17.538 C12.056,19.052 12.591,20.344 13.662,21.414 L13.662,21.414 Z"></path>
+                        </g>
+                    </svg>
+              	</a>
+
+                <div class="ht-search-dropdown ht-dropdown">
+                    <ul></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    </header>   	<aside id="ht-sidebar">
+    <div class="ht-sidebar-content">
+        <div class="ht-sidebar-content-scroll-container">
+            <header class="ht-sidebar-header">
+                <h1 class="ht-logo">
+                    <span class="ht-logo-label">SQF</span>
+                    <img class="space-logo" src="SQF.png" />
+                </h1>
+                <a href="VBS_Scripting_Reference.html" class="ht-space-link">
+                    <h2>VBS Scripting Reference</h2>
+                </a>
+            </header>
+                            <iframe id="ht-nav" src="toc.html?pageId=1507889"></iframe>
+                <script>
+                    $('iframe#ht-nav').iFrameResize(
+                            { 'log': true, 'autoResize': true, 'heightCalculationMethod': 'lowestElement', 'checkOrigin': false });
+                </script>
+                    </div>
+    </div>
+
+</aside></div>
+
+<div id="ht-wrap-container">
+
+            
+    <div id="ht-sidebar-dragbar">
+    <div class="ht-sidebar-drag-handle">
+        <span class="drag-handle-1"></span>
+        <span class="drag-handle-2"></span>
+        <span class="drag-handle-3"></span>
+    </div>
+</div>
+    <article id="ht-content" class="ht-content">
+        <header class="ht-content-header">
+            <div id="ht-breadcrumb">
+    <ul>
+        <li><a href="VBS_Scripting_Reference.html">VBS Scripting Reference</a></li>
+                                                                                                             <li><a href="" onclick="$('.shortcut').each(function(){$(this).removeClass('shortcut')}); $(this).parent().addClass('shortcut'); return false;">...</a> </li>
+                                        <li class="shortcut"><a href="Commands_and_Functions_by_Category.html">Commands and Functions by Category</a></li>
+                                                                                     <li><a href="Weapons_-_Category.html">Weapons - Category</a></li>
+                                                            </ul>
+</div>            <h1 id="src-1507889"> <span>CfgWeapons_Config_Reference</span></h1>
+        </header>
+
+        <div id="main-content" class="wiki-content sp-grid-section" data-index-for-search="true">
+
+<p  class="auto-cursor-target" 
+>Note: Refers to the</p>
+    <div  class="tablewrap">
+        <table class="wrapped confluenceTable">
+        <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
+            <td  class="confluenceTd" rowspan="1" colspan="1">
+    <p   
+><i class=" ">This page requires a review regarding compatibility with VBS2.</i></p>
+            </td>
+        </tr>
+</tbody>        </table>
+            </div>
+<p   
+><br/></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-Introduction">Introduction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-Parameters">Parameters</a></p>
+<ul class="toc-indentation "><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-access">access</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-aiDispersionCoefX">aiDispersionCoefX</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-aiDispersionCoefY">aiDispersionCoefY</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-aiRateOfFire">aiRateOfFire</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-aiRateOfFireDistance">aiRateOfFireDistance</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-autoAimEnabled">autoAimEnabled</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-autoFire">autoFire</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-autoReload">autoReload</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-backgroundReload">backgroundReload</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-ballisticsComputer">ballisticsComputer</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-burst">burst</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-cameraDir">cameraDir</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-canDrop">canDrop</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-canLock">canLock</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-cartridgePos">cartridgePos</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-cartridgeVel">cartridgeVel</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-count">count</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-cursor">cursor</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-cursorAim">cursorAim</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-cursorSize">cursorSize</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-dexterity">dexterity</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-dispersion">dispersion</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-displayName">displayName</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-distanceZoomMax">distanceZoomMax</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-distanceZoomMin">distanceZoomMin</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLWRyeVNvdW5kW10">drySound[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-enableAttack">enableAttack</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-ffCount">ffCount</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-ffFrequency">ffFrequency</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-ffMagnitude">ffMagnitude</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-fireLightDuration">fireLightDuration</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-flash">flash</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-flashSize">flashSize</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-forceOptics">forceOptics</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-initSpeed">initSpeed</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-laser">laser</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-libTextDesc">libTextDesc</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-magazineReloadTime">magazineReloadTime</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-maxRange">maxRange</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-maxRangeProbab">maxRangeProbab</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-memoryPointCamera">memoryPointCamera</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-midRange">midRange</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-midRangeProbab">midRangeProbab</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-minRange">minRange</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-minRangeProbab">minRangeProbab</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-model">model</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-modelMagazine">modelMagazine</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-modelOptics">modelOptics</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLW1vZGVzW10">modes[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-multiplier">multiplier</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-muzzleEnd">muzzleEnd</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-muzzlePos">muzzlePos</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLW11enpsZXNbXQ">muzzles[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-nameSound">nameSound</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-optics">optics</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-opticsDisablePeripherialVision">opticsDisablePeripherialVision</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-opticsFlare">opticsFlare</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-opticsZoomInit">opticsZoomInit</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-opticsZoomMax">opticsZoomMax</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-opticsZoomMin">opticsZoomMin</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-picture">picture</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-primary">primary</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-recoil">recoil</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-recoilProne">recoilProne</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-reloadAction">reloadAction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXJlbG9hZE1hZ2F6aW5lU291bmRbXQ">reloadMagazineSound[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXJlbG9hZFNvdW5kW10">reloadSound[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-reloadTime">reloadTime</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-scope">scope</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-selectionFireAnim">selectionFireAnim</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-shotFromTurret">shotFromTurret</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-showAimCursorInternal">showAimCursorInternal</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-showEmpty">showEmpty</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-showSwitchAction">showSwitchAction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-showToPlayer">showToPlayer</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXNvdW5kW10">sound[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-soundBurst">soundBurst</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-soundContinuous">soundContinuous</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXNvdW5kRmx5W10">soundFly[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXNvdW5kU2Vydm9bXQ">soundServo[]</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-type">type</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-UiPicture">UiPicture</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-useAction">useAction</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-useActionTitle">useActionTitle</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-useAsBinocular">useAsBinocular</a></p>
+</li><li class=" "><p   
+><a   href="#src-1507889_CfgWeapons_Config_Reference-value">value</a></p>
+</li></ul></li></ul>    <div class="section section-1" id="src-1507889_CfgWeapons_Config_Reference-Introduction">
+        <h1 class="heading "><span>Introduction</span></h1>
+<p   
+><strong class=" ">CfgWeapons</strong>, along with CfgMagazines and CfgAmmo are the root classes which define weapon configurations.</p>
+<p   
+>Weapons can be added to the game via addons, either inheriting definitions from classes already present in the game, or creating totally new ones.</p>
+<p   
+>CfgWepaons defines the weapon characteristics (i.e. which muzzles are available, the firing modes, and the types of magazines used). Magazine and ammo parameters are defined in CfgMagazines &amp; CfgAmmo.</p>
+    </div>
+    <div class="section section-1" id="src-1507889_CfgWeapons_Config_Reference-Parameters">
+        <h1 class="heading "><span>Parameters</span></h1>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-access">
+        <h2 class="heading "><span>access</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<ol class=" "><li class=" "><p   
+>define ReadAndWrite 0 //! any modifications enabled</p>
+</li><li class=" "><p   
+>define ReadAndCreate 1 //! only adding new class members is allowed</p>
+</li><li class=" "><p   
+>define ReadOnly 2 //! no modifications enabled</p>
+</li><li class=" "><p   
+>define ReadOnlyVerified 3 //! no modifications enabled, CRC test applied</p>
+</li></ol><pre class=" ">access = 3;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-aiDispersionCoefX">
+        <h2 class="heading "><span>aiDispersionCoefX</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Dispersion multiplier for Ai units (axis X - left to right)</p>
+<pre class=" ">aiDispersionCoefX = 7.1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-aiDispersionCoefY">
+        <h2 class="heading "><span>aiDispersionCoefY</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Dispersion multiplier for Ai units (axis Y - top-down)</p>
+<pre class=" ">aiDispersionCoefY = 2.1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-aiRateOfFire">
+        <h2 class="heading "><span>aiRateOfFire</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> delay between shots at given distance (aiRateOfFireDistance)</p>
+<pre class=" ">aiRateOfFire = 0.3;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-aiRateOfFireDistance">
+        <h2 class="heading "><span>aiRateOfFireDistance</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> at shorter distance delay (aiRateOfFire) goes lineary to zero</p>
+<pre class=" ">aiRateOfFireDistance = 600;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-autoAimEnabled">
+        <h2 class="heading "><span>autoAimEnabled</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> false for all standart weapons</p>
+<pre class=" ">autoAimEnabled = 0;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-autoFire">
+        <h2 class="heading "><span>autoFire</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> If true weapon will continue firing once you press fire button once until you release it.</p>
+<pre class=" ">autoFire = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-autoReload">
+        <h2 class="heading "><span>autoReload</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> if true weapon will be reloaded automaticly once magazine is empty</p>
+<pre class=" ">autoReload = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-backgroundReload">
+        <h2 class="heading "><span>backgroundReload</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Weapon automatically reloads magazines without player intervention or animation.</p>
+<pre class=" ">backgroundReload = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-ballisticsComputer">
+        <h2 class="heading "><span>ballisticsComputer</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Weapon attempts to calculate and shift the aimpoint to hit a locked target based on range, target movement, own movement, and ballistics of selected ammo type. (<i class=" ">unverified</i>)</p>
+<pre class=" ">ballisticsComputer = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-burst">
+        <h2 class="heading "><span>burst</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Number of shots actually fired each time the weapon is fired.</p>
+<pre class=" ">burst = 5;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-cameraDir">
+        <h2 class="heading "><span>cameraDir</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> (<i class=" ">unverified</i>)</p>
+<pre class=" ">cameraDir = &quot;GL look&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-canDrop">
+        <h2 class="heading "><span>canDrop</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Weapon cannot be dropped from Inventory Menu with this set to <strong class=" ">false</strong>.</p>
+<pre class=" ">canDrop = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-canLock">
+        <h2 class="heading "><span>canLock</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Defines if weapon can be locked on the target (white box appears) Valid values: 0, 1, 2</p>
+<ol class=" "><li class=" "><p   
+>define LockNo 0</p>
+</li><li class=" "><p   
+>define LockCadet 1</p>
+</li><li class=" "><p   
+>define LockYes 2</p>
+</li></ol><pre class=" ">canLock = 2;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-cartridgePos">
+        <h2 class="heading "><span>cartridgePos</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">cartridgePos = &quot;nabojnicestart&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-cartridgeVel">
+        <h2 class="heading "><span>cartridgeVel</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">cartridgeVel = &quot;nabojniceend&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-count">
+        <h2 class="heading "><span>count</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Number of shots weapon starts with. Should be defined in CfgMagazines instead.</p>
+<pre class=" ">count = 8;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-cursor">
+        <h2 class="heading "><span>cursor</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">cursor = &quot;\ca\Weapons\Data\w_weapon_S&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-cursorAim">
+        <h2 class="heading "><span>cursorAim</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">cursorAim = &quot;\ca\Weapons\Data\cursor_target_locked_ca.paa&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-cursorSize">
+        <h2 class="heading "><span>cursorSize</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">cursorSize = 4;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-dexterity">
+        <h2 class="heading "><span>dexterity</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Ingame weapon handling value, lower value = takes more time to traverse a weapon</p>
+<pre class=" ">dexterity = 3.1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-dispersion">
+        <h2 class="heading "><span>dispersion</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Ingame weapon dispersion. Bigger value - more dispersion</p>
+<pre class=" ">dispersion = 0.015;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-displayName">
+        <h2 class="heading "><span>displayName</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Either reference to a stringtable, or the name, i.e &quot;Vikhr&quot;.</p>
+<pre class=" ">displayName = &quot;$STR_DN_VIKHR&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-distanceZoomMax">
+        <h2 class="heading "><span>distanceZoomMax</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">distanceZoomMax = 100;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-distanceZoomMin">
+        <h2 class="heading "><span>distanceZoomMin</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">distanceZoomMin = 500;</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLWRyeVNvdW5kW10">
+        <h2 class="heading "><span>drySound[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Sound when empty weapon fired</p>
+<pre class=" ">drySound[] = {&quot;\ca\Weapons\Data\Sound\XMS_dry_v2&quot;,0.000316228,1};</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-enableAttack">
+        <h2 class="heading "><span>enableAttack</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">enableAttack = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-ffCount">
+        <h2 class="heading "><span>ffCount</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">ffCount = 6;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-ffFrequency">
+        <h2 class="heading "><span>ffFrequency</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">ffFrequency = 11;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-ffMagnitude">
+        <h2 class="heading "><span>ffMagnitude</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">ffMagnitude = 0.5;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-fireLightDuration">
+        <h2 class="heading "><span>fireLightDuration</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">fireLightDuration = 0.05;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-flash">
+        <h2 class="heading "><span>flash</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">flash = &quot;gunfire&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-flashSize">
+        <h2 class="heading "><span>flashSize</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">flashSize = 1.2;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-forceOptics">
+        <h2 class="heading "><span>forceOptics</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Valid values: 0, 1, 2</p>
+<pre class=" ">forceOptics = 2;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-initSpeed">
+        <h2 class="heading "><span>initSpeed</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Initial speed of shot.</p>
+<pre class=" ">initSpeed = 900;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-laser">
+        <h2 class="heading "><span>laser</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">laser = 0;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-libTextDesc">
+        <h2 class="heading "><span>libTextDesc</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">libTextDesc = &quot;$STR_LIB_SVD&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-magazineReloadTime">
+        <h2 class="heading "><span>magazineReloadTime</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Time delay when reloading the weapon (changing magazines).</p>
+<pre class=" ">magazineReloadTime = 0.1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-maxRange">
+        <h2 class="heading "><span>maxRange</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Together with *Range and *RangeProbab values defines probability to use this weapon for Ai units at given distance.</p>
+<pre class=" ">maxRange = 70;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-maxRangeProbab">
+        <h2 class="heading "><span>maxRangeProbab</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">maxRangeProbab = 0.1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-memoryPointCamera">
+        <h2 class="heading "><span>memoryPointCamera</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">memoryPointCamera = &quot;GL eye&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-midRange">
+        <h2 class="heading "><span>midRange</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">midRange = 500;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-midRangeProbab">
+        <h2 class="heading "><span>midRangeProbab</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">midRangeProbab = 0.2;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-minRange">
+        <h2 class="heading "><span>minRange</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">minRange = 50;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-minRangeProbab">
+        <h2 class="heading "><span>minRangeProbab</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">minRangeProbab = 0.1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-model">
+        <h2 class="heading "><span>model</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">model = &quot;\ca\a10\AGM65&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-modelMagazine">
+        <h2 class="heading "><span>modelMagazine</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">modelMagazine = &quot;&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-modelOptics">
+        <h2 class="heading "><span>modelOptics</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Optic model used in game. &quot;-&quot; defines 3d view from the model (point &quot;eye&quot;)</p>
+<pre class=" ">modelOptics = &quot;\ca\Weapons\G36_optics&quot;;<br/>modelOptics = &quot;-&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLW1vZGVzW10">
+        <h2 class="heading "><span>modes[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">modes[] = {&quot;manual&quot;,&quot;close&quot;,&quot;short&quot;,&quot;medium&quot;,&quot;far&quot;};</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-multiplier">
+        <h2 class="heading "><span>multiplier</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Ammunition used per shot.</p>
+<pre class=" ">multiplier = 5;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-muzzleEnd">
+        <h2 class="heading "><span>muzzleEnd</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">muzzleEnd = &quot;konec hlavne&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-muzzlePos">
+        <h2 class="heading "><span>muzzlePos</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">muzzlePos = &quot;usti hlavne&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLW11enpsZXNbXQ">
+        <h2 class="heading "><span>muzzles[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">muzzles[] = {&quot;TimeBombMuzzle&quot;,&quot;PipeBombMuzzle&quot;,&quot;MineMuzzle&quot;,&quot;MineEMuzzle&quot;};</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-nameSound">
+        <h2 class="heading "><span>nameSound</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Sound played when vehicle cammander swith to this weapon</p>
+<pre class=" ">nameSound = &quot;smokeshell&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-optics">
+        <h2 class="heading "><span>optics</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">optics = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-opticsDisablePeripherialVision">
+        <h2 class="heading "><span>opticsDisablePeripherialVision</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">opticsDisablePeripherialVision = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-opticsFlare">
+        <h2 class="heading "><span>opticsFlare</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">opticsFlare = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-opticsZoomInit">
+        <h2 class="heading "><span>opticsZoomInit</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">opticsZoomInit = 0.35;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-opticsZoomMax">
+        <h2 class="heading "><span>opticsZoomMax</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">opticsZoomMax = 0.0625;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-opticsZoomMin">
+        <h2 class="heading "><span>opticsZoomMin</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">opticsZoomMin = 0.0625;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-picture">
+        <h2 class="heading "><span>picture</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">picture = &quot;smokeshell&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-primary">
+        <h2 class="heading "><span>primary</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">primary = 10;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-recoil">
+        <h2 class="heading "><span>recoil</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Selects Weapon recoil defined in cfgRecoils config section</p>
+<pre class=" ">recoil = &quot;AK74Recoil&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-recoilProne">
+        <h2 class="heading "><span>recoilProne</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> When prone recoil can be set to slower values</p>
+<pre class=" ">recoilProne = &quot;AK74Recoil&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-reloadAction">
+        <h2 class="heading "><span>reloadAction</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">reloadAction = &quot;ManActReloadMagazine&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXJlbG9hZE1hZ2F6aW5lU291bmRbXQ">
+        <h2 class="heading "><span>reloadMagazineSound[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Sound played while changing magazines.</p>
+<pre class=" ">reloadMagazineSound[] = {&quot;\ca\Weapons\Data\Sound\flare_reload&quot;,0.000316228,1};</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXJlbG9hZFNvdW5kW10">
+        <h2 class="heading "><span>reloadSound[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Sound played after each shot.</p>
+<pre class=" ">reloadSound[] = {&quot;\ca\Weapons\Data\Sound\gun125reload&quot;,1,1};</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-reloadTime">
+        <h2 class="heading "><span>reloadTime</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Time delay between each individual shot.</p>
+<pre class=" ">reloadTime = 0.007;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-scope">
+        <h2 class="heading "><span>scope</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">scope = 2;</pre><p   
+><br/>Note: Refers to the accessibility of the variable, not a rifle scope.</p>
+    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-selectionFireAnim">
+        <h2 class="heading "><span>selectionFireAnim</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">selectionFireAnim = &quot;zasleh&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-shotFromTurret">
+        <h2 class="heading "><span>shotFromTurret</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> meaning unknown. But &quot;zasleh&quot; animation is not working if set to 1</p>
+<pre class=" ">shotFromTurret = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-showAimCursorInternal">
+        <h2 class="heading "><span>showAimCursorInternal</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">showAimCursorInternal = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-showEmpty">
+        <h2 class="heading "><span>showEmpty</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> If false weapon gets hidden from the player once there&#39;s no ammo left for it</p>
+<pre class=" ">showEmpty = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-showSwitchAction">
+        <h2 class="heading "><span>showSwitchAction</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">showSwitchAction = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-showToPlayer">
+        <h2 class="heading "><span>showToPlayer</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Some modes defined for Ai usage (ex. burst modes for full auto weapons) can be hidden from player with this parameter</p>
+<pre class=" ">showToPlayer = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXNvdW5kW10">
+        <h2 class="heading "><span>sound[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Last parameter defines how fast the sound should be played. 1 means normal speed.</p>
+<pre class=" ">sound[] = {&quot;\ca\Weapons\Data\Sound\AGS30_shot1&quot;,10,1};</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-soundBurst">
+        <h2 class="heading "><span>soundBurst</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> When set to false single shot sound can be used with burst mode - it will be played several times</p>
+<pre class=" ">soundBurst = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-soundContinuous">
+        <h2 class="heading "><span>soundContinuous</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> If true sound for the next shot won&#39;t start before previous oe ends. Thus you can prevent sound overlapping.</p>
+<pre class=" ">soundContinuous = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXNvdW5kRmx5W10">
+        <h2 class="heading "><span>soundFly[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">soundFly[] = {&quot;\ca\Weapons\Data\Sound\rocket_fly1&quot;,25.1189,0.8};</pre>    </div>
+    <div class="section section-2" id="src-1507889_safe-id-Q2ZnV2VhcG9uc19Db25maWdfUmVmZXJlbmNlLXNvdW5kU2Vydm9bXQ">
+        <h2 class="heading "><span>soundServo[]</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">soundServo[] = {&quot;&quot;,0.0001,1};</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-type">
+        <h2 class="heading "><span>type</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong> Defines gear slots that occupied by this weapon</p>
+<pre class=" ">#define WeaponNoSlot		0	// dummy weapon<br/>#define WeaponSlotPrimary	1	// primary weapon<br/>#define WeaponSlotHandGun	2	// handGun/sidearm<br/>#define WeaponSlotSecondary	4	// secondary weapon<br/>#define WeaponSlotHandGunItem	16	// sidearm/GL magazines	<br/>#define WeaponSlotItem		256	// main magazines, items, explosives<br/>#define WeaponSlotBinocular	4096	// binocular, NVG, LD, equipment<br/>#define WeaponHardMounted	65536</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-UiPicture">
+        <h2 class="heading "><span>UiPicture</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">UiPicture = &quot;\CA\weapons\data\Ico\i_aa_CA.paa&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-useAction">
+        <h2 class="heading "><span>useAction</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">useAction = 1;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-useActionTitle">
+        <h2 class="heading "><span>useActionTitle</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">useActionTitle = &quot;$STR_ACTION_PUTBOMB&quot;;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-useAsBinocular">
+        <h2 class="heading "><span>useAsBinocular</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">useAsBinocular = 0;</pre>    </div>
+    <div class="section section-2" id="src-1507889_CfgWeapons_Config_Reference-value">
+        <h2 class="heading "><span>value</span></h2>
+<p   
+><a   href="TokenNameValueTypes.html">TokenNameValueTypes</a><br/><strong class=" ">Description:</strong></p>
+<pre class=" ">value = 0;</pre>    </div>
+    </div>
+        </div>
+
+    </article>
+
+
+            <nav id="ht-post-nav">
+                <a href="Weapons_-_Category.html" class="ht-post-nav-prev">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-prev" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-45.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>Weapons - Category</span>
+        </a>
+                <a href="TokenNameValueTypes.html" class="ht-post-nav-next">
+            <svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:sketch="http://www.bohemiancoding.com/sketch/ns">
+                <g id="ht-icon-next" sketch:type="MSArtboardGroup">
+                    <path fill="#000000" d="M16,8 L16,6 L6,6 L6,16 L8,16 L8,8 L16,8 Z" id="Rectangle-2"
+                          sketch:type="MSShapeGroup"
+                          transform="translate(11.000000, 11.000000) rotate(-225.000000) translate(-11.000000, -11.000000) "></path>
+                </g>
+            </svg>
+            <span>TokenNameValueTypes</span>
+        </a>
+    </nav>    
+            
+    <footer id="ht-footer">
+    <a href="#" id="ht-jump-top" class="sp-aui-icon-small sp-aui-iconfont-arrows-up"></a>
+</footer></div>
+
+<div>
+    <div id="ht-mq-detect"></div>
+</div>
+
+    <script src="js/lunr.js"></script>
+    <script src="js/lunr-extras.js"></script>
+    <script src="assets/js/scroll-search.js"></script>
+
+    <script src="assets/js/expand-macro.js"></script>
+</body>
+</html>
