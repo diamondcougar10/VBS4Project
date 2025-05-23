@@ -10,7 +10,6 @@ from tkinter import messagebox
 import webbrowser
 import urllib.request
 
-
 # ─── Configuration ─────────────────────────────────────────────────────────
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.ini')
 config = configparser.ConfigParser()
@@ -31,7 +30,6 @@ def wrap_with_loading(cmd):
         # position it at bottom‐center (adjust relx/rely as you like)
         loading.place(relx=0.5, rely=0.9, anchor="center")
         root.update_idletasks()      # force redraw so user sees it immediately
-
         try:
             cmd()                     # run the real handler
         finally:
@@ -73,7 +71,8 @@ def toggle_startup():
         enable_startup()
         messagebox.showinfo("Settings", "Launch on startup ▶ Enabled")
 
-# ─── Close‑on‑Launch Helpers ────────────────────────────────────────────────
+# ─── Close‑on‑Launch Helpers ────────────────────────────────────────────────\
+
 def is_close_on_launch_enabled() -> bool:
     return config.getboolean('General', 'close_on_launch', fallback=False)
 
@@ -105,8 +104,8 @@ def set_blueig_install_path():
     else:
         messagebox.showerror("Settings", "Invalid BlueIG path selected.")
 
-
 # ─── Default Browser Helpers ────────────────────────────────────────────────
+
 def get_default_browser() -> str:
     """Return the currently saved default browser executable path."""
     return config['General'].get('default_browser', '')
@@ -590,7 +589,7 @@ def set_background(window):
             bg_label.image = bg_photo  # Prevent garbage collection
             bg_label.place(relwidth=1, relheight=1)  # Stretch image to fit window
         else:
-            print("❌ Background image not found!")
+            print(" Background image not found!")
 
         def place_logos():
             # Top Left Logo: STE_CFT_Logo
@@ -604,7 +603,7 @@ def set_background(window):
                 ste_cft_logo_label.image = ste_cft_logo_photo  
                 ste_cft_logo_label.place(x=1, y=1) 
             else:
-                print("❌ STE_CFT Logo image not found!")
+                print(" STE_CFT Logo image not found!")
 
             # Top Left (Next to STE_CFT Logo): US_Army_AFC_Logo
             if os.path.exists(logo_AFC_army):
@@ -617,7 +616,7 @@ def set_background(window):
                 afc_army_logo_label.image = afc_army_logo_photo  
                 
                 # Position Next to STE_CFT Logo
-                afc_army_logo_label.place(x=180, y=1)  # ✅ Positioned Right of STE_CFT Logo
+                afc_army_logo_label.place(x=180, y=1)  #  Positioned Right of STE_CFT Logo
 
             else:
                 print(" US Army AFC Logo image not found!")
@@ -639,7 +638,7 @@ def set_background(window):
                 window.after(10, position_first_army_logo)  
 
             else:
-                print("❌ First Army Logo image not found!")
+                print(" First Army Logo image not found!")
 
             # Top Right Logo: New_US_Army_Logo
             if os.path.exists(logo_us_army_path):
@@ -653,12 +652,12 @@ def set_background(window):
                 
                 # Adjusted for submenus using `.after()` to get correct width
                 def position_us_army_logo():
-                    us_army_logo_label.place(x=window.winfo_width() - 250, y=3)  # ✅ Positioned at Top Right
+                    us_army_logo_label.place(x=window.winfo_width() - 250, y=3)  # Positioned at Top Right
 
-                window.after(10, position_us_army_logo)  # ✅ Delay to get correct width
+                window.after(10, position_us_army_logo)  # Delay to get correct width
 
             else:
-                print("❌ New US Army Logo image not found!")
+                print("New US Army Logo image not found!")
 
         # Delay placing the logos until the window fully renders
         window.after(100, place_logos)
@@ -761,12 +760,11 @@ oneclick_docs = {
 tutorials_items = {
     "VBS4 Documentation":               open_vbs4_pdf_docs,
     "Blue IG Documentation":            lambda: open_submenu("Blue IG Documentation", blueig_docs), #not yet done
-    "Setup Documentation":    open_setup_documentation,
+    "Setup Documentation":               open_setup_documentation,
     "BVI Documentation":                open_bvi_pdf_docs,
     "BVI Quick‑Start Guide for entire kit":  open_bvi_quickstart,
-    "One‑Click Terrain Documentation":  lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs), #do not have
+    "One‑Click Terrain Documentation":         lambda: open_submenu("One‑Click Terrain Documentation", oneclick_docs), #do not have
 }
-
 tk.Button(root, text="?", command=lambda: open_submenu("Tutorials", tutorials_items),
           font=("Helvetica",24), bg="#FFD700", fg="black",
           width=2, height=1, relief="raised").place(x=1550, y=110)
@@ -777,36 +775,26 @@ main_buttons = {
     "VBS4 / BlueIG": lambda: open_submenu("VBS4 / BlueIG", {
          "Launch VBS4":   launch_vbs4,
       "Launch BlueIG":  launch_blueig,
-        "One-Click Terrain":     lambda: open_submenu("One-Click Terrain", {
+        "One-Click Terrain":     lambda: open_submenu("One-Click Terrain",{
                                       "Select Imagery":     lambda: messagebox.showinfo("Terrain","Select Imagery"),
                                       "Create Mesh":        lambda: messagebox.showinfo("Terrain","Create Mesh"),
                                       "View Mesh (.obj)":   lambda: messagebox.showinfo("Terrain","View Mesh (.obj)"),
-                                      "One-Click Tutorial": lambda: messagebox.showinfo("Terrain","Launch Tutorial"),
-                                  }),
+                                      "One-Click Tutorial": lambda: messagebox.showinfo("Terrain","Launch Tutorial"),}),
         "External Map":          lambda: open_submenu("External Map", {
                                       "Select User Profile": lambda: messagebox.showinfo("Map","Select Profile"),
-                                      "Open External Map":   lambda: messagebox.showinfo("Map","Launching Browser"),
-                                  }),
-    }),
+                                      "Open External Map":   lambda: messagebox.showinfo("Map","Launching Browser"),}),}),
     "BVI":           lambda: open_submenu("BVI", {
                           "Launch BVI": launch_bvi,
-                          "Terrains":    open_bvi_terrain,
-                      }),
+                          "Terrains":    open_bvi_terrain,}),
     "Settings":      lambda: open_submenu("Settings", {
                           "Launch on Startup":          toggle_startup,
                           "Close on Software Launch?":  toggle_close_on_launch,
                           "VBS4 Install Location":      set_vbs4_install_path,
                           "BlueIG Install Location":             set_blueig_install_path,
-                          "Pick Default Browser":       set_default_browser,
-                      }),
-
-                      
+                          "Pick Default Browser":       set_default_browser,}),            
 }
-
 for text, cmd in main_buttons.items():
     btn = create_button(root, text, cmd)
     btn.pack(pady=20)
 
 root.mainloop()
-
-
