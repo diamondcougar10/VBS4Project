@@ -9,7 +9,6 @@ import configparser
 import winreg
 import sys
 
-
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
@@ -123,7 +122,7 @@ start "" "{xr_path}"
 exit /b 0
 ''')
     return BVI_BAT
-
+# ─── BATCH‐FILE WRITING ──────────────────────────────────────────────────
 # Prepare batch files on startup
 # VBS4
 vbs4_exe = ensure_executable(
@@ -197,7 +196,7 @@ def set_background(window):
         lbl.image = ph
         lbl.place(relwidth=1, relheight=1)
 
-    # logos (once per real window)
+    # logos
     if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
         return
     window._logos_placed = True
@@ -205,9 +204,9 @@ def set_background(window):
     def place_logos():
         coords = [
             (200,  5, logo_STE_path,   (90, 90)),
-            (300,  5, logo_AFC_army,   (73, 95)),
+            (300,  5, logo_AFC_army,   (73, 90)),
             (380,  5, logo_first_army, (60, 90)),
-            (window.winfo_width()-250, 3, logo_us_army_path, (230, 86)),
+            (window.winfo_width()-280, 3, logo_us_army_path, (230, 86)),
         ]
         for x,y,path,(w,h) in coords:
             if os.path.exists(path):
@@ -227,7 +226,6 @@ def set_wallpaper(window):
         lbl.image = ph
         lbl.place(relwidth=1, relheight=1)
 
-
 # ─── TUTORIALS PANEL DATA ────────────────────────────────────────────────────
 tutorials_items = {
     "VBS4 Documentation": lambda: webbrowser.open(
@@ -241,7 +239,7 @@ blueig_help_items = {
     "Video Tutorials":                lambda: messagebox.showinfo("Coming Soon", "Not implemented yet"),
     "Support Website":                lambda: webbrowser.open("https://example.com/blueig-support", new=2),
 }
-# ─── (reuse your existing open_submenu function) ────────────────────────────
+# ─── SUBMENUS ────────────────────────────
 def open_submenu(title, buttons):
     sub = tk.Toplevel()
     sub.title(title)
@@ -325,7 +323,6 @@ oct_help_items = {
     "How to collect terrain scans w/ Drone":   lambda: messagebox.showinfo("Drone Scans","Coming soon…"),
     "How to import terrain scans from drone":  lambda: messagebox.showinfo("Import Scans","Coming soon…"),
     "How to: Simulated Terrain":               lambda: messagebox.showinfo("Simulated Terrain","Coming soon…"),
-    # if you later want sub-menus under this, you can nest open_submenu again
 }
 
 # ─── Helper DATA ────────────────────────────────────────────────────
@@ -367,7 +364,7 @@ def set_default_browser():
     else:
         messagebox.showerror("Settings", "Invalid browser path selected.")
 
-# ======================== 📌 SETUP & CONFIGURATION ========================= #
+# ======================== SETUP & CONFIGURATION ========================= #
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -398,7 +395,8 @@ def set_ares_manager_path():
         config['General']['bvi_manager_path'] = path
         with open(CONFIG_PATH, 'w') as f: config.write(f)
         messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
-# ─── SINGLE‐WINDOW APP ──────────────────────────────────────────────────────
+
+# ─── SINGLE‐MAIN-WINDOW SETUP ──────────────────────────────────────────────────────
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -470,7 +468,7 @@ class MainMenu(tk.Frame):
                       font=("Helvetica",24), bg="#444444", fg="white",
                       width=30, height=1, command=cmd) \
               .pack(pady=10)
-
+# ─── Pannel Classes for each selected menu ──────────────────────────────────────────────────────
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -645,6 +643,7 @@ class SettingsPanel(tk.Frame):
         set_default_browser()
         self.lbl_browser.config(text=get_default_browser() or "[not set]")
 
+# ─── ? menu config pannel ──────────────────────────────────────────────────────
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
