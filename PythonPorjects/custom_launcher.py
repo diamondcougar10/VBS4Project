@@ -10,7 +10,8 @@ import configparser
 import winreg
 import sys
 import functools
-
+import json
+from tkinter import simpledialog
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
@@ -42,14 +43,11 @@ def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
 
 def get_auto_launch_cmd() -> tuple[str, list[str]]:
-    """
-    Returns (exe_path, [args...]) from the config.
-    """
     path = config['Auto-Launch'].get('program_path', '').strip()
     raw_args = config['Auto-Launch'].get('arguments', '').strip()
-    # very simple split — you can improve with shlex.split() if you need quoted args
     args = raw_args.split() if raw_args else []
     return path, args
+
 
 # ─── SETTINGS HELPERS ────────────────────────────────────────────────────────
 def is_startup_enabled() -> bool:
@@ -426,6 +424,74 @@ def set_ares_manager_path():
         with open(CONFIG_PATH, 'w') as f: config.write(f)
         messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
 
+# ─── One Click Terrain SETUP ──────────────────────────────────────────────────────
+def one_click_terrain_converter():
+    # TODO: hook this up to terrain conversion logic
+    print("One-Click Terrain Converter launched…")
+
+# ─── helper for "External Map" ────────────────────────────────────────────
+def select_user_profile(parent):
+    """
+    1) Ask the user to pick their UserConfiguration.json
+    2) Parse out all the loginName entries
+    3) Prompt them to choose one from a dropdown
+    4) (Placeholder) launch the external map for that profile
+    """
+    # 1) Let the user pick the JSON (defaults to your Map\External folder)
+    default_dir = os.path.expanduser(r"~/Documents/VBS4/Map/External")
+    cfg_path = filedialog.askopenfilename(
+        title="Select UserConfiguration.json",
+        initialdir=default_dir,
+        filetypes=[("JSON Files", "*.json")],
+        parent=parent
+    )
+    if not cfg_path:
+        return
+
+    # 2) Load and extract all loginName entries
+    try:
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        users = data if isinstance(data, list) else data.get("Users", [])
+        names = [u["loginName"] for u in users if "loginName" in u]
+    except Exception as e:
+        messagebox.showerror(
+            "Error",
+            f"Failed to read JSON:\n{e}",
+            parent=parent
+        )
+        return
+
+    if not names:
+        messagebox.showinfo(
+            "No Profiles",
+            "No loginName entries found in that file.",
+            parent=parent
+        )
+        return
+
+    # 3) Ask the user to pick one
+    choice = simpledialog.askstring(
+        "Select Profile",
+        "Available profiles:\n\n" + "\n".join(names) + "\n\nEnter one exactly:",
+        parent=parent
+    )
+    if not choice or choice not in names:
+        messagebox.showwarning(
+            "Invalid Selection",
+            "You must enter one of the listed loginNames.",
+            parent=parent
+        )
+        return
+
+    # 4) Launch the external map (placeholder)
+    messagebox.showinfo(
+        "External Map",
+        f"Opening External Map for '{choice}' …\n\n"
+        "— your real launch logic goes here —",
+        parent=parent
+    )
+
 # ─── SINGLE‐MAIN-WINDOW SETUP ──────────────────────────────────────────────────────
 class MainApp(tk.Tk):
     def __init__(self):
@@ -435,20 +501,6 @@ class MainApp(tk.Tk):
         self.resizable(False, False)
 
         set_background(self)
-
-        # ─── do any configured “auto-launch” ───────────────────────────────
-        if is_auto_launch_enabled():
-            exe, args = get_auto_launch_cmd()
-            if exe and os.path.exists(exe):
-                try:
-                    subprocess.Popen([exe] + args, shell=False)
-                except Exception as e:
-                    messagebox.showwarning("Auto-Launch failed", f"Couldn’t auto-launch:\n{e}")
-            else:
-                messagebox.showwarning(
-                    "Auto-Launch",
-                    f"Configured program not found:\n{exe or '[not set]'}"
-                )
 
         nav = tk.Frame(self, width=200, bg='#333333')
         nav.pack(side='left', fill='y')
@@ -512,6 +564,7 @@ class MainMenu(tk.Frame):
                       font=("Helvetica",24), bg="#444444", fg="white",
                       width=30, height=1, command=cmd) \
               .pack(pady=10)
+
 # ─── Pannel Classes for each selected menu ──────────────────────────────────────────────────────
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
@@ -520,22 +573,40 @@ class VBS4Panel(tk.Frame):
 
         tk.Label(self, text="VBS4 / BlueIG",
                  font=("Helvetica",36,"bold"),
-                 bg='black', fg='white', pady=20) \
+                 bg='black', fg='white', pady=20)\
           .pack(fill='x')
 
+        # existing buttons
         tk.Button(self, text="Launch VBS4",
                   font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_vbs4) \
+                  command=launch_vbs4)\
           .pack(pady=8, ipadx=10, ipady=5)
 
         tk.Button(self, text="Launch BlueIG",
                   font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_blueig) \
+                  command=launch_blueig)\
           .pack(pady=8, ipadx=10, ipady=5)
 
+        # ─── new One-Click Terrain Converter stub button ───────────────────────
+        tk.Button(self, text="One-Click Terrain Converter",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=lambda: messagebox.showinfo(
+                      "One-Click Terrain Converter",
+                      "Tool coming soon…"
+                  ))\
+          .pack(pady=8, ipadx=10, ipady=5)
+
+        # ─── new External Map button ───────────────────────────────────────────
+        tk.Button(self,
+                  text="External Map",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=lambda: select_user_profile(self)
+        ).pack(pady=8, ipadx=10, ipady=5)
+
+        # back to main menu
         tk.Button(self, text="Back",
                   font=("Helvetica",18), bg="red", fg="white",
-                  command=lambda: controller.show('Main')) \
+                  command=lambda: controller.show('Main'))\
           .pack(pady=20)
 
 class BVIPanel(tk.Frame):
