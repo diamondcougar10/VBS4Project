@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import os
@@ -8,6 +9,7 @@ import urllib.request
 import configparser
 import winreg
 import sys
+import functools
 
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +22,34 @@ if 'close_on_launch' not in config['General']:
     config['General']['close_on_launch'] = 'False'
 with open(CONFIG_PATH, 'w') as f:
     config.write(f)
+def load_image(path, size=None):
+    img = Image.open(path)
+    if size:
+        img = img.resize(size, Image.Resampling.LANCZOS)
+    return ImageTk.PhotoImage(img)
+
+# ─── AUTO-LAUNCH CONFIG ──────────────────────────────────────────────────────
+if 'Auto-Launch' not in config:
+    config['Auto-Launch'] = {
+        'enabled': 'False',
+        'program_path': '',
+        'arguments': ''
+    }
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+
+def is_auto_launch_enabled() -> bool:
+    return config.getboolean('Auto-Launch', 'enabled', fallback=False)
+
+def get_auto_launch_cmd() -> tuple[str, list[str]]:
+    """
+    Returns (exe_path, [args...]) from the config.
+    """
+    path = config['Auto-Launch'].get('program_path', '').strip()
+    raw_args = config['Auto-Launch'].get('arguments', '').strip()
+    # very simple split — you can improve with shlex.split() if you need quoted args
+    args = raw_args.split() if raw_args else []
+    return path, args
 
 # ─── SETTINGS HELPERS ────────────────────────────────────────────────────────
 def is_startup_enabled() -> bool:
@@ -405,6 +435,20 @@ class MainApp(tk.Tk):
         self.resizable(False, False)
 
         set_background(self)
+
+        # ─── do any configured “auto-launch” ───────────────────────────────
+        if is_auto_launch_enabled():
+            exe, args = get_auto_launch_cmd()
+            if exe and os.path.exists(exe):
+                try:
+                    subprocess.Popen([exe] + args, shell=False)
+                except Exception as e:
+                    messagebox.showwarning("Auto-Launch failed", f"Couldn’t auto-launch:\n{e}")
+            else:
+                messagebox.showwarning(
+                    "Auto-Launch",
+                    f"Configured program not found:\n{exe or '[not set]'}"
+                )
 
         nav = tk.Frame(self, width=200, bg='#333333')
         nav.pack(side='left', fill='y')
