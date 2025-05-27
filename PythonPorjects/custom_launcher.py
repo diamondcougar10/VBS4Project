@@ -431,19 +431,12 @@ def one_click_terrain_converter():
 
 # ─── helper for "External Map" ────────────────────────────────────────────
 def select_user_profile(parent):
-    """
-    1) Ask the user to pick their UserConfiguration.json
-    2) Parse out all the loginName entries
-    3) Prompt them to choose one from a dropdown
-    4) (Placeholder) launch the external map for that profile
-    """
-    # 1) Let the user pick the JSON (defaults to your Map\External folder)
+    # 1) Let the user pick the JSON (defaults to ~/Documents/VBS4/Map/External)
     default_dir = os.path.expanduser(r"~/Documents/VBS4/Map/External")
     cfg_path = filedialog.askopenfilename(
         title="Select UserConfiguration.json",
         initialdir=default_dir,
-        filetypes=[("JSON Files", "*.json")],
-        parent=parent
+        filetypes=[("JSON Files", "*.json")]
     )
     if not cfg_path:
         return
@@ -455,42 +448,40 @@ def select_user_profile(parent):
         users = data if isinstance(data, list) else data.get("Users", [])
         names = [u["loginName"] for u in users if "loginName" in u]
     except Exception as e:
-        messagebox.showerror(
-            "Error",
-            f"Failed to read JSON:\n{e}",
-            parent=parent
-        )
+        messagebox.showerror("Error", f"Failed to read JSON:\n{e}", parent=parent)
         return
 
     if not names:
-        messagebox.showinfo(
-            "No Profiles",
-            "No loginName entries found in that file.",
-            parent=parent
-        )
+        messagebox.showinfo("No Profiles", "No loginName entries found in that file.", parent=parent)
         return
 
     # 3) Ask the user to pick one
     choice = simpledialog.askstring(
         "Select Profile",
-        "Available profiles:\n\n" + "\n".join(names) + "\n\nEnter one exactly:",
+        "Available profiles:\n\n" +
+        "\n".join(names) +
+        "\n\nEnter one exactly as shown:",
         parent=parent
     )
     if not choice or choice not in names:
-        messagebox.showwarning(
-            "Invalid Selection",
-            "You must enter one of the listed loginNames.",
-            parent=parent
-        )
+        messagebox.showwarning("Invalid Selection",
+                               "You must enter one of the listed loginNames.",
+                               parent=parent)
         return
 
-    # 4) Launch the external map (placeholder)
-    messagebox.showinfo(
-        "External Map",
-        f"Opening External Map for '{choice}' …\n\n"
-        "— your real launch logic goes here —",
+    # 4) Ask for the map-server IP
+    ip = simpledialog.askstring(
+        "Server Address",
+        "Enter VBS Map Server IP (no port):",
+        initialvalue="127.0.0.1",
         parent=parent
     )
+    if not ip:
+        return
+
+    # 5) Launch the browser
+    url = f"http://{ip}:4080/#/external/login?loginName={choice}"
+    webbrowser.open(url, new=2)
 
 # ─── SINGLE‐MAIN-WINDOW SETUP ──────────────────────────────────────────────────────
 class MainApp(tk.Tk):
