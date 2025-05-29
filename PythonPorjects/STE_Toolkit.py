@@ -15,6 +15,18 @@ from tkinter import simpledialog
 
 
 def find_executable(name, additional_paths=[]):
+    """
+    Try to find either name (e.g. 'BlueIG.exe') or its .bat sibling
+    (e.g. 'BlueIG.bat') under standard paths or any additional_paths.
+    """
+    base, ext = os.path.splitext(name)
+    # build list of candidate filenames
+    candidates = [name]
+    if ext.lower() == '.exe':
+        candidates.append(base + '.bat')
+    elif ext.lower() == '.bat':
+        candidates.append(base + '.exe')
+
     possible_paths = [
         r"C:\BISIM\VBS4",
         r"C:\Builds\VBS4",
@@ -24,9 +36,9 @@ def find_executable(name, additional_paths=[]):
     for path in possible_paths:
         if os.path.isdir(path):
             for root, dirs, files in os.walk(path):
-                if name in files:
-                    return os.path.join(root, name)
-    
+                for cand in candidates:
+                    if cand in files:
+                        return os.path.join(root, cand)
     return None
 
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
@@ -64,6 +76,7 @@ def get_auto_launch_cmd() -> tuple[str, list[str]]:
     raw_args = config['Auto-Launch'].get('arguments', '').strip()
     args = raw_args.split() if raw_args else []
     return path, args
+
 
 
 # ─── SETTINGS HELPERS ────────────────────────────────────────────────────────
@@ -207,6 +220,16 @@ def launch_vbs4():
             sys.exit(0)
     except Exception as e:
         messagebox.showerror("Launch Failed", f"Couldn’t launch VBS4:\n{e}")
+
+def launch_vbs4_setup():
+    try:
+        vbs4_setup_exe = ensure_executable('vbs4_setup_path', 'VBSLauncher.exe', "Select VBSLauncher.exe")
+        subprocess.Popen([vbs4_setup_exe])
+        messagebox.showinfo("Launch Successful", "VBS4 Setup Launcher has started.")
+        if is_close_on_launch_enabled():
+            sys.exit(0)
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn't launch VBS4 Setup Launcher:\n{e}")
 
 def launch_blueig():
     try:
@@ -606,6 +629,11 @@ class VBS4Panel(tk.Frame):
                   command=launch_vbs4)\
           .pack(pady=8, ipadx=10, ipady=5)
 
+        tk.Button(self, text="VBS4 Setup Launcher",
+                  font=("Helvetica",20), bg="#444", fg="white",
+                  command=launch_vbs4_setup)\
+          .pack(pady=8, ipadx=10, ipady=5)
+
         tk.Button(self, text="Launch BlueIG",
                   font=("Helvetica",20), bg="#444", fg="white",
                   command=launch_blueig)\
@@ -717,6 +745,19 @@ class SettingsPanel(tk.Frame):
                                  anchor="w", width=50)
         self.lbl_vbs4.pack(side="left", padx=10, fill="x", expand=True)
 
+        frame_vbs4_setup = tk.Frame(self, bg=self["bg"])
+        frame_vbs4_setup.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_vbs4_setup, text="Set VBS4 Setup Launcher Location",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_vbs4_setup) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_vbs4_setup = tk.Label(frame_vbs4_setup,
+                                       text=config['General'].get('vbs4_setup_path', '') or "[not set]",
+                                       font=("Helvetica",14),
+                                       bg="#222222", fg="white",
+                                       anchor="w", width=50)
+        self.lbl_vbs4_setup.pack(side="left", padx=10, fill="x", expand=True)
+
         # BlueIG Install Location
         frame_blueig = tk.Frame(self, bg=self["bg"])
         frame_blueig.pack(fill="x", pady=8, padx=20)
@@ -769,6 +810,21 @@ class SettingsPanel(tk.Frame):
     def _on_set_vbs4(self):
         set_vbs4_install_path()
         self.lbl_vbs4.config(text=get_vbs4_install_path() or "[not set]")
+
+    def _on_set_vbs4_setup(self):
+        path = filedialog.askopenfilename(
+            title="Select VBSLauncher.exe",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if path and os.path.exists(path):
+            config['General']['vbs4_setup_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            self.lbl_vbs4_setup.config(text=path)
+            messagebox.showinfo("Settings", f"VBS4 Setup Launcher path set to:\n{path}")
+        else:
+            messagebox.showerror("Settings", "Invalid VBS4 Setup Launcher path selected.")
+
 
     def _on_set_blueig(self):
         set_blueig_install_path()
