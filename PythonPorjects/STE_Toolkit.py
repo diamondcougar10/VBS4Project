@@ -13,6 +13,15 @@ import functools
 import json
 from tkinter import simpledialog
 
+def get_vbs4_install_path() -> str:
+    path = config['General'].get('vbs4_path', '')
+    if not path or not os.path.isfile(path):
+        path = find_executable('VBS4.exe')
+        if path:
+            config['General']['vbs4_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+    return path or ''
 
 def find_executable(name, additional_paths=[]):
     """
@@ -138,12 +147,18 @@ def prompt_for_exe(title: str) -> str:
 def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     path = config['General'].get(config_key, '').strip()
     if not path or not os.path.isfile(path):
-        if exe_name == 'VBS4.exe':
-            path = get_vbs4_install_path()
-        elif exe_name == 'BlueIG.exe':
-            path = get_blueig_install_path()
-        else:
-            path = find_executable(exe_name)
+        if exe_name and isinstance(exe_name, str):
+            if exe_name.lower() == 'vbs4.exe':
+                path = get_vbs4_install_path()
+            elif exe_name.lower() == 'blueig.exe':
+                path = get_blueig_install_path()
+            else:
+                path = find_executable(exe_name)
+        elif isinstance(exe_name, list):
+            for name in exe_name:
+                path = find_executable(name)
+                if path:
+                    break
     
     if not path:
         path = prompt_for_exe(prompt_title)
@@ -198,9 +213,7 @@ exit /b 0
 ''')
     return BVI_BAT
 # ─── BATCH‐FILE WRITING ──────────────────────────────────────────────────
-# Prepare batch files on startup
-# VBS4
-# VBS4
+
 vbs4_exe = ensure_executable('vbs4_path', 'VBS4.exe', "Select VBS4.exe")
 _write_vbs4_bat(vbs4_exe)
 
@@ -209,7 +222,7 @@ blueig_exe = ensure_executable('blueig_path', 'BlueIG.exe', "Select BlueIG.exe")
 _write_blueig_bat(blueig_exe)
 
 # BVI (ARES Manager)
-ares_exe    = ensure_executable('bvi_manager_path', [], "Select ARES Manager executable")
+ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
 bvi_batch_file = create_bvi_batch_file(ares_exe)
 
 def launch_vbs4():
@@ -472,16 +485,6 @@ def set_default_browser():
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def get_vbs4_install_path() -> str:
-    path = config['General'].get('vbs4_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('VBS4.exe')
-        if path:
-            config['General']['vbs4_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-    return path or ''
-
 def set_vbs4_install_path():
     """Open a file dialog to choose VBS4.exe, then save it in config.ini."""
     path = filedialog.askopenfilename(
@@ -512,58 +515,52 @@ def one_click_terrain_converter():
     print("One-Click Terrain Converter launched…")
 
 # ─── helper for "External Map" ────────────────────────────────────────────
-def select_user_profile(parent):
-    # 1) Let the user pick the JSON (defaults to ~/Documents/VBS4/Map/External)
-    default_dir = os.path.expanduser(r"~/Documents/VBS4/Map/External")
-    cfg_path = filedialog.askopenfilename(
-        title="Select UserConfiguration.json",
-        initialdir=default_dir,
-        filetypes=[("JSON Files", "*.json")]
+def select_vbs_map_profile():
+    """Prompt for a VBS Map loginName and save it to config."""
+    profile = simpledialog.askstring(
+        "Select User Profile",
+        "Enter VBS Map loginName:"
     )
-    if not cfg_path:
+    if not profile:
         return
+    cfg = config['General']
+    cfg['vbs_map_user']   = profile.strip()
+    # you can also set defaults if you want:
+    cfg.setdefault('vbs_map_server', 'localhost')
+    cfg.setdefault('vbs_map_port',   '4080')
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+    messagebox.showinfo("Settings", f"VBS Map loginName set to:\n{profile}")
 
-    # 2) Load and extract all loginName entries
+def open_external_map():
+    """Open the VBS Map web UI for the saved user, if server is live."""
+    cfg  = config['General']
+    user = cfg.get('vbs_map_user','').strip()
+    if not user:
+        messagebox.showwarning("External Map",
+                               "No loginName set. Please select a user profile first.")
+        select_vbs_map_profile()
+        user = cfg.get('vbs_map_user','').strip()
+        if not user:
+            return
+
+    host = cfg.get('vbs_map_server', 'localhost').strip()
+    port = cfg.get('vbs_map_port',   '4080').strip()
+    # build URL with both loginName and vbsFullComputerName
+    url = (
+        f"http://{host}:{port}/#/external/login"
+        f"?loginName={user}"
+        f"&vbsFullComputerName={user}"
+    )
+
+    # quick ping
     try:
-        with open(cfg_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        users = data if isinstance(data, list) else data.get("Users", [])
-        names = [u["loginName"] for u in users if "loginName" in u]
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to read JSON:\n{e}", parent=parent)
-        return
-
-    if not names:
-        messagebox.showinfo("No Profiles", "No loginName entries found in that file.", parent=parent)
-        return
-
-    # 3) Ask the user to pick one
-    choice = simpledialog.askstring(
-        "Select Profile",
-        "Available profiles:\n\n" +
-        "\n".join(names) +
-        "\n\nEnter one exactly as shown:",
-        parent=parent
-    )
-    if not choice or choice not in names:
-        messagebox.showwarning("Invalid Selection",
-                               "You must enter one of the listed loginNames.",
-                               parent=parent)
-        return
-
-    # 4) Ask for the map-server IP
-    ip = simpledialog.askstring(
-        "Server Address",
-        "Enter VBS Map Server IP (no port):",
-        initialvalue="127.0.0.1",
-        parent=parent
-    )
-    if not ip:
-        return
-
-    # 5) Launch the browser
-    url = f"http://{ip}:4080/#/external/login?loginName={choice}"
-    webbrowser.open(url, new=2)
+        urllib.request.urlopen(f"http://{host}:{port}", timeout=1)
+    except Exception:
+        messagebox.showinfo("External Map",
+                            "Note: VBS Map server must be running")
+    else:
+        webbrowser.open(url, new=2)
 
 # ─── SINGLE‐MAIN-WINDOW SETUP ──────────────────────────────────────────────────────
 class MainApp(tk.Tk):
@@ -625,20 +622,96 @@ class MainMenu(tk.Frame):
                  bg='black', fg='white', pady=20) \
           .pack(fill='x')
 
+        # VBS4 Button
+        self.vbs4_button = tk.Button(self, text="Launch VBS4",
+                  font=("Helvetica",24), bg="#444444", fg="white",
+                  width=30, height=1, command=launch_vbs4)
+        self.vbs4_button.pack(pady=10)
+
+        # BlueIG Frame for dynamic buttons
+        self.blueig_frame = tk.Frame(self, bg='#333333')  # Set gray background
+        self.blueig_frame.pack(pady=10)
+        self.create_blueig_button()
+
+        # Other buttons
+        self.other_buttons = []
         for txt, cmd in [
-            ("Launch VBS4",    launch_vbs4),
-            ("Launch BlueIG",  launch_blueig),
             ("Launch BVI",     launch_bvi),
             ("Settings",       lambda: controller.show('Settings')),
             ("Tutorials",      lambda: controller.show('Tutorials')),
             ("Exit",           controller.destroy),
         ]:
-            tk.Button(self, text=txt,
+            button = tk.Button(self, text=txt,
                       font=("Helvetica",24), bg="#444444", fg="white",
-                      width=30, height=1, command=cmd) \
-              .pack(pady=10)
+                      width=30, height=1, command=cmd)
+            button.pack(pady=10)
+            self.other_buttons.append(button)
 
-# ─── Pannel Classes for each selected menu ──────────────────────────────────────────────────────
+    def create_blueig_button(self):
+        # Clear the frame first
+        for widget in self.blueig_frame.winfo_children():
+            widget.destroy()
+
+        tk.Button(self.blueig_frame, text="Launch BlueIG",
+                  font=("Helvetica", 24), bg="#444444", fg="white",
+                  width=30, height=1, command=self.show_scenario_buttons) \
+          .pack()
+
+    def show_scenario_buttons(self):
+        # Clear the frame
+        for widget in self.blueig_frame.winfo_children():
+            widget.destroy()
+
+        # Create four scenario buttons
+        for i in range(1, 5):
+            tk.Button(self.blueig_frame, 
+                      text=f"Launch BlueIG HammerKit 1-{i}",
+                      font=("Helvetica", 20), bg="#444444", fg="white",
+                      width=30, height=1,
+                      command=lambda n=i: self.launch_blueig_scenario(n)) \
+              .pack(pady=5)
+
+        # Add a back button
+        tk.Button(self.blueig_frame, text="Back",
+                  font=("Helvetica", 18), bg="#666666", fg="white",
+                  width=10, command=self.create_blueig_button) \
+          .pack(pady=10)
+
+    def launch_blueig_scenario(self, scenario_num):
+        # Launch BlueIG with the selected scenario
+        exe = config['General'].get('blueig_path', '').strip()
+        if not exe or not os.path.isfile(exe):
+            messagebox.showerror("Error", "BlueIG executable not found. Please set it in the settings.")
+            return
+
+        scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
+
+        # Rewrite the batch file
+        bat_contents = f"""@echo off
+"{exe}" -hmd=openxr_ctr:oculus ^
+    -vbsHostExerciseID={scenario} ^
+    -splitCPU ^
+    -DJobThreads=8 ^
+    -DJobPool=8
+exit /b 0
+"""
+        with open(BLUEIG_BAT, "w", newline="\r\n") as bat:
+            bat.write(bat_contents)
+
+        # Launch it
+        try:
+            subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
+            messagebox.showinfo("Launch Successful",
+                                f"BlueIG HammerKit 1-{scenario_num} started.")
+            if is_close_on_launch_enabled():
+                sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Launch Failed",
+                                 f"Couldn't launch BlueIG:\n{e}")
+
+        # Revert back to the single button
+        self.create_blueig_button()
+
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -655,15 +728,15 @@ class VBS4Panel(tk.Frame):
                   command=launch_vbs4)\
           .pack(pady=8, ipadx=10, ipady=5)
 
-        tk.Button(self, text="VBS4 Setup Launcher",
+        tk.Button(self, text="VBS4 Launcher",
                   font=("Helvetica",20), bg="#444", fg="white",
                   command=launch_vbs4_setup)\
           .pack(pady=8, ipadx=10, ipady=5)
 
-        tk.Button(self, text="Launch BlueIG",
-                  font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_blueig)\
-          .pack(pady=8, ipadx=10, ipady=5)
+        # BlueIG frame for dynamic buttons
+        self.blueig_frame = tk.Frame(self, bg='#333333')  # Set the background to gray
+        self.blueig_frame.pack(pady=8)
+        self.create_blueig_button()
 
         # ─── new One-Click Terrain Converter stub button ───────────────────────
         tk.Button(self, text="One-Click Terrain Converter",
@@ -675,17 +748,70 @@ class VBS4Panel(tk.Frame):
           .pack(pady=8, ipadx=10, ipady=5)
 
         # ─── new External Map button ───────────────────────────────────────────
-        tk.Button(self,
-                  text="External Map",
+        tk.Button(self, text="External Map",
                   font=("Helvetica",20), bg="#444", fg="white",
-                  command=lambda: select_user_profile(self)
-        ).pack(pady=8, ipadx=10, ipady=5)
+                  command=open_external_map)\
+          .pack(pady=8, ipadx=10, ipady=5)
 
         # back to main menu
         tk.Button(self, text="Back",
                   font=("Helvetica",18), bg="red", fg="white",
                   command=lambda: controller.show('Main'))\
           .pack(pady=20)
+
+    def create_blueig_button(self):
+        tk.Button(self.blueig_frame, text="Launch BlueIG",
+                  font=("Helvetica", 20), bg="#444", fg="white",
+                  command=self.show_scenario_buttons)\
+          .pack(ipadx=10, ipady=5)
+
+    def show_scenario_buttons(self):
+        # Clear the frame
+        for widget in self.blueig_frame.winfo_children():
+            widget.destroy()
+
+        # Create four scenario buttons
+        for i in range(1, 5):
+            tk.Button(self.blueig_frame, 
+                      text=f"HammerKit 1-{i}",
+                      font=("Helvetica", 16), bg="#444", fg="white",
+                      command=lambda n=i: self.launch_blueig_scenario(n))\
+              .pack(side=tk.LEFT, padx=5, pady=5, ipadx=5, ipady=2)
+
+    def launch_blueig_scenario(self, scenario_num):
+        # Launch BlueIG with the selected scenario
+        exe = config['General'].get('blueig_path', '').strip()
+        if not exe or not os.path.isfile(exe):
+            messagebox.showerror("Error", "BlueIG executable not found. Please set it in the settings.")
+            return
+
+        scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
+
+        # Rewrite the batch file
+        bat_contents = f"""@echo off
+"{exe}" -hmd=openxr_ctr:oculus ^
+    -vbsHostExerciseID={scenario} ^
+    -splitCPU ^
+    -DJobThreads=8 ^
+    -DJobPool=8
+exit /b 0
+"""
+        with open(BLUEIG_BAT, "w", newline="\r\n") as bat:
+            bat.write(bat_contents)
+
+        # Launch it
+        try:
+            subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
+            messagebox.showinfo("Launch Successful",
+                                f"BlueIG HammerKit 1-{scenario_num} started.")
+            if is_close_on_launch_enabled():
+                sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Launch Failed",
+                                 f"Couldn't launch BlueIG:\n{e}")
+
+        # Revert back to the single button
+        self.create_blueig_button()
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
