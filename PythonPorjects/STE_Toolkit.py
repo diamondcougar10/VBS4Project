@@ -232,13 +232,55 @@ def launch_vbs4_setup():
         messagebox.showerror("Launch Failed", f"Couldn't launch VBS4 Setup Launcher:\n{e}")
 
 def launch_blueig():
+    # 1) get the saved BlueIG.exe (or ask once)
+    exe = config['General'].get('blueig_path', '').strip()
+    if not exe or not os.path.isfile(exe):
+        messagebox.showwarning("BlueIG Not Found",
+                               "Couldn't find BlueIG.exe — please locate it now.")
+        exe = filedialog.askopenfilename(
+            title="Select BlueIG Executable",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if not exe or not os.path.isfile(exe):
+            messagebox.showerror("Error", "Invalid BlueIG path selected.")
+            return
+        config['General']['blueig_path'] = exe
+        with open(CONFIG_PATH, 'w') as cfg:
+            config.write(cfg)
+
+    # 2) ask which HammerKit exercise
+    n = simpledialog.askinteger(
+        "Select HammerKit Scenario",
+        "Choose VBS4 Hammerkit Server (1–4):",
+        minvalue=1, maxvalue=4
+    )
+    if n is None:
+        return  # user hit Cancel
+
+    scenario = f"Exercise-HAMMERKIT1-{n}"
+
+    # 3) rewrite the batch file
+    bat_contents = f"""@echo off
+"{exe}" -hmd=openxr_ctr:oculus ^
+    -vbsHostExerciseID={scenario} ^
+    -splitCPU ^
+    -DJobThreads=8 ^
+    -DJobPool=8
+exit /b 0
+"""
+    with open(BLUEIG_BAT, "w", newline="\r\n") as bat:
+        bat.write(bat_contents)
+
+    # 4) launch it
     try:
-        subprocess.Popen(["cmd.exe","/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
-        messagebox.showinfo("Launch Successful", "BlueIG has started.")
+        subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
+        messagebox.showinfo("Launch Successful",
+                            f"BlueIG HammerKit 1-{n} started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
     except Exception as e:
-        messagebox.showerror("Launch Failed", f"Couldn’t launch BlueIG:\n{e}")
+        messagebox.showerror("Launch Failed",
+                             f"Couldn't launch BlueIG:\n{e}")
 
 def launch_bvi():
     try:
@@ -317,27 +359,12 @@ blueig_help_items = {
     "Video Tutorials":                lambda: messagebox.showinfo("Coming Soon", "Not implemented yet"),
     "Support Website":                lambda: webbrowser.open("https://example.com/blueig-support", new=2),
 }
-# ─── SUBMENUS ────────────────────────────
-def open_submenu(title, buttons):
-    sub = tk.Toplevel()
-    sub.title(title)
-    sub.geometry("1600x800")
-    sub.transient()
-    sub.grab_set()
-    set_background(sub)            
-    tk.Label(sub, text=title,
-             font=("Helvetica",28,"bold"),
-             bg='black', fg='white', pady=10).pack(fill='x')
-    for txt, cmd in buttons.items():
-        tk.Button(sub, text=txt, command=cmd,
-                  font=("Helvetica",18), bg="#444", fg="white",
-                  width=30, height=1).pack(pady=5, padx=10)
-    tk.Button(sub, text="Close", command=sub.destroy,
-              font=("Helvetica",16), bg="red", fg="white").pack(pady=15)
-# Path constants
-VBS4_HTML    = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\VBS4_Manuals_EN.htm"
+# ─── help MENUS ────────────────────────────
+# Update the VBS4_HTML constant
+VBS4_HTML = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\VBS4_Manuals_EN.htm"
 SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\Wiki\SQF_Reference.html"
 SUPPORT_SITE = "https://bisimulations.com/support/"
+STE_SMTP_KIT_GUIDE = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_SMTP_KIT_GUIDE.pdf"
 # ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
 pdf_docs = {
     "SQF Wiki": lambda: webbrowser.open(
@@ -364,8 +391,6 @@ def open_vbs4_pdfs():
         path    = os.path.join(VBS4_PDF_DIR, fname)
         items[display] = lambda p=path: subprocess.Popen([p], shell=True)
 
-    open_submenu("VBS4 PDF Manuals", items)
-
 video_items = {
     "VBS4 Video Tutorials":   lambda: messagebox.showinfo("VBS4 Videos", "Play VBS4 tutorial videos"),
     "BlueIG Video Tutorials": lambda: messagebox.showinfo("BlueIG Videos", "Play BlueIG tutorial videos"),
@@ -374,6 +399,7 @@ video_items = {
 vbs4_help_items = {
     "VBS4 Official Documentation": lambda: subprocess.Popen([VBS4_HTML], shell=True),
        "VBS4 PDF Manuals":   open_vbs4_pdfs,
+       "STE SMTP Kit Guide":          lambda: subprocess.Popen([STE_SMTP_KIT_GUIDE], shell=True),
     "Script Wiki":                  lambda: subprocess.Popen([SCRIPT_WIKI], shell=True),
     "Video Tutorials":              lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
     "Support Website":              lambda: webbrowser.open(SUPPORT_SITE, new=2),
@@ -838,31 +864,80 @@ class SettingsPanel(tk.Frame):
         set_default_browser()
         self.lbl_browser.config(text=get_default_browser() or "[not set]")
 
-# ─── ? menu config pannel ──────────────────────────────────────────────────────
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_background(self)
 
         tk.Label(self, text="Tutorials ❓",
-                 font=("Helvetica",36,"bold"),
+                 font=("Helvetica", 36, "bold"),
                  bg='black', fg='white', pady=20)\
           .pack(fill='x')
 
-        # top-level buttons:
-        specs = [
-            ("VBS4 Help",            lambda: open_submenu("VBS4 Help", vbs4_help_items)),
-            ("BVI Help",             lambda: open_submenu("BVI Help", bvi_help_items)),
-            ("One-Click Terrain Help", lambda: open_submenu("Terrain Help", oct_help_items)),
-            ("Blue IG Help",         lambda: open_submenu("Blue IG Help", blueig_help_items)),
-            ("Back",                 lambda: controller.show('Main')),
-        ]
+        # Create a frame to hold all button sections
+        content_frame = tk.Frame(self, bg='black')
+        content_frame.pack(expand=True, fill='both', padx=20, pady=20)
 
-        for txt, cmd in specs:
-            tk.Button(self, text=txt,
-                      font=("Helvetica",20), bg="#444444", fg="white",
-                      width=30, height=1, command=cmd)\
-              .pack(pady=8)
+        # Configure grid
+        content_frame.columnconfigure(0, weight=1)
+        content_frame.columnconfigure(1, weight=1)
+        content_frame.rowconfigure(0, weight=1)
+        content_frame.rowconfigure(1, weight=1)
+
+        # VBS4 Help Section
+        vbs4_frame = self._create_section(content_frame, "VBS4 Help", 0, 0)
+        self._add_buttons(vbs4_frame, vbs4_help_items)
+
+        # BVI Help Section
+        bvi_frame = self._create_section(content_frame, "BVI Help", 0, 1)
+        self._add_buttons(bvi_frame, bvi_help_items)
+
+        # One-Click Terrain Help Section (Coming Soon)
+        oct_frame = self._create_section(content_frame, "One-Click Terrain Help", 1, 0)
+        tk.Label(oct_frame, text="Tool coming soon...",
+                 font=("Helvetica", 16), bg="#333333", fg="white", pady=20)\
+          .pack(expand=True)
+
+        # Blue IG Help Section
+        blueig_frame = self._create_section(content_frame, "Blue IG Help", 1, 1)
+        self._add_buttons(blueig_frame, blueig_help_items)
+
+        # Back button
+        tk.Button(self, text="Back",
+                  font=("Helvetica", 18), bg="red", fg="white",
+                  command=lambda: controller.show('Main'))\
+          .pack(pady=20)
+
+    def _create_section(self, parent, title, row, column):
+        frame = tk.Frame(parent, bg='#333333', bd=2, relief=tk.RAISED)
+        frame.grid(row=row, column=column, sticky='nsew', padx=10, pady=10)
+        
+        tk.Label(frame, text=title,
+                 font=("Helvetica", 24, "bold"),
+                 bg='#333333', fg='white', pady=10)\
+          .pack(fill='x')
+        
+        return frame
+
+    def _add_buttons(self, parent, items):
+        button_frame = tk.Frame(parent, bg='#333333')
+        button_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        rows = 3
+        cols = 2
+        for i, (txt, cmd) in enumerate(items.items()):
+            row = i // cols
+            col = i % cols
+            tk.Button(button_frame, text=txt,
+                      font=("Helvetica", 12), bg="#444444", fg="white",
+                      command=cmd, wraplength=150)\
+              .grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
+        
+        # Configure grid
+        for i in range(cols):
+            button_frame.columnconfigure(i, weight=1)
+        for i in range(rows):
+            button_frame.rowconfigure(i, weight=1)
 
 if __name__ == "__main__":
     MainApp().mainloop()
