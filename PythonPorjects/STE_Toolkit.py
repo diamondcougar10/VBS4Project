@@ -12,6 +12,23 @@ import sys
 import functools
 import json
 from tkinter import simpledialog
+
+
+def find_executable(name, additional_paths=[]):
+    possible_paths = [
+        r"C:\BISIM\VBS4",
+        r"C:\Builds\VBS4",
+        r"C:\Builds"
+    ] + additional_paths
+
+    for path in possible_paths:
+        if os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                if name in files:
+                    return os.path.join(root, name)
+    
+    return None
+
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
@@ -105,18 +122,35 @@ def prompt_for_exe(title: str) -> str:
     root.destroy()
     return path
 
-def ensure_executable(config_key: str, defaults: list[str], prompt_title: str) -> str:
-    saved = config['General'].get(config_key, '').strip()
-    for candidate in [saved] + defaults:
-        if candidate and os.path.isfile(candidate):
-            return candidate
-    selected = prompt_for_exe(prompt_title)
-    if not selected or not os.path.isfile(selected):
-        raise FileNotFoundError(f"No executable found for '{config_key}'.")
-    config['General'][config_key] = selected
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
-    return selected
+def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
+    path = config['General'].get(config_key, '').strip()
+    if not path or not os.path.isfile(path):
+        if exe_name == 'VBS4.exe':
+            path = get_vbs4_install_path()
+        elif exe_name == 'BlueIG.exe':
+            path = get_blueig_install_path()
+        else:
+            path = find_executable(exe_name)
+    
+    if not path:
+        path = prompt_for_exe(prompt_title)
+        if not path or not os.path.isfile(path):
+            raise FileNotFoundError(f"No executable found for '{config_key}'.")
+        config['General'][config_key] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+    
+    return path
+
+def get_blueig_install_path() -> str:
+    path = config['General'].get('blueig_path', '')
+    if not path or not os.path.isfile(path):
+        path = find_executable('BlueIG.exe')
+        if path:
+            config['General']['blueig_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+    return path or ''
 
 def _write_vbs4_bat(vbs4_exe: str):
     script = f"""@echo off
@@ -153,19 +187,12 @@ exit /b 0
 # ─── BATCH‐FILE WRITING ──────────────────────────────────────────────────
 # Prepare batch files on startup
 # VBS4
-vbs4_exe = ensure_executable(
-    'vbs4_path',
-    [
-        os.path.join(os.getenv("PROGRAMFILES","C:\\Program Files"), "BISIM","VBS4","VBS4.exe"),
-        os.path.join(os.getenv("PROGRAMFILES(X86)","C:\\Program Files (x86)"), "BISIM","VBS4","VBS4.exe"),
-        r"C:\BISIM\VBS4\VBS4.exe"
-    ],
-    "Select VBS4.exe"
-)
+# VBS4
+vbs4_exe = ensure_executable('vbs4_path', 'VBS4.exe', "Select VBS4.exe")
 _write_vbs4_bat(vbs4_exe)
 
 # BlueIG
-blueig_exe = ensure_executable('blueig_path', [], "Select BlueIG.exe")
+blueig_exe = ensure_executable('blueig_path', 'BlueIG.exe', "Select BlueIG.exe")
 _write_blueig_bat(blueig_exe)
 
 # BVI (ARES Manager)
@@ -397,8 +424,14 @@ def set_default_browser():
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_vbs4_install_path() -> str:
-    """Return the currently saved VBS4 path (or empty string if none)."""
-    return config['General'].get('vbs4_path', '')
+    path = config['General'].get('vbs4_path', '')
+    if not path or not os.path.isfile(path):
+        path = find_executable('VBS4.exe')
+        if path:
+            config['General']['vbs4_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+    return path or ''
 
 def set_vbs4_install_path():
     """Open a file dialog to choose VBS4.exe, then save it in config.ini."""
