@@ -1,6 +1,6 @@
 [Setup]
 AppName=STE Mission Planning Toolkit
-AppVersion=2.0
+AppVersion=1.0
 DefaultDirName={pf}\STE Toolkit
 DefaultGroupName=STE Toolkit
 DisableProgramGroupPage=yes
@@ -8,6 +8,9 @@ Compression=lzma
 SolidCompression=yes
 OutputBaseFilename=STE_Toolkit_Setup
 SetupIconFile=icon.ico
+
+; ─── Require administrator privileges ───────────────────────────────────────
+PrivilegesRequired=admin
 
 [Files]
 Source: "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\dist\STE_Toolkit\*"; \
@@ -23,7 +26,7 @@ Name: firewall;    Description: "Allow STE Toolkit through Windows Firewall"; Fl
 Name: vc_redist;   Description: "Install Visual C++ Redistributable"; Flags: unchecked
 
 [Run]
-// Launch main app
+// Launch main app (no elevation needed here; installer already ran elevated)
 Filename: "{app}\STE_Toolkit.exe"; Description: "Launch STE Mission Planning Toolkit now"; Flags: nowait postinstall skipifsilent
 
 // Firewall exception (only if user checked “Allow STE Toolkit through Windows Firewall”)

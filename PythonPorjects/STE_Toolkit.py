@@ -380,7 +380,7 @@ tutorials_items = {
     "VBS4 Documentation": lambda: webbrowser.open(
         "C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm", new=2),
     "Script Wiki":         lambda: webbrowser.open(
-        "file:///C:/BISIM/VBS4/docs/Wiki/SQF_Resources/VBS_Scripting_Reference.html", new=2),
+        "C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\Wiki\SQF_Reference.html", new=2),
     "BVI PDF Docs":        lambda: messagebox.showinfo("BVI Docs","Open BVI PDF docs"),
 }
 blueig_help_items = {
@@ -393,19 +393,31 @@ VBS4_HTML = r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm"
 BlueIG_HTML = r"C:\Builds\BlueIG\Blue IG 24.2 YYMEA_General\docs\Blue_IG_EN.htm"
 SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\Wiki\SQF_Reference.html"
 SUPPORT_SITE = "https://bisimulations.com/support/"
-STE_SMTP_KIT_GUIDE = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_SMTP_KIT_GUIDE.pdf"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STE_SMTP_KIT_GUIDE = os.path.join(BASE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
+
 # ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
+def open_vbs4_manuals():
+    vbs4_path = get_vbs4_install_path()
+    if vbs4_path:
+        manuals_path = os.path.join(os.path.dirname(vbs4_path), "docs", "VBS4_Manuals_EN.htm")
+        if os.path.exists(manuals_path):
+            webbrowser.open(f"file://{manuals_path}", new=2)
+        else:
+            messagebox.showerror("Error", "VBS4 Manuals not found in the expected location.")
+    else:
+        messagebox.showerror("Error", "VBS4 path not set. Please set it in the settings.")
+
 pdf_docs = {
     "SQF Wiki": lambda: webbrowser.open(
-        r"file:///C:/Users/tifte/Documents/GitHub/VBS4Project/PythonPorjects/Help_Tutorials/Wiki/SQF_Reference.html",
+        os.path.join(BASE_DIR, "Help_Tutorials", "Wiki", "SQF_Reference.html"),
         new=2),
-    "VBS4 Manuals": lambda: webbrowser.open(
-        r"file:///C:/Users/tifte/Documents/GitHub/VBS4Project/PythonPorjects/Help_Tutorials/VBS4_Manuals_EN.htm",
-        new=2),
+    "VBS4 Manuals": lambda: open_vbs4_manuals(),
 }
 
 # ─── VBS4 PDF Docs Helper ────────────────────────────────────────────────────
-VBS4_PDF_DIR = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\PDF_EN"
+
+VBS4_PDF_DIR = os.path.join(BASE_DIR, "PDF_EN")
 
 def open_vbs4_pdfs():
     """Scan the VBS4 PDF_EN folder and pop up a submenu of all the PDFs."""
