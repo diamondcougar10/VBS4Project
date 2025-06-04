@@ -13,7 +13,11 @@ import functools
 import json
 from tkinter import simpledialog
 import re
-#-----vbs4 install path finder------------------
+
+#==============================================================================
+# VBS4 INSTALL PATH FINDER
+#==============================================================================
+
 def get_vbs4_install_path() -> str:
     path = config['General'].get('vbs4_path', '')
     if not path or not os.path.isfile(path):
@@ -23,7 +27,11 @@ def get_vbs4_install_path() -> str:
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
     return path or ''
-#--------------------Version display-----------------------
+
+#==============================================================================
+# VERSION DISPLAY FUNCTIONS
+#==============================================================================
+
 def get_vbs4_version(file_path):
     """Extract VBS4 version from the file path."""
     match = re.search(r'VBS4 (\d+\.\d+)', file_path)
@@ -39,6 +47,9 @@ def get_bvi_version(file_path):
     match = re.search(r'ARES-dev-release-v(\d+\.\d+\.\d+)', file_path)
     return match.group(1) if match else "Unknown"
 
+#==============================================================================
+# EXECUTABLE FINDER
+#==============================================================================
 
 def find_executable(name, additional_paths=[]):
     """
@@ -67,7 +78,10 @@ def find_executable(name, additional_paths=[]):
                         return os.path.join(root, cand)
     return None
 
-# ─── CONFIGURATION ───────────────────────────────────────────────────────────
+#==============================================================================
+# CONFIGURATION
+#==============================================================================
+
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
 config      = configparser.ConfigParser()
@@ -84,7 +98,10 @@ def load_image(path, size=None):
         img = img.resize(size, Image.Resampling.LANCZOS)
     return ImageTk.PhotoImage(img)
 
-# ─── AUTO-LAUNCH CONFIG ──────────────────────────────────────────────────────
+#==============================================================================
+# AUTO-LAUNCH CONFIG
+#==============================================================================
+
 if 'Auto-Launch' not in config:
     config['Auto-Launch'] = {
         'enabled': 'False',
@@ -103,9 +120,10 @@ def get_auto_launch_cmd() -> tuple[str, list[str]]:
     args = raw_args.split() if raw_args else []
     return path, args
 
+#==============================================================================
+# SETTINGS HELPERS
+#==============================================================================
 
-
-# ─── SETTINGS HELPERS ────────────────────────────────────────────────────────
 def is_startup_enabled() -> bool:
     """Return True if the app is registered to launch on Windows startup."""
     REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -147,19 +165,74 @@ def toggle_close_on_launch():
     status = "Enabled" if enabled else "Disabled"
     messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
 
+#==============================================================================
+# BATCH-FILE LAUNCH LOGIC
+#==============================================================================
 
-# ─── BATCH‐FILE LAUNCH LOGIC ──────────────────────────────────────────────────
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 os.makedirs(BATCH_FOLDER, exist_ok=True)
 VBS4_BAT     = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
 BLUEIG_BAT   = os.path.join(BATCH_FOLDER, "BlueIg.bat")
 BVI_BAT      = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
 
-def prompt_for_exe(title: str) -> str:
-    root = tk.Tk(); root.withdraw()
-    path = filedialog.askopenfilename(title=title, filetypes=[("Executable","*.exe")])
-    root.destroy()
-    return path
+def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
+    frame = tk.Frame(parent, bg="#333333")
+    frame.pack(pady=8)
+
+    path = get_path_func()
+    
+    if not path:
+        state = "normal"
+        command = set_path_func
+        text = f"Set {app_name} Location"
+        bg_color = "#888888"
+    else:
+        state = "normal"
+        command = launch_func
+        text = f"Launch {app_name}"
+        bg_color = "#444444"
+
+    button = tk.Button(
+        frame,
+        text=text,
+        font=("Helvetica", 20),
+        bg=bg_color,
+        fg="white",
+        state=state,
+        command=command
+    )
+    button.pack(ipadx=10, ipady=5)
+
+    # Version label
+    version_label = tk.Label(
+        frame,
+        text="",
+        font=("Helvetica", 16),
+        bg="#333333",
+        fg="white"
+    )
+    version_label.pack(side=tk.LEFT, padx=10)
+
+    return button, version_label
+
+#==============================================================================
+# EXE finder prompt
+#==============================================================================
+
+def prompt_for_exe(app_name, config_key):
+    path = filedialog.askopenfilename(
+        title=f"Select {app_name} Executable",
+        filetypes=[("Executable Files", "*.exe")]
+    )
+    if path and os.path.exists(path):
+        config['General'][config_key] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
+        return True
+    else:
+        messagebox.showerror("Error", f"Invalid {app_name} path selected.")
+        return False
 
 def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     path = config['General'].get(config_key, '').strip()
@@ -229,7 +302,10 @@ start "" "{xr_path}"
 exit /b 0
 ''')
     return BVI_BAT
-# ─── BATCH‐FILE WRITING ──────────────────────────────────────────────────
+
+#==============================================================================
+# BATCH-FILE Writing
+#==============================================================================
 
 vbs4_exe = ensure_executable('vbs4_path', 'VBS4.exe', "Select VBS4.exe")
 _write_vbs4_bat(vbs4_exe)
@@ -659,6 +735,7 @@ class MainApp(tk.Tk):
             'Settings':  SettingsPanel(panels_container, self),
             'Tutorials': TutorialsPanel(panels_container, self),
             'Credits':   CreditsPanel(panels_container, self),
+            'Contact Us': ContactSupportPanel(panels_container, self),
         }
 
         # 8) Build the nav buttons:
@@ -669,6 +746,7 @@ class MainApp(tk.Tk):
             ('Settings', 'Settings'),
             ('Tutorials','?'),
             ('Credits',  'Credits'),
+            ('Contact Us', 'Contact Us'),
         ]:
             btn = tk.Button(nav, text=label,
                             font=("Helvetica", 18),
@@ -706,6 +784,14 @@ class MainApp(tk.Tk):
         new_y = self.winfo_y() + dy
         self.geometry(f"+{new_x}+{new_y}")
 
+    def update_button_state(self, button, path_key):
+        """Update button state based on whether the executable exists."""
+        path = config['General'].get(path_key, '')
+        if path and os.path.exists(path):
+            button.config(state="normal")
+        else:
+            button.config(state="disabled")
+
     def show(self, name):
         """Hide the current panel and pack the new one."""
         if self.current:
@@ -713,6 +799,13 @@ class MainApp(tk.Tk):
         panel = self.panels[name]
         panel.pack(expand=True, fill='both')
         self.current = name
+        if name == "VBS4":
+           self.update_button_state(panel.vbs4_button, 'vbs4_path')
+           self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
+           self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
+           panel.create_blueig_button()  
+        elif name == "BVI":
+          self.update_button_state(panel.bvi_button, 'bvi_manager_path')
 
     def create_tutorial_button(self, parent):
         """
@@ -727,6 +820,10 @@ class MainApp(tk.Tk):
         button.place(x=1350, y=110, anchor="nw")
 
 
+        if isinstance(parent, VBS4Panel):
+            parent.create_battlespaces_button()
+    
+   
 # ─── ---------------- MAINMENU PANEL --------------------------------- ──────────
 class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
@@ -871,6 +968,7 @@ class VBS4Panel(tk.Frame):
         super().__init__(parent)
         set_wallpaper(self)
         controller.create_tutorial_button(self)
+        self.create_battlespaces_button()
 
         tk.Label(
             self,
@@ -906,13 +1004,14 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_version()
 
         # VBS4 Launcher button
-        tk.Button(
+        self.vbs4_launcher_button = tk.Button(
             self,
             text="VBS4 Launcher",
             font=("Helvetica", 20),
             bg="#444", fg="white",
             command=launch_vbs4_setup
-        ).pack(pady=8, ipadx=10, ipady=5)
+        )
+        self.vbs4_launcher_button.pack(pady=8, ipadx=10, ipady=5)
 
         # BlueIG frame for dynamic buttons
         self.blueig_frame = tk.Frame(self, bg="#333333")
@@ -931,14 +1030,15 @@ class VBS4Panel(tk.Frame):
         # Update BlueIG version label
         self.update_blueig_version()
 
-         # VBS License Manager button
-        tk.Button(
+          # VBS License Manager button
+        self.vbs_license_button = tk.Button(
             self,
             text="VBS License Manager",
             font=("Helvetica", 20),
             bg="#444", fg="white",
             command=self.launch_vbs_license_manager
-        ).pack(pady=8, ipadx=10, ipady=5)
+        )
+        self.vbs_license_button.pack(pady=8, ipadx=10, ipady=5)
 
         # One-Click Terrain Converter stub button
         tk.Button(
@@ -1081,6 +1181,43 @@ class VBS4Panel(tk.Frame):
         """Re‐draw the single BlueIG button if 'is_server' toggles."""
         self.create_blueig_button()
 
+    def create_battlespaces_button(self):
+        button = tk.Button(
+            self,
+            text="📁",
+            font=("Helvetica", 16, "bold"),
+            bg="orange", fg="black",
+            width=2, height=1,
+            command=self.open_battlespaces_folder
+        )
+        button.place(x=1300, y=110, anchor="nw")
+
+        # Instantiate our Tooltip helper
+        self.tooltip = Tooltip(self)
+
+        # Bind enter/leave on the button
+        button.bind("<Enter>", self.show_tooltip)
+        button.bind("<Leave>", self.hide_tooltip)
+
+    def show_tooltip(self, event):
+        # event.x_root, event.y_root are screen coordinates of the mouse.
+        text = "Open local Battlespaces folder"
+
+        # Add a small offset so the tooltip does not cover the mouse pointer:
+        x = event.x_root + 10
+        y = event.y_root + 20
+
+        self.tooltip.show(text, x, y)
+
+    def hide_tooltip(self, event):
+        self.tooltip.hide()
+
+    def open_battlespaces_folder(self):
+        battlespaces_path = os.path.expanduser(r"~\Documents\VBS4\Battlespaces")
+        if os.path.exists(battlespaces_path):
+            os.startfile(battlespaces_path)
+        else:
+            messagebox.showerror("Error", "VBS4 Battlespaces folder not found.")
 
 
 class BVIPanel(tk.Frame):
@@ -1097,10 +1234,10 @@ class BVIPanel(tk.Frame):
         bvi_frame = tk.Frame(self, bg="#333333")
         bvi_frame.pack(pady=8)
 
-        tk.Button(bvi_frame, text="Launch BVI",
+        self.bvi_button = tk.Button(bvi_frame, text="Launch BVI",
                   font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_bvi) \
-          .pack(side=tk.LEFT, ipadx=10, ipady=5)
+                  command=launch_bvi)
+        self.bvi_button.pack(side=tk.LEFT, ipadx=10, ipady=5)
 
         # BVI Version label
         self.bvi_version_label = tk.Label(
@@ -1411,7 +1548,7 @@ class CreditsPanel(tk.Frame):
 
         # Create a frame to center the content with gray background
         center_frame = tk.Frame(self, bg='#333333', padx=20, pady=20)
-        center_frame.place(relx=0.5, rely=0.52, anchor='center')
+        center_frame.place(relx=0.5, rely=0.53, anchor='center')
 
         # Add STE logo
         if os.path.exists(logo_STE_path):
@@ -1429,18 +1566,17 @@ class CreditsPanel(tk.Frame):
 
         Ryan Curphey
 
-        Yovany Tietze
+        Yovany Tietze-torres
 
         STE CFT
-
-        
+   
         Version: 1.0
 
         Special thanks to:
         - The STE CFT team
         - All contributors and testers
 
-        © 2025how would i make  STE CFT. All rights reserved.
+        © 2025 STE CFT. All rights reserved.
         """
 
         tk.Label(center_frame, text=credits_text,
@@ -1453,6 +1589,111 @@ class CreditsPanel(tk.Frame):
                   font=("Helvetica", 18), bg="red", fg="white",
                   command=lambda: controller.show('Main'))\
           .pack(side='bottom', pady=20)
+
+# File: C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py
+
+class ContactSupportPanel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_wallpaper(self)
+        controller.create_tutorial_button(self)
+
+        # Add header
+        tk.Label(self, text="Contact Support",
+                 font=("Helvetica", 36, "bold"),
+                 bg='black', fg='white', pady=20)\
+          .pack(fill='x')
+
+        # Create a frame to center the content with gray background
+        center_frame = tk.Frame(self, bg='#333333', padx=20, pady=20)
+        center_frame.place(relx=0.5, rely=0.53, anchor='center')
+
+        # Support information
+        support_text = """
+        For technical support or assistance, please contact:
+
+        STE CFT Support Team
+
+
+        Michael Enloe
+        
+        
+        Yovany Tietze-torres
+       
+
+        US Army Futures Command, Synthetic Training Environment (STE)   Cross Functional Team (CFT)
+
+        12809 Science Dr, Orlando, FL 32836
+
+        Email: michael.r.enloe.civ@army.mil
+
+        Email: yovany.e.tietze-torres.ctr@army.mil
+
+        Hours of Operation:
+        Monday - Friday: 9:00 AM - 5:00 PM EST
+        """
+
+        tk.Label(center_frame, text=support_text,
+                 font=("Helvetica", 14),
+                 bg='#333333', fg='white', justify='left')\
+          .pack(pady=20)
+
+        # Contact Support button (at the bottom)
+        tk.Button(self, text="Contact Support via Email",
+                  font=("Helvetica", 18), bg="green", fg="white",
+                  command=self.contact_support)\
+          .pack(side='bottom', pady=20)
+
+        # Back button
+        tk.Button(self, text="Back",
+                  font=("Helvetica", 18), bg="red", fg="white",
+                  command=lambda: controller.show('Main'))\
+          .pack(side='bottom', pady=20)
+
+    def contact_support(self):
+        # This function will open the default email client with the new email address
+        webbrowser.open('mailto:michael.r.enloe.civ@army.mil?subject=Support%20Request')
+
+class Tooltip:
+    """
+    A simple tooltip that appears in its own undecorated Toplevel window.
+    Usage:
+        tip = Tooltip(parent)
+        tip.show("Some text", x, y)
+        tip.hide()
+    """
+    def __init__(self, parent):
+        self.parent = parent
+        self.tw = None
+
+    def show(self, text, x, y):
+        # If tooltip already exists, destroy it first:
+        self.hide()
+
+        # Create a new Toplevel, no decorations:
+        self.tw = tk.Toplevel(self.parent)
+        self.tw.wm_overrideredirect(True)  # no title bar, borders, etc.
+        self.tw.attributes("-topmost", True)
+
+        # Use a normal Label (not ttk) so we can set a custom background:
+        label = tk.Label(
+            self.tw,
+            text=text,
+            justify="left",
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("Helvetica", 10)
+        )
+        label.pack(ipadx=4, ipady=2)
+
+        # Position the tooltip window at (x, y) in screen coordinates:
+        self.tw.geometry(f"+{x}+{y}")
+
+    def hide(self):
+        if self.tw:
+            self.tw.destroy()
+            self.tw = None
 
 if __name__ == "__main__":
     MainApp().mainloop()
