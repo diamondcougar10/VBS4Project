@@ -13,7 +13,7 @@ import functools
 import json
 from tkinter import simpledialog
 import re
-
+#-----vbs4 install path finder------------------
 def get_vbs4_install_path() -> str:
     path = config['General'].get('vbs4_path', '')
     if not path or not os.path.isfile(path):
@@ -23,10 +23,20 @@ def get_vbs4_install_path() -> str:
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
     return path or ''
-
+#--------------------Version display-----------------------
 def get_vbs4_version(file_path):
     """Extract VBS4 version from the file path."""
     match = re.search(r'VBS4 (\d+\.\d+)', file_path)
+    return match.group(1) if match else "Unknown"
+
+def get_blueig_version(file_path):
+    """Extract BlueIG version from the file path."""
+    match = re.search(r'Blue IG (\d+\.\d+)', file_path)
+    return match.group(1) if match else "Unknown"
+
+def get_bvi_version(file_path):
+    """Extract BVI (ARES) version from the file path."""
+    match = re.search(r'ARES-dev-release-v(\d+\.\d+\.\d+)', file_path)
     return match.group(1) if match else "Unknown"
 
 
@@ -252,11 +262,13 @@ def launch_vbs4_setup():
         messagebox.showerror("Launch Failed", f"Couldn't launch VBS4 Setup Launcher:\n{e}")
 
 def launch_blueig():
-    # 1) get the saved BlueIG.exe (or ask once)
+    # 1) Get (or ask for) the full path to BlueIG.exe
     exe = config['General'].get('blueig_path', '').strip()
     if not exe or not os.path.isfile(exe):
-        messagebox.showwarning("BlueIG Not Found",
-                               "Couldn't find BlueIG.exe — please locate it now.")
+        messagebox.showwarning(
+            "BlueIG Not Found",
+            "Couldn't find BlueIG.exe — please locate it now."
+        )
         exe = filedialog.askopenfilename(
             title="Select BlueIG Executable",
             filetypes=[("Executable Files", "*.exe")]
@@ -264,14 +276,19 @@ def launch_blueig():
         if not exe or not os.path.isfile(exe):
             messagebox.showerror("Error", "Invalid BlueIG path selected.")
             return
+
+        # Save the new path in config.ini
         config['General']['blueig_path'] = exe
         with open(CONFIG_PATH, 'w') as cfg:
             config.write(cfg)
 
-    # 2) ask which HammerKit exercise
+    # Determine the folder where BlueIG.exe lives:
+    blueig_dir = os.path.dirname(exe)
+
+    # 2) Ask which HammerKit scenario (1–4)
     n = simpledialog.askinteger(
         "Select HammerKit Scenario",
-        "Choose VBS4 Hammerkit Server (1–4):",
+        "Choose VBS4 HammerKit Server (1–4):",
         minvalue=1, maxvalue=4
     )
     if n is None:
@@ -279,28 +296,38 @@ def launch_blueig():
 
     scenario = f"Exercise-HAMMERKIT1-{n}"
 
-    # 3) rewrite the batch file
-    bat_contents = f"""@echo off
-"{exe}" -hmd=openxr_ctr:oculus ^
-    -vbsHostExerciseID={scenario} ^
-    -splitCPU ^
-    -DJobThreads=8 ^
-    -DJobPool=8
-exit /b 0
-"""
-    with open(BLUEIG_BAT, "w", newline="\r\n") as bat:
-        bat.write(bat_contents)
+    # 3) Build the contents of BlueIg.bat, using blueig_dir and exe
+    bat_contents = (
+        "@echo off\n"
+        f'start "" /D "{blueig_dir}" "{exe}" '
+        f"-hmd=openxr_ctr:oculus -vbsHostExerciseID={scenario} "
+        "-splitCPU -DJobThreads=8 -DJobPool=8\n"
+    )
 
-    # 4) launch it
+    # Overwrite/create BlueIg.bat in our Autolaunch_Batchfiles folder
     try:
-        subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
-        messagebox.showinfo("Launch Successful",
-                            f"BlueIG HammerKit 1-{n} started.")
+        with open(BLUEIG_BAT, "w", newline="\r\n") as bat_file:
+            bat_file.write(bat_contents)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to write batch file:\n{e}")
+        return
+
+    # 4) Launch the batch file, but set cwd=blueig_dir (so BlueIG runs from its own folder)
+    if not os.path.isfile(BLUEIG_BAT):
+        messagebox.showerror("Error", f"Batch file not found:\n{BLUEIG_BAT}")
+        return
+
+    try:
+        # Note: cwd is now blueig_dir, not Autolaunch_Batchfiles
+        subprocess.Popen(
+            ["cmd.exe", "/c", BLUEIG_BAT],
+            cwd=blueig_dir
+        )
+        messagebox.showinfo("Launch Successful", f"BlueIG HammerKit 1-{n} started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
     except Exception as e:
-        messagebox.showerror("Launch Failed",
-                             f"Couldn't launch BlueIG:\n{e}")
+        messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
 def launch_bvi():
     try:
@@ -318,7 +345,7 @@ def open_bvi_terrain():
         webbrowser.open(url, new=2)
     except:
         messagebox.showinfo("BVI", "Note: BVI must be running")
-
+       
 
 # ─── BACKGROUND & LOGOS ──────────────────────────────────────────────────────
 
@@ -344,11 +371,10 @@ def set_background(window):
 
     def place_logos():
         coords = [
-            (200,  5, logo_STE_path,   (90, 90)),
-            (300,  5, logo_AFC_army,   (73, 90)),
-            (380,  5, logo_first_army, (60, 90)),
-            (1330, 5, logo_us_army_path, (230, 86)),
-            (window.winfo_width()-280, 3, logo_us_army_path, (30, 86)),
+            (200,  30, logo_STE_path,   (90, 90)),
+            (300,  30, logo_AFC_army,   (73, 90)),
+            (380,  30, logo_first_army, (60, 90)),
+            (1330, 30, logo_us_army_path, (230, 86)),
         ]
         for x,y,path,(w,h) in coords:
             if os.path.exists(path):
@@ -357,11 +383,6 @@ def set_background(window):
                 lbl2  = tk.Label(window, image=ph, bg="black")
                 lbl2.image = ph
                 lbl2.place(x=x, y=y)
-        credit_label = tk.Label(window, 
-                                text="Designed and developed by Ryan Curphey STECFT",
-                                font=("Helvetica", 10),
-                                bg="black", fg="white")
-        credit_label.place(relx=0.1, rely=0.99, anchor="s")
 
     # Use after() to ensure the window is fully initialized
     window.after(100, place_logos)
@@ -373,6 +394,10 @@ def set_wallpaper(window):
         lbl = tk.Label(window, image=ph)
         lbl.image = ph
         lbl.place(relwidth=1, relheight=1)
+        if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
+         return
+    window._logos_placed = True
+        
 
 # ─── TUTORIALS PANEL DATA ────────────────────────────────────────────────────
 
@@ -591,50 +616,98 @@ def open_external_map():
     else:
         webbrowser.open(url, new=2)
 
-# ─── SINGLE‐MAIN-WINDOW SETUP ──────────────────────────────────────────────────────
+
+# ─── MAINMENU PANEL ────────────────────────────────────────
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("STE Mission Planning Toolkit")
-        self.geometry("1600x800")
-        self.resizable(False, False)
-
         set_background(self)
 
-        nav = tk.Frame(self, width=200, bg='#333333')
-        nav.pack(side='left', fill='y')
-        self.content = tk.Frame(self)
-        self.content.pack(side='right', expand=True, fill='both')
+        # 1) Make the window
+        self.overrideredirect(True)
 
+        # 2) Add a small close button (“✕”) in the top‐right corner
+        close_btn = tk.Button(self, text="✕",
+                              font=("Helvetica", 12, "bold"),
+                              bg="red", fg="white", bd=0,
+                              command=self.destroy)
+        close_btn.place(x=1600 - 40, y=5, width=30, height=30)
+
+        # 3) Create a “title bar” frame so you can drag the window around
+        title_bar = tk.Frame(self, bg="#222222", height=30)
+        title_bar.pack(fill="x")
+        title_bar.bind("<ButtonPress-1>", self._on_drag_start)
+        title_bar.bind("<B1-Motion>", self._on_drag_motion)
+
+        # 4) Below the title bar goes the content area
+        self.content = tk.Frame(self)
+        self.content.pack(expand=True, fill="both")
+
+        # 5) Left‐hand navigation pane
+        nav = tk.Frame(self.content, width=200, bg='#333333')
+        nav.pack(side='left', fill='y')
+
+        # 6) The right‐hand side is where panels are packed
+        panels_container = tk.Frame(self.content)
+        panels_container.pack(side='right', expand=True, fill='both')
+
+        # 7) Instantiate each panel, passing `self` as the controller
         self.panels = {
-            'Main':      MainMenu(self.content, self),
-            'VBS4':      VBS4Panel(self.content, self),
-            'BVI':       BVIPanel(self.content, self),
-            'Settings':  SettingsPanel(self.content, self),
-            'Tutorials': TutorialsPanel(self.content, self),
+            'Main':      MainMenu(panels_container, self),
+            'VBS4':      VBS4Panel(panels_container, self),
+            'BVI':       BVIPanel(panels_container, self),
+            'Settings':  SettingsPanel(panels_container, self),
+            'Tutorials': TutorialsPanel(panels_container, self),
+            'Credits':   CreditsPanel(panels_container, self),
         }
 
+        # 8) Build the nav buttons:
         for key, label in [
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
             ('BVI',      'BVI'),
             ('Settings', 'Settings'),
             ('Tutorials','?'),
+            ('Credits',  'Credits'),
         ]:
-            tk.Button(nav, text=label,
-                      font=("Helvetica",18), bg="#555", fg="white",
-                      width=12,
-                      command=lambda k=key: self.show(k)
-            ).pack(pady=5, padx=5)
+            btn = tk.Button(nav, text=label,
+                            font=("Helvetica", 18),
+                            bg="#555", fg="white",
+                            width=12,
+                            command=lambda k=key: self.show(k))
+            btn.pack(pady=5, padx=5)
 
-        tk.Button(nav, text="Exit", font=("Helvetica",18),
-                  bg="red", fg="white", command=self.destroy
-        ).pack(fill='x', pady=20, padx=5)
+        tk.Button(nav, text="Exit", font=("Helvetica", 18),
+                  bg="red", fg="white", command=self.destroy) \
+          .pack(fill='x', pady=20, padx=5)
 
+        # 9) Start by showing “Main”
         self.current = None
         self.show('Main')
 
+        # 10) Center on screen (1600×800):
+        self.update_idletasks()
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        win_w = 1600
+        win_h = 800
+        x = (screen_w - win_w) // 2
+        y = (screen_h - win_h) // 2
+        self.geometry(f"{win_w}x{win_h}+{x}+{y}")
+
+    def _on_drag_start(self, event):
+        self._drag_start_x = event.x
+        self._drag_start_y = event.y
+
+    def _on_drag_motion(self, event):
+        dx = event.x - self._drag_start_x
+        dy = event.y - self._drag_start_y
+        new_x = self.winfo_x() + dx
+        new_y = self.winfo_y() + dy
+        self.geometry(f"+{new_x}+{new_y}")
+
     def show(self, name):
+        """Hide the current panel and pack the new one."""
         if self.current:
             self.panels[self.current].pack_forget()
         panel = self.panels[name]
@@ -642,218 +715,304 @@ class MainApp(tk.Tk):
         self.current = name
 
     def create_tutorial_button(self, parent):
+        """
+        This method places a small “?” button in the given panel (parent).
+        All panels call this inside their __init__ to add the tutorial button.
+        """
         button = tk.Button(parent, text="?", 
                            font=("Helvetica", 16, "bold"),
-                           bg="#444444", fg="white",
+                           bg="red", fg="white",
                            width=2, height=1,
                            command=lambda: self.show('Tutorials'))
-        button.place(x=1350, y=110, anchor="nw") 
+        button.place(x=1350, y=110, anchor="nw")
 
+
+# ─── ---------------- MAINMENU PANEL --------------------------------- ──────────
 class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        set_wallpaper(self)
         set_background(self)
-        controller.create_tutorial_button(self)
+        controller.create_tutorial_button(self)   # <— keeps the “?” button
 
-
-        tk.Label(self, text="STE Mission Planning Toolkit",
-                 font=("Helvetica",36,"bold"),
-                 bg='black', fg='white', pady=20) \
-          .pack(fill='x')
+        tk.Label(
+            self,
+            text="STE Mission Planning Toolkit",
+            font=("Helvetica", 36, "bold"),
+            bg="black", fg="white", pady=20
+        ).pack(fill="x")
 
         # VBS4 Button
-        self.vbs4_button = tk.Button(self, text="Launch VBS4",
-                  font=("Helvetica",24), bg="#444444", fg="white",
-                  width=30, height=1, command=launch_vbs4)
-        self.vbs4_button.pack(pady=10)
+        tk.Button(
+            self,
+            text="Launch VBS4",
+            font=("Helvetica", 24),
+            bg="#444444", fg="white",
+            width=30, height=1,
+            command=launch_vbs4
+        ).pack(pady=10)
 
-        # BlueIG Frame for dynamic buttons
-        self.blueig_frame = tk.Frame(self, bg='#333333')  # Set gray background
+        # BlueIG Frame (dynamic)
+        self.blueig_frame = tk.Frame(self, bg="#333333")
         self.blueig_frame.pack(pady=10)
         self.create_blueig_button()
 
         # Other buttons
-        self.other_buttons = []
         for txt, cmd in [
-            ("Launch BVI",     launch_bvi),
-            ("Settings",       lambda: controller.show('Settings')),
-            ("Tutorials",      lambda: controller.show('Tutorials')),
-            ("Exit",           controller.destroy),
+            ("Launch BVI", launch_bvi),
+            ("Settings", lambda: controller.show("Settings")),
+            ("Tutorials", lambda: controller.show("Tutorials")),
+            ("Credits", lambda: controller.show("Credits")),
+            ("Exit", controller.destroy),
         ]:
-            button = tk.Button(self, text=txt,
-                      font=("Helvetica",24), bg="#444444", fg="white",
-                      width=30, height=1, command=cmd)
+            button = tk.Button(
+                self,
+                text=txt,
+                font=("Helvetica", 24),
+                bg="#444444", fg="white",
+                width=30, height=1,
+                command=cmd
+            )
             button.pack(pady=10)
-            self.other_buttons.append(button)
 
     def create_blueig_button(self):
-        # Clear any existing children in blueig_frame
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
-        # Check if “Is Server” is set
-        is_srv = config['General'].getboolean('is_server', fallback=False)
+        is_srv = config["General"].getboolean("is_server", fallback=False)
+        state = "disabled" if is_srv else "normal"
 
-        # If is_server == True, disable BlueIG; otherwise normal
-        state = 'disabled' if is_srv else 'normal'
-
-        tk.Button(self.blueig_frame,
-                  text="Launch BlueIG",
-                  font=("Helvetica", 24),
-                  bg="#444444", fg="white",
-                  width=30, height=1,
-                  state=state,
-                  command=self.show_scenario_buttons) \
-          .pack()
+        tk.Button(
+            self.blueig_frame,
+            text="Launch BlueIG",
+            font=("Helvetica", 24),
+            bg="#444444", fg="white",
+            width=30, height=1,
+            state=state,
+            command=self.show_scenario_buttons
+        ).pack()
 
     def show_scenario_buttons(self):
-        # If we’re “Is Server”, do nothing
-        if config['General'].getboolean('is_server', fallback=False):
+        if config["General"].getboolean("is_server", fallback=False):
             return
 
-        # Otherwise, clear frame and show the 4 scenario buttons:
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
         for i in range(1, 5):
-            tk.Button(self.blueig_frame,
-                      text=f"Launch BlueIG HammerKit 1-{i}",
-                      font=("Helvetica", 20),
-                      bg="#444444", fg="white",
-                      width=30, height=1,
-                      command=lambda n=i: self.launch_blueig_scenario(n))\
-              .pack(pady=5)
+            tk.Button(
+                self.blueig_frame,
+                text=f"Launch BlueIG HammerKit 1-{i}",
+                font=("Helvetica", 20),
+                bg="#444444", fg="white",
+                width=30, height=1,
+                command=lambda n=i: self.launch_blueig_scenario(n)
+            ).pack(pady=5)
 
-        # Add a back button
-        tk.Button(self.blueig_frame,
-                  text="Back",
-                  font=("Helvetica", 18),
-                  bg="#666666", fg="white",
-                  width=10,
-                  command=self.create_blueig_button) \
-          .pack(pady=10)
+        tk.Button(
+            self.blueig_frame,
+            text="Back",
+            font=("Helvetica", 18),
+            bg="#666666", fg="white",
+            width=10,
+            command=self.create_blueig_button
+        ).pack(pady=10)
 
     def launch_blueig_scenario(self, scenario_num):
-        # (exactly as before: rewrite BAT, launch, show popup, then call create_blueig_button())
-        exe = config['General'].get('blueig_path', '').strip()
+        exe = config["General"].get("blueig_path", "").strip()
         if not exe or not os.path.isfile(exe):
-            messagebox.showerror("Error", "BlueIG executable not found. Please set it in the settings.")
+            messagebox.showerror(
+                "Error",
+                "BlueIG executable not found. Please set it in the settings."
+            )
             return
 
+        blueig_dir = os.path.dirname(exe)
         scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
-        bat_contents = f"""@echo off
-"{exe}" -hmd=openxr_ctr:oculus ^
-    -vbsHostExerciseID={scenario} ^
-    -splitCPU ^
-    -DJobThreads=8 ^
-    -DJobPool=8
-exit /b 0
-"""
-        with open(BLUEIG_BAT, "w", newline="\r\n") as bat:
-            bat.write(bat_contents)
+        bat_contents = (
+            "@echo off\n"
+            f'start "" /D "{blueig_dir}" "{exe}" '
+            f"-hmd=openxr_ctr:oculus -vbsHostExerciseID={scenario} "
+            "-splitCPU -DJobThreads=8 -DJobPool=8\n"
+        )
 
         try:
-            subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
-            messagebox.showinfo("Launch Successful",
-                                f"BlueIG HammerKit 1-{scenario_num} started.")
+            with open(BLUEIG_BAT, "w", newline="\r\n") as bat_file:
+                bat_file.write(bat_contents)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to write batch file:\n{e}")
+            return
+
+        if not os.path.isfile(BLUEIG_BAT):
+            messagebox.showerror("Error", f"Batch file not found:\n{BLUEIG_BAT}")
+            return
+
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", BLUEIG_BAT],
+                cwd=blueig_dir
+            )
+            messagebox.showinfo(
+                "Launch Successful",
+                f"BlueIG HammerKit 1-{scenario_num} started."
+            )
             if is_close_on_launch_enabled():
                 sys.exit(0)
         except Exception as e:
-            messagebox.showerror("Launch Failed",
-                                 f"Couldn't launch BlueIG:\n{e}")
+            messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
-        # Revert back to the single “Launch BlueIG” button
         self.create_blueig_button()
 
     def update_blueig_state(self):
-        """Called whenever 'is_server' changes.  Re-draw the single button with correct state."""
         self.create_blueig_button()
-
-   
-
+  
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
         controller.create_tutorial_button(self)
 
-        tk.Label(self, text="VBS4 / BlueIG",
-                 font=("Helvetica",36,"bold"),
-                 bg='black', fg='white', pady=20)\
-          .pack(fill='x')
+        tk.Label(
+            self,
+            text="VBS4 / BlueIG",
+            font=("Helvetica", 36, "bold"),
+            bg="black", fg="white", pady=20
+        ).pack(fill="x")
 
         # VBS4 Launch frame
-        vbs4_frame = tk.Frame(self, bg='#333333')
+        vbs4_frame = tk.Frame(self, bg="#333333")
         vbs4_frame.pack(pady=8)
 
         # VBS4 Launch button
-        self.vbs4_button = tk.Button(vbs4_frame, text="Launch VBS4",
-                  font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_vbs4)
+        self.vbs4_button = tk.Button(
+            vbs4_frame,
+            text="Launch VBS4",
+            font=("Helvetica", 20),
+            bg="#444", fg="white",
+            command=launch_vbs4
+        )
         self.vbs4_button.pack(side=tk.LEFT, ipadx=10, ipady=5)
 
         # VBS4 Version label
-        self.vbs4_version_label = tk.Label(vbs4_frame, text="",
-                                           font=("Helvetica", 16), bg="#333333", fg="white")
+        self.vbs4_version_label = tk.Label(
+            vbs4_frame,
+            text="",
+            font=("Helvetica", 16),
+            bg="#333333", fg="white"
+        )
         self.vbs4_version_label.pack(side=tk.LEFT, padx=10)
 
-        # Update VBS4 version
+        # Update VBS4 version label
         self.update_vbs4_version()
 
         # VBS4 Launcher button
-        tk.Button(self, text="VBS4 Launcher",
-                  font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_vbs4_setup)\
-          .pack(pady=8, ipadx=10, ipady=5)
+        tk.Button(
+            self,
+            text="VBS4 Launcher",
+            font=("Helvetica", 20),
+            bg="#444", fg="white",
+            command=launch_vbs4_setup
+        ).pack(pady=8, ipadx=10, ipady=5)
 
         # BlueIG frame for dynamic buttons
-        self.blueig_frame = tk.Frame(self, bg='#333333')  # Set the background to gray
+        self.blueig_frame = tk.Frame(self, bg="#333333")
         self.blueig_frame.pack(pady=8)
         self.create_blueig_button()
 
+        # BlueIG Version label
+        self.blueig_version_label = tk.Label(
+            self.blueig_frame,
+            text="",
+            font=("Helvetica", 16),
+            bg="#333333", fg="white"
+        )
+        self.blueig_version_label.pack(pady=5)
+
+        # Update BlueIG version label
+        self.update_blueig_version()
+
+         # VBS License Manager button
+        tk.Button(
+            self,
+            text="VBS License Manager",
+            font=("Helvetica", 20),
+            bg="#444", fg="white",
+            command=self.launch_vbs_license_manager
+        ).pack(pady=8, ipadx=10, ipady=5)
+
         # One-Click Terrain Converter stub button
-        tk.Button(self, text="One-Click Terrain Converter",
-                  font=("Helvetica",20), bg="#444", fg="white",
-                  command=lambda: messagebox.showinfo(
-                      "One-Click Terrain Converter",
-                      "Tool coming soon…"
-                  ))\
-          .pack(pady=8, ipadx=10, ipady=5)
+        tk.Button(
+            self,
+            text="One-Click Terrain Converter",
+            font=("Helvetica", 20),
+            bg="#444", fg="white",
+            command=lambda: messagebox.showinfo(
+                "One-Click Terrain Converter", "Tool coming soon…"
+            )
+        ).pack(pady=8, ipadx=10, ipady=5)
 
         # External Map button
-        tk.Button(self, text="External Map",
-                  font=("Helvetica",20), bg="#444", fg="white",
-                  command=open_external_map)\
-          .pack(pady=8, ipadx=10, ipady=5)
+        tk.Button(
+            self,
+            text="External Map",
+            font=("Helvetica", 20),
+            bg="#444", fg="white",
+            command=open_external_map
+        ).pack(pady=8, ipadx=10, ipady=5)
 
         # Back to main menu
-        tk.Button(self, text="Back",
-                  font=("Helvetica",18), bg="red", fg="white",
-                  command=lambda: controller.show('Main'))\
-          .pack(pady=20)
+        tk.Button(
+            self,
+            text="Back",
+            font=("Helvetica", 18),
+            bg="red", fg="white",
+            command=lambda: controller.show("Main")
+        ).pack(pady=20)
+
+    def launch_vbs_license_manager(self):
+        vbs_license_manager_path = config['General'].get('vbs_license_manager_path', '')
+        if not vbs_license_manager_path or not os.path.exists(vbs_license_manager_path):
+            messagebox.showerror("Error", "VBS License Manager path not set or invalid. Please set it in the settings.")
+            return
+
+        try:
+            subprocess.Popen([vbs_license_manager_path])
+            messagebox.showinfo("Launch Successful", "VBS License Manager has started.")
+            if is_close_on_launch_enabled():
+                sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Launch Failed", f"Couldn't launch VBS License Manager:\n{e}")
 
     def update_vbs4_version(self):
         vbs4_path = get_vbs4_install_path()
         version = get_vbs4_version(vbs4_path)
         self.vbs4_version_label.config(text=f"Version: {version}")
 
+    def update_blueig_version(self):
+        blueig_path = get_blueig_install_path()
+        version = get_blueig_version(blueig_path)
+        self.blueig_version_label.config(text=f"BlueIG Version: {version}")
+
     def create_blueig_button(self):
         # Clear any old widgets
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
-        is_srv = config['General'].getboolean('is_server', fallback=False)
-        state = 'disabled' if is_srv else 'normal'
+        is_srv = config["General"].getboolean("is_server", fallback=False)
+        state = "disabled" if is_srv else "normal"
 
-        tk.Button(self.blueig_frame, text="Launch BlueIG",
-                  font=("Helvetica", 20), bg="#444444", fg="white",
-                  state=state,
-                  command=self.show_scenario_buttons)\
-          .pack(ipadx=10, ipady=5)
+        tk.Button(
+            self.blueig_frame,
+            text="Launch BlueIG",
+            font=("Helvetica", 20),
+            bg="#444444", fg="white",
+            state=state,
+            command=self.show_scenario_buttons
+        ).pack(ipadx=10, ipady=5)
 
     def show_scenario_buttons(self):
-        # If “Is Server” is true, do nothing
-        if config['General'].getboolean('is_server', fallback=False):
+        # If “Is Server”, do nothing
+        if config["General"].getboolean("is_server", fallback=False):
             return
 
         # Otherwise clear and show four “HammerKit 1–i” buttons
@@ -861,50 +1020,68 @@ class VBS4Panel(tk.Frame):
             widget.destroy()
 
         for i in range(1, 5):
-            tk.Button(self.blueig_frame, 
-                      text=f"HammerKit 1-{i}",
-                      font=("Helvetica", 16), bg="#444444", fg="white",
-                      command=lambda n=i: self.launch_blueig_scenario(n))\
-              .pack(side=tk.LEFT, padx=5, pady=5, ipadx=5, ipady=2)
+            tk.Button(
+                self.blueig_frame,
+                text=f"HammerKit 1-{i}",
+                font=("Helvetica", 16),
+                bg="#444444", fg="white",
+                command=lambda n=i: self.launch_blueig_scenario(n)
+            ).pack(side=tk.LEFT, padx=5, pady=5, ipadx=5, ipady=2)
 
-        # You might want to add a “Back” button if desired, but since
-        # in this panel you always revert to the single button afterwards,
-        # it’s optional.
+        # (Optional) you could add a “Back” button, but we revert automatically
 
     def launch_blueig_scenario(self, scenario_num):
-        exe = config['General'].get('blueig_path','').strip()
+        exe = config["General"].get("blueig_path", "").strip()
         if not exe or not os.path.isfile(exe):
-            messagebox.showerror("Error", "BlueIG executable not found. Please set it in the settings.")
+            messagebox.showerror(
+                "Error",
+                "BlueIG executable not found. Please set it in the settings."
+            )
             return
 
+        blueig_dir = os.path.dirname(exe)
         scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
-        bat_contents = f"""@echo off
-"{exe}" -hmd=openxr_ctr:oculus ^
-    -vbsHostExerciseID={scenario} ^
-    -splitCPU ^
-    -DJobThreads=8 ^
-    -DJobPool=8
-exit /b 0
-"""
-        with open(BLUEIG_BAT, "w", newline="\r\n") as bat:
-            bat.write(bat_contents)
+
+        bat_contents = (
+            "@echo off\n"
+            f'start "" /D "{blueig_dir}" "{exe}" '
+            f"-hmd=openxr_ctr:oculus -vbsHostExerciseID={scenario} "
+            "-splitCPU -DJobThreads=8 -DJobPool=8\n"
+        )
 
         try:
-            subprocess.Popen(["cmd.exe", "/c", BLUEIG_BAT], cwd=BATCH_FOLDER)
-            messagebox.showinfo("Launch Successful",
-                                f"BlueIG HammerKit 1-{scenario_num} started.")
+            with open(BLUEIG_BAT, "w", newline="\r\n") as bat_file:
+                bat_file.write(bat_contents)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to write batch file:\n{e}")
+            return
+
+        if not os.path.isfile(BLUEIG_BAT):
+            messagebox.showerror("Error", f"Batch file not found:\n{BLUEIG_BAT}")
+            return
+
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", BLUEIG_BAT],
+                cwd=blueig_dir  # <<– ensures BlueIG runs from its own install folder
+            )
+            messagebox.showinfo(
+                "Launch Successful",
+                f"BlueIG HammerKit 1-{scenario_num} started."
+            )
             if is_close_on_launch_enabled():
                 sys.exit(0)
         except Exception as e:
-            messagebox.showerror("Launch Failed",
-                                 f"Couldn't launch BlueIG:\n{e}")
+            messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
         # Re‐draw the single “Launch BlueIG” button again
         self.create_blueig_button()
 
     def update_blueig_state(self):
-        """Called when 'is_server' toggles.  Re‐draw the single BlueIG button."""
+        """Re‐draw the single BlueIG button if 'is_server' toggles."""
         self.create_blueig_button()
+
+
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
@@ -917,10 +1094,25 @@ class BVIPanel(tk.Frame):
                  bg='black', fg='white', pady=20) \
           .pack(fill='x')
 
-        tk.Button(self, text="Launch BVI",
+        bvi_frame = tk.Frame(self, bg="#333333")
+        bvi_frame.pack(pady=8)
+
+        tk.Button(bvi_frame, text="Launch BVI",
                   font=("Helvetica",20), bg="#444", fg="white",
                   command=launch_bvi) \
-          .pack(pady=8, ipadx=10, ipady=5)
+          .pack(side=tk.LEFT, ipadx=10, ipady=5)
+
+        # BVI Version label
+        self.bvi_version_label = tk.Label(
+            bvi_frame,
+            text="",
+            font=("Helvetica", 16),
+            bg="#333333", fg="white"
+        )
+        self.bvi_version_label.pack(side=tk.LEFT, padx=10)
+
+        # Update BVI version label
+        self.update_bvi_version()
 
         tk.Button(self, text="Open Terrain",
                   font=("Helvetica",20), bg="#444", fg="white",
@@ -931,6 +1123,12 @@ class BVIPanel(tk.Frame):
                   font=("Helvetica",18), bg="red", fg="white",
                   command=lambda: controller.show('Main')) \
           .pack(pady=20)
+
+    def update_bvi_version(self):
+        bvi_path = get_ares_manager_path()
+        version = get_bvi_version(bvi_path)
+        self.bvi_version_label.config(text=f"Version: {version}")
+        
 
 # ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 class SettingsPanel(tk.Frame):
@@ -971,30 +1169,6 @@ class SettingsPanel(tk.Frame):
                        text="Close on Software Launch?",
                        variable=self.close_var,
                        command=_on_close_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5) \
-          .pack(pady=8)
-        # ─── IS SERVER Toggle (new) ─────────────────────────────────────────
-        # Read current value from config; default False if missing.
-        is_srv = config['General'].getboolean('is_server', fallback=False)
-        self.server_var = tk.BooleanVar(value=is_srv)
-
-        def _on_server_toggle():
-            newval = self.server_var.get()
-            config['General']['is_server'] = str(newval)
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            # After toggling, refresh BlueIG buttons in MainMenu + VBS4Panel:
-            controller.panels['Main'].update_blueig_state()
-            controller.panels['VBS4'].update_blueig_state()
-
-        tk.Checkbutton(self,
-                       text="Is this the Server?",
-                       variable=self.server_var,
-                       command=_on_server_toggle,
                        font=("Helvetica",20),
                        bg="#444444", fg="white",
                        selectcolor="#444444",
@@ -1071,6 +1245,21 @@ class SettingsPanel(tk.Frame):
                                     anchor="w", width=50)
         self.lbl_browser.pack(side="left", padx=10, fill="x", expand=True)
 
+        # VBS License Manager Location
+        frame_vbs_license = tk.Frame(self, bg=self["bg"])
+        frame_vbs_license.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_vbs_license, text="Set VBS License Manager Location",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_vbs_license_manager) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_vbs_license = tk.Label(frame_vbs_license,
+                                        text=config['General'].get('vbs_license_manager_path', '') or "[not set]",
+                                        font=("Helvetica",14),
+                                        bg="#222222", fg="white",
+                                        anchor="w", width=50)
+        self.lbl_vbs_license.pack(side="left", padx=10, fill="x", expand=True)
+
+
         # Back
         tk.Button(self, text="Back",
                   font=("Helvetica",18), bg="red", fg="white",
@@ -1108,10 +1297,24 @@ class SettingsPanel(tk.Frame):
         set_default_browser()
         self.lbl_browser.config(text=get_default_browser() or "[not set]")
 
+    def _on_set_vbs_license_manager(self):
+        path = filedialog.askopenfilename(
+            title="Select VBSLicenseManager.exe",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if path and os.path.exists(path):
+            config['General']['vbs_license_manager_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            self.lbl_vbs_license.config(text=path)
+            messagebox.showinfo("Settings", f"VBS License Manager path set to:\n{path}")
+        else:
+            messagebox.showerror("Settings", "Invalid VBS License Manager path selected.")
+
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_background(self)
+        set_wallpaper(self)
 
         tk.Label(self, text="Tutorials ❓",
                  font=("Helvetica", 36, "bold"),
@@ -1193,6 +1396,63 @@ class TutorialsPanel(tk.Frame):
                 messagebox.showerror("Error", "Blue IG documentation not found.")
         else:
             messagebox.showerror("Error", "Blue IG path not set. Please set it in the settings.")
+            
+class CreditsPanel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        set_wallpaper(self)
+        controller.create_tutorial_button(self)
+
+        # Add header
+        tk.Label(self, text="CREDITS",
+                 font=("Helvetica", 36, "bold"),
+                 bg='black', fg='white', pady=20)\
+          .pack(fill='x')
+
+        # Create a frame to center the content with gray background
+        center_frame = tk.Frame(self, bg='#333333', padx=20, pady=20)
+        center_frame.place(relx=0.5, rely=0.52, anchor='center')
+
+        # Add STE logo
+        if os.path.exists(logo_STE_path):
+            img = Image.open(logo_STE_path).resize((90, 90), Image.Resampling.LANCZOS)
+            ph = ImageTk.PhotoImage(img)
+            logo_label = tk.Label(center_frame, image=ph, bg="#333333")
+            logo_label.image = ph
+            logo_label.pack(pady=(0, 20))
+
+        # Credits text
+        credits_text = """
+        STE Mission Planning Toolkit
+
+        Designed and developed by:
+
+        Ryan Curphey
+
+        Yovany Tietze
+
+        STE CFT
+
+        
+        Version: 1.0
+
+        Special thanks to:
+        - The STE CFT team
+        - All contributors and testers
+
+        © 2025how would i make  STE CFT. All rights reserved.
+        """
+
+        tk.Label(center_frame, text=credits_text,
+                 font=("Helvetica", 14),
+                 bg='#333333', fg='white', justify='center')\
+          .pack(pady=20)
+
+        # Back button
+        tk.Button(self, text="Back",
+                  font=("Helvetica", 18), bg="red", fg="white",
+                  command=lambda: controller.show('Main'))\
+          .pack(side='bottom', pady=20)
 
 if __name__ == "__main__":
     MainApp().mainloop()
