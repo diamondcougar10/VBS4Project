@@ -80,7 +80,7 @@ def find_executable(name, additional_paths=[]):
     return None
 
 #==============================================================================
-# CONFIGURATION
+# CONFIGURATION - 
 #==============================================================================
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -322,7 +322,7 @@ bvi_batch_file = create_bvi_batch_file(ares_exe)
 
 def launch_vbs4():
     try:
-        subprocess.Popen(["cmd.exe","/c", VBS4_BAT], cwd=BATCH_FOLDER)
+        subprocess.Popen(["cmd.exe","/c", VBS4_BAT], cwd=BATCH_FOLDER, creationflags=subprocess.CREATE_NO_WINDOW)
         messagebox.showinfo("Launch Successful", "VBS4 has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
@@ -332,7 +332,7 @@ def launch_vbs4():
 def launch_vbs4_setup():
     try:
         vbs4_setup_exe = ensure_executable('vbs4_setup_path', 'VBSLauncher.exe', "Select VBSLauncher.exe")
-        subprocess.Popen([vbs4_setup_exe])
+        subprocess.Popen([vbs4_setup_exe], creationflags=subprocess.CREATE_NO_WINDOW)
         messagebox.showinfo("Launch Successful", "VBS4 Setup Launcher has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
@@ -399,7 +399,7 @@ def launch_blueig():
         # Note: cwd is now blueig_dir, not Autolaunch_Batchfiles
         subprocess.Popen(
             ["cmd.exe", "/c", BLUEIG_BAT],
-            cwd=blueig_dir
+            cwd=blueig_dir, creationflags=subprocess.CREATE_NO_WINDOW
         )
         messagebox.showinfo("Launch Successful", f"BlueIG HammerKit 1-{n} started.")
         if is_close_on_launch_enabled():
@@ -409,7 +409,7 @@ def launch_blueig():
 
 def launch_bvi():
     try:
-        subprocess.Popen([bvi_batch_file], shell=True)
+        subprocess.Popen([bvi_batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
         messagebox.showinfo("Launch Successful", "BVI has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
@@ -971,6 +971,9 @@ class VBS4Panel(tk.Frame):
         set_wallpaper(self)
         controller.create_tutorial_button(self)
         self.create_battlespaces_button()
+        self.create_vbs4_folder_button()
+
+        self.tooltip = Tooltip(self)
 
         tk.Label(
             self,
@@ -1183,6 +1186,18 @@ class VBS4Panel(tk.Frame):
         """Re‐draw the single BlueIG button if 'is_server' toggles."""
         self.create_blueig_button()
 
+    def show_tooltip(self, event, text=None):
+        # If text is not provided, use the default text
+        if text is None:
+            text = "Open local Battlespaces folder"
+
+        # event.x_root, event.y_root are screen coordinates of the mouse.
+        # Add a small offset so the tooltip does not cover the mouse pointer:
+        x = event.x_root + 10
+        y = event.y_root + 20
+
+        self.tooltip.show(text, x, y)
+
     def create_battlespaces_button(self):
         button = tk.Button(
             self,
@@ -1194,25 +1209,24 @@ class VBS4Panel(tk.Frame):
         )
         button.place(x=1300, y=110, anchor="nw")
 
-        # Instantiate our Tooltip helper
-        self.tooltip = Tooltip(self)
-
         # Bind enter/leave on the button
         button.bind("<Enter>", self.show_tooltip)
         button.bind("<Leave>", self.hide_tooltip)
 
-    def show_tooltip(self, event):
-        # event.x_root, event.y_root are screen coordinates of the mouse.
-        text = "Open local Battlespaces folder"
+    def create_vbs4_folder_button(self):
+        button = tk.Button(
+            self,
+            text="📂",
+            font=("Helvetica", 16, "bold"),
+            bg="lightblue", fg="black",
+            width=2, height=1,
+            command=self.open_vbs4_folder
+        )
+        button.place(x=1250, y=110, anchor="nw")
 
-        # Add a small offset so the tooltip does not cover the mouse pointer:
-        x = event.x_root + 10
-        y = event.y_root + 20
-
-        self.tooltip.show(text, x, y)
-
-    def hide_tooltip(self, event):
-        self.tooltip.hide()
+        # Bind enter/leave on the button
+        button.bind("<Enter>", lambda e: self.show_tooltip(e, "Open VBS4 installation folder"))
+        button.bind("<Leave>", self.hide_tooltip)
 
     def open_battlespaces_folder(self):
         battlespaces_path = os.path.expanduser(r"~\Documents\VBS4\Battlespaces")
@@ -1221,6 +1235,20 @@ class VBS4Panel(tk.Frame):
         else:
             messagebox.showerror("Error", "VBS4 Battlespaces folder not found.")
 
+    def open_vbs4_folder(self):
+        vbs4_path = get_vbs4_install_path()
+        if vbs4_path:
+            folder_path = os.path.dirname(vbs4_path)
+            if os.path.exists(folder_path):
+                os.startfile(folder_path)
+            else:
+                messagebox.showerror("Error", "VBS4 installation folder not found.")
+        else:
+            messagebox.showerror("Error", "VBS4 path not set. Please set it in the settings.")
+    
+
+    def hide_tooltip(self, event):
+        self.tooltip.hide()
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
