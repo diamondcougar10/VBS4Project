@@ -18,6 +18,7 @@ import re
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
 
+
 def get_vbs4_install_path() -> str:
     path = config['General'].get('vbs4_path', '')
     if not path or not os.path.isfile(path):
@@ -86,6 +87,7 @@ BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
+
 if 'General' not in config:
     config['General'] = {}
 if 'close_on_launch' not in config['General']:
