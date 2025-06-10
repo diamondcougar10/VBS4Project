@@ -548,6 +548,7 @@ vbs4_help_items = {
     "Script Wiki":                  lambda: subprocess.Popen([SCRIPT_WIKI], shell=True),
     "Video Tutorials":              lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
     "Support Website":              lambda: webbrowser.open(SUPPORT_SITE, new=2),
+    "Gaming Help": lambda: webbrowser.open("https://example.com/vbs4-gaming-help", new=2),
 }
 def open_bvi_quickstart():
     path = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\BVI_Documentation\BVI_TECHNICAL_DOC.pdf"
@@ -1045,16 +1046,22 @@ class VBS4Panel(tk.Frame):
         )
         self.vbs_license_button.pack(pady=8, ipadx=10, ipady=5)
 
-        # One-Click Terrain Converter stub button
-        tk.Button(
-            self,
+        # One-Click Terrain Conversion frame
+        self.terrain_frame = tk.Frame(self, bg="#333333")
+        self.terrain_frame.pack(pady=8)
+
+        # One-Click Terrain Converter button (initially visible)
+        self.terrain_button = tk.Button(
+            self.terrain_frame,
             text="One-Click Terrain Converter",
             font=("Helvetica", 20),
             bg="#444", fg="white",
-            command=lambda: messagebox.showinfo(
-                "One-Click Terrain Converter", "Tool coming soon…"
-            )
-        ).pack(pady=8, ipadx=10, ipady=5)
+            command=self.toggle_terrain_buttons
+        )
+        self.terrain_button.pack(pady=8, ipadx=10, ipady=5)
+
+        # Create hidden buttons (initially not visible)
+        self.create_hidden_terrain_buttons()
 
         # External Map button
         tk.Button(
@@ -1246,9 +1253,55 @@ class VBS4Panel(tk.Frame):
         else:
             messagebox.showerror("Error", "VBS4 path not set. Please set it in the settings.")
     
-
     def hide_tooltip(self, event):
         self.tooltip.hide()
+
+    def create_hidden_terrain_buttons(self):
+        self.hidden_buttons = []
+        
+        buttons = [
+            ("Select Imagery", self.select_imagery),
+            ("Create Mesh", self.create_mesh),
+            ("View Mesh", self.view_mesh),
+            ("One-Click Conversion", self.one_click_conversion),
+            ("One-Click Terrain Tutorial", self.show_terrain_tutorial)
+        ]
+        
+        for text, command in buttons:
+            button = tk.Button(
+                self.terrain_frame,
+                text=text,
+                font=("Helvetica", 16),
+                bg="#444", fg="white",
+                command=command
+            )
+            self.hidden_buttons.append(button)
+
+    def toggle_terrain_buttons(self):
+        if self.terrain_button.cget("text") == "One-Click Terrain Converter":
+            self.terrain_button.config(text="Hide Terrain Options")
+            for button in self.hidden_buttons:
+                button.pack(pady=5, padx=10, fill="x")
+        else:
+            self.terrain_button.config(text="One-Click Terrain Converter")
+            for button in self.hidden_buttons:
+                button.pack_forget()
+   
+    def select_imagery(self):
+         messagebox.showinfo("Select Imagery", "Imagery selection functionality to be implemented.")
+
+    def create_mesh(self):
+         messagebox.showinfo("Create Mesh", "Mesh creation functionality to be implemented.")
+
+    def view_mesh(self):
+          messagebox.showinfo("View Mesh", "Mesh viewing functionality to be implemented.")
+
+    def one_click_conversion(self):
+           messagebox.showinfo("One-Click Conversion", "One-click conversion functionality to be implemented.")
+
+    def show_terrain_tutorial(self):
+          messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.")
+
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
