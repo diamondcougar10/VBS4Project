@@ -13,6 +13,7 @@ import functools
 import json
 from tkinter import simpledialog
 import re
+from screeninfo import get_monitors
 
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
@@ -433,14 +434,19 @@ logo_AFC_army         = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
 logo_first_army       = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
 
+
 def set_background(window):
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight()
+
     # wallpaper
     if os.path.exists(background_image_path):
-        img = Image.open(background_image_path).resize((1600,800), Image.Resampling.LANCZOS)
+        img = Image.open(background_image_path)
+        img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
         ph  = ImageTk.PhotoImage(img)
         lbl = tk.Label(window, image=ph)
         lbl.image = ph
-        lbl.place(relwidth=1, relheight=1)
+        lbl.place(x=0, y=0, relwidth=1, relheight=1)
 
     # logos
     if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
@@ -449,10 +455,10 @@ def set_background(window):
 
     def place_logos():
         coords = [
-            (200,  30, logo_STE_path,   (90, 90)),
-            (300,  30, logo_AFC_army,   (73, 90)),
-            (380,  30, logo_first_army, (60, 90)),
-            (1330, 30, logo_us_army_path, (230, 86)),
+            (int(screen_width * 0.125),  int(screen_height * 0.0375), logo_STE_path,   (90, 90)),
+            (int(screen_width * 0.1875), int(screen_height * 0.0375), logo_AFC_army,   (73, 90)),
+            (int(screen_width * 0.2375), int(screen_height * 0.0375), logo_first_army, (60, 90)),
+            (int(screen_width * 0.83125), int(screen_height * 0.0375), logo_us_army_path, (230, 86)),
         ]
         for x,y,path,(w,h) in coords:
             if os.path.exists(path):
@@ -467,16 +473,17 @@ def set_background(window):
 
 def set_wallpaper(window):
     if os.path.exists(background_image_path):
-        img = Image.open(background_image_path).resize((1600,800), Image.Resampling.LANCZOS)
+        img = Image.open(background_image_path)
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+        img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
         ph  = ImageTk.PhotoImage(img)
         lbl = tk.Label(window, image=ph)
         lbl.image = ph
-        lbl.place(relwidth=1, relheight=1)
-        if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
-         return
-    window._logos_placed = True
-        
-
+        lbl.place(x=0, y=0, relwidth=1, relheight=1)
+    if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
+        return
+    window._logos_placed = True        
 # ─── TUTORIALS PANEL DATA ────────────────────────────────────────────────────
 
 tutorials_items = {
@@ -700,6 +707,10 @@ def open_external_map():
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
+
+        self.screen_width = self.winfo_screenwidth()
+        self.screen_height = self.winfo_screenheight()
+
         set_background(self)
 
         # 1) Make the window
@@ -973,7 +984,6 @@ class VBS4Panel(tk.Frame):
         controller.create_tutorial_button(self)
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
-
         self.tooltip = Tooltip(self)
 
         tk.Label(
@@ -987,7 +997,7 @@ class VBS4Panel(tk.Frame):
         vbs4_frame = tk.Frame(self, bg="#333333")
         vbs4_frame.pack(pady=8)
 
-        # VBS4 Launch button
+        # Launch VBS4 button
         self.vbs4_button = tk.Button(
             vbs4_frame,
             text="Launch VBS4",
@@ -997,7 +1007,7 @@ class VBS4Panel(tk.Frame):
         )
         self.vbs4_button.pack(side=tk.LEFT, ipadx=10, ipady=5)
 
-        # VBS4 Version label
+        # VBS4 version label
         self.vbs4_version_label = tk.Label(
             vbs4_frame,
             text="",
@@ -1005,8 +1015,6 @@ class VBS4Panel(tk.Frame):
             bg="#333333", fg="white"
         )
         self.vbs4_version_label.pack(side=tk.LEFT, padx=10)
-
-        # Update VBS4 version label
         self.update_vbs4_version()
 
         # VBS4 Launcher button
@@ -1019,24 +1027,12 @@ class VBS4Panel(tk.Frame):
         )
         self.vbs4_launcher_button.pack(pady=8, ipadx=10, ipady=5)
 
-        # BlueIG frame for dynamic buttons
+        # BlueIG frame for dynamic buttons + version label handled below
         self.blueig_frame = tk.Frame(self, bg="#333333")
         self.blueig_frame.pack(pady=8)
         self.create_blueig_button()
 
-        # BlueIG Version label
-        self.blueig_version_label = tk.Label(
-            self.blueig_frame,
-            text="",
-            font=("Helvetica", 16),
-            bg="#333333", fg="white"
-        )
-        self.blueig_version_label.pack(pady=5)
-
-        # Update BlueIG version label
-        self.update_blueig_version()
-
-          # VBS License Manager button
+        # VBS License Manager button
         self.vbs_license_button = tk.Button(
             self,
             text="VBS License Manager",
@@ -1046,11 +1042,9 @@ class VBS4Panel(tk.Frame):
         )
         self.vbs_license_button.pack(pady=8, ipadx=10, ipady=5)
 
-        # One-Click Terrain Conversion frame
+        # Terrain Converter Section
         self.terrain_frame = tk.Frame(self, bg="#333333")
         self.terrain_frame.pack(pady=8)
-
-        # One-Click Terrain Converter button (initially visible)
         self.terrain_button = tk.Button(
             self.terrain_frame,
             text="One-Click Terrain Converter",
@@ -1059,8 +1053,6 @@ class VBS4Panel(tk.Frame):
             command=self.toggle_terrain_buttons
         )
         self.terrain_button.pack(pady=8, ipadx=10, ipady=5)
-
-        # Create hidden buttons (initially not visible)
         self.create_hidden_terrain_buttons()
 
         # External Map button
@@ -1081,6 +1073,46 @@ class VBS4Panel(tk.Frame):
             command=lambda: controller.show("Main")
         ).pack(pady=20)
 
+    def create_blueig_button(self):
+        # Clear out any existing widgets
+        for widget in self.blueig_frame.winfo_children():
+            widget.destroy()
+
+        is_srv = config['General'].getboolean('is_server', fallback=False)
+        state = 'disabled' if is_srv else 'normal'
+
+        # Launch BlueIG button
+        btn = tk.Button(
+            self.blueig_frame,
+            text='Launch BlueIG',
+            font=('Helvetica', 20),
+            bg='#444444', fg='white',
+            state=state,
+            command=self.show_scenario_buttons
+        )
+        btn.pack(side=tk.LEFT, ipadx=10, ipady=5)
+
+        # BlueIG version label (now here, after the button)
+        self.blueig_version_label = tk.Label(
+            self.blueig_frame,
+            text="",
+            font=('Helvetica', 16),
+            bg='#333333', fg='white'
+        )
+        self.blueig_version_label.pack(side=tk.LEFT, padx=10)
+        self.update_blueig_version()
+
+    def update_vbs4_version(self):
+        path = get_vbs4_install_path()
+        ver = get_vbs4_version(path)
+        self.vbs4_version_label.config(text=f"Version: {ver}")
+
+    def update_blueig_version(self):
+        path = get_blueig_install_path()
+        ver = get_blueig_version(path)
+        self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
+
+
     def launch_vbs_license_manager(self):
         vbs_license_manager_path = config['General'].get('vbs_license_manager_path', '')
         if not vbs_license_manager_path or not os.path.exists(vbs_license_manager_path):
@@ -1094,33 +1126,6 @@ class VBS4Panel(tk.Frame):
                 sys.exit(0)
         except Exception as e:
             messagebox.showerror("Launch Failed", f"Couldn't launch VBS License Manager:\n{e}")
-
-    def update_vbs4_version(self):
-        vbs4_path = get_vbs4_install_path()
-        version = get_vbs4_version(vbs4_path)
-        self.vbs4_version_label.config(text=f"Version: {version}")
-
-    def update_blueig_version(self):
-        blueig_path = get_blueig_install_path()
-        version = get_blueig_version(blueig_path)
-        self.blueig_version_label.config(text=f"BlueIG Version: {version}")
-
-    def create_blueig_button(self):
-        # Clear any old widgets
-        for widget in self.blueig_frame.winfo_children():
-            widget.destroy()
-
-        is_srv = config["General"].getboolean("is_server", fallback=False)
-        state = "disabled" if is_srv else "normal"
-
-        tk.Button(
-            self.blueig_frame,
-            text="Launch BlueIG",
-            font=("Helvetica", 20),
-            bg="#444444", fg="white",
-            state=state,
-            command=self.show_scenario_buttons
-        ).pack(ipadx=10, ipady=5)
 
     def show_scenario_buttons(self):
         # If “Is Server”, do nothing

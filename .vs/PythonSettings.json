@@ -1,4 +1,4 @@
 {
   "TestFramework": "Pytest",
-  "Interpreter": "Workspace|Workspace|.venv"
+  "Interpreter": "CondaEnv|CondaEnv|myenv"
 }
