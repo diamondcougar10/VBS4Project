@@ -187,27 +187,34 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
 
     path = get_path_func()
     
-    if not path:
-        state = "normal"
-        command = set_path_func
-        text = f"Set {app_name} Location"
+    if not path or not os.path.exists(path):
+        state = "disabled"
         bg_color = "#888888"
     else:
         state = "normal"
-        command = launch_func
-        text = f"Launch {app_name}"
         bg_color = "#444444"
 
     button = tk.Button(
         frame,
-        text=text,
+        text=f"Launch {app_name}",
         font=("Helvetica", 20),
         bg=bg_color,
         fg="white",
         state=state,
-        command=command
+        command=launch_func
     )
-    button.pack(ipadx=10, ipady=5)
+    button.pack(side=tk.LEFT, ipadx=10, ipady=5)
+
+    if state == "disabled":
+        question_button = tk.Button(
+            frame,
+            text="?",
+            font=("Helvetica", 16, "bold"),
+            bg="orange",
+            fg="black",
+            command=set_path_func
+        )
+        question_button.pack(side=tk.LEFT, padx=(5, 0))
 
     # Version label
     version_label = tk.Label(
@@ -437,7 +444,6 @@ logo_AFC_army         = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
 logo_first_army       = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
 
-
 def set_background(window, widget=None):
     screen_width = window.winfo_screenwidth()
     screen_height = window.winfo_screenheight()
@@ -458,10 +464,10 @@ def set_background(window, widget=None):
 
     def place_logos():
         coords = [
-            (int(screen_width * 0.125),  int(screen_height * 0.0375), logo_STE_path,   (90, 90)),
-            (int(screen_width * 0.1875), int(screen_height * 0.0375), logo_AFC_army,   (73, 90)),
-            (int(screen_width * 0.2375), int(screen_height * 0.0375), logo_first_army, (60, 90)),
-            (int(screen_width * 0.83125), int(screen_height * 0.0375), logo_us_army_path, (230, 86)),
+            (int(screen_width * 0.125),  int(screen_height * 0.02), logo_STE_path,   (70, 70)),
+            (int(screen_width * 0.1875), int(screen_height * 0.02), logo_AFC_army,   (60, 70)),
+            (int(screen_width * 0.2375), int(screen_height * 0.02), logo_first_army, (45, 75)),
+            (int(screen_width * 0.83125), int(screen_height * 0.02), logo_us_army_path, (200, 76)),
         ]
         for x,y,path,(w,h) in coords:
             if os.path.exists(path):
@@ -473,6 +479,7 @@ def set_background(window, widget=None):
 
     # Use after() to ensure the window is fully initialized
     window.after(100, place_logos)
+
 
 def set_wallpaper(window):
     if not os.path.exists(background_image_path):
@@ -721,7 +728,7 @@ class MainApp(tk.Tk):
 
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
         self.toggle_fullscreen()
-
+        self.overrideredirect(self.fullscreen)
         if not self.fullscreen:
             window_width = 1660
             window_height = 800
@@ -731,18 +738,17 @@ class MainApp(tk.Tk):
 
         set_background(self)
 
+         # Bind focus events
+        self.bind("<FocusOut>", self.on_focus_out)
+        self.bind("<FocusIn>", self.on_focus_in)
+        self.minimized_on_focus_out = False
+
         # Add a close button
         close_btn = tk.Button(self, text="✕",
                               font=("Helvetica",12,"bold"),
                               bg="red", fg="white", bd=0,
                               command=self.destroy)
         close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
-
-        # Add a draggable title bar (optional)
-        title_bar = tk.Frame(self, bg="#222222", height=30)
-        title_bar.pack(fill="x")
-        title_bar.bind("<ButtonPress-1>", self._on_drag_start)
-        title_bar.bind("<B1-Motion>", self._on_drag_motion)
 
         # Content area
         self.content = tk.Frame(self)
@@ -795,10 +801,10 @@ class MainApp(tk.Tk):
     def toggle_fullscreen(self):
         if self.fullscreen:
             self.attributes('-fullscreen', True)
-            self.overrideredirect(True)
+            self.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
         else:
             self.attributes('-fullscreen', False)
-            self.overrideredirect(False)
+            self.state('normal')
             # Set a default window size when not in fullscreen
             window_width = 1660
             window_height = 800
@@ -806,16 +812,17 @@ class MainApp(tk.Tk):
             y = (self.screen_height - window_height) // 2
             self.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
-    def _on_drag_start(self, event):
-        self._drag_start_x = event.x
-        self._drag_start_y = event.y
+    def on_focus_out(self, event):
+        if self.fullscreen:
+            self.minimized_on_focus_out = True
+            self.attributes('-fullscreen', False)
+            self.withdraw()
 
-    def _on_drag_motion(self, event):
-        dx = event.x - self._drag_start_x
-        dy = event.y - self._drag_start_y
-        new_x = self.winfo_x() + dx
-        new_y = self.winfo_y() + dy
-        self.geometry(f"+{new_x}+{new_y}")
+    def on_focus_in(self, event):
+        if self.fullscreen and self.minimized_on_focus_out:
+            self.minimized_on_focus_out = False
+            self.deiconify()
+            self.attributes('-fullscreen', True)
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -833,12 +840,12 @@ class MainApp(tk.Tk):
         panel.pack(expand=True, fill='both')
         self.current = name
         if name == "VBS4":
-           self.update_button_state(panel.vbs4_button, 'vbs4_path')
-           self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
-           self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
-           panel.create_blueig_button()  
+            self.update_button_state(panel.vbs4_button, 'vbs4_path')
+            self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
+            self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
+            self.update_button_state(panel.blueig_button, 'blueig_path')
         elif name == "BVI":
-          self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+            self.update_button_state(panel.bvi_button, 'bvi_manager_path')
 
     def create_tutorial_button(self, parent):
         """
@@ -855,7 +862,26 @@ class MainApp(tk.Tk):
 
         if isinstance(parent, VBS4Panel):
             parent.create_battlespaces_button()
-    
+
+    def set_file_location(self, app_name, config_key, button):
+        path = filedialog.askopenfilename(
+            title=f"Select {app_name} Executable",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if path and os.path.exists(path):
+            config['General'][config_key] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
+            button.config(state="normal", bg="#444444")
+            if app_name == "VBS4":
+                self.panels['VBS4'].update_vbs4_version()
+            elif app_name == "BlueIG":
+                self.panels['VBS4'].update_blueig_version()
+            elif app_name == "BVI":
+                self.panels['BVI'].update_bvi_version()
+        else:
+            messagebox.showerror("Error", f"Invalid {app_name} path selected.")
    
 # ─── ---------------- MAINMENU PANEL --------------------------------- ──────────
 class MainMenu(tk.Frame):
@@ -1017,15 +1043,11 @@ class VBS4Panel(tk.Frame):
         vbs4_frame = tk.Frame(self, bg="#333333")
         vbs4_frame.pack(pady=8)
 
-        # Launch VBS4 button
-        self.vbs4_button = tk.Button(
-            vbs4_frame,
-            text="Launch VBS4",
-            font=("Helvetica", 20),
-            bg="#444", fg="white",
-            command=launch_vbs4
+        self.vbs4_button, self.vbs4_version_label = create_app_button(
+            self, "VBS4", get_vbs4_install_path, launch_vbs4,
+            lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
-        self.vbs4_button.pack(side=tk.LEFT, ipadx=10, ipady=5)
+        self.update_vbs4_version()
 
         # VBS4 version label
         self.vbs4_version_label = tk.Label(
@@ -1037,15 +1059,12 @@ class VBS4Panel(tk.Frame):
         self.vbs4_version_label.pack(side=tk.LEFT, padx=10)
         self.update_vbs4_version()
 
-        # VBS4 Launcher button
-        self.vbs4_launcher_button = tk.Button(
-            self,
-            text="VBS4 Launcher",
-            font=("Helvetica", 20),
-            bg="#444", fg="white",
-            command=launch_vbs4_setup
+        self.vbs4_launcher_button, _ = create_app_button(
+            self, "VBS4 Launcher", 
+            lambda: config['General'].get('vbs4_setup_path', ''),
+            launch_vbs4_setup,
+            lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
         )
-        self.vbs4_launcher_button.pack(pady=8, ipadx=10, ipady=5)
 
         # BlueIG frame for dynamic buttons + version label handled below
         self.blueig_frame = tk.Frame(self, bg="#333333")
@@ -1053,14 +1072,12 @@ class VBS4Panel(tk.Frame):
         self.create_blueig_button()
 
         # VBS License Manager button
-        self.vbs_license_button = tk.Button(
-            self,
-            text="VBS License Manager",
-            font=("Helvetica", 20),
-            bg="#444", fg="white",
-            command=self.launch_vbs_license_manager
+        self.vbs_license_button, _ = create_app_button(
+            self, "VBS License Manager", 
+            lambda: config['General'].get('vbs_license_manager_path', ''),
+            self.launch_vbs_license_manager,
+            lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
-        self.vbs_license_button.pack(pady=8, ipadx=10, ipady=5)
 
         # Terrain Converter Section
         self.terrain_frame = tk.Frame(self, bg="#333333")
@@ -1102,15 +1119,11 @@ class VBS4Panel(tk.Frame):
         state = 'disabled' if is_srv else 'normal'
 
         # Launch BlueIG button
-        btn = tk.Button(
-            self.blueig_frame,
-            text='Launch BlueIG',
-            font=('Helvetica', 20),
-            bg='#444444', fg='white',
-            state=state,
-            command=self.show_scenario_buttons
+        self.blueig_button, self.blueig_version_label = create_app_button(
+            self, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
+            lambda: self.set_file_location("BlueIG", "blueig_path", self.blueig_button)
         )
-        btn.pack(side=tk.LEFT, ipadx=10, ipady=5)
+        self.update_blueig_version()
 
         # BlueIG version label (now here, after the button)
         self.blueig_version_label = tk.Label(
@@ -1312,6 +1325,24 @@ class VBS4Panel(tk.Frame):
             for button in self.hidden_buttons:
                 button.pack_forget()
    
+    def set_file_location(self, app_name, config_key, button):
+        path = filedialog.askopenfilename(
+            title=f"Select {app_name} Executable",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if path and os.path.exists(path):
+            config['General'][config_key] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
+            button.config(state="normal", bg="#444444")
+            if app_name == "VBS4":
+                self.update_vbs4_version()
+            elif app_name == "BlueIG":
+                self.update_blueig_version()
+        else:
+            messagebox.showerror("Error", f"Invalid {app_name} path selected.")
+
     def select_imagery(self):
          messagebox.showinfo("Select Imagery", "Imagery selection functionality to be implemented.")
 
@@ -1343,10 +1374,11 @@ class BVIPanel(tk.Frame):
         bvi_frame = tk.Frame(self, bg="#333333")
         bvi_frame.pack(pady=8)
 
-        self.bvi_button = tk.Button(bvi_frame, text="Launch BVI",
-                  font=("Helvetica",20), bg="#444", fg="white",
-                  command=launch_bvi)
-        self.bvi_button.pack(side=tk.LEFT, ipadx=10, ipady=5)
+        self.bvi_button, self.bvi_version_label = create_app_button(
+            self, "BVI", get_ares_manager_path, launch_bvi,
+            lambda: self.set_file_location("BVI", "bvi_manager_path", self.bvi_button)
+        )
+        self.update_bvi_version()
 
         # BVI Version label
         self.bvi_version_label = tk.Label(
@@ -1374,7 +1406,24 @@ class BVIPanel(tk.Frame):
         bvi_path = get_ares_manager_path()
         version = get_bvi_version(bvi_path)
         self.bvi_version_label.config(text=f"Version: {version}")
-        
+
+    def set_file_location(self, app_name, config_key, button):
+        path = filedialog.askopenfilename(
+            title=f"Select {app_name} Executable",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if path and os.path.exists(path):
+            config['General'][config_key] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
+            button.config(state="normal", bg="#444444")
+            if app_name == "VBS4":
+                self.update_vbs4_version()
+            elif app_name == "BlueIG":
+                self.update_blueig_version()
+        else:
+            messagebox.showerror("Error", f"Invalid {app_name} path selected.")    
 
 # ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 class SettingsPanel(tk.Frame):
@@ -1695,19 +1744,16 @@ class CreditsPanel(tk.Frame):
 
         Designed and developed by:
 
-        Ryan Curphey
+        Ryan Curphey - Developer
 
-        Yovany Tietze-torres
+        Yovany Tietze-torres - Designer
 
-        STE CFT
    
         Version: 1.0
 
         Special thanks to:
         - The STE CFT team
         - All contributors and testers
-
-        © 2025 STE CFT. All rights reserved.
         """
 
         tk.Label(center_frame, text=credits_text,
@@ -1744,22 +1790,20 @@ class ContactSupportPanel(tk.Frame):
         support_text = """
         For technical support or assistance, please contact:
 
-        STE CFT Support Team
-
 
         Michael Enloe
+        Cheif Technology Officer
+        Email: michael.r.enloe.civ@army.mil
         
         
         Yovany Tietze-torres
+        Senior Syetems Architect
+        Email: yovany.e.tietze-torres.ctr@army.mil
        
 
         US Army Futures Command, Synthetic Training Environment (STE)   Cross Functional Team (CFT)
 
         12809 Science Dr, Orlando, FL 32836
-
-        Email: michael.r.enloe.civ@army.mil
-
-        Email: yovany.e.tietze-torres.ctr@army.mil
 
         Hours of Operation:
         Monday - Friday: 9:00 AM - 5:00 PM EST
@@ -1784,7 +1828,7 @@ class ContactSupportPanel(tk.Frame):
 
     def contact_support(self):
         # This function will open the default email client with the new email address
-        webbrowser.open('mailto:michael.r.enloe.civ@army.mil?subject=Support%20Request')
+        webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
 
 class Tooltip:
     """
