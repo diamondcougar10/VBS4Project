@@ -100,7 +100,10 @@ def load_image(path, size=None):
     if size:
         img = img.resize(size, Image.Resampling.LANCZOS)
     return ImageTk.PhotoImage(img)
-
+if 'fullscreen' not in config['General']:
+    config['General']['fullscreen'] = 'False'  # Set a default value
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
 #==============================================================================
 # AUTO-LAUNCH CONFIG
 #==============================================================================
@@ -435,7 +438,7 @@ logo_first_army       = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
 
 
-def set_background(window):
+def set_background(window, widget=None):
     screen_width = window.winfo_screenwidth()
     screen_height = window.winfo_screenheight()
 
@@ -444,7 +447,7 @@ def set_background(window):
         img = Image.open(background_image_path)
         img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
         ph  = ImageTk.PhotoImage(img)
-        lbl = tk.Label(window, image=ph)
+        lbl = tk.Label(widget or window, image=ph)
         lbl.image = ph
         lbl.place(x=0, y=0, relwidth=1, relheight=1)
 
@@ -472,18 +475,19 @@ def set_background(window):
     window.after(100, place_logos)
 
 def set_wallpaper(window):
-    if os.path.exists(background_image_path):
-        img = Image.open(background_image_path)
-        screen_width = window.winfo_screenwidth()
-        screen_height = window.winfo_screenheight()
-        img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
-        ph  = ImageTk.PhotoImage(img)
-        lbl = tk.Label(window, image=ph)
-        lbl.image = ph
-        lbl.place(x=0, y=0, relwidth=1, relheight=1)
-    if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
+    if not os.path.exists(background_image_path):
         return
-    window._logos_placed = True        
+
+    # get actual window dimensions
+    w = window.winfo_width()
+    h = window.winfo_height()
+
+    img = Image.open(background_image_path).resize((w, h), Image.Resampling.LANCZOS)
+    ph  = ImageTk.PhotoImage(img)
+    lbl = tk.Label(window, image=ph)
+    lbl.image = ph
+    lbl.place(relwidth=1, relheight=1)
+    
 # ─── TUTORIALS PANEL DATA ────────────────────────────────────────────────────
 
 tutorials_items = {
@@ -707,41 +711,52 @@ def open_external_map():
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.title("STE Mission Planning Toolkit")
+         # Prevent window resizing
+        self.resizable(False, False)
 
+        # Get the screen dimensions
         self.screen_width = self.winfo_screenwidth()
         self.screen_height = self.winfo_screenheight()
 
+        self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
+        self.toggle_fullscreen()
+
+        if not self.fullscreen:
+            window_width = 1660
+            window_height = 800
+            x = (self.screen_width - window_width) // 2
+            y = (self.screen_height - window_height) // 2
+            self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
         set_background(self)
 
-        # 1) Make the window
-        self.overrideredirect(True)
-
-        # 2) Add a small close button (“✕”) in the top‐right corner
+        # Add a close button
         close_btn = tk.Button(self, text="✕",
-                              font=("Helvetica", 12, "bold"),
+                              font=("Helvetica",12,"bold"),
                               bg="red", fg="white", bd=0,
                               command=self.destroy)
-        close_btn.place(x=1600 - 40, y=5, width=30, height=30)
+        close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
 
-        # 3) Create a “title bar” frame so you can drag the window around
+        # Add a draggable title bar (optional)
         title_bar = tk.Frame(self, bg="#222222", height=30)
         title_bar.pack(fill="x")
         title_bar.bind("<ButtonPress-1>", self._on_drag_start)
         title_bar.bind("<B1-Motion>", self._on_drag_motion)
 
-        # 4) Below the title bar goes the content area
+        # Content area
         self.content = tk.Frame(self)
         self.content.pack(expand=True, fill="both")
 
-        # 5) Left‐hand navigation pane
+        # Left-hand navigation pane
         nav = tk.Frame(self.content, width=200, bg='#333333')
         nav.pack(side='left', fill='y')
 
-        # 6) The right‐hand side is where panels are packed
+        # Right-hand panels container
         panels_container = tk.Frame(self.content)
         panels_container.pack(side='right', expand=True, fill='both')
 
-        # 7) Instantiate each panel, passing `self` as the controller
+        # Instantiate each panel, passing `self` as the controller
         self.panels = {
             'Main':      MainMenu(panels_container, self),
             'VBS4':      VBS4Panel(panels_container, self),
@@ -752,7 +767,7 @@ class MainApp(tk.Tk):
             'Contact Us': ContactSupportPanel(panels_container, self),
         }
 
-        # 8) Build the nav buttons:
+        # Build the nav buttons
         for key, label in [
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
@@ -773,19 +788,23 @@ class MainApp(tk.Tk):
                   bg="red", fg="white", command=self.destroy) \
           .pack(fill='x', pady=20, padx=5)
 
-        # 9) Start by showing “Main”
+        # Start by showing "Main"
         self.current = None
         self.show('Main')
 
-        # 10) Center on screen (1600×800):
-        self.update_idletasks()
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        win_w = 1600
-        win_h = 800
-        x = (screen_w - win_w) // 2
-        y = (screen_h - win_h) // 2
-        self.geometry(f"{win_w}x{win_h}+{x}+{y}")
+    def toggle_fullscreen(self):
+        if self.fullscreen:
+            self.attributes('-fullscreen', True)
+            self.overrideredirect(True)
+        else:
+            self.attributes('-fullscreen', False)
+            self.overrideredirect(False)
+            # Set a default window size when not in fullscreen
+            window_width = 1660
+            window_height = 800
+            x = (self.screen_width - window_width) // 2
+            y = (self.screen_height - window_height) // 2
+            self.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
     def _on_drag_start(self, event):
         self._drag_start_x = event.x
@@ -843,7 +862,7 @@ class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
-        set_background(self)
+        set_background(controller, self)
         controller.create_tutorial_button(self)   # <— keeps the “?” button
 
         tk.Label(
@@ -981,6 +1000,7 @@ class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
+        set_background(controller, self)
         controller.create_tutorial_button(self)
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
@@ -1312,6 +1332,7 @@ class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
+        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         tk.Label(self, text="BVI",
@@ -1360,12 +1381,26 @@ class SettingsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
+        set_background(controller, self)
         controller.create_tutorial_button(self)
+        self.controller = controller
 
         tk.Label(self, text="Settings",
                  font=("Helvetica",36,"bold"),
                  bg='black', fg='white', pady=20) \
           .pack(fill='x')
+
+        self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
+        tk.Checkbutton(self,
+                       text="Fullscreen Mode",
+                       variable=self.fullscreen_var,
+                       command=self._on_fullscreen_toggle,
+                       font=("Helvetica",20),
+                       bg="#444444", fg="white",
+                       selectcolor="#444444",
+                       indicatoron=True,
+                       width=30, pady=5) \
+          .pack(pady=8)
 
         # Launch on Startup
         self.startup_var = tk.BooleanVar(value=is_startup_enabled())
@@ -1536,11 +1571,18 @@ class SettingsPanel(tk.Frame):
         else:
             messagebox.showerror("Settings", "Invalid VBS License Manager path selected.")
 
+    def _on_fullscreen_toggle(self):
+        self.controller.fullscreen = self.fullscreen_var.get()
+        self.controller.toggle_fullscreen()
+        config['General']['fullscreen'] = str(self.controller.fullscreen)
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
-
+        set_background(controller, self)
         tk.Label(self, text="Tutorials ❓",
                  font=("Helvetica", 36, "bold"),
                  bg='black', fg='white', pady=20)\
@@ -1626,6 +1668,7 @@ class CreditsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
+        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         # Add header
@@ -1684,6 +1727,7 @@ class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_wallpaper(self)
+        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         # Add header
