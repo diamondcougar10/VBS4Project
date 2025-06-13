@@ -245,6 +245,14 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
 #==============================================================================
 
 def prompt_for_exe(app_name, config_key):
+    response = messagebox.askyesno(
+        f"Set {app_name} Path",
+        f"Do you want to set the path for {app_name}?\n\nClick 'No' to skip.",
+        icon='question'
+    )
+    if not response:
+        return True  # User chose to skip
+
     path = filedialog.askopenfilename(
         title=f"Select {app_name} Executable",
         filetypes=[("Executable Files", "*.exe")]
