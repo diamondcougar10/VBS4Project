@@ -261,29 +261,41 @@ def prompt_for_exe(app_name, config_key):
 
 def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     path = config['General'].get(config_key, '').strip()
-    if not path or not os.path.isfile(path):
-        if exe_name and isinstance(exe_name, str):
-            if exe_name.lower() == 'vbs4.exe':
-                path = get_vbs4_install_path()
-            elif exe_name.lower() == 'blueig.exe':
-                path = get_blueig_install_path()
-            else:
-                path = find_executable(exe_name)
-        elif isinstance(exe_name, list):
-            for name in exe_name:
-                path = find_executable(name)
-                if path:
-                    break
-    
-    if not path:
-        path = prompt_for_exe(prompt_title)
-        if not path or not os.path.isfile(path):
-            raise FileNotFoundError(f"No executable found for '{config_key}'.")
+    # 1) Try what we already have in config
+    if path and os.path.isfile(path):
+        return path
+
+    # 2) Try auto-find logic (registry, standard folders, etc.)
+    if isinstance(exe_name, str):
+        candidate = exe_name.lower()
+        if candidate == 'vbs4.exe':
+            path = get_vbs4_install_path()
+        elif candidate == 'blueig.exe':
+            path = get_blueig_install_path()
+        else:
+            path = find_executable(exe_name)
+    else:
+        # exe_name might be a list of possible names
+        for name in exe_name:
+            path = find_executable(name)
+            if path:
+                break
+
+    if path and os.path.isfile(path):
+        # store it for next time
         config['General'][config_key] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
-    
+        return path
+
+      # 3) Fallback: prompt the user (must pass BOTH arguments!)
+    if not prompt_for_exe(prompt_title, config_key):  # Changed from exe_name to prompt_title
+        raise FileNotFoundError(f"No executable selected for '{config_key}'.")
+
+    # prompt_for_exe wrote the new path into config
+    path = config['General'][config_key]
     return path
+
 
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')

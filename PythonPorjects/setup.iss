@@ -21,9 +21,9 @@ Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
 Name: "{userdesktop}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"; Tasks: desktopicon
 
 [Tasks]
-Name: desktopicon; Description: "Create a &desktop icon"; Flags: unchecked
-Name: firewall;    Description: "Allow STE Toolkit through Windows Firewall"; Flags: unchecked
-Name: vc_redist;   Description: "Install Visual C++ Redistributable"; Flags: unchecked
+Name: desktopicon; Description: "Create a &desktop icon"; Flags: checked
+Name: firewall;    Description: "Allow STE Toolkit through Windows Firewall"; Flags: checked
+
 
 [Run]
 // Launch main app (no elevation needed here; installer already ran elevated)
@@ -34,8 +34,4 @@ Filename: "netsh"; \
   Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; \
   Flags: runhidden; Tasks: firewall
 
-// VC++ Redistributable installer (only if user checked “Install Visual C++ Redistributable”)
-// Make sure you bundle VC_redist.x64.exe under a “redist” folder in your Source.
-Filename: "{app}\redist\VC_redist.x64.exe"; \
-  Parameters: "/quiet /norestart"; \
-  Flags: runhidden waituntilterminated; Tasks: vc_redist
+
