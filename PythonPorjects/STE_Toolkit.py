@@ -14,6 +14,18 @@ import json
 from tkinter import simpledialog
 import re
 from screeninfo import get_monitors
+import win32api, ctypes
+import win32con
+import win32gui
+
+# Win32 constants for tweaking window styles:
+GWL_STYLE        = -16
+WS_BORDER        = 0x00800000
+WS_DLGFRAME      = 0x00400000
+SWP_NOMOVE       = 0x0002
+SWP_NOSIZE       = 0x0001
+SWP_NOZORDER     = 0x0004
+SWP_FRAMECHANGED = 0x0020
 
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
@@ -713,6 +725,16 @@ def open_external_map():
     else:
         webbrowser.open(url, new=2)
 
+def make_borderless(hwnd):
+    """Strip only the thin border & titlebar out of a real toplevel."""
+    style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+    # turn off WS_BORDER | WS_DLGFRAME
+    style &= ~(WS_BORDER | WS_DLGFRAME)
+    ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+    ctypes.windll.user32.SetWindowPos(
+        hwnd, None, 0,0,0,0,
+        SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED
+    )
 
 # ─── MAINMENU PANEL ────────────────────────────────────────
 class MainApp(tk.Tk):
@@ -722,43 +744,47 @@ class MainApp(tk.Tk):
          # Prevent window resizing
         self.resizable(False, False)
 
-        # Get the screen dimensions
-        self.screen_width = self.winfo_screenwidth()
-        self.screen_height = self.winfo_screenheight()
-
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
-        self.toggle_fullscreen()
-        self.overrideredirect(self.fullscreen)
-        if not self.fullscreen:
-            window_width = 1660
-            window_height = 800
-            x = (self.screen_width - window_width) // 2
-            y = (self.screen_height - window_height) // 2
-            self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        # screen dims
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+
+        # monitor work area (excludes taskbar)
+        mon  = win32api.MonitorFromPoint((0,0))
+        wr   = win32api.GetMonitorInfo(mon)['Work']  # (l,t,r,b)
+        wx1, wy1, wx2, wy2 = wr
+        ww, wh = wx2-wx1, wy2-wy1
+
+        # decide initial geometry & style
+        if self.fullscreen:
+            # size to work-area, strip only border/title
+            self.geometry(f"{ww}x{wh}+{wx1}+{wy1}")
+            self.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            make_borderless(hwnd)
+
+        else:
+            # normal windowed
+            w, h = 1660, 800
+            x = (sw - w)//2
+            y = (sh - h)//2
+            self.geometry(f"{w}x{h}+{x}+{y}")
 
         set_background(self)
 
-         # Bind focus events
-        self.bind("<FocusOut>", self.on_focus_out)
-        self.bind("<FocusIn>", self.on_focus_in)
-        self.minimized_on_focus_out = False
-
-        # Add a close button
         close_btn = tk.Button(self, text="✕",
                               font=("Helvetica",12,"bold"),
                               bg="red", fg="white", bd=0,
                               command=self.destroy)
         close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
 
-        # Content area
         self.content = tk.Frame(self)
         self.content.pack(expand=True, fill="both")
 
-        # Left-hand navigation pane
         nav = tk.Frame(self.content, width=200, bg='#333333')
         nav.pack(side='left', fill='y')
 
-        # Right-hand panels container
         panels_container = tk.Frame(self.content)
         panels_container.pack(side='right', expand=True, fill='both')
 
@@ -799,30 +825,35 @@ class MainApp(tk.Tk):
         self.show('Main')
 
     def toggle_fullscreen(self):
+        """Call this (e.g. on F11) to go borderless-workarea ↔ windowed."""
+        self.fullscreen = not self.fullscreen
+        # save back to config if you like...
         if self.fullscreen:
-            self.attributes('-fullscreen', True)
-            self.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
+            # apply borderless workarea
+            mon  = win32api.MonitorFromPoint((0,0))
+            wr   = win32api.GetMonitorInfo(mon)['Work']
+            x1,y1,x2,y2 = wr
+            self.geometry(f"{x2-x1}x{y2-y1}+{x1}+{y1}")
+            self.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            make_borderless(hwnd)
         else:
-            self.attributes('-fullscreen', False)
-            self.state('normal')
-            # Set a default window size when not in fullscreen
-            window_width = 1660
-            window_height = 800
-            x = (self.screen_width - window_width) // 2
-            y = (self.screen_height - window_height) // 2
-            self.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-    def on_focus_out(self, event):
-        if self.fullscreen:
-            self.minimized_on_focus_out = True
-            self.attributes('-fullscreen', False)
-            self.withdraw()
-
-    def on_focus_in(self, event):
-        if self.fullscreen and self.minimized_on_focus_out:
-            self.minimized_on_focus_out = False
-            self.deiconify()
-            self.attributes('-fullscreen', True)
+            # restore windowed
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            w, h = 1660, 800
+            x = (sw - w)//2
+            y = (sh - h)//2
+            # re-add standard frame by resetting style bits:
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+            style |= (WS_BORDER | WS_DLGFRAME)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, None, 0,0,0,0,
+                SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED
+            )
+            self.geometry(f"{w}x{h}+{x}+{y}")
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -1621,11 +1652,8 @@ class SettingsPanel(tk.Frame):
             messagebox.showerror("Settings", "Invalid VBS License Manager path selected.")
 
     def _on_fullscreen_toggle(self):
-        self.controller.fullscreen = self.fullscreen_var.get()
-        self.controller.toggle_fullscreen()
-        config['General']['fullscreen'] = str(self.controller.fullscreen)
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+     self.controller.toggle_fullscreen()
+     self.fullscreen_var.set(self.controller.fullscreen)
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
