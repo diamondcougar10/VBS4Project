@@ -44,18 +44,43 @@ def get_vbs4_install_path() -> str:
 
     return ''
 
+
+def get_vbs4_launcher_path() -> str:
+    """Return the saved VBS4 launcher or try to find it near the VBS4 install."""
+    path = config['General'].get('vbs4_setup_path', '')
+    if path and os.path.isfile(path):
+        return path
+
+    vbs4_exe = get_vbs4_install_path()
+    if vbs4_exe:
+        base = os.path.dirname(vbs4_exe)
+        candidates = [
+            os.path.join(base, 'VBSLauncher.exe'),
+            os.path.join(os.path.dirname(base), 'VBSLauncher.exe'),
+        ]
+        for cand in candidates:
+            if os.path.isfile(cand):
+                return cand
+
+    found = find_executable('VBSLauncher.exe')
+    if found and os.path.isfile(found):
+        return found
+
+    return ''
+
 #==============================================================================
 # VERSION DISPLAY FUNCTIONS
 #==============================================================================
 
 def get_vbs4_version(file_path):
     """Extract VBS4 version from the file path."""
-    match = re.search(r'VBS4 (\d+\.\d+)', file_path)
+    # handle paths like ".../VBS4/25.1/VBS4.exe" or "VBS4 25.1" etc.
+    match = re.search(r'VBS4[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 def get_blueig_version(file_path):
     """Extract BlueIG version from the file path."""
-    match = re.search(r'Blue IG (\d+\.\d+)', file_path)
+    match = re.search(r'Blue\s*IG[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 def get_bvi_version(file_path):
@@ -282,6 +307,8 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
             path = get_vbs4_install_path()
         elif candidate == 'blueig.exe':
             path = get_blueig_install_path()
+        elif candidate == 'vbslauncher.exe':
+            path = get_vbs4_launcher_path()
         else:
             path = find_executable(exe_name)
     else:
