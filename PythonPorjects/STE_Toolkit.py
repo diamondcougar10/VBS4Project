@@ -970,39 +970,55 @@ class MainMenu(tk.Frame):
         ]:
             if txt == "Launch VBS4":
                 self.create_vbs4_button()
-            else:
-                button = tk.Button(
-                    self,
-                    text=txt,
-                    font=("Helvetica", 24),
-                    bg="#444444", fg="white",
-                    width=30, height=1,
-                    command=cmd
-                )
-                button.pack(pady=10)
+                continue
+
+            state = "normal"
+            bg    = "#444444"
+            if txt == "Launch BVI":
+                path = get_ares_manager_path()
+                if not path or not os.path.isfile(path):
+                    state = "disabled"
+                    bg    = "#888888"
+
+            button = tk.Button(
+                self,
+                text=txt,
+                font=("Helvetica", 24),
+                bg=bg, fg="white",
+                width=30, height=1,
+                command=cmd,
+                state=state
+            )
+            button.pack(pady=10)
 
     def create_vbs4_button(self):
+        path = get_vbs4_install_path()
+        state = "normal" if path and os.path.isfile(path) else "disabled"
+        bg = "#444444" if state == "normal" else "#888888"
         tk.Button(
             self,
             text="Launch VBS4",
             font=("Helvetica", 24),
-            bg="#444444", fg="white",
+            bg=bg, fg="white",
             width=30, height=1,
-            command=launch_vbs4
+            command=launch_vbs4,
+            state=state
         ).pack(pady=10, before=self.blueig_frame)
 
     def create_blueig_button(self):
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
-        is_srv = config["General"].getboolean("is_server", fallback=False)
-        state = "disabled" if is_srv else "normal"
+        is_srv  = config["General"].getboolean("is_server", fallback=False)
+        path_ok = bool(get_blueig_install_path())
+        state   = "normal" if (not is_srv and path_ok) else "disabled"
+        bg      = "#444444" if state == "normal" else "#888888"
 
         tk.Button(
             self.blueig_frame,
             text="Launch BlueIG",
             font=("Helvetica", 24),
-            bg="#444444", fg="white",
+            bg=bg, fg="white",
             width=30, height=1,
             state=state,
             command=self.show_scenario_buttons
