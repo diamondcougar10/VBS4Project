@@ -33,14 +33,16 @@ SWP_FRAMECHANGED = 0x0020
 
 
 def get_vbs4_install_path() -> str:
+    """Return the saved VBS4 path or try to auto-detect without saving."""
     path = config['General'].get('vbs4_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('VBS4.exe')
-        if path:
-            config['General']['vbs4_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-    return path or ''
+    if path and os.path.isfile(path):
+        return path
+
+    found = find_executable('VBS4.exe')
+    if found and os.path.isfile(found):
+        return found
+
+    return ''
 
 #==============================================================================
 # VERSION DISPLAY FUNCTIONS
@@ -290,10 +292,11 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
                 break
 
     if path and os.path.isfile(path):
-        # store it for next time
-        config['General'][config_key] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        # store it for next time unless it's the VBS4 path
+        if config_key != 'vbs4_path':
+            config['General'][config_key] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
         return path
 
       # 3) Fallback: prompt the user (must pass BOTH arguments!)
@@ -625,10 +628,8 @@ oct_help_items = {
     "How to: Simulated Terrain":               lambda: messagebox.showinfo("Simulated Terrain","Coming soon…"),
 }
 
+
 # ─── Helper DATA ────────────────────────────────────────────────────
-def get_blueig_install_path() -> str:
-    """Return the currently saved BlueIG path (or empty string if none)."""
-    return config['General'].get('blueig_path', '')
 
 def set_blueig_install_path():
     """Open a file dialog to choose your BlueIG executable and save it."""
@@ -683,7 +684,11 @@ def set_vbs4_install_path():
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
 
 def get_ares_manager_path() -> str:
-    return config['General'].get('bvi_manager_path', '')
+    """Return saved ARES Manager path if it exists, else empty string."""
+    path = config['General'].get('bvi_manager_path', '')
+    if path and os.path.isfile(path):
+        return path
+    return ''
 
 def set_ares_manager_path():
     path = filedialog.askopenfilename(title="Select ARES Manager.exe", filetypes=[("Executable", "*.exe")])
