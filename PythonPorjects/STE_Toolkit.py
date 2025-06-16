@@ -44,6 +44,30 @@ def get_vbs4_install_path() -> str:
 
     return ''
 
+
+def get_vbs4_launcher_path() -> str:
+    """Return the saved VBS4 launcher or try to find it near the VBS4 install."""
+    path = config['General'].get('vbs4_setup_path', '')
+    if path and os.path.isfile(path):
+        return path
+
+    vbs4_exe = get_vbs4_install_path()
+    if vbs4_exe:
+        base = os.path.dirname(vbs4_exe)
+        candidates = [
+            os.path.join(base, 'VBSLauncher.exe'),
+            os.path.join(os.path.dirname(base), 'VBSLauncher.exe'),
+        ]
+        for cand in candidates:
+            if os.path.isfile(cand):
+                return cand
+
+    found = find_executable('VBSLauncher.exe')
+    if found and os.path.isfile(found):
+        return found
+
+    return ''
+
 #==============================================================================
 # VERSION DISPLAY FUNCTIONS
 #==============================================================================
@@ -283,6 +307,8 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
             path = get_vbs4_install_path()
         elif candidate == 'blueig.exe':
             path = get_blueig_install_path()
+        elif candidate == 'vbslauncher.exe':
+            path = get_vbs4_launcher_path()
         else:
             path = find_executable(exe_name)
     else:
