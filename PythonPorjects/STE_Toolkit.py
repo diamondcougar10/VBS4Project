@@ -949,16 +949,6 @@ class MainMenu(tk.Frame):
             bg="black", fg="white", pady=20
         ).pack(fill="x")
 
-        # VBS4 Button
-        tk.Button(
-            self,
-            text="Launch VBS4",
-            font=("Helvetica", 24),
-            bg="#444444", fg="white",
-            width=30, height=1,
-            command=launch_vbs4
-        ).pack(pady=10)
-
         # BlueIG Frame (dynamic)
         self.blueig_frame = tk.Frame(self, bg="#333333")
         self.blueig_frame.pack(pady=10)
@@ -966,21 +956,35 @@ class MainMenu(tk.Frame):
 
         # Other buttons
         for txt, cmd in [
+            ("Launch VBS4", launch_vbs4),
             ("Launch BVI", launch_bvi),
             ("Settings", lambda: controller.show("Settings")),
             ("Tutorials", lambda: controller.show("Tutorials")),
             ("Credits", lambda: controller.show("Credits")),
             ("Exit", controller.destroy),
         ]:
-            button = tk.Button(
-                self,
-                text=txt,
-                font=("Helvetica", 24),
-                bg="#444444", fg="white",
-                width=30, height=1,
-                command=cmd
-            )
-            button.pack(pady=10)
+            if txt == "Launch VBS4":
+                self.create_vbs4_button()
+            else:
+                button = tk.Button(
+                    self,
+                    text=txt,
+                    font=("Helvetica", 24),
+                    bg="#444444", fg="white",
+                    width=30, height=1,
+                    command=cmd
+                )
+                button.pack(pady=10)
+
+    def create_vbs4_button(self):
+        tk.Button(
+            self,
+            text="Launch VBS4",
+            font=("Helvetica", 24),
+            bg="#444444", fg="white",
+            width=30, height=1,
+            command=launch_vbs4
+        ).pack(pady=10, before=self.blueig_frame)
 
     def create_blueig_button(self):
         for widget in self.blueig_frame.winfo_children():
