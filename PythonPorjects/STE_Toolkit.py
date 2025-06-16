@@ -943,7 +943,7 @@ class MainMenu(tk.Frame):
         super().__init__(parent)
         set_wallpaper(self)
         set_background(controller, self)
-        controller.create_tutorial_button(self)   # <— keeps the “?” button
+        controller.create_tutorial_button(self)   # <— keeps the "?" button
 
         tk.Label(
             self,
@@ -952,7 +952,7 @@ class MainMenu(tk.Frame):
             bg="black", fg="white", pady=20
         ).pack(fill="x")
 
-        # VBS4 Button
+        # VBS4 Button (now first)
         self.create_vbs4_button()
 
         # BlueIG Frame (dynamic)
@@ -966,6 +966,7 @@ class MainMenu(tk.Frame):
             ("Settings", lambda: controller.show("Settings")),
             ("Tutorials", lambda: controller.show("Tutorials")),
             ("Credits", lambda: controller.show("Credits")),
+            ("Contact Us", lambda: controller.show("Contact Us")),
             ("Exit", controller.destroy),
         ]:
             button = tk.Button(
