@@ -897,6 +897,9 @@ class MainApp(tk.Tk):
             self.update_button_state(panel.blueig_button, 'blueig_path')
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+        elif name == "Main":
+            panel.update_vbs4_state()
+            panel.update_blueig_state()
 
     def create_tutorial_button(self, parent):
         """
@@ -950,14 +953,7 @@ class MainMenu(tk.Frame):
         ).pack(fill="x")
 
         # VBS4 Button
-        tk.Button(
-            self,
-            text="Launch VBS4",
-            font=("Helvetica", 24),
-            bg="#444444", fg="white",
-            width=30, height=1,
-            command=launch_vbs4
-        ).pack(pady=10)
+        self.create_vbs4_button()
 
         # BlueIG Frame (dynamic)
         self.blueig_frame = tk.Frame(self, bg="#333333")
@@ -982,12 +978,35 @@ class MainMenu(tk.Frame):
             )
             button.pack(pady=10)
 
+    def create_vbs4_button(self):
+        path = get_vbs4_install_path()
+        state = "normal" if path and os.path.isfile(path) else "disabled"
+        if hasattr(self, "vbs4_button"):
+            self.vbs4_button.destroy()
+        self.vbs4_button = tk.Button(
+            self,
+            text="Launch VBS4",
+            font=("Helvetica", 24),
+            bg="#444444", fg="white",
+            width=30, height=1,
+            state=state,
+            command=launch_vbs4
+        )
+        self.vbs4_button.pack(pady=10)
+
+    def update_vbs4_state(self):
+        self.create_vbs4_button()
+
     def create_blueig_button(self):
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
         is_srv = config["General"].getboolean("is_server", fallback=False)
-        state = "disabled" if is_srv else "normal"
+        path = get_blueig_install_path()
+        has_exe = path and os.path.isfile(path)
+        state = "normal"
+        if is_srv or not has_exe:
+            state = "disabled"
 
         tk.Button(
             self.blueig_frame,
