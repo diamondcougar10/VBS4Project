@@ -33,14 +33,16 @@ SWP_FRAMECHANGED = 0x0020
 
 
 def get_vbs4_install_path() -> str:
+    """Return the saved VBS4 path or try to auto-detect without saving."""
     path = config['General'].get('vbs4_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('VBS4.exe')
-        if path:
-            config['General']['vbs4_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-    return path or ''
+    if path and os.path.isfile(path):
+        return path
+
+    found = find_executable('VBS4.exe')
+    if found and os.path.isfile(found):
+        return found
+
+    return ''
 
 #==============================================================================
 # VERSION DISPLAY FUNCTIONS
@@ -290,10 +292,11 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
                 break
 
     if path and os.path.isfile(path):
-        # store it for next time
-        config['General'][config_key] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        # store it for next time unless it's an auto-detected path
+        if config_key not in ('vbs4_path', 'blueig_path', 'bvi_manager_path'):
+            config['General'][config_key] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
         return path
 
       # 3) Fallback: prompt the user (must pass BOTH arguments!)
@@ -306,14 +309,16 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
 
 
 def get_blueig_install_path() -> str:
+    """Return the saved BlueIG path or try to auto-detect without saving."""
     path = config['General'].get('blueig_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('BlueIG.exe')
-        if path:
-            config['General']['blueig_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-    return path or ''
+    if path and os.path.isfile(path):
+        return path
+
+    found = find_executable('BlueIG.exe')
+    if found and os.path.isfile(found):
+        return found
+
+    return ''
 
 def _write_vbs4_bat(vbs4_exe: str):
     script = f"""@echo off
@@ -625,10 +630,8 @@ oct_help_items = {
     "How to: Simulated Terrain":               lambda: messagebox.showinfo("Simulated Terrain","Coming soon…"),
 }
 
+
 # ─── Helper DATA ────────────────────────────────────────────────────
-def get_blueig_install_path() -> str:
-    """Return the currently saved BlueIG path (or empty string if none)."""
-    return config['General'].get('blueig_path', '')
 
 def set_blueig_install_path():
     """Open a file dialog to choose your BlueIG executable and save it."""
@@ -683,7 +686,11 @@ def set_vbs4_install_path():
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
 
 def get_ares_manager_path() -> str:
-    return config['General'].get('bvi_manager_path', '')
+    """Return saved ARES Manager path if it exists, else empty string."""
+    path = config['General'].get('bvi_manager_path', '')
+    if path and os.path.isfile(path):
+        return path
+    return ''
 
 def set_ares_manager_path():
     path = filedialog.askopenfilename(title="Select ARES Manager.exe", filetypes=[("Executable", "*.exe")])
@@ -965,39 +972,55 @@ class MainMenu(tk.Frame):
         ]:
             if txt == "Launch VBS4":
                 self.create_vbs4_button()
-            else:
-                button = tk.Button(
-                    self,
-                    text=txt,
-                    font=("Helvetica", 24),
-                    bg="#444444", fg="white",
-                    width=30, height=1,
-                    command=cmd
-                )
-                button.pack(pady=10)
+                continue
+
+            state = "normal"
+            bg    = "#444444"
+            if txt == "Launch BVI":
+                path = get_ares_manager_path()
+                if not path or not os.path.isfile(path):
+                    state = "disabled"
+                    bg    = "#888888"
+
+            button = tk.Button(
+                self,
+                text=txt,
+                font=("Helvetica", 24),
+                bg=bg, fg="white",
+                width=30, height=1,
+                command=cmd,
+                state=state
+            )
+            button.pack(pady=10)
 
     def create_vbs4_button(self):
+        path = get_vbs4_install_path()
+        state = "normal" if path and os.path.isfile(path) else "disabled"
+        bg = "#444444" if state == "normal" else "#888888"
         tk.Button(
             self,
             text="Launch VBS4",
             font=("Helvetica", 24),
-            bg="#444444", fg="white",
+            bg=bg, fg="white",
             width=30, height=1,
-            command=launch_vbs4
+            command=launch_vbs4,
+            state=state
         ).pack(pady=10, before=self.blueig_frame)
 
     def create_blueig_button(self):
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
-        is_srv = config["General"].getboolean("is_server", fallback=False)
-        state = "disabled" if is_srv else "normal"
+        is_srv  = config["General"].getboolean("is_server", fallback=False)
+        path_ok = bool(get_blueig_install_path())
+        state   = "normal" if (not is_srv and path_ok) else "disabled"
+        bg      = "#444444" if state == "normal" else "#888888"
 
         tk.Button(
             self.blueig_frame,
             text="Launch BlueIG",
             font=("Helvetica", 24),
-            bg="#444444", fg="white",
+            bg=bg, fg="white",
             width=30, height=1,
             state=state,
             command=self.show_scenario_buttons
