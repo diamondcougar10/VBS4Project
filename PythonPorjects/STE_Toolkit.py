@@ -50,12 +50,13 @@ def get_vbs4_install_path() -> str:
 
 def get_vbs4_version(file_path):
     """Extract VBS4 version from the file path."""
-    match = re.search(r'VBS4 (\d+\.\d+)', file_path)
+    # handle paths like ".../VBS4/25.1/VBS4.exe" or "VBS4 25.1" etc.
+    match = re.search(r'VBS4[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 def get_blueig_version(file_path):
     """Extract BlueIG version from the file path."""
-    match = re.search(r'Blue IG (\d+\.\d+)', file_path)
+    match = re.search(r'Blue\s*IG[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 def get_bvi_version(file_path):
