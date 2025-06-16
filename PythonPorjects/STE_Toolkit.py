@@ -50,17 +50,35 @@ def get_vbs4_install_path() -> str:
 
 def get_vbs4_version(file_path):
     """Extract VBS4 version from the file path."""
-    match = re.search(r'VBS4 (\d+\.\d+)', file_path)
+    normalized = file_path.replace("\\", "/")
+    # Look for a segment after the 'VBS4' folder name
+    parts = normalized.split("/")
+    for i, part in enumerate(parts[:-1]):
+        if part.lower() == "vbs4" and i + 1 < len(parts):
+            m = re.search(r"\d+(?:\.\d+)+", parts[i + 1])
+            if m:
+                return m.group(0)
+
+    match = re.search(r'VBS4[\\/ ](\d+(?:\.\d+)+)', normalized, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 def get_blueig_version(file_path):
     """Extract BlueIG version from the file path."""
-    match = re.search(r'Blue IG (\d+\.\d+)', file_path)
+    normalized = file_path.replace("\\", "/")
+    parts = normalized.split("/")
+    for i, part in enumerate(parts[:-1]):
+        if part.lower().replace(" ", "") == "blueig" and i + 1 < len(parts):
+            m = re.search(r"\d+(?:\.\d+)+", parts[i + 1])
+            if m:
+                return m.group(0)
+
+    match = re.search(r'Blue\s*IG[\\/ ](\d+(?:\.\d+)+)', normalized, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 def get_bvi_version(file_path):
     """Extract BVI (ARES) version from the file path."""
-    match = re.search(r'ARES-dev-release-v(\d+\.\d+\.\d+)', file_path)
+    normalized = file_path.replace("\\", "/")
+    match = re.search(r'v(\d+(?:\.\d+)+)', normalized, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
 #==============================================================================
