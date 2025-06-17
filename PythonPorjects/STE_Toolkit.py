@@ -443,10 +443,8 @@ def launch_bvi():
     def _run():
         try:
             ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
-            xr_exe = ares_exe.replace(
-                "ares.manager\\ares.manager.exe",
-                "ares.xr\\Windows\\AresXR.exe",
-            )
+            base_dir = os.path.dirname(os.path.dirname(ares_exe))
+            xr_exe = os.path.join(base_dir, 'ares.xr', 'Windows', 'AresXR.exe')
             subprocess.Popen([ares_exe], cwd=os.path.dirname(ares_exe), creationflags=subprocess.CREATE_NO_WINDOW)
             time.sleep(40)
             if os.path.isfile(xr_exe):
