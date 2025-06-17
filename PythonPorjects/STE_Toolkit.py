@@ -14,6 +14,10 @@ import json
 from tkinter import simpledialog
 import re
 from screeninfo import get_monitors
+import socket
+import threading
+import shlex
+import time
 import win32api, ctypes
 import win32con
 import win32gui
@@ -233,14 +237,8 @@ def toggle_close_on_launch():
     messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
 
 #==============================================================================
-# BATCH-FILE LAUNCH LOGIC
+# COMMAND LAUNCH HELPERS
 #==============================================================================
-
-BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
-os.makedirs(BATCH_FOLDER, exist_ok=True)
-VBS4_BAT     = os.path.join(BATCH_FOLDER, "VBS4_Launch.bat")
-BLUEIG_BAT   = os.path.join(BATCH_FOLDER, "BlueIg.bat")
-BVI_BAT      = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
 
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
     frame = tk.Frame(parent, bg="#333333")
@@ -367,57 +365,12 @@ def get_blueig_install_path() -> str:
                 config.write(f)
     return path or ''
 
-def _write_vbs4_bat(vbs4_exe: str):
-    script = f"""@echo off
-"{vbs4_exe}" -admin "-autoassign=admin" -forceSimul -window
-exit /b 0
-"""
-    with open(VBS4_BAT, "w", newline="\r\n") as f:
-        f.write(script)
-
-def _write_blueig_bat(blueig_exe: str):
-    script = f"""@echo off
-"{blueig_exe}" -hmd=openxr_ctr:oculus -vbsHostExerciseID=Exercise-HAMMERKIT1-1 -splitCPU -DJobThreads=8 -DJobPool=8
-exit /b 0
-"""
-    with open(BLUEIG_BAT, "w", newline="\r\n") as f:
-        f.write(script)
-
-def create_bvi_batch_file(ares_path: str) -> str:
-    """
-    Write a batch file that launches Ares Manager, waits, then Ares XR.
-    """
-    xr_path = ares_path.replace(
-        "ares.manager\\ares.manager.exe",
-        "ares.xr\\Windows\\AresXR.exe"
-    )
-    with open(BVI_BAT, "w") as f:
-        f.write(f'''@echo off
-start "" "{ares_path}"
-timeout /t 40 /nobreak
-start "" "{xr_path}"
-exit /b 0
-''')
-    return BVI_BAT
-
-#==============================================================================
-# BATCH-FILE Writing
-#==============================================================================
-
-vbs4_exe = ensure_executable('vbs4_path', 'VBS4.exe', "Select VBS4.exe")
-_write_vbs4_bat(vbs4_exe)
-
-# BlueIG
-blueig_exe = ensure_executable('blueig_path', 'BlueIG.exe', "Select BlueIG.exe")
-_write_blueig_bat(blueig_exe)
-
-# BVI (ARES Manager)
-ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
-bvi_batch_file = create_bvi_batch_file(ares_exe)
 
 def launch_vbs4():
     try:
-        subprocess.Popen(["cmd.exe","/c", VBS4_BAT], cwd=BATCH_FOLDER, creationflags=subprocess.CREATE_NO_WINDOW)
+        exe = ensure_executable('vbs4_path', 'VBS4.exe', "Select VBS4.exe")
+        args = [exe, "-admin", "-autoassign=admin", "-forceSimul", "-window"]
+        subprocess.Popen(args, cwd=os.path.dirname(exe), creationflags=subprocess.CREATE_NO_WINDOW)
         messagebox.showinfo("Launch Successful", "VBS4 has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
@@ -469,33 +422,17 @@ def launch_blueig():
 
     scenario = f"Exercise-HAMMERKIT1-{n}"
 
-    # 3) Build the contents of BlueIg.bat, using blueig_dir and exe
-    bat_contents = (
-        "@echo off\n"
-        f'start "" /D "{blueig_dir}" "{exe}" '
-        f"-hmd=openxr_ctr:oculus -vbsHostExerciseID={scenario} "
-        "-splitCPU -DJobThreads=8 -DJobPool=8\n"
-    )
-
-    # Overwrite/create BlueIg.bat in our Autolaunch_Batchfiles folder
-    try:
-        with open(BLUEIG_BAT, "w", newline="\r\n") as bat_file:
-            bat_file.write(bat_contents)
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to write batch file:\n{e}")
-        return
-
-    # 4) Launch the batch file, but set cwd=blueig_dir (so BlueIG runs from its own folder)
-    if not os.path.isfile(BLUEIG_BAT):
-        messagebox.showerror("Error", f"Batch file not found:\n{BLUEIG_BAT}")
-        return
+    args = [
+        exe,
+        "-hmd=openxr_ctr:oculus",
+        f"-vbsHostExerciseID={scenario}",
+        "-splitCPU",
+        "-DJobThreads=8",
+        "-DJobPool=8",
+    ]
 
     try:
-        # Note: cwd is now blueig_dir, not Autolaunch_Batchfiles
-        subprocess.Popen(
-            ["cmd.exe", "/c", BLUEIG_BAT],
-            cwd=blueig_dir, creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        subprocess.Popen(args, cwd=blueig_dir, creationflags=subprocess.CREATE_NO_WINDOW)
         messagebox.showinfo("Launch Successful", f"BlueIG HammerKit 1-{n} started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
@@ -503,13 +440,24 @@ def launch_blueig():
         messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
 def launch_bvi():
-    try:
-        subprocess.Popen([bvi_batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        messagebox.showinfo("Launch Successful", "BVI has started.")
-        if is_close_on_launch_enabled():
-            sys.exit(0)
-    except Exception as e:
-        messagebox.showerror("Launch Failed", f"Couldn’t launch BVI:\n{e}")
+    def _run():
+        try:
+            ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
+            xr_exe = ares_exe.replace(
+                "ares.manager\\ares.manager.exe",
+                "ares.xr\\Windows\\AresXR.exe",
+            )
+            subprocess.Popen([ares_exe], cwd=os.path.dirname(ares_exe), creationflags=subprocess.CREATE_NO_WINDOW)
+            time.sleep(40)
+            if os.path.isfile(xr_exe):
+                subprocess.Popen([xr_exe], cwd=os.path.dirname(xr_exe), creationflags=subprocess.CREATE_NO_WINDOW)
+            messagebox.showinfo("Launch Successful", "BVI has started.")
+            if is_close_on_launch_enabled():
+                sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Launch Failed", f"Couldn't launch BVI:\n{e}")
+
+    threading.Thread(target=_run, daemon=True).start()
 
 def open_bvi_terrain():
     url = "http://localhost:9080/terrain"
@@ -1110,29 +1058,17 @@ class MainMenu(tk.Frame):
 
         blueig_dir = os.path.dirname(exe)
         scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
-        bat_contents = (
-            "@echo off\n"
-            f'start "" /D "{blueig_dir}" "{exe}" '
-            f"-hmd=openxr_ctr:oculus -vbsHostExerciseID={scenario} "
-            "-splitCPU -DJobThreads=8 -DJobPool=8\n"
-        )
+        args = [
+            exe,
+            "-hmd=openxr_ctr:oculus",
+            f"-vbsHostExerciseID={scenario}",
+            "-splitCPU",
+            "-DJobThreads=8",
+            "-DJobPool=8",
+        ]
 
         try:
-            with open(BLUEIG_BAT, "w", newline="\r\n") as bat_file:
-                bat_file.write(bat_contents)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to write batch file:\n{e}")
-            return
-
-        if not os.path.isfile(BLUEIG_BAT):
-            messagebox.showerror("Error", f"Batch file not found:\n{BLUEIG_BAT}")
-            return
-
-        try:
-            subprocess.Popen(
-                ["cmd.exe", "/c", BLUEIG_BAT],
-                cwd=blueig_dir
-            )
+            subprocess.Popen(args, cwd=blueig_dir)
             messagebox.showinfo(
                 "Launch Successful",
                 f"BlueIG HammerKit 1-{scenario_num} started."
@@ -1317,29 +1253,17 @@ class VBS4Panel(tk.Frame):
         blueig_dir = os.path.dirname(exe)
         scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
 
-        bat_contents = (
-            "@echo off\n"
-            f'start "" /D "{blueig_dir}" "{exe}" '
-            f"-hmd=openxr_ctr:oculus -vbsHostExerciseID={scenario} "
-            "-splitCPU -DJobThreads=8 -DJobPool=8\n"
-        )
+        args = [
+            exe,
+            "-hmd=openxr_ctr:oculus",
+            f"-vbsHostExerciseID={scenario}",
+            "-splitCPU",
+            "-DJobThreads=8",
+            "-DJobPool=8",
+        ]
 
         try:
-            with open(BLUEIG_BAT, "w", newline="\r\n") as bat_file:
-                bat_file.write(bat_contents)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to write batch file:\n{e}")
-            return
-
-        if not os.path.isfile(BLUEIG_BAT):
-            messagebox.showerror("Error", f"Batch file not found:\n{BLUEIG_BAT}")
-            return
-
-        try:
-            subprocess.Popen(
-                ["cmd.exe", "/c", BLUEIG_BAT],
-                cwd=blueig_dir  # <<– ensures BlueIG runs from its own install folder
-            )
+            subprocess.Popen(args, cwd=blueig_dir)
             messagebox.showinfo(
                 "Launch Successful",
                 f"BlueIG HammerKit 1-{scenario_num} started."
@@ -1993,5 +1917,31 @@ class Tooltip:
             self.tw.destroy()
             self.tw = None
 
+
+def run_command_server(host: str = "", port: int = 9100) -> None:
+    """Listen for incoming command strings and execute them."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    srv.listen(1)
+    while True:
+        conn, _ = srv.accept()
+        with conn:
+            data = conn.recv(4096).decode().strip()
+            if not data:
+                continue
+            try:
+                args = shlex.split(data)
+                subprocess.Popen(args, creationflags=subprocess.CREATE_NO_WINDOW)
+                conn.sendall(b"OK")
+            except Exception as e:
+                conn.sendall(f"ERROR: {e}".encode())
+
+
+def start_command_server(port: int = 9100) -> None:
+    thread = threading.Thread(target=run_command_server, args=("", port), daemon=True)
+    thread.start()
+
 if __name__ == "__main__":
+    start_command_server()
     MainApp().mainloop()
