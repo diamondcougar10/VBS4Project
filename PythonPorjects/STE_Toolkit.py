@@ -239,6 +239,27 @@ def toggle_close_on_launch():
 #==============================================================================
 # COMMAND LAUNCH HELPERS
 #==============================================================================
+BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
+BVI_BAT      = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
+
+def create_bvi_batch_file(ares_path: str) -> str:
+    """
+    Write a batch file that launches Ares Manager, waits, then Ares XR.
+    """
+    xr_path = ares_path.replace(
+        "ares.manager\\ares.manager.exe",
+        "ares.xr\\Windows\\AresXR.exe"
+    )
+    with open(BVI_BAT, "w") as f:
+        f.write(f'''@echo off
+start "" "{ares_path}"
+timeout /t 40 /nobreak
+start "" "{xr_path}"
+exit /b 0
+''')
+    return BVI_BAT
+
+
 
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
     frame = tk.Frame(parent, bg="#333333")
@@ -354,6 +375,9 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     path = config['General'][config_key]
     return path
 
+# BVI (ARES Manager)
+ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
+bvi_batch_file = create_bvi_batch_file(ares_exe)
 
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')
@@ -440,22 +464,13 @@ def launch_blueig():
         messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
 def launch_bvi():
-    def _run():
-        try:
-            ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
-            base_dir = os.path.dirname(os.path.dirname(ares_exe))
-            xr_exe = os.path.join(base_dir, 'ares.xr', 'Windows', 'AresXR.exe')
-            subprocess.Popen([ares_exe], cwd=os.path.dirname(ares_exe), creationflags=subprocess.CREATE_NO_WINDOW)
-            time.sleep(40)
-            if os.path.isfile(xr_exe):
-                subprocess.Popen([xr_exe], cwd=os.path.dirname(xr_exe), creationflags=subprocess.CREATE_NO_WINDOW)
-            messagebox.showinfo("Launch Successful", "BVI has started.")
-            if is_close_on_launch_enabled():
-                sys.exit(0)
-        except Exception as e:
-            messagebox.showerror("Launch Failed", f"Couldn't launch BVI:\n{e}")
-
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        subprocess.Popen([bvi_batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        messagebox.showinfo("Launch Successful", "BVI has started.")
+        if is_close_on_launch_enabled():
+            sys.exit(0)
+    except Exception as e:
+        messagebox.showerror("Launch Failed", f"Couldn’t launch BVI:\n{e}")
 
 def open_bvi_terrain():
     url = "http://localhost:9080/terrain"
