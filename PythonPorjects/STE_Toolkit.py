@@ -72,19 +72,41 @@ def get_vbs4_launcher_path() -> str:
 # VERSION DISPLAY FUNCTIONS
 #==============================================================================
 
-def get_vbs4_version(file_path):
-    """Extract VBS4 version from the file path."""
+def get_exe_file_version(exe_path: str) -> str:
+    """Return the FileVersion field from an executable, if available."""
+    try:
+        info = win32api.GetFileVersionInfo(exe_path, '\\')
+        ms = info['FileVersionMS']
+        ls = info['FileVersionLS']
+        return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+    except Exception:
+        return "Unknown"
+
+def get_vbs4_version(file_path: str) -> str:
+    """Extract VBS4 version from the file or its path."""
+    if os.path.isfile(file_path):
+        ver = get_exe_file_version(file_path)
+        if ver != "Unknown":
+            return ver
     # handle paths like ".../VBS4/25.1/VBS4.exe" or "VBS4 25.1" etc.
     match = re.search(r'VBS4[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
-def get_blueig_version(file_path):
-    """Extract BlueIG version from the file path."""
+def get_blueig_version(file_path: str) -> str:
+    """Extract BlueIG version from the file or its path."""
+    if os.path.isfile(file_path):
+        ver = get_exe_file_version(file_path)
+        if ver != "Unknown":
+            return ver
     match = re.search(r'Blue\s*IG[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
-def get_bvi_version(file_path):
-    """Extract BVI (ARES) version from the file path."""
+def get_bvi_version(file_path: str) -> str:
+    """Extract BVI (ARES) version from the file or its path."""
+    if os.path.isfile(file_path):
+        ver = get_exe_file_version(file_path)
+        if ver != "Unknown":
+            return ver
     match = re.search(r'ARES-dev-release-v(\d+\.\d+\.\d+)', file_path)
     return match.group(1) if match else "Unknown"
 
