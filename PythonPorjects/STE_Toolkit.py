@@ -32,55 +32,22 @@ SWP_FRAMECHANGED = 0x0020
 #==============================================================================
 
 
-def _find_from_registry(exe_name: str) -> str:
-    """Search common BISim registry keys for the given executable."""
-    sub_roots = [
-        r"SOFTWARE\Bohemia Interactive Simulations",
-        r"SOFTWARE\WOW6432Node\Bohemia Interactive Simulations",
-    ]
-    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        for sub in sub_roots:
-            try:
-                base = winreg.OpenKey(root, sub)
-            except FileNotFoundError:
-                continue
-            with base:
-                try:
-                    num_subkeys = winreg.QueryInfoKey(base)[0]
-                    for i in range(num_subkeys):
-                        subkey_name = winreg.EnumKey(base, i)
-                        try:
-                            with winreg.OpenKey(base, subkey_name) as sk:
-                                val, _ = winreg.QueryValueEx(sk, 'InstallLocation')
-                                candidate = os.path.join(val, exe_name)
-                                if os.path.isfile(candidate):
-                                    return candidate
-                        except FileNotFoundError:
-                            pass
-                except OSError:
-                    pass
-    return ''
-
-
 def get_vbs4_install_path() -> str:
-    """Return the saved VBS4 path or try to auto-detect."""
-    path = config['General'].get('vbs4_path', '').strip()
+    """Return the saved VBS4 path or try to auto-detect without saving."""
+    path = config['General'].get('vbs4_path', '')
     if path and os.path.isfile(path):
         return path
 
-    found = find_executable('VBS4.exe') or _find_from_registry('VBS4.exe')
+    found = find_executable('VBS4.exe')
     if found and os.path.isfile(found):
-        config['General']['vbs4_path'] = found
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
         return found
 
     return ''
 
 
 def get_vbs4_launcher_path() -> str:
-    """Return the saved VBS4 launcher or try to find it automatically."""
-    path = config['General'].get('vbs4_setup_path', '').strip()
+    """Return the saved VBS4 launcher or try to find it near the VBS4 install."""
+    path = config['General'].get('vbs4_setup_path', '')
     if path and os.path.isfile(path):
         return path
 
@@ -93,16 +60,10 @@ def get_vbs4_launcher_path() -> str:
         ]
         for cand in candidates:
             if os.path.isfile(cand):
-                config['General']['vbs4_setup_path'] = cand
-                with open(CONFIG_PATH, 'w') as f:
-                    config.write(f)
                 return cand
 
-    found = find_executable('VBSLauncher.exe') or _find_from_registry('VBSLauncher.exe')
+    found = find_executable('VBSLauncher.exe')
     if found and os.path.isfile(found):
-        config['General']['vbs4_setup_path'] = found
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
         return found
 
     return ''
@@ -144,13 +105,10 @@ def find_executable(name, additional_paths=[]):
     elif ext.lower() == '.bat':
         candidates.append(base + '.exe')
 
-    pf     = os.environ.get('ProgramFiles', r'C:\\Program Files')
-    pf86   = os.environ.get('ProgramFiles(x86)', r'C:\\Program Files (x86)')
     possible_paths = [
-        r"C:\BISIM",
-        r"C:\Builds",
-        os.path.join(pf,  'Bohemia Interactive Simulations'),
-        os.path.join(pf86,'Bohemia Interactive Simulations'),
+        r"C:\BISIM\VBS4",
+        r"C:\Builds\VBS4",
+        r"C:\Builds"
     ] + additional_paths
 
     for path in possible_paths:
