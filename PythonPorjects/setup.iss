@@ -8,6 +8,8 @@ Compression=lzma
 SolidCompression=yes
 OutputBaseFilename=STE_Toolkit_Setup
 SetupIconFile=icon.ico
+
+; installer itself must run as admin
 PrivilegesRequired=admin
 
 [Files]
@@ -29,11 +31,11 @@ Filename: "netsh"; \
   Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; \
   Flags: runhidden; Tasks: firewall
 
-; ─── HERE’S THE NEW BIT ─────────────────────────────────────────────────────
+;  ─── set the “always run as admin” compatibility flag ────────────────
 [Registry]
 Root: HKLM; \
-  Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; \
-  ValueType: string; \
-  ValueName: "{app}\STE_Toolkit.exe"; \
-  ValueData: "~ RUNASADMIN"; \
-  Flags: uninsdeletekeyifempty uninsdeletevalue
+Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; \
+ValueType: string; \
+ValueName: """{app}\STE_Toolkit.exe"""; \
+ValueData: "~ RUNASADMIN"; \
+Flags: uninsdeletevalue uninsdeletekeyifempty
