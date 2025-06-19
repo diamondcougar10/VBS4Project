@@ -614,14 +614,44 @@ vbs4_help_items = {
     "Gaming Help": lambda: webbrowser.open("https://example.com/vbs4-gaming-help", new=2),
 }
 def open_bvi_quickstart():
-    path = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\BVI_Documentation\BVI_TECHNICAL_DOC.pdf"
-    if os.path.exists(path):
+    # List of possible locations for the BVI technical document
+    possible_paths = [
+        os.path.join(BASE_DIR, "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
+        os.path.join(BASE_DIR, "..", "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
+        os.path.join(BASE_DIR, "..", "..", "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
+    ]
+
+    # Check if the path is already saved in the config
+    saved_path = config['General'].get('bvi_quickstart_path', '')
+    if saved_path and os.path.exists(saved_path):
+        possible_paths.insert(0, saved_path)
+
+    # Try to find the document
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                subprocess.Popen([path], shell=True)
+                return
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
+                return
+
+    # If not found, ask the user to locate the file
+    messagebox.showinfo("BVI Quick-Start Guide", "The BVI Technical Document was not found. Please select its location.")
+    user_path = filedialog.askopenfilename(title="Select BVI Technical Document", filetypes=[("PDF Files", "*.pdf")])
+    
+    if user_path:
+        # Save the path for future use
+        config['General']['bvi_quickstart_path'] = user_path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        
         try:
-            subprocess.Popen([path], shell=True)
+            subprocess.Popen([user_path], shell=True)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
     else:
-        messagebox.showerror("Error", f"Quick-Start Guide not found:\n{path}")
+        messagebox.showinfo("BVI Quick-Start Guide", "No file selected. The Quick-Start Guide will not be opened.")
 
 # BVI Help submenu
 bvi_help_items = {
