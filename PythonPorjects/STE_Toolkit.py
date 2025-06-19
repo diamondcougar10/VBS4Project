@@ -42,6 +42,11 @@ def get_vbs4_install_path() -> str:
     if path and os.path.isfile(path):
         return path
 
+    if path:  # clear stale entry
+        config['General']['vbs4_path'] = ''
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+
     found = find_executable('VBS4.exe')
     if found and os.path.isfile(found):
         return found
@@ -54,6 +59,11 @@ def get_vbs4_launcher_path() -> str:
     path = config['General'].get('vbs4_setup_path', '')
     if path and os.path.isfile(path):
         return path
+
+    if path:
+        config['General']['vbs4_setup_path'] = ''
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
 
     vbs4_exe = get_vbs4_install_path()
     if vbs4_exe:
@@ -341,6 +351,11 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     if path and os.path.isfile(path):
         return path
 
+    if path:
+        config['General'][config_key] = ''
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+
     # 2) Try auto-find logic (registry, standard folders, etc.)
     if isinstance(exe_name, str):
         candidate = exe_name.lower()
@@ -381,12 +396,19 @@ bvi_batch_file = create_bvi_batch_file(ares_exe)
 
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('BlueIG.exe')
-        if path:
-            config['General']['blueig_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+    if path and os.path.isfile(path):
+        return path
+
+    if path:
+        config['General']['blueig_path'] = ''
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+
+    path = find_executable('BlueIG.exe')
+    if path:
+        config['General']['blueig_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
     return path or ''
 
 
@@ -728,6 +750,11 @@ def get_ares_manager_path() -> str:
     path = config['General'].get('bvi_manager_path', '')
     if path and os.path.isfile(path):
         return path
+
+    if path:
+        config['General']['bvi_manager_path'] = ''
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
     return ''
 
 def set_ares_manager_path():
@@ -736,6 +763,17 @@ def set_ares_manager_path():
         config['General']['bvi_manager_path'] = path
         with open(CONFIG_PATH, 'w') as f: config.write(f)
         messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
+
+def get_vbs_license_manager_path() -> str:
+    path = config['General'].get('vbs_license_manager_path', '')
+    if path and os.path.isfile(path):
+        return path
+
+    if path:
+        config['General']['vbs_license_manager_path'] = ''
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+    return ''
 
 # ─── One Click Terrain SETUP ──────────────────────────────────────────────────────
 def one_click_terrain_converter():
@@ -926,6 +964,22 @@ class MainApp(tk.Tk):
         if path and os.path.exists(path):
             button.config(state="normal")
         else:
+            if path:
+                config['General'][path_key] = ''
+                with open(CONFIG_PATH, 'w') as f:
+                    config.write(f)
+                settings = self.panels.get('Settings')
+                if settings:
+                    lbl_map = {
+                        'vbs4_path': settings.lbl_vbs4,
+                        'vbs4_setup_path': settings.lbl_vbs4_setup,
+                        'blueig_path': settings.lbl_blueig,
+                        'bvi_manager_path': settings.lbl_ares,
+                        'vbs_license_manager_path': settings.lbl_vbs_license,
+                    }
+                    lbl = lbl_map.get(path_key)
+                    if lbl:
+                        lbl.config(text='[not set]')
             button.config(state="disabled")
 
     def show(self, name):
@@ -970,6 +1024,18 @@ class MainApp(tk.Tk):
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
             button.config(state="normal", bg="#444444")
+            settings = self.panels.get('Settings')
+            if settings:
+                if config_key == 'vbs4_path':
+                    settings.lbl_vbs4.config(text=path)
+                elif config_key == 'vbs4_setup_path':
+                    settings.lbl_vbs4_setup.config(text=path)
+                elif config_key == 'blueig_path':
+                    settings.lbl_blueig.config(text=path)
+                elif config_key == 'bvi_manager_path':
+                    settings.lbl_ares.config(text=path)
+                elif config_key == 'vbs_license_manager_path':
+                    settings.lbl_vbs_license.config(text=path)
             if app_name == "VBS4":
                 self.panels['VBS4'].update_vbs4_version()
             elif app_name == "BlueIG":
@@ -1149,7 +1215,7 @@ class VBS4Panel(tk.Frame):
 
         self.vbs4_button, self.vbs4_version_label = create_app_button(
             self, "VBS4", get_vbs4_install_path, launch_vbs4,
-            lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
+            lambda: controller.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
         self.update_vbs4_version()
 
@@ -1164,10 +1230,10 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_version()
 
         self.vbs4_launcher_button, _ = create_app_button(
-            self, "VBS4 Launcher", 
+            self, "VBS4 Launcher",
             lambda: config['General'].get('vbs4_setup_path', ''),
             launch_vbs4_setup,
-            lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
+            lambda: controller.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
         )
 
         # BlueIG frame for dynamic buttons + version label handled below
@@ -1177,10 +1243,10 @@ class VBS4Panel(tk.Frame):
 
         # VBS License Manager button
         self.vbs_license_button, _ = create_app_button(
-            self, "VBS License Manager", 
-            lambda: config['General'].get('vbs_license_manager_path', ''),
+            self, "VBS License Manager",
+            get_vbs_license_manager_path,
             self.launch_vbs_license_manager,
-            lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
+            lambda: controller.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
 
         # Terrain Converter Section
@@ -1225,7 +1291,7 @@ class VBS4Panel(tk.Frame):
         # Launch BlueIG button
         self.blueig_button, self.blueig_version_label = create_app_button(
             self, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
-            lambda: self.set_file_location("BlueIG", "blueig_path", self.blueig_button)
+            lambda: controller.set_file_location("BlueIG", "blueig_path", self.blueig_button)
         )
         self.update_blueig_version()
 
@@ -1251,8 +1317,8 @@ class VBS4Panel(tk.Frame):
 
 
     def launch_vbs_license_manager(self):
-        vbs_license_manager_path = config['General'].get('vbs_license_manager_path', '')
-        if not vbs_license_manager_path or not os.path.exists(vbs_license_manager_path):
+        vbs_license_manager_path = get_vbs_license_manager_path()
+        if not vbs_license_manager_path:
             messagebox.showerror("Error", "VBS License Manager path not set or invalid. Please set it in the settings.")
             return
 
@@ -1417,23 +1483,6 @@ class VBS4Panel(tk.Frame):
             for button in self.hidden_buttons:
                 button.pack_forget()
    
-    def set_file_location(self, app_name, config_key, button):
-        path = filedialog.askopenfilename(
-            title=f"Select {app_name} Executable",
-            filetypes=[("Executable Files", "*.exe")]
-        )
-        if path and os.path.exists(path):
-            config['General'][config_key] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
-            button.config(state="normal", bg="#444444")
-            if app_name == "VBS4":
-                self.update_vbs4_version()
-            elif app_name == "BlueIG":
-                self.update_blueig_version()
-        else:
-            messagebox.showerror("Error", f"Invalid {app_name} path selected.")
 
     def select_imagery(self):
          messagebox.showinfo("Select Imagery", "Imagery selection functionality to be implemented.")
@@ -1468,7 +1517,7 @@ class BVIPanel(tk.Frame):
 
         self.bvi_button, self.bvi_version_label = create_app_button(
             self, "BVI", get_ares_manager_path, launch_bvi,
-            lambda: self.set_file_location("BVI", "bvi_manager_path", self.bvi_button)
+            lambda: controller.set_file_location("BVI", "bvi_manager_path", self.bvi_button)
         )
         self.update_bvi_version()
 
@@ -1499,23 +1548,6 @@ class BVIPanel(tk.Frame):
         version = get_bvi_version(bvi_path)
         self.bvi_version_label.config(text=f"Version: {version}")
 
-    def set_file_location(self, app_name, config_key, button):
-        path = filedialog.askopenfilename(
-            title=f"Select {app_name} Executable",
-            filetypes=[("Executable Files", "*.exe")]
-        )
-        if path and os.path.exists(path):
-            config['General'][config_key] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
-            button.config(state="normal", bg="#444444")
-            if app_name == "VBS4":
-                self.update_vbs4_version()
-            elif app_name == "BlueIG":
-                self.update_blueig_version()
-        else:
-            messagebox.showerror("Error", f"Invalid {app_name} path selected.")    
 
 # ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 class SettingsPanel(tk.Frame):
@@ -1654,7 +1686,7 @@ class SettingsPanel(tk.Frame):
                   command=self._on_set_vbs_license_manager) \
           .pack(side="left", ipadx=10, ipady=5)
         self.lbl_vbs_license = tk.Label(frame_vbs_license,
-                                        text=config['General'].get('vbs_license_manager_path', '') or "[not set]",
+                                        text=get_vbs_license_manager_path() or "[not set]",
                                         font=("Helvetica",14),
                                         bg="#222222", fg="white",
                                         anchor="w", width=50)
