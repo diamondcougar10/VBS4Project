@@ -132,9 +132,9 @@ def find_executable(name, additional_paths=[]):
         candidates.append(base + '.exe')
 
     possible_paths = [
-        r"C:\BISIM\VBS4",
-        r"C:\Builds\VBS4",
-        r"C:\Builds"
+        r"C:/BISIM\VBS4",
+        r"C:/Builds\VBS4",
+        r"C:/Builds"
     ] + additional_paths
 
     for path in possible_paths:
