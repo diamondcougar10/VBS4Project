@@ -653,9 +653,49 @@ def open_bvi_quickstart():
     else:
         messagebox.showinfo("BVI Quick-Start Guide", "No file selected. The Quick-Start Guide will not be opened.")
 
+def open_bvi_documentation():
+    # List of possible locations for the BVI documentation
+    possible_paths = [
+        os.path.join(BASE_DIR, "BVI_Documentation", "BVI_User_Instructions.pdf"),
+        os.path.join(BASE_DIR, "..", "BVI_Documentation", "BVI_User_Instructions.pdf"),
+        os.path.join(BASE_DIR, "..", "..", "BVI_Documentation", "BVI_User_Instructions.pdf"),
+    ]
+
+    # Check if the path is already saved in the config
+    saved_path = config['General'].get('bvi_documentation_path', '')
+    if saved_path and os.path.exists(saved_path):
+        possible_paths.insert(0, saved_path)
+
+    # Try to find the document
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                subprocess.Popen([path], shell=True)
+                return
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to open BVI Documentation:\n{e}")
+                return
+
+    # If not found, ask the user to locate the file
+    messagebox.showinfo("BVI Documentation", "The BVI User Instructions were not found. Please select its location.")
+    user_path = filedialog.askopenfilename(title="Select BVI User Instructions", filetypes=[("PDF Files", "*.pdf")])
+    
+    if user_path:
+        # Save the path for future use
+        config['General']['bvi_documentation_path'] = user_path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        
+        try:
+            subprocess.Popen([user_path], shell=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open BVI Documentation:\n{e}")
+    else:
+        messagebox.showinfo("BVI Documentation", "No file selected. The BVI Documentation will not be opened.")
+
 # BVI Help submenu
 bvi_help_items = {
-    "BVI Official Documentation": lambda: messagebox.showinfo("BVI Docs", "Open BVI PDF docs (not hooked up)"),
+    "BVI Official Documentation": open_bvi_documentation,
     "BVI Quick-Start Guide":      open_bvi_quickstart,
     "Video Tutorials":            lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
     "Support Website":            lambda: webbrowser.open("https://www.dignitastechnologies.com/bvi", new=2),
