@@ -543,9 +543,9 @@ def set_wallpaper(window):
 
 tutorials_items = {
     "VBS4 Documentation": lambda: webbrowser.open(
-        "C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm", new=2),
+        r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm", new=2),
     "Script Wiki":         lambda: webbrowser.open(
-        "C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\Wiki\SQF_Reference.html", new=2),
+        r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\Wiki\SQF_Reference.html", new=2),
     "BVI PDF Docs":        lambda: messagebox.showinfo("BVI Docs","Open BVI PDF docs"),
 }
 blueig_help_items = {
@@ -605,8 +605,7 @@ video_items = {
 }
 vbs4_help_items = {
     "VBS4 Official Documentation": lambda: subprocess.Popen([VBS4_HTML], shell=True),
-       "VBS4 Admin Manual": lambda: subprocess.Popen(["C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\PDF_EN\VBS4_Administrator_Manual.pdf"], shell=True),
-       "STE SMTP Kit Guide":          lambda: subprocess.Popen([STE_SMTP_KIT_GUIDE], shell=True),
+       "VBS4 Admin Manual": lambda: subprocess.Popen([r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\PDF_EN\VBS4_Administrator_Manual.pdf"], shell=True),
     "Script Wiki":                  lambda: subprocess.Popen([SCRIPT_WIKI], shell=True),
     "Video Tutorials":              lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
     "Support Website":              lambda: webbrowser.open(SUPPORT_SITE, new=2),
