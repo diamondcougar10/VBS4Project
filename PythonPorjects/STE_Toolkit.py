@@ -131,9 +131,9 @@ def find_executable(name, additional_paths=[]):
         candidates.append(base + '.exe')
 
     possible_paths = [
-        r"C:/BISIM\VBS4",
-        r"C:/Builds\VBS4",
-        r"C:/Builds"
+        r"C:\BISIM\VBS4",
+        r"C:\Builds\VBS4",
+        r"C:\Builds"
     ] + additional_paths
 
     for path in possible_paths:
@@ -141,7 +141,7 @@ def find_executable(name, additional_paths=[]):
             for root, dirs, files in os.walk(path):
                 for cand in candidates:
                     if cand in files:
-                        return os.path.join(root, cand)
+                        return os.path.normpath(os.path.join(root, cand))
     return None
 
 #==============================================================================
@@ -755,6 +755,7 @@ def set_vbs4_install_path():
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
+        path = os.path.normpath(path)
         config['General']['vbs4_path'] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
