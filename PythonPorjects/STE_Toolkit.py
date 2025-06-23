@@ -18,6 +18,7 @@ import socket
 import threading
 import shlex
 import time
+import glob
 import win32api, ctypes
 import win32con
 import win32gui
@@ -141,6 +142,7 @@ def find_executable(name, additional_paths=[]):
         r"C:/BISIM\VBS4",
         r"C:/Builds\VBS4",
         r"C:/Builds",
+        r"D:/Builds",
         program_files,
         program_files_x86,
         os.path.join(program_files, "Bohemia Interactive Simulations"),
@@ -150,10 +152,12 @@ def find_executable(name, additional_paths=[]):
 
     for path in possible_paths:
         if os.path.isdir(path):
-            for root, dirs, files in os.walk(path):
-                for cand in candidates:
-                    if cand in files:
-                        return os.path.join(root, cand)
+            for cand in candidates:
+                pattern = os.path.join(path, "**", cand)
+                matches = glob.glob(pattern, recursive=True)
+                for match in matches:
+                    if os.path.isfile(match):
+                        return match
     return None
 
 #==============================================================================
