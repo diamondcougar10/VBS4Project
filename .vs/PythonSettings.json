@@ -1,4 +1,4 @@
 {
   "TestFramework": "Pytest",
-  "Interpreter": "CondaEnv|CondaEnv|myenv"
+  "Interpreter": "Global|PythonCore|3.12"
 }
