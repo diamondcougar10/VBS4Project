@@ -18,7 +18,6 @@ import socket
 import threading
 import shlex
 import time
-import glob
 import win32api, ctypes
 import win32con
 import win32gui
@@ -40,13 +39,12 @@ SWP_FRAMECHANGED = 0x0020
 def get_vbs4_install_path() -> str:
     """Return the saved VBS4 path or try to auto-detect without saving."""
     path = config['General'].get('vbs4_path', '')
-    path = os.path.normpath(path) if path else ''
     if path and os.path.isfile(path):
         return path
 
     found = find_executable('VBS4.exe')
     if found and os.path.isfile(found):
-        return os.path.normpath(found)
+        return found
 
     return ''
 
@@ -54,7 +52,6 @@ def get_vbs4_install_path() -> str:
 def get_vbs4_launcher_path() -> str:
     """Return the saved VBS4 launcher or try to find it near the VBS4 install."""
     path = config['General'].get('vbs4_setup_path', '')
-    path = os.path.normpath(path) if path else ''
     if path and os.path.isfile(path):
         return path
 
@@ -67,11 +64,11 @@ def get_vbs4_launcher_path() -> str:
         ]
         for cand in candidates:
             if os.path.isfile(cand):
-                return os.path.normpath(cand)
+                return cand
 
     found = find_executable('VBSLauncher.exe')
     if found and os.path.isfile(found):
-        return os.path.normpath(found)
+        return found
 
     return ''
 
@@ -134,30 +131,18 @@ def find_executable(name, additional_paths=[]):
     elif ext.lower() == '.bat':
         candidates.append(base + '.exe')
 
-    # Try some common install locations across different machines.
-    program_files = os.environ.get('ProgramFiles', r"C:/Program Files")
-    program_files_x86 = os.environ.get('ProgramFiles(x86)', r"C:/Program Files (x86)")
-
     possible_paths = [
         r"C:/BISIM\VBS4",
         r"C:/Builds\VBS4",
-        r"C:/Builds",
-        r"D:/Builds",
-        program_files,
-        program_files_x86,
-        os.path.join(program_files, "Bohemia Interactive Simulations"),
-        os.path.join(program_files_x86, "Bohemia Interactive Simulations"),
-        os.path.join(program_files, "ARES"),
+        r"C:/Builds"
     ] + additional_paths
 
     for path in possible_paths:
         if os.path.isdir(path):
-            for cand in candidates:
-                pattern = os.path.join(path, "**", cand)
-                matches = glob.glob(pattern, recursive=True)
-                for match in matches:
-                    if os.path.isfile(match):
-                        return match
+            for root, dirs, files in os.walk(path):
+                for cand in candidates:
+                    if cand in files:
+                        return os.path.join(root, cand)
     return None
 
 #==============================================================================
@@ -352,7 +337,6 @@ def prompt_for_exe(app_name, config_key):
 
 def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     path = config['General'].get(config_key, '').strip()
-    path = os.path.normpath(path) if path else ''
     # 1) Try what we already have in config
     if path and os.path.isfile(path):
         return path
@@ -378,7 +362,7 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     if path and os.path.isfile(path):
         # store it for next time unless it's the VBS4 path
         if config_key != 'vbs4_path':
-            config['General'][config_key] = os.path.normpath(path)
+            config['General'][config_key] = path
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
         return path
@@ -397,15 +381,12 @@ bvi_batch_file = create_bvi_batch_file(ares_exe)
 
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')
-    path = os.path.normpath(path) if path else ''
     if not path or not os.path.isfile(path):
         path = find_executable('BlueIG.exe')
         if path:
-            norm = os.path.normpath(path)
-            config['General']['blueig_path'] = norm
+            config['General']['blueig_path'] = path
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
-            path = norm
     return path or ''
 
 
@@ -923,9 +904,6 @@ class MainApp(tk.Tk):
             'Contact Us': ContactSupportPanel(panels_container, self),
         }
 
-        # Ensure buttons reflect any saved executable paths
-        self.refresh_all_button_states()
-
         # Build the nav buttons
         for key, label in [
             ('Main',     'Home'),
@@ -983,13 +961,12 @@ class MainApp(tk.Tk):
             self.geometry(f"{w}x{h}+{x}+{y}")
 
     def update_button_state(self, button, path_key):
-        """Update button state and color based on whether the executable exists."""
-        path = config['General'].get(path_key, '').strip()
-        path = os.path.normpath(path) if path else ''
+        """Update button state based on whether the executable exists."""
+        path = config['General'].get(path_key, '')
         if path and os.path.exists(path):
-            button.config(state="normal", bg="#444444")
+            button.config(state="normal")
         else:
-            button.config(state="disabled", bg="#888888")
+            button.config(state="disabled")
 
     def show(self, name):
         """Hide the current panel and pack the new one."""
@@ -1005,19 +982,6 @@ class MainApp(tk.Tk):
             self.update_button_state(panel.blueig_button, 'blueig_path')
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
-
-    def refresh_all_button_states(self):
-        """Ensure all launch buttons reflect the current config paths."""
-        vbs4 = self.panels.get('VBS4')
-        if vbs4:
-            self.update_button_state(vbs4.vbs4_button, 'vbs4_path')
-            self.update_button_state(vbs4.vbs4_launcher_button, 'vbs4_setup_path')
-            self.update_button_state(vbs4.vbs_license_button, 'vbs_license_manager_path')
-            self.update_button_state(vbs4.blueig_button, 'blueig_path')
-
-        bvi = self.panels.get('BVI')
-        if bvi:
-            self.update_button_state(bvi.bvi_button, 'bvi_manager_path')
 
     def create_tutorial_button(self, parent):
         """
