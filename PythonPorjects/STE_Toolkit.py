@@ -13,7 +13,6 @@ import functools
 import json
 from tkinter import simpledialog
 import re
-from screeninfo import get_monitors
 import socket
 import threading
 import shlex
@@ -1192,6 +1191,7 @@ class VBS4Panel(tk.Frame):
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
         self.update_vbs4_version()
+        self.update_vbs4_button_state()
 
         # VBS4 version label
         self.vbs4_version_label = tk.Label(
@@ -1456,7 +1456,14 @@ class VBS4Panel(tk.Frame):
             self.terrain_button.config(text="One-Click Terrain Converter")
             for button in self.hidden_buttons:
                 button.pack_forget()
-   
+
+    def update_vbs4_button_state(self):
+        path = get_vbs4_install_path()
+        if path and os.path.exists(path):
+            self.vbs4_button.config(state="normal", bg="#444444")
+        else:
+            self.vbs4_button.config(state="disabled", bg="#888888")
+
     def set_file_location(self, app_name, config_key, button):
         path = filedialog.askopenfilename(
             title=f"Select {app_name} Executable",
@@ -1470,6 +1477,7 @@ class VBS4Panel(tk.Frame):
             button.config(state="normal", bg="#444444")
             if app_name == "VBS4":
                 self.update_vbs4_version()
+                self.update_vbs4_button_state()
             elif app_name == "BlueIG":
                 self.update_blueig_version()
         else:
