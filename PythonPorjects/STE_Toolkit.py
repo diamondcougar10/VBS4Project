@@ -35,42 +35,83 @@ SWP_FRAMECHANGED = 0x0020
 #==============================================================================
 
 
-def get_vbs4_install_path() -> str:
-    """Return the saved VBS4 path or try to auto-detect without saving."""
-    path = config['General'].get('vbs4_path', '')
+
+def get_vbs4_install_path():
+    # First, check the config file
+    path = config['General'].get('vbs4_path', '').strip()
     if path and os.path.isfile(path):
+        print(f"VBS4 path found in config: {path}")
         return path
 
-    found = find_executable('VBS4.exe')
-    if found and os.path.isfile(found):
-        return found
+    # If not in config, try to find it
+    possible_paths = [
+        r"C:\BISIM\VBS4",
+        r"C:\Builds\VBS4",
+        r"C:\Builds"
+    ]
+    for base_path in possible_paths:
+        if os.path.isdir(base_path):
+            # Look for VBS4 directories
+            vbs4_dirs = [d for d in os.listdir(base_path) if d.startswith("VBS4")]
+            vbs4_dirs.sort(reverse=True)  # Sort in descending order to get the latest version first
+            
+            for vbs4_dir in vbs4_dirs:
+                full_path = os.path.join(base_path, vbs4_dir, "VBS4.exe")
+                if os.path.isfile(full_path):
+                    print(f"VBS4 path found: {full_path}")
+                    # Save the found path to config
+                    config['General']['vbs4_path'] = full_path
+                    with open(CONFIG_PATH, 'w') as f:
+                        config.write(f)
+                    return full_path
 
+    print("VBS4 path not found")
     return ''
 
-
-def get_vbs4_launcher_path() -> str:
-    """Return the saved VBS4 launcher or try to find it near the VBS4 install."""
-    path = config['General'].get('vbs4_setup_path', '')
+def get_vbs4_launcher_path():
+    # First, check the config file
+    path = config['General'].get('vbs4_setup_path', '').strip()
     if path and os.path.isfile(path):
+        print(f"VBS4 Launcher path found in config: {path}")
         return path
 
+    # If not in config, try to find it
+    possible_paths = [
+        r"C:\BISIM\VBS4",
+        r"C:\Builds\VBS4",
+        r"C:\Builds"
+    ]
+
+    for base_path in possible_paths:
+        if os.path.isdir(base_path):
+            # Look for VBS4 directories
+            vbs4_dirs = [d for d in os.listdir(base_path) if d.startswith("VBS4")]
+            vbs4_dirs.sort(reverse=True)  # Sort in descending order to get the latest version first
+            
+            for vbs4_dir in vbs4_dirs:
+                full_path = os.path.join(base_path, vbs4_dir, "VBSLauncher.exe")
+                if os.path.isfile(full_path):
+                    print(f"VBS4 Launcher path found: {full_path}")
+                    # Save the found path to config
+                    config['General']['vbs4_setup_path'] = full_path
+                    with open(CONFIG_PATH, 'w') as f:
+                        config.write(f)
+                    return full_path
+
+    # If not found in the usual locations, try to find it relative to VBS4.exe
     vbs4_exe = get_vbs4_install_path()
     if vbs4_exe:
         base = os.path.dirname(vbs4_exe)
-        candidates = [
-            os.path.join(base, 'VBSLauncher.exe'),
-            os.path.join(os.path.dirname(base), 'VBSLauncher.exe'),
-        ]
-        for cand in candidates:
-            if os.path.isfile(cand):
-                return cand
+        launcher_path = os.path.join(base, 'VBSLauncher.exe')
+        if os.path.isfile(launcher_path):
+            print(f"VBS4 Launcher path found relative to VBS4.exe: {launcher_path}")
+            config['General']['vbs4_setup_path'] = launcher_path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            return launcher_path
 
-    found = find_executable('VBSLauncher.exe')
-    if found and os.path.isfile(found):
-        return found
-
+    print("VBS4 Launcher path not found")
     return ''
-
 #==============================================================================
 # VERSION DISPLAY FUNCTIONS
 #==============================================================================
@@ -119,8 +160,8 @@ def get_bvi_version(file_path: str) -> str:
 
 def find_executable(name, additional_paths=[]):
     """
-    Try to find either name (e.g. 'BlueIG.exe') or its .bat sibling
-    (e.g. 'BlueIG.bat') under standard paths or any additional_paths.
+    Try to find either name (e.g. 'VBS4.exe') or its .bat sibling
+    (e.g. 'VBS4.bat') under standard paths or any additional_paths.
     """
     base, ext = os.path.splitext(name)
     # build list of candidate filenames
@@ -136,14 +177,22 @@ def find_executable(name, additional_paths=[]):
         r"C:\Builds"
     ] + additional_paths
 
+    # First, check the exact paths
+    for path in possible_paths:
+        for cand in candidates:
+            full_path = os.path.join(path, cand)
+            if os.path.isfile(full_path):
+                return os.path.normpath(full_path)
+
+    # If not found, search subdirectories
     for path in possible_paths:
         if os.path.isdir(path):
             for root, dirs, files in os.walk(path):
                 for cand in candidates:
                     if cand in files:
                         return os.path.normpath(os.path.join(root, cand))
-    return None
 
+    return None
 #==============================================================================
 # CONFIGURATION - 
 #==============================================================================
@@ -388,17 +437,17 @@ def get_blueig_install_path() -> str:
                 config.write(f)
     return path or ''
 
-
 def launch_vbs4():
+    path = get_vbs4_install_path()
+    if not path:
+        messagebox.showerror("Error", "VBS4 executable not found. Please set the correct path in settings.")
+        return
     try:
-        exe = ensure_executable('vbs4_path', 'VBS4.exe', "Select VBS4.exe")
-        args = [exe, "-admin", "-autoassign=admin", "-forceSimul", "-window"]
-        subprocess.Popen(args, cwd=os.path.dirname(exe), creationflags=subprocess.CREATE_NO_WINDOW)
-        messagebox.showinfo("Launch Successful", "VBS4 has started.")
+        subprocess.Popen([path])
         if is_close_on_launch_enabled():
             sys.exit(0)
     except Exception as e:
-        messagebox.showerror("Launch Failed", f"Couldn’t launch VBS4:\n{e}")
+        messagebox.showerror("Launch Failed", f"Couldn't launch VBS4:\n{e}")
 
 def launch_vbs4_setup():
     try:
@@ -1182,9 +1231,12 @@ class VBS4Panel(tk.Frame):
             bg="black", fg="white", pady=20
         ).pack(fill="x")
 
-        # VBS4 Launch frame
+         # VBS4 Launch frame
         vbs4_frame = tk.Frame(self, bg="#333333")
         vbs4_frame.pack(pady=8)
+
+        vbs4_path = get_vbs4_install_path()
+        print(f"VBS4 path for button creation: {vbs4_path}")  # Debugging line
 
         self.vbs4_button, self.vbs4_version_label = create_app_button(
             self, "VBS4", get_vbs4_install_path, launch_vbs4,
@@ -1209,6 +1261,7 @@ class VBS4Panel(tk.Frame):
             launch_vbs4_setup,
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
         )
+        self.update_vbs4_launcher_button_state()
 
         # BlueIG frame for dynamic buttons + version label handled below
         self.blueig_frame = tk.Frame(self, bg="#333333")
@@ -1459,10 +1512,19 @@ class VBS4Panel(tk.Frame):
 
     def update_vbs4_button_state(self):
         path = get_vbs4_install_path()
-        if path and os.path.exists(path):
+        print(f"Updating VBS4 button state. Path: {path}")  # Debugging line
+        if path and os.path.isfile(path):
             self.vbs4_button.config(state="normal", bg="#444444")
         else:
             self.vbs4_button.config(state="disabled", bg="#888888")
+
+
+    def update_vbs4_launcher_button_state(self):
+        path = get_vbs4_launcher_path()
+        if path and os.path.exists(path):
+            self.vbs4_launcher_button.config(state="normal", bg="#444444")
+        else:
+            self.vbs4_launcher_button.config(state="disabled", bg="#888888")
 
     def set_file_location(self, app_name, config_key, button):
         path = filedialog.askopenfilename(
@@ -1478,10 +1540,9 @@ class VBS4Panel(tk.Frame):
             if app_name == "VBS4":
                 self.update_vbs4_version()
                 self.update_vbs4_button_state()
-            elif app_name == "BlueIG":
-                self.update_blueig_version()
         else:
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
+
 
     def select_imagery(self):
          messagebox.showinfo("Select Imagery", "Imagery selection functionality to be implemented.")
@@ -1717,22 +1778,31 @@ class SettingsPanel(tk.Frame):
           .pack(pady=20)
 
     def _on_set_vbs4(self):
-        set_vbs4_install_path()
-        self.lbl_vbs4.config(text=get_vbs4_install_path() or "[not set]")
+     path = filedialog.askopenfilename(
+        title="Select VBS4 Executable",
+        filetypes=[("Executable Files", "*.exe")]
+     )
+     if path and os.path.exists(path):
+        path = os.path.normpath(path)
+        config['General']['vbs4_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        self.lbl_vbs4.config(text=path)
+        self.controller.panels['VBS4'].update_vbs4_button_state()
+
 
     def _on_set_vbs4_setup(self):
-        path = filedialog.askopenfilename(
-            title="Select VBSLauncher.exe",
-            filetypes=[("Executable Files", "*.exe")]
-        )
-        if path and os.path.exists(path):
-            config['General']['vbs4_setup_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            self.lbl_vbs4_setup.config(text=path)
-            messagebox.showinfo("Settings", f"VBS4 Setup Launcher path set to:\n{path}")
-        else:
-            messagebox.showerror("Settings", "Invalid VBS4 Setup Launcher path selected.")
+     path = filedialog.askopenfilename(
+        title="Select VBS4 Setup Launcher",
+        filetypes=[("Executable Files", "*.exe")]
+     )
+     if path and os.path.exists(path):
+        path = os.path.normpath(path)
+        config['General']['vbs4_setup_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        self.lbl_vbs4_setup.config(text=path)
+        self.controller.panels['VBS4'].update_vbs4_launcher_button_state()
 
     def _on_set_blueig(self):
         set_blueig_install_path()
