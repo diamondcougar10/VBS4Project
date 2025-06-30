@@ -163,8 +163,10 @@ def get_bvi_version(file_path: str) -> str:
 
 def find_executable(name, additional_paths=[]):
     """
-    Try to find either name (e.g. 'VBS4.exe') or its .bat sibling
-    (e.g. 'VBS4.bat') under standard paths or any additional_paths.
+    Try to find either ``name`` (e.g. ``VBS4.exe``) or its ``.bat`` sibling
+    (e.g. ``VBS4.bat``) under standard paths or any ``additional_paths``.
+    If multiple matching files are found, the newest one (by modification time)
+    is returned.
     """
     base, ext = os.path.splitext(name)
     # build list of candidate filenames
@@ -180,12 +182,18 @@ def find_executable(name, additional_paths=[]):
         r"C:\Builds"
     ] + additional_paths
 
+    best_path = None
+    best_mtime = -1.0
+
     # First, check the exact paths
     for path in possible_paths:
         for cand in candidates:
             full_path = os.path.join(path, cand)
             if os.path.isfile(full_path):
-                return os.path.normpath(full_path)
+                mtime = os.path.getmtime(full_path)
+                if mtime > best_mtime:
+                    best_mtime = mtime
+                    best_path = os.path.normpath(full_path)
 
     # If not found, search subdirectories
     for path in possible_paths:
@@ -193,9 +201,13 @@ def find_executable(name, additional_paths=[]):
             for root, dirs, files in os.walk(path):
                 for cand in candidates:
                     if cand in files:
-                        return os.path.normpath(os.path.join(root, cand))
+                        full_path = os.path.join(root, cand)
+                        mtime = os.path.getmtime(full_path)
+                        if mtime > best_mtime:
+                            best_mtime = mtime
+                            best_path = os.path.normpath(full_path)
 
-    return None
+    return best_path
 #==============================================================================
 # CONFIGURATION - 
 #==============================================================================
