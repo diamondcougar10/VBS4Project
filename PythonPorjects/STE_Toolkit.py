@@ -830,8 +830,25 @@ def set_ares_manager_path():
 
 # ─── One Click Terrain SETUP ──────────────────────────────────────────────────────
 def one_click_terrain_converter():
-    # TODO: hook this up to terrain conversion logic
-    print("One-Click Terrain Converter launched…")
+
+    def find_terra_explorer(self):
+        possible_paths = [
+            r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe",
+            r"C:\Program Files (x86)\Skyline\TerraExplorer Pro\TerraExplorer.exe",
+            r"C:\Program Files\Skyline\TerraExplorer\TerraExplorer.exe",
+            r"C:\Program Files (x86)\Skyline\TerraExplorer\TerraExplorer.exe"
+        ]
+
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
+
+        # If not found in common locations, search the entire C drive
+        for root, dirs, files in os.walk("C:\\"):
+            if "TerraExplorer.exe" in files:
+                return os.path.join(root, "TerraExplorer.exe")
+
+        return None
 
 # ─── helper for "External Map" ────────────────────────────────────────────
 def select_vbs_map_profile():
@@ -1226,9 +1243,6 @@ class VBS4Panel(tk.Frame):
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
-        self.project_name = None
-        self.project_path = None
-        self.image_folder_path = None
 
         tk.Label(
             self,
@@ -1550,255 +1564,125 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
 
     def select_imagery(self):
-        # Default network path for the shared folder
-        default_path = r"\\192.168.1.103\SharedMeshDrive\RyansTestingFolder\InputImages"
-
-        def is_path_accessible(path):
-            try:
-                # Check if the path exists
-                if not os.path.exists(path):
-                    return False, f"Path does not exist: {path}"
-            
-                # Check if it's a directory
-                if not os.path.isdir(path):
-                    return False, f"Path is not a directory: {path}"
-            
-                # Try to list the contents of the directory
-                os.listdir(path)
-                return True, "Path is accessible"
-            except PermissionError:
-                return False, f"Permission denied: {path}"
-            except Exception as e:
-                return False, f"Error accessing path: {path}. Error: {str(e)}"
-
-        accessible, message = is_path_accessible(default_path)
-        if accessible:
+        default_path = simpledialog.askstring("Network Path", "Enter network folder path (e.g., \\\\ComputerName\\SharedMeshDrive\\InputImages):")
+        if default_path and os.path.exists(default_path):
             self.image_folder_path = default_path
-            messagebox.showinfo("Imagery Selected", f"Automatically selected imagery folder:\n{self.image_folder_path}")
+            messagebox.showinfo("Imagery Selected", f"Selected imagery folder:\n{self.image_folder_path}")
         else:
-            # If the default path is not accessible, offer manual selection
-            error_message = (
-                f"Unable to access the default imagery folder automatically.\n"
-                f"Error: {message}\n\n"
-                "Please ensure you're connected to the network and have necessary permissions.\n\n"
-                "Would you like to manually select the imagery folder?"
-            )
-            response = messagebox.askquestion("Imagery Folder Inaccessible", error_message)
-    
-            if response == 'yes':
-                self.image_folder_path = filedialog.askdirectory(
-                    title="Select Drone Imagery Folder",
-                    initialdir=os.path.dirname(default_path)  # Start in the parent directory of the default path
-                )
-        
-                if self.image_folder_path:
-                    messagebox.showinfo("Imagery Selected", f"Selected imagery folder:\n{self.image_folder_path}")
-                else:
-                    messagebox.showwarning("No Selection", "No imagery folder selected. Some features may not work correctly.")
+            self.image_folder_path = filedialog.askdirectory(title="Select Drone Imagery Folder")
+            if self.image_folder_path:
+                messagebox.showinfo("Imagery Selected", f"Selected imagery folder:\n{self.image_folder_path}")
             else:
-                self.image_folder_path = None
-                messagebox.showwarning("No Selection", "No imagery folder selected. Some features may not work correctly.")
+                messagebox.showwarning("No Selection", "No folder selected.")
 
-        # If still no path is selected, offer to map network drive
-        if not self.image_folder_path:
-            map_response = messagebox.askquestion("Map Network Drive", 
-                                                    "Would you like to attempt mapping the SharedMeshDrive?")
-            if map_response == 'yes':
-                self.map_network_drive()
+    def prompt_remote_fuser_details(self, ip):
+        remote_path = simpledialog.askstring("Remote Folder Path", f"Enter shared folder path on {ip} (e.g., \\\\{ip}\\SharedMeshDrive\\WorkingFuser):")
+        fuser_name = simpledialog.askstring("Fuser Name", f"Enter unique fuser name for {ip}:")
+        return remote_path, fuser_name
 
-        return self.image_folder_path
+    def launch_fusers(self, ip_list):
+        for ip in ip_list:
+            remote_path, fuser_name = self.prompt_remote_fuser_details(ip)
+            fuser_exe = "C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe"
+            try:
+                subprocess.run(f'start "" "{fuser_exe}" "{fuser_name}" "{remote_path}" 0 true', shell=True)
+            except Exception as e:
+                print(f"Failed to launch fuser on {ip}: {e}")
 
-    def map_network_drive(self):
-        drive_letter = 'Y:'
-        network_path = r'\\192.168.1.103\SharedMeshDrive'
-    
-        # Use 'net use' command to map network drive
-        cmd = f'net use {drive_letter} {network_path}'
         try:
-            result = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if result.returncode == 0:
-                messagebox.showinfo("Success", f"SharedMeshDrive mapped successfully to {drive_letter}")
-                self.image_folder_path = os.path.join(drive_letter, 'RyansTestingFolder', 'InputImages')
-            else:
-                messagebox.showerror("Error", f"Failed to map SharedMeshDrive. Error: {result.stderr.decode()}")
-        except subprocess.CalledProcessError as e:
-            messagebox.showerror("Error", f"Failed to map SharedMeshDrive. Error: {e}")
+            subprocess.run("start \"\" \"C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe\"", shell=True)
+        except Exception as e:
+            print(f"Failed to start local fuser: {e}")
 
+   
     def create_mesh(self):
+     if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
+        self.select_imagery()
         if not self.image_folder_path:
-            messagebox.showerror("No Imagery", "Please select imagery folder first.")
             return
 
-        wizard_path = r'"C:\Program Files\Skyline\PhotoMesh\Tools\PhotoMeshWizard\PhotoMeshWizard.exe"'
-        cmd = f'{wizard_path} --projectName {self.project_name} --projectPath "{self.project_path}" --folder "{self.image_folder_path}"'
+     project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:")
+     if not project_name:
+        messagebox.showwarning("Missing Name", "Project name is required.")
+        return
 
-        try:
-            subprocess.Popen(cmd, shell=True)
-            messagebox.showinfo("Mesh Build Triggered", "PhotoMesh Wizard launched with selected imagery.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to start PhotoMesh Wizard.\n{e}")
+     project_path = filedialog.askdirectory(title="Select Project Output Folder")
+     if not project_path:
+        messagebox.showwarning("Missing Folder", "Project output folder is required.")
+        return
+
+     wizard_path = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe"
+    
+     if not os.path.exists(wizard_path):
+        # If the wizard is not found, ask the user to locate it
+        messagebox.showinfo("PhotoMesh Wizard Not Found", 
+                            "The PhotoMesh Wizard was not found in the expected location. "
+                            "Please select the PhotoMeshWizard.exe file manually.")
+        wizard_path = filedialog.askopenfilename(
+            title="Select PhotoMeshWizard.exe",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if not wizard_path:
+            messagebox.showwarning("Cancelled", "Mesh creation cancelled.")
+            return
+
+     cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" --folder "{self.image_folder_path}"'
+
+     try:
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        
+        if process.returncode == 0:
+            messagebox.showinfo("PhotoMesh Wizard Launched", f"Wizard started for project:\n{project_name}")
+        else:
+            error_message = f"Failed to start PhotoMesh Wizard.\nError: {stderr.decode()}\n\nCommand used: {cmd}"
+            messagebox.showerror("Launch Error", error_message)
+            
+            # Offer to open the project folder
+            if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
+                os.startfile(project_path)
+     except Exception as e:
+        error_message = f"An unexpected error occurred:\n{str(e)}\n\nCommand used: {cmd}"
+        messagebox.showerror("Unexpected Error", error_message)
+        
+        # Offer to open the project folder
+        if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
+            os.startfile(project_path)
+
+    def view_mesh(self):
+        terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
+        
+        if os.path.exists(terra_explorer_path):
+            try:
+                subprocess.Popen([terra_explorer_path])
+                messagebox.showinfo("View Mesh", "TerraExplorer launched.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}")
+        else:
+            # If TerraExplorer is not found in the default location, search for it
+            found_path = self.find_terra_explorer()
+            if found_path:
+                try:
+                    subprocess.Popen([found_path])
+                    messagebox.showinfo("View Mesh", "TerraExplorer launched.")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}")
+            else:
+                messagebox.showwarning("TerraExplorer Not Found", "TerraExplorer is not installed or could not be found.")
+
 
     def one_click_conversion(self):
-        # Step 1: Input IP of target computers
-        target_ips = self.get_target_ips()
-        if not target_ips:
+        ip_input = simpledialog.askstring("Remote IPs", "Enter IPs of remote computers (comma separated):")
+        if not ip_input:
+            return
+        ip_list = [ip.strip() for ip in ip_input.split(',')]
+
+        self.select_imagery()
+        if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
             return
 
-        # Step 2: Map shared drive from server to 3 other computers
-        if not self.map_shared_drives(target_ips):
-            return
-
-        # Step 3: Start up PhotoMesh Fusers on remote PCs and main PC
-        if not self.start_photomesh_fusers(target_ips):
-            return
-
-        # Step 4: Create PhotoMesh Fuser shortcuts
-        if not self.create_fuser_shortcuts():
-            return
-
-        # Step 5: Rename fuser shortcuts
-        if not self.rename_fuser_shortcuts():
-            return
-
-        # Step 6: Send Command to STE Toolkit quick menu
-        if not self.send_command_to_ste_toolkit():
-            return
-
-        # Step 7: User provides the location of photoimagery from drone
-        imagery_location = self.get_imagery_location()
-        if not imagery_location:
-            return
-
-        # Step 8: Trigger project wizard
-        if not self.trigger_project_wizard(imagery_location):
-            return
-
-        # Step 9: PhotoMesh Project Wizard completes Mesh Creation (OBJs)
-        if not self.wait_for_mesh_creation():
-            return
-
-        messagebox.showinfo("Conversion Complete", "One-click terrain conversion process completed successfully!")
-
-    def get_target_ips(self):
-        ips = simpledialog.askstring("Target IPs", "Enter the IP addresses of target computers (comma-separated):")
-        if not ips:
-            return None
-        return [ip.strip() for ip in ips.split(',')]
-
-    def map_shared_drives(self, target_ips):
-        drive_letter = 'Y:'
-        network_path = r'\\192.168.1.103\SharedMeshDrive'
-    
-        for ip in target_ips:
-            # Use a raw string (r) to prevent escape sequence interpretation
-            cmd = rf'net use {drive_letter} {network_path} /user:{ip}\username password'
-            try:
-                subprocess.run(cmd, check=True, shell=True)
-                print(f"Mapped shared drive on {ip}")
-            except subprocess.CalledProcessError as e:
-                messagebox.showerror("Error", f"Failed to map shared drive on {ip}: {e}")
-                return False
-    
-        messagebox.showinfo("Success", f"Shared drive mapped to {drive_letter} on all target computers")
-        return True
-
-    def start_photomesh_fusers(self, target_ips):
-        fuser_path = r"C:\Program Files\Skyline\PhotoMesh\PhotoMeshFuser.exe"
-        
-        # Start on main PC
-        try:
-            subprocess.Popen(fuser_path)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to start PhotoMesh Fuser on main PC: {e}")
-            return False
-
-        # Start on remote PCs
-        for ip in target_ips:
-            try:
-                subprocess.run(f'psexec \\\\{ip} -u username -p password "{fuser_path}"', check=True, shell=True)
-            except subprocess.CalledProcessError as e:
-                messagebox.showerror("Error", f"Failed to start PhotoMesh Fuser on {ip}: {e}")
-                return False
-
-        messagebox.showinfo("Success", "PhotoMesh Fusers started on all machines")
-        return True
-
-    def create_fuser_shortcuts(self):
-        fuser_path = r"C:\Program Files\Skyline\PhotoMesh\PhotoMeshFuser.exe"
-        shortcut_path = os.path.join(os.environ['USERPROFILE'], 'Desktop', 'PhotoMeshFuser.lnk')
-        
-        try:
-            os.system(f'powershell "$s=(New-Object -COM WScript.Shell).CreateShortcut(\'{shortcut_path}\');$s.TargetPath=\'{fuser_path}\';$s.Save()"')
-            messagebox.showinfo("Success", "PhotoMesh Fuser shortcut created")
-            return True
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to create PhotoMesh Fuser shortcut: {e}")
-            return False
-
-    def rename_fuser_shortcuts(self):
-        desktop_path = os.path.join(os.environ['USERPROFILE'], 'Desktop')
-        shortcut_name = 'PhotoMeshFuser.lnk'
-        mapped_drive = 'Y:'
-
-        try:
-            for i in range(1, 5):  # Assuming 4 fusers in total
-                old_name = os.path.join(desktop_path, shortcut_name)
-                new_name = os.path.join(desktop_path, f'PhotoMeshFuser_{i}.lnk')
-                os.rename(old_name, new_name)
-                
-                # Update working folder
-                os.system(f'powershell "$s=(New-Object -COM WScript.Shell).CreateShortcut(\'{new_name}\');$s.WorkingDirectory=\'{mapped_drive}\';$s.Save()"')
-
-            messagebox.showinfo("Success", "PhotoMesh Fuser shortcuts renamed and updated")
-            return True
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to rename PhotoMesh Fuser shortcuts: {e}")
-            return False
-
-    def send_command_to_ste_toolkit(self):
-        # This is a placeholder. You'll need to implement the actual command sending logic.
-        try:
-            # Simulating command send
-            print("Sending command to STE Toolkit")
-            return True
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to send command to STE Toolkit: {e}")
-            return False
-
-    def get_imagery_location(self):
-        return filedialog.askdirectory(title="Select Drone Imagery Folder")
-
-    def trigger_project_wizard(self, imagery_location):
-        wizard_path = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\WizardGUI.exe"
-        project_name = simpledialog.askstring("Project Name", "Enter the project name:")
-        if not project_name:
-            return False
-
-        cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "Y:\RyansTest" --folder "{imagery_location}"'
-        try:
-            subprocess.run(cmd, check=True, shell=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            messagebox.showerror("Error", f"Failed to start PhotoMesh Wizard: {e}")
-            return False
-
-    def wait_for_mesh_creation(self):
-        # This is a placeholder. You'll need to implement the actual waiting logic.
-        try:
-            # Simulating waiting for mesh creation
-            messagebox.showinfo("Processing", "Waiting for mesh creation to complete...")
-            return True
-        except Exception as e:
-            messagebox.showerror("Error", f"Error during mesh creation: {e}")
-            return False
-    
-    def view_mesh(self):
-      try:
-        te_path = r"C:\Program Files\Skyline\TerraExplorer\TerraExplorer.exe"
-        subprocess.Popen([te_path])
-        messagebox.showinfo("View Mesh", "TerraExplorer launched.")
-      except Exception as e:
-        messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}")
+        self.launch_fusers(ip_list)
+        self.create_mesh()
 
     def show_terrain_tutorial(self):
           messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.")
