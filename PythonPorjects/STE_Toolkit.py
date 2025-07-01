@@ -50,7 +50,8 @@ def get_vbs4_install_path():
     possible_paths = [
         r"C:\BISIM\VBS4",
         r"C:\Builds\VBS4",
-        r"C:\Builds"
+        r"C:\Builds",
+        r"C:\Bohemia Interactive Simulations"
     ]
     for base_path in possible_paths:
         if os.path.isdir(base_path):
@@ -82,7 +83,8 @@ def get_vbs4_launcher_path():
     possible_paths = [
         r"C:\BISIM\VBS4",
         r"C:\Builds\VBS4",
-        r"C:\Builds"
+        r"C:\Builds",
+        r"C:\Bohemia Interactive Simulations"
     ]
 
     for base_path in possible_paths:
@@ -179,7 +181,8 @@ def find_executable(name, additional_paths=[]):
     possible_paths = [
         r"C:\BISIM\VBS4",
         r"C:\Builds\VBS4",
-        r"C:\Builds"
+        r"C:\Builds",
+        r"C:\Bohemia Interactive Simulations"
     ] + additional_paths
 
     best_path = None
