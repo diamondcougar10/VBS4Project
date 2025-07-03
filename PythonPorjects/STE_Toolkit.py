@@ -1006,11 +1006,20 @@ class MainApp(tk.Tk):
 
         tk.Button(nav, text="Exit", font=("Helvetica", 18),
                   bg="red", fg="white", command=self.destroy) \
-          .pack(fill='x', pady=20, padx=5)
+            .pack(fill='x', pady=20, padx=5)
 
         # Start by showing "Main"
         self.current = None
         self.show('Main')
+
+        # --- Keyboard navigation setup ---
+        self.focus_index = 0
+        self.focusable_buttons = []
+        for key in ("<Right>", "<Down>"):
+            self.bind(key, self.focus_next)
+        for key in ("<Left>", "<Up>"):
+            self.bind(key, self.focus_prev)
+        self.update_navigation()
 
     def toggle_fullscreen(self):
         """Call this (e.g. on F11) to go borderless-workarea ↔ windowed."""
@@ -1065,6 +1074,48 @@ class MainApp(tk.Tk):
             self.update_button_state(panel.blueig_button, 'blueig_path')
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+
+        # Refresh navigation list whenever a new panel is shown
+        self.update_navigation()
+
+    def collect_buttons(self, widget):
+        """Recursively collect all enabled Button widgets."""
+        buttons = []
+        for child in widget.winfo_children():
+            if isinstance(child, tk.Button) and str(child.cget("state")) == "normal":
+                buttons.append(child)
+            buttons.extend(self.collect_buttons(child))
+        return buttons
+
+    def update_navigation(self):
+        """Update the list of buttons that can receive focus."""
+        panel = self.panels.get(self.current)
+        if not panel:
+            self.focusable_buttons = []
+            return
+        self.focusable_buttons = self.collect_buttons(panel)
+        self.focus_index = 0
+        self.highlight_current()
+
+    def highlight_current(self):
+        for b in getattr(self, 'focusable_buttons', []):
+            b.config(highlightthickness=0)
+        if self.focusable_buttons:
+            btn = self.focusable_buttons[self.focus_index]
+            btn.focus_set()
+            btn.config(highlightbackground="white", highlightthickness=2)
+
+    def focus_next(self, event=None):
+        if not self.focusable_buttons:
+            return
+        self.focus_index = (self.focus_index + 1) % len(self.focusable_buttons)
+        self.highlight_current()
+
+    def focus_prev(self, event=None):
+        if not self.focusable_buttons:
+            return
+        self.focus_index = (self.focus_index - 1) % len(self.focusable_buttons)
+        self.highlight_current()
 
     def create_tutorial_button(self, parent):
         """
