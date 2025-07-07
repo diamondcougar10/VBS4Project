@@ -1750,9 +1750,9 @@ class VBS4Panel(tk.Frame):
 
 
     def create_mesh(self):
-        if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
+        if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
-            if not self.image_folder_path:
+            if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
                 return
 
         project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:")
@@ -1779,7 +1779,9 @@ class VBS4Panel(tk.Frame):
                 messagebox.showwarning("Cancelled", "Mesh creation cancelled.")
                 return
 
-        cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" --folder "{self.image_folder_path}"'
+        # Build command with a --folder argument for each selected imagery directory
+        folders_cmd = " ".join([f'--folder "{folder}"' for folder in self.image_folder_paths])
+        cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" {folders_cmd}'
 
         self.log_message(f"Creating mesh for project: {project_name}")
         self.log_message(f"Running command:\n{cmd}")
@@ -1843,7 +1845,7 @@ class VBS4Panel(tk.Frame):
         self.log_message("Prompting user to select imagery folders...")
         self.select_imagery()
 
-        if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
+        if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.log_message("Imagery folder selection failed or cancelled.")
             return
 
