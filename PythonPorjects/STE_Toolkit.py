@@ -55,8 +55,13 @@ def get_vbs4_install_path():
     ]
     for base_path in possible_paths:
         if os.path.isdir(base_path):
-            # Look for VBS4 directories
-            vbs4_dirs = [d for d in os.listdir(base_path) if d.startswith("VBS4")]
+            # Look for VBS4 directories. Some builds may place the version in a
+            # numeric folder (e.g. "25.1") rather than prefixing it with
+            # "VBS4".  Accept both patterns.
+            vbs4_dirs = [
+                d for d in os.listdir(base_path)
+                if d.startswith("VBS4") or re.match(r"^[0-9]", d)
+            ]
             vbs4_dirs.sort(reverse=True)  # Sort in descending order to get the latest version first
             
             for vbs4_dir in vbs4_dirs:
@@ -89,8 +94,13 @@ def get_vbs4_launcher_path():
 
     for base_path in possible_paths:
         if os.path.isdir(base_path):
-            # Look for VBS4 directories
-            vbs4_dirs = [d for d in os.listdir(base_path) if d.startswith("VBS4")]
+            # Look for VBS4 directories. Some installations may place the
+            # version number directly under the VBS4 folder (e.g. "25.1").  Allow
+            # numeric names as well as those prefixed with "VBS4".
+            vbs4_dirs = [
+                d for d in os.listdir(base_path)
+                if d.startswith("VBS4") or re.match(r"^[0-9]", d)
+            ]
             vbs4_dirs.sort(reverse=True)  # Sort in descending order to get the latest version first
             
             for vbs4_dir in vbs4_dirs:
