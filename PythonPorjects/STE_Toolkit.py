@@ -336,6 +336,17 @@ exit /b 0
     return BVI_BAT
 
 
+def get_image_folders_recursively(base_folder):
+    """Return all subfolders within *base_folder* that contain image files."""
+    image_folders = []
+    for root, dirs, files in os.walk(base_folder):
+        if any(file.lower().endswith(
+            (".jpg", ".jpeg", ".png", ".tif", ".tiff")) for file in files
+        ):
+            image_folders.append(root)
+    return image_folders
+
+
 
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
     frame = tk.Frame(parent, bg="#333333")
@@ -1676,13 +1687,20 @@ class VBS4Panel(tk.Frame):
 
     
         def add_folder():
-            path = simpledialog.askstring("Network Path", "Enter network folder path (leave blank to browse):")
+            path = simpledialog.askstring(
+                "Network Path",
+                "Enter network folder path (leave blank to browse):"
+            )
             if path and os.path.exists(path):
-                folders.append(path)
+                found = get_image_folders_recursively(path)
+                folders.extend(found)
             else:
-                selected = filedialog.askdirectory(title="Select Drone Imagery Folder")
+                selected = filedialog.askdirectory(
+                    title="Select DCIM or base imagery folder"
+                )
                 if selected:
-                    folders.append(selected)
+                    found = get_image_folders_recursively(selected)
+                    folders.extend(found)
         
             # Update the listbox
             folder_listbox.delete(0, tk.END)
