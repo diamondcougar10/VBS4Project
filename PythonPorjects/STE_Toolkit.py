@@ -1630,16 +1630,28 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
 
     def select_imagery(self):
-        default_path = simpledialog.askstring("Network Path", "Enter network folder path (e.g., \\\\ComputerName\\SharedMeshDrive\\InputImages):")
-        if default_path and os.path.exists(default_path):
-            self.image_folder_path = default_path
-            messagebox.showinfo("Imagery Selected", f"Selected imagery folder:\n{self.image_folder_path}")
-        else:
-            self.image_folder_path = filedialog.askdirectory(title="Select Drone Imagery Folder")
-            if self.image_folder_path:
-                messagebox.showinfo("Imagery Selected", f"Selected imagery folder:\n{self.image_folder_path}")
+        """Allow the user to choose one or more imagery folders."""
+
+        folders = []
+        while True:
+            path = simpledialog.askstring("Network Path", "Enter network folder path (leave blank to browse):")
+            if path and os.path.exists(path):
+                folders.append(path)
             else:
-                messagebox.showwarning("No Selection", "No folder selected.")
+                selected = filedialog.askdirectory(title="Select Drone Imagery Folder")
+                if selected:
+                    folders.append(selected)
+                elif not folders:
+                    messagebox.showwarning("No Selection", "No folder selected.")
+                    return
+            if not messagebox.askyesno("Add Folder", "Add another imagery folder?"):
+                break
+        self.image_folder_paths = folders
+        self.image_folder_path = ";".join(folders)
+        messagebox.showinfo(
+            "Imagery Selected",
+            "Selected imagery folders:\n" + "\n".join(folders)
+        )
 
     def prompt_remote_fuser_details(self, ip):
         remote_path = simpledialog.askstring("Remote Folder Path", f"Enter shared folder path on {ip} (e.g., \\\\{ip}\\SharedMeshDrive\\WorkingFuser):")
