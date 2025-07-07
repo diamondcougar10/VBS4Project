@@ -1393,6 +1393,27 @@ class VBS4Panel(tk.Frame):
             command=lambda: controller.show("Main")
         ).pack(pady=20)
 
+               # Log Window
+        self.log_frame = tk.Frame(self, bg="#222222")
+        self.log_frame.pack(fill="x", padx=10, pady=(5, 10))
+
+        tk.Label(
+            self.log_frame, text="Activity Log",
+            font=("Helvetica", 16, "bold"),
+            bg="#222222", fg="white"
+        ).pack(anchor="w")
+
+        self.log_text = tk.Text(self.log_frame, height=3, bg="black", fg="lime", wrap="word")
+        self.log_text.pack(fill="x")  
+        self.log_text.config(state="disabled")
+
+
+        tk.Button(
+            self.log_frame, text="Clear Log",
+            command=lambda: self.clear_log(),
+            bg="#555", fg="white"
+        ).pack(pady=5, anchor="e")
+
     def create_blueig_button(self):
         # Clear out any existing widgets
         for widget in self.blueig_frame.winfo_children():
@@ -1570,9 +1591,9 @@ class VBS4Panel(tk.Frame):
         
         buttons = [
             ("Select Imagery", self.select_imagery),
+            ("One-Click Conversion", self.one_click_conversion),
             ("Create Mesh", self.create_mesh),
             ("View Mesh", self.view_mesh),
-            ("One-Click Conversion", self.one_click_conversion),
             ("One-Click Terrain Tutorial", self.show_terrain_tutorial)
         ]
         
@@ -1628,12 +1649,23 @@ class VBS4Panel(tk.Frame):
                 self.update_vbs4_button_state()
         else:
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
-
+   
     def select_imagery(self):
         """Allow the user to choose one or more imagery folders."""
-
+    
         folders = []
-        while True:
+    
+        # Create a new top-level window for folder selection
+        folder_window = tk.Toplevel(self)
+        folder_window.title("Select Imagery Folders")
+        folder_window.geometry("500x300")
+    
+        # Create a listbox to display selected folders
+        folder_listbox = tk.Listbox(folder_window, width=70, height=10)
+        folder_listbox.pack(pady=10)
+
+    
+        def add_folder():
             path = simpledialog.askstring("Network Path", "Enter network folder path (leave blank to browse):")
             if path and os.path.exists(path):
                 folders.append(path)
@@ -1641,17 +1673,43 @@ class VBS4Panel(tk.Frame):
                 selected = filedialog.askdirectory(title="Select Drone Imagery Folder")
                 if selected:
                     folders.append(selected)
-                elif not folders:
-                    messagebox.showwarning("No Selection", "No folder selected.")
-                    return
-            if not messagebox.askyesno("Add Folder", "Add another imagery folder?"):
-                break
-        self.image_folder_paths = folders
-        self.image_folder_path = ";".join(folders)
-        messagebox.showinfo(
-            "Imagery Selected",
-            "Selected imagery folders:\n" + "\n".join(folders)
-        )
+        
+            # Update the listbox
+            folder_listbox.delete(0, tk.END)
+            for folder in folders:
+                folder_listbox.insert(tk.END, folder)
+    
+        def remove_folder():
+            selected_indices = folder_listbox.curselection()
+            for index in reversed(selected_indices):
+                del folders[index]
+                folder_listbox.delete(index)
+    
+        def finish_selection():
+            if not folders:
+                messagebox.showwarning("No Selection", "No folder selected.")
+            else:
+                self.image_folder_paths = folders
+                self.image_folder_path = ";".join(folders)
+                messagebox.showinfo(
+                    "Imagery Selected",
+                    "Selected imagery folders:\n" + "\n".join(folders)
+                )
+                self.log_message("Selected imagery folders:")
+                for folder in folders:
+                    self.log_message(f" - {folder}")
+
+            folder_window.destroy()
+
+        # Add buttons
+        button_frame = tk.Frame(folder_window)
+        button_frame.pack(pady=10)
+    
+        tk.Button(button_frame, text="Add Folder", command=add_folder).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Remove Selected", command=remove_folder).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Finish", command=finish_selection).pack(side=tk.LEFT, padx=5)
+    
+        folder_window.wait_window()
 
     def prompt_remote_fuser_details(self, ip):
         remote_path = simpledialog.askstring("Remote Folder Path", f"Enter shared folder path on {ip} (e.g., \\\\{ip}\\SharedMeshDrive\\WorkingFuser):")
@@ -1659,77 +1717,90 @@ class VBS4Panel(tk.Frame):
         return remote_path, fuser_name
 
     def launch_fusers(self, ip_list):
+        fuser_exe = "C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe"
+
         for ip in ip_list:
             remote_path, fuser_name = self.prompt_remote_fuser_details(ip)
-            fuser_exe = "C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe"
+
             try:
                 subprocess.run(f'start "" "{fuser_exe}" "{fuser_name}" "{remote_path}" 0 true', shell=True)
+                self.log_message(f"Launching remote fuser on {ip} with name '{fuser_name}' at '{remote_path}'")
             except Exception as e:
-                print(f"Failed to launch fuser on {ip}: {e}")
+                error_msg = f"Failed to launch fuser on {ip}: {e}"
+                self.log_message(error_msg)
+                print(error_msg)
 
         try:
-            subprocess.run("start \"\" \"C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe\"", shell=True)
+            subprocess.run('start "" "C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe"', shell=True)
+            self.log_message("Local fuser started successfully.")
         except Exception as e:
-            print(f"Failed to start local fuser: {e}")
+            error_msg = f"Failed to start local fuser: {e}"
+            self.log_message(error_msg)
+            print(error_msg)
 
-   
+
     def create_mesh(self):
-     if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
-        self.select_imagery()
-        if not self.image_folder_path:
+        if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
+            self.select_imagery()
+            if not self.image_folder_path:
+                return
+
+        project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:")
+        if not project_name:
+            messagebox.showwarning("Missing Name", "Project name is required.")
             return
 
-     project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:")
-     if not project_name:
-        messagebox.showwarning("Missing Name", "Project name is required.")
-        return
-
-     project_path = filedialog.askdirectory(title="Select Project Output Folder")
-     if not project_path:
-        messagebox.showwarning("Missing Folder", "Project output folder is required.")
-        return
-
-     wizard_path = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe"
-    
-     if not os.path.exists(wizard_path):
-        # If the wizard is not found, ask the user to locate it
-        messagebox.showinfo("PhotoMesh Wizard Not Found", 
-                            "The PhotoMesh Wizard was not found in the expected location. "
-                            "Please select the PhotoMeshWizard.exe file manually.")
-        wizard_path = filedialog.askopenfilename(
-            title="Select PhotoMeshWizard.exe",
-            filetypes=[("Executable Files", "*.exe")]
-        )
-        if not wizard_path:
-            messagebox.showwarning("Cancelled", "Mesh creation cancelled.")
+        project_path = filedialog.askdirectory(title="Select Project Output Folder")
+        if not project_path:
+            messagebox.showwarning("Missing Folder", "Project output folder is required.")
             return
 
-     cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" --folder "{self.image_folder_path}"'
+        wizard_path = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe"
 
-     try:
-        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
-        
-        if process.returncode == 0:
-            messagebox.showinfo("PhotoMesh Wizard Launched", f"Wizard started for project:\n{project_name}")
-        else:
-            error_message = f"Failed to start PhotoMesh Wizard.\nError: {stderr.decode()}\n\nCommand used: {cmd}"
-            messagebox.showerror("Launch Error", error_message)
-            
-            # Offer to open the project folder
+        if not os.path.exists(wizard_path):
+            messagebox.showinfo("PhotoMesh Wizard Not Found", 
+                                "The PhotoMesh Wizard was not found in the expected location. "
+                                "Please select the PhotoMeshWizard.exe file manually.")
+            wizard_path = filedialog.askopenfilename(
+                title="Select PhotoMeshWizard.exe",
+                filetypes=[("Executable Files", "*.exe")]
+            )
+            if not wizard_path:
+                messagebox.showwarning("Cancelled", "Mesh creation cancelled.")
+                return
+
+        cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" --folder "{self.image_folder_path}"'
+
+        self.log_message(f"Creating mesh for project: {project_name}")
+        self.log_message(f"Running command:\n{cmd}")
+
+        try:
+            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate()
+
+            if process.returncode == 0:
+                self.log_message("PhotoMesh Wizard launched successfully.")
+                messagebox.showinfo("PhotoMesh Wizard Launched", f"Wizard started for project:\n{project_name}")
+            else:
+                error_message = f"Failed to start PhotoMesh Wizard.\nError: {stderr.decode()}\n\nCommand used: {cmd}"
+                self.log_message(error_message)
+                messagebox.showerror("Launch Error", error_message)
+
+                if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
+                    os.startfile(project_path)
+        except Exception as e:
+            error_message = f"An unexpected error occurred:\n{str(e)}\n\nCommand used: {cmd}"
+            self.log_message(error_message)
+            messagebox.showerror("Unexpected Error", error_message)
+
             if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
                 os.startfile(project_path)
-     except Exception as e:
-        error_message = f"An unexpected error occurred:\n{str(e)}\n\nCommand used: {cmd}"
-        messagebox.showerror("Unexpected Error", error_message)
-        
-        # Offer to open the project folder
-        if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
-            os.startfile(project_path)
+
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
-        
+        self.log_message("Launching TerraExplorer...")
+
         if os.path.exists(terra_explorer_path):
             try:
                 subprocess.Popen([terra_explorer_path])
@@ -1748,23 +1819,46 @@ class VBS4Panel(tk.Frame):
             else:
                 messagebox.showwarning("TerraExplorer Not Found", "TerraExplorer is not installed or could not be found.")
 
-
     def one_click_conversion(self):
+        self.log_message("Starting One-Click Terrain Conversion...")
+
         ip_input = simpledialog.askstring("Remote IPs", "Enter IPs of remote computers (comma separated):")
         if not ip_input:
+            self.log_message("One-Click Conversion cancelled — no IPs entered.")
             return
+
         ip_list = [ip.strip() for ip in ip_input.split(',')]
+        self.log_message(f"Received remote IPs: {', '.join(ip_list)}")
 
+        self.log_message("Prompting user to select imagery folders...")
         self.select_imagery()
+
         if not hasattr(self, 'image_folder_path') or not self.image_folder_path:
+            self.log_message("Imagery folder selection failed or cancelled.")
             return
 
+        self.log_message("Launching fusers...")
         self.launch_fusers(ip_list)
+
+        self.log_message("Creating mesh with selected imagery...")
         self.create_mesh()
+
+        self.log_message("One-Click Terrain Conversion completed.")
+
 
     def show_terrain_tutorial(self):
           messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.")
 
+    def log_message(self, message):
+         self.log_text.config(state="normal")
+         self.log_text.insert(tk.END, f"> {message}\n")
+         self.log_text.see(tk.END)
+         self.log_text.config(state="disabled")
+
+    def clear_log(self):
+        self.log_text.config(state="normal")
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state="disabled")
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
