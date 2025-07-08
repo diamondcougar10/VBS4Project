@@ -258,6 +258,19 @@ if 'Auto-Launch' not in config:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
+#------------------------------------------------------------------------------
+# FUSER CONFIG
+#------------------------------------------------------------------------------
+
+if 'Fusers' not in config:
+    config['Fusers'] = {
+        'config_path': 'fuser_config.json',
+        'local_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe',
+        'remote_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe'
+    }
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
 
@@ -1745,26 +1758,44 @@ class VBS4Panel(tk.Frame):
         return remote_path, fuser_name
 
     def launch_fusers(self, ip_list):
-        fuser_exe = "C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe"
+        config_file = config['Fusers'].get('config_path', 'fuser_config.json')
+        remote_fuser_exe = config['Fusers'].get('remote_fuser_exe',
+                                               r'C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe')
+        local_fuser_exe = config['Fusers'].get('local_fuser_exe',
+                                              r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe')
+
+        def load_fuser_config(file_path):
+            full_path = os.path.join(BASE_DIR, file_path) if not os.path.isabs(file_path) else file_path
+            try:
+                with open(full_path, 'r') as f:
+                    return json.load(f).get('fusers', {})
+            except Exception as e:
+                self.log_message(f"Failed to load fuser config: {e}")
+                return {}
+
+        fuser_settings = load_fuser_config(config_file)
 
         for ip in ip_list:
-            remote_path, fuser_name = self.prompt_remote_fuser_details(ip)
+            fusers = fuser_settings.get(ip, [])
+            if not fusers:
+                self.log_message(f"No fuser configuration found for {ip}")
+                continue
 
-            try:
-                subprocess.run(f'start "" "{fuser_exe}" "{fuser_name}" "{remote_path}" 0 true', shell=True)
-                self.log_message(f"Launching remote fuser on {ip} with name '{fuser_name}' at '{remote_path}'")
-            except Exception as e:
-                error_msg = f"Failed to launch fuser on {ip}: {e}"
-                self.log_message(error_msg)
-                print(error_msg)
+            for fuser in fusers:
+                name = fuser.get('name')
+                path = fuser.get('shared_path')
+                cmd = f'start "" "{remote_fuser_exe}" "{name}" "{path}" 0 true'
+                try:
+                    subprocess.run(cmd, shell=True)
+                    self.log_message(f"Launched {name} at {path}")
+                except Exception as e:
+                    self.log_message(f"Failed to launch {name} on {ip}: {e}")
 
         try:
-            subprocess.run('start "" "C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe"', shell=True)
-            self.log_message("Local fuser started successfully.")
+            subprocess.run(f'start "" "{local_fuser_exe}"', shell=True)
+            self.log_message("Local fuser launched.")
         except Exception as e:
-            error_msg = f"Failed to start local fuser: {e}"
-            self.log_message(error_msg)
-            print(error_msg)
+            self.log_message(f"Failed to start local fuser: {e}")
 
 
     def create_mesh(self):
