@@ -41,6 +41,12 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+def run_in_thread(target, *args, **kwargs):
+    """Run *target* in a background daemon thread."""
+    thread = threading.Thread(target=target, args=args,
+                             kwargs=kwargs, daemon=True)
+    thread.start()
+
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
@@ -504,7 +510,11 @@ def launch_vbs4():
         subprocess.Popen([path])
         if is_close_on_launch_enabled():
             sys.exit(0)
-    except Exception as e:
+    except FileNotFoundError:
+        logging.exception("VBS4 executable not found")
+        messagebox.showerror("Launch Failed", "VBS4 executable not found.")
+    except OSError as e:
+        logging.exception("Failed to launch VBS4")
         messagebox.showerror("Launch Failed", f"Couldn't launch VBS4:\n{e}")
 
 def launch_vbs4_setup():
@@ -514,7 +524,11 @@ def launch_vbs4_setup():
         messagebox.showinfo("Launch Successful", "VBS4 Setup Launcher has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
-    except Exception as e:
+    except FileNotFoundError:
+        logging.exception("VBSLauncher.exe not found")
+        messagebox.showerror("Launch Failed", "VBSLauncher.exe not found.")
+    except OSError as e:
+        logging.exception("Failed to launch VBS4 Setup")
         messagebox.showerror("Launch Failed", f"Couldn't launch VBS4 Setup Launcher:\n{e}")
 
 def launch_blueig():
@@ -566,7 +580,11 @@ def launch_blueig():
         messagebox.showinfo("Launch Successful", f"BlueIG HammerKit 1-{n} started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
-    except Exception as e:
+    except FileNotFoundError:
+        logging.exception("BlueIG executable not found")
+        messagebox.showerror("Launch Failed", "BlueIG executable not found.")
+    except OSError as e:
+        logging.exception("Failed to launch BlueIG")
         messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
 def launch_bvi():
@@ -575,16 +593,23 @@ def launch_bvi():
         messagebox.showinfo("Launch Successful", "BVI has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
-    except Exception as e:
+    except FileNotFoundError:
+        logging.exception("BVI batch file not found")
+        messagebox.showerror("Launch Failed", "BVI batch file not found.")
+    except OSError as e:
+        logging.exception("Failed to launch BVI")
         messagebox.showerror("Launch Failed", f"Couldn’t launch BVI:\n{e}")
 
 def open_bvi_terrain():
     url = "http://localhost:9080/terrain"
-    try:
-        urllib.request.urlopen(url, timeout=1)
-        webbrowser.open(url, new=2)
-    except:
-        messagebox.showinfo("BVI", "Note: BVI must be running")
+    def _open():
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            webbrowser.open(url, new=2)
+        except Exception:
+            messagebox.showinfo("BVI", "Note: BVI must be running")
+
+    run_in_thread(_open)
        
 
 # ─── BACKGROUND & LOGOS ──────────────────────────────────────────────────────
@@ -882,26 +907,21 @@ def set_ares_manager_path():
         messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
 
 # ─── One Click Terrain SETUP ──────────────────────────────────────────────────────
-def one_click_terrain_converter():
-
-    def find_terra_explorer(self):
-        possible_paths = [
-            r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe",
-            r"C:\Program Files (x86)\Skyline\TerraExplorer Pro\TerraExplorer.exe",
-            r"C:\Program Files\Skyline\TerraExplorer\TerraExplorer.exe",
-            r"C:\Program Files (x86)\Skyline\TerraExplorer\TerraExplorer.exe"
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-
-        # If not found in common locations, search the entire C drive
-        for root, dirs, files in os.walk("C:\\"):
-            if "TerraExplorer.exe" in files:
-                return os.path.join(root, "TerraExplorer.exe")
-
-        return None
+def find_terra_explorer() -> str:
+    """Search for TerraExplorer.exe and return its path or an empty string."""
+    possible_paths = [
+        r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe",
+        r"C:\Program Files (x86)\Skyline\TerraExplorer Pro\TerraExplorer.exe",
+        r"C:\Program Files\Skyline\TerraExplorer\TerraExplorer.exe",
+        r"C:\Program Files (x86)\Skyline\TerraExplorer\TerraExplorer.exe",
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    for root, dirs, files in os.walk(r"C:\\"):
+        if "TerraExplorer.exe" in files:
+            return os.path.join(root, "TerraExplorer.exe")
+    return ""
 
 # ─── helper for "External Map" ────────────────────────────────────────────
 def select_vbs_map_profile():
@@ -942,14 +962,17 @@ def open_external_map():
         f"&vbsFullComputerName={user}"
     )
 
-    # quick ping
-    try:
-        urllib.request.urlopen(f"http://{host}:{port}", timeout=1)
-    except Exception:
-        messagebox.showinfo("External Map",
-                            "Note: VBS Map server must be running")
-    else:
-        webbrowser.open(url, new=2)
+    def _check_and_open():
+        try:
+            urllib.request.urlopen(f"http://{host}:{port}", timeout=1)
+            webbrowser.open(url, new=2)
+        except Exception:
+            messagebox.showinfo(
+                "External Map",
+                "Note: VBS Map server must be running"
+            )
+
+    run_in_thread(_check_and_open)
 
 def make_borderless(hwnd):
     """Strip only the thin border & titlebar out of a real toplevel."""
@@ -1026,6 +1049,7 @@ class MainApp(tk.Tk):
         }
 
         # Build the nav buttons
+        nav_tip = Tooltip(nav)
         for key, label in [
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
@@ -1041,10 +1065,16 @@ class MainApp(tk.Tk):
                             width=12,
                             command=lambda k=key: self.show(k))
             btn.pack(pady=5, padx=5)
+            btn.bind("<Enter>", lambda e, l=label: nav_tip.show("Go to " . l, e.x_root+10, e.y_root+10))
+            btn.bind("<Leave>", lambda e: nav_tip.hide())
+            self.focusable_buttons.append(btn)
 
         tk.Button(nav, text="Exit", font=("Helvetica", 18),
                   bg="red", fg="white", command=self.destroy) \
             .pack(fill='x', pady=20, padx=5)
+        tk.Label(nav, text="Use \u2191/\u2193 arrows to navigate",
+                 bg="#333333", fg="white",
+                 font=("Helvetica", 10)).pack(pady=(0, 10))
 
         # Start by showing "Main"
         self.current = None
@@ -1505,7 +1535,11 @@ class VBS4Panel(tk.Frame):
             messagebox.showinfo("Launch Successful", "VBS License Manager has started.")
             if is_close_on_launch_enabled():
                 sys.exit(0)
-        except Exception as e:
+        except FileNotFoundError:
+            logging.exception("VBS License Manager not found")
+            messagebox.showerror("Launch Failed", "VBS License Manager not found.")
+        except OSError as e:
+            logging.exception("Failed to launch VBS License Manager")
             messagebox.showerror("Launch Failed", f"Couldn't launch VBS License Manager:\n{e}")
 
     def show_scenario_buttons(self):
@@ -1875,23 +1909,28 @@ class VBS4Panel(tk.Frame):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
         self.log_message("Launching TerraExplorer...")
 
-        if os.path.exists(terra_explorer_path):
+        def start_explorer(path):
             try:
-                subprocess.Popen([terra_explorer_path])
+                subprocess.Popen([path])
                 messagebox.showinfo("View Mesh", "TerraExplorer launched.")
             except Exception as e:
+                logging.exception("Failed to launch TerraExplorer")
                 messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}")
+
+        if os.path.exists(terra_explorer_path):
+            start_explorer(terra_explorer_path)
         else:
-            # If TerraExplorer is not found in the default location, search for it
-            found_path = self.find_terra_explorer()
-            if found_path:
-                try:
-                    subprocess.Popen([found_path])
-                    messagebox.showinfo("View Mesh", "TerraExplorer launched.")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}")
-            else:
-                messagebox.showwarning("TerraExplorer Not Found", "TerraExplorer is not installed or could not be found.")
+            def _search_and_launch():
+                found_path = find_terra_explorer()
+                if found_path:
+                    start_explorer(found_path)
+                else:
+                    messagebox.showwarning(
+                        "TerraExplorer Not Found",
+                        "TerraExplorer is not installed or could not be found."
+                    )
+
+            run_in_thread(_search_and_launch)
 
     def one_click_conversion(self):
         self.log_message("Starting One-Click Terrain Conversion...")
