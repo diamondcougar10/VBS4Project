@@ -1756,10 +1756,15 @@ class VBS4Panel(tk.Frame):
     
         folders = []
     
-        # Create a new top-level window for folder selection
+        # Create a new top-level window for folder selection.  Make it modal
+        # and keep it above the main application so it does not get lost
+        # behind the main window while the user is picking folders.
         folder_window = tk.Toplevel(self)
         folder_window.title("Select Imagery Folders")
         folder_window.geometry("500x300")
+        folder_window.transient(self)  # associate with parent
+        folder_window.grab_set()       # make modal
+        folder_window.attributes("-topmost", True)
     
         # Create a listbox to display selected folders
         folder_listbox = tk.Listbox(folder_window, width=70, height=10)
