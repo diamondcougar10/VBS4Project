@@ -1,0 +1,11 @@
+{
+  "fusers": {
+    "192.168.1.100": [
+      {"name": "Fuser1", "shared_path": "\\\\192.168.1.100\\SharedMeshDrive\\WorkingFuser"},
+      {"name": "Fuser2", "shared_path": "\\\\192.168.1.100\\SharedMeshDrive\\WorkingFuser"}
+    ],
+    "192.168.1.101": [
+      {"name": "Fuser1", "shared_path": "\\\\192.168.1.101\\SharedMeshDrive\\WorkingFuser"}
+    ]
+  }
+}
