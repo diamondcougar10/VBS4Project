@@ -37,8 +37,6 @@ SWP_FRAMECHANGED = 0x0020
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
 
-
-
 def get_vbs4_install_path():
     # First, check the config file
     path = config['General'].get('vbs4_path', '').strip()
@@ -625,7 +623,6 @@ def set_background(window, widget=None):
     # Use after() to ensure the window is fully initialized
     window.after(100, place_logos)
 
-
 def set_wallpaper(window):
     if not os.path.exists(background_image_path):
         return
@@ -806,7 +803,6 @@ oct_help_items = {
     "How to import terrain scans from drone":  lambda: messagebox.showinfo("Import Scans","Coming soon…"),
     "How to: Simulated Terrain":               lambda: messagebox.showinfo("Simulated Terrain","Coming soon…"),
 }
-
 
 # ─── Helper DATA ────────────────────────────────────────────────────
 
@@ -1163,7 +1159,6 @@ class MainApp(tk.Tk):
                            command=lambda: self.show('Tutorials'))
         button.place(x=1350, y=110, anchor="nw")
 
-
         if isinstance(parent, VBS4Panel):
             parent.create_battlespaces_button()
 
@@ -1188,6 +1183,7 @@ class MainApp(tk.Tk):
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
    
 # ─── ---------------- MAINMENU PANEL --------------------------------- ──────────
+
 class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -1522,8 +1518,6 @@ class VBS4Panel(tk.Frame):
                 command=lambda n=i: self.launch_blueig_scenario(n)
             ).pack(side=tk.LEFT, padx=5, pady=5, ipadx=5, ipady=2)
 
-        # (Optional) you could add a “Back” button, but we revert automatically
-
     def launch_blueig_scenario(self, scenario_num):
         exe = config["General"].get("blueig_path", "").strip()
         if not exe or not os.path.isfile(exe):
@@ -1671,7 +1665,6 @@ class VBS4Panel(tk.Frame):
             self.vbs4_button.config(state="normal", bg="#444444")
         else:
             self.vbs4_button.config(state="disabled", bg="#888888")
-
 
     def update_vbs4_launcher_button_state(self):
         path = get_vbs4_launcher_path()
@@ -1869,7 +1862,6 @@ class VBS4Panel(tk.Frame):
 
             if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
                 os.startfile(project_path)
-
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
@@ -2169,7 +2161,6 @@ class SettingsPanel(tk.Frame):
         self.lbl_vbs4.config(text=path)
         self.controller.panels['VBS4'].update_vbs4_button_state()
 
-
     def _on_set_vbs4_setup(self):
      path = filedialog.askopenfilename(
         title="Select VBS4 Setup Launcher",
@@ -2353,8 +2344,6 @@ class CreditsPanel(tk.Frame):
                   command=lambda: controller.show('Main'))\
           .pack(side='bottom', pady=20)
 
-# File: C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py
-
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -2456,7 +2445,6 @@ class Tooltip:
         if self.tw:
             self.tw.destroy()
             self.tw = None
-
 
 def run_command_server(host: str = "", port: int = 9100) -> None:
     """Listen for incoming command strings and execute them."""
