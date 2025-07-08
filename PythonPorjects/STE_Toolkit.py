@@ -1407,6 +1407,12 @@ class VBS4Panel(tk.Frame):
             command=self.toggle_terrain_buttons
         )
         self.terrain_button.pack(pady=8, ipadx=10, ipady=5)
+        # Tooltip for expanding the terrain tools
+        self.terrain_button.bind(
+            "<Enter>",
+            lambda e: self.show_tooltip(e, "Show or hide terrain tools")
+        )
+        self.terrain_button.bind("<Leave>", self.hide_tooltip)
         self.create_hidden_terrain_buttons()
 
         # External Map button
@@ -1622,16 +1628,21 @@ class VBS4Panel(tk.Frame):
 
     def create_hidden_terrain_buttons(self):
         self.hidden_buttons = []
-        
+
         buttons = [
-            ("Select Imagery", self.select_imagery),
-            ("One-Click Conversion", self.one_click_conversion),
-            ("Create Mesh", self.create_mesh),
-            ("View Mesh", self.view_mesh),
-            ("One-Click Terrain Tutorial", self.show_terrain_tutorial)
+            ("Select Imagery", self.select_imagery,
+             "Choose imagery folders for PhotoMesh"),
+            ("One-Click Conversion", self.one_click_conversion,
+             "Run the full terrain workflow"),
+            ("Create Mesh", self.create_mesh,
+             "Launch PhotoMesh Wizard"),
+            ("View Mesh", self.view_mesh,
+             "Open TerraExplorer to view results"),
+            ("One-Click Terrain Tutorial", self.show_terrain_tutorial,
+             "Open help for the terrain tools")
         ]
-        
-        for text, command in buttons:
+
+        for text, command, tip in buttons:
             button = tk.Button(
                 self.terrain_frame,
                 text=text,
@@ -1639,6 +1650,8 @@ class VBS4Panel(tk.Frame):
                 bg="#444", fg="white",
                 command=command
             )
+            button.bind("<Enter>", lambda e, t=tip: self.show_tooltip(e, t))
+            button.bind("<Leave>", self.hide_tooltip)
             self.hidden_buttons.append(button)
 
     def toggle_terrain_buttons(self):
@@ -1883,7 +1896,12 @@ class VBS4Panel(tk.Frame):
     def one_click_conversion(self):
         self.log_message("Starting One-Click Terrain Conversion...")
 
-        ip_input = simpledialog.askstring("Remote IPs", "Enter IPs of remote computers (comma separated):")
+        default_ips = config['Fusers'].get('default_ips', '')
+        ip_input = simpledialog.askstring(
+            "Remote IPs",
+            "Enter IPs of remote computers (comma separated):",
+            initialvalue=default_ips
+        )
         if not ip_input:
             self.log_message("One-Click Conversion cancelled — no IPs entered.")
             return
