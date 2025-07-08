@@ -1954,21 +1954,12 @@ class VBS4Panel(tk.Frame):
     def one_click_conversion(self):
         self.log_message("Starting One-Click Terrain Conversion...")
 
-        default_ips = config['Fusers'].get('default_ips', '')
         local_ip = get_local_ip()
-
-        if default_ips:
-            ip_candidates = [ip.strip() for ip in default_ips.split(',') if ip.strip()]
-            if local_ip not in ip_candidates:
-                ip_candidates.insert(0, local_ip)
-            initial_ips = ','.join(ip_candidates)
-        else:
-            initial_ips = local_ip
 
         ip_input = simpledialog.askstring(
             "Remote IPs",
             "Enter IPs of remote computers (comma separated):",
-            initialvalue=initial_ips
+            initialvalue=local_ip
         )
         if not ip_input:
             self.log_message("One-Click Conversion cancelled — no IPs entered.")
