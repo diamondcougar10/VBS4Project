@@ -1068,7 +1068,7 @@ class MainApp(tk.Tk):
                             width=12,
                             command=lambda k=key: self.show(k))
             btn.pack(pady=5, padx=5)
-            btn.bind("<Enter>", lambda e, l=label: nav_tip.show("Go to " . l, e.x_root+10, e.y_root+10))
+            btn.bind("<Enter>", lambda e, l=label: nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10))
             btn.bind("<Leave>", lambda e: nav_tip.hide())
             self.focusable_buttons.append(btn)
 
