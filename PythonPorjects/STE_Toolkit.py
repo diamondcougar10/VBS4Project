@@ -993,6 +993,9 @@ class MainApp(tk.Tk):
          # Prevent window resizing
         self.resizable(False, False)
 
+        # List of buttons that can receive keyboard focus
+        self.focusable_buttons = []
+
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
 
         # screen dims
