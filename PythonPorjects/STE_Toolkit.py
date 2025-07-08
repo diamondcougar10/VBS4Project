@@ -23,6 +23,7 @@ import win32gui
 import win32net
 import win32netcon
 import ctypes.wintypes
+import logging
 
 # Win32 constants for tweaking window styles:
 GWL_STYLE        = -16
@@ -33,6 +34,13 @@ SWP_NOSIZE       = 0x0001
 SWP_NOZORDER     = 0x0004
 SWP_FRAMECHANGED = 0x0020
 
+logging.basicConfig(
+    level=logging.INFO,
+    filename='ste_toolkit.log',
+    filemode='a',
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
@@ -41,7 +49,7 @@ def get_vbs4_install_path():
     # First, check the config file
     path = config['General'].get('vbs4_path', '').strip()
     if path and os.path.isfile(path):
-        print(f"VBS4 path found in config: {path}")
+        logging.info("VBS4 path found in config: %s", path)
         return path
 
     # If not in config, try to find it
@@ -65,21 +73,21 @@ def get_vbs4_install_path():
             for vbs4_dir in vbs4_dirs:
                 full_path = os.path.join(base_path, vbs4_dir, "VBS4.exe")
                 if os.path.isfile(full_path):
-                    print(f"VBS4 path found: {full_path}")
+                    logging.info("VBS4 path found: %s", full_path)
                     # Save the found path to config
                     config['General']['vbs4_path'] = full_path
                     with open(CONFIG_PATH, 'w') as f:
                         config.write(f)
                     return full_path
 
-    print("VBS4 path not found")
+    logging.warning("VBS4 path not found")
     return ''
 
 def get_vbs4_launcher_path():
     # First, check the config file
     path = config['General'].get('vbs4_setup_path', '').strip()
     if path and os.path.isfile(path):
-        print(f"VBS4 Launcher path found in config: {path}")
+        logging.info("VBS4 Launcher path found in config: %s", path)
         return path
 
     # If not in config, try to find it
@@ -104,7 +112,7 @@ def get_vbs4_launcher_path():
             for vbs4_dir in vbs4_dirs:
                 full_path = os.path.join(base_path, vbs4_dir, "VBSLauncher.exe")
                 if os.path.isfile(full_path):
-                    print(f"VBS4 Launcher path found: {full_path}")
+                    logging.info("VBS4 Launcher path found: %s", full_path)
                     # Save the found path to config
                     config['General']['vbs4_setup_path'] = full_path
                     with open(CONFIG_PATH, 'w') as f:
@@ -117,13 +125,13 @@ def get_vbs4_launcher_path():
         base = os.path.dirname(vbs4_exe)
         launcher_path = os.path.join(base, 'VBSLauncher.exe')
         if os.path.isfile(launcher_path):
-            print(f"VBS4 Launcher path found relative to VBS4.exe: {launcher_path}")
+            logging.info("VBS4 Launcher path found relative to VBS4.exe: %s", launcher_path)
             config['General']['vbs4_setup_path'] = launcher_path
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             return launcher_path
 
-    print("VBS4 Launcher path not found")
+    logging.warning("VBS4 Launcher path not found")
     return ''
 #==============================================================================
 # VERSION DISPLAY FUNCTIONS
@@ -1352,7 +1360,7 @@ class VBS4Panel(tk.Frame):
         vbs4_frame.pack(pady=8)
 
         vbs4_path = get_vbs4_install_path()
-        print(f"VBS4 path for button creation: {vbs4_path}")  # Debugging line
+        logging.debug("VBS4 path for button creation: %s", vbs4_path)
 
         self.vbs4_button, self.vbs4_version_label = create_app_button(
             self, "VBS4", get_vbs4_install_path, launch_vbs4,
@@ -1660,7 +1668,7 @@ class VBS4Panel(tk.Frame):
 
     def update_vbs4_button_state(self):
         path = get_vbs4_install_path()
-        print(f"Updating VBS4 button state. Path: {path}")  # Debugging line
+        logging.debug("Updating VBS4 button state. Path: %s", path)
         if path and os.path.isfile(path):
             self.vbs4_button.config(state="normal", bg="#444444")
         else:
