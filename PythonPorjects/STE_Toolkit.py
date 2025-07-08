@@ -48,6 +48,22 @@ def run_in_thread(target, *args, **kwargs):
     thread.start()
 
 #==============================================================================
+# NETWORK HELPERS
+#==============================================================================
+
+def get_local_ip():
+    """Return the primary IPv4 address of this machine."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # connecting to an external host does not actually send data
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+#==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
 
@@ -1939,10 +1955,20 @@ class VBS4Panel(tk.Frame):
         self.log_message("Starting One-Click Terrain Conversion...")
 
         default_ips = config['Fusers'].get('default_ips', '')
+        local_ip = get_local_ip()
+
+        if default_ips:
+            ip_candidates = [ip.strip() for ip in default_ips.split(',') if ip.strip()]
+            if local_ip not in ip_candidates:
+                ip_candidates.insert(0, local_ip)
+            initial_ips = ','.join(ip_candidates)
+        else:
+            initial_ips = local_ip
+
         ip_input = simpledialog.askstring(
             "Remote IPs",
             "Enter IPs of remote computers (comma separated):",
-            initialvalue=default_ips
+            initialvalue=initial_ips
         )
         if not ip_input:
             self.log_message("One-Click Conversion cancelled — no IPs entered.")
