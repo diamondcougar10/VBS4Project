@@ -1785,14 +1785,16 @@ class VBS4Panel(tk.Frame):
         def add_folder():
             path = simpledialog.askstring(
                 "Network Path",
-                "Enter network folder path (leave blank to browse):"
+                "Enter network folder path (leave blank to browse):",
+                parent=folder_window
             )
             if path and os.path.exists(path):
                 found = get_image_folders_recursively(path)
                 folders.extend(found)
             else:
                 selected = filedialog.askdirectory(
-                    title="Select DCIM or base imagery folder"
+                    title="Select DCIM or base imagery folder",
+                    parent=folder_window
                 )
                 if selected:
                     found = get_image_folders_recursively(selected)
@@ -1811,13 +1813,18 @@ class VBS4Panel(tk.Frame):
     
         def finish_selection():
             if not folders:
-                messagebox.showwarning("No Selection", "No folder selected.")
+                messagebox.showwarning(
+                    "No Selection",
+                    "No folder selected.",
+                    parent=folder_window
+                )
             else:
                 self.image_folder_paths = folders
                 self.image_folder_path = ";".join(folders)
                 messagebox.showinfo(
                     "Imagery Selected",
-                    "Selected imagery folders:\n" + "\n".join(folders)
+                    "Selected imagery folders:\n" + "\n".join(folders),
+                    parent=folder_window
                 )
                 self.log_message("Selected imagery folders:")
                 for folder in folders:
@@ -1836,8 +1843,8 @@ class VBS4Panel(tk.Frame):
         folder_window.wait_window()
 
     def prompt_remote_fuser_details(self, ip):
-        remote_path = simpledialog.askstring("Remote Folder Path", f"Enter shared folder path on {ip} (e.g., \\\\{ip}\\SharedMeshDrive\\WorkingFuser):")
-        fuser_name = simpledialog.askstring("Fuser Name", f"Enter unique fuser name for {ip}:")
+        remote_path = simpledialog.askstring("Remote Folder Path", f"Enter shared folder path on {ip} (e.g., \{ip}\SharedMeshDrive\WorkingFuser):", parent=self)
+        fuser_name = simpledialog.askstring("Fuser Name", f"Enter unique fuser name for {ip}:", parent=self)
         return remote_path, fuser_name
 
     def resolve_machine_name(self, ip: str) -> str | None:
@@ -1848,7 +1855,7 @@ class VBS4Panel(tk.Frame):
         except Exception:
             pass
 
-        return simpledialog.askstring("Machine Name", f"Enter machine name for {ip}:")
+        return simpledialog.askstring("Machine Name", f"Enter machine name for {ip}:", parent=self)
 
     def launch_fusers(self, ip_list):
         config_file = config['Fusers'].get('config_path', 'fuser_config.json')
@@ -1956,31 +1963,35 @@ class VBS4Panel(tk.Frame):
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
                 return
 
-        project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:")
+        project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:", parent=self)
         if not project_name:
-            messagebox.showwarning("Missing Name", "Project name is required.")
+            messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
             return
 
-        project_path = filedialog.askdirectory(title="Select Project Output Folder")
+        project_path = filedialog.askdirectory(title="Select Project Output Folder", parent=self)
         if not project_path:
-            messagebox.showwarning("Missing Folder", "Project output folder is required.")
+            messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
             return
-
         wizard_path = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe"
 
         if not os.path.exists(wizard_path):
-            messagebox.showinfo("PhotoMesh Wizard Not Found", 
-                                "The PhotoMesh Wizard was not found in the expected location. "
-                                "Please select the PhotoMeshWizard.exe file manually.")
+            messagebox.showinfo(
+                "PhotoMesh Wizard Not Found",
+                "The PhotoMesh Wizard was not found in the expected location. ",
+                "Please select the PhotoMeshWizard.exe file manually.",
+                parent=self,
+            )
             wizard_path = filedialog.askopenfilename(
                 title="Select PhotoMeshWizard.exe",
-                filetypes=[("Executable Files", "*.exe")]
+                filetypes=[("Executable Files", "*.exe")],
+                parent=self,
             )
             if not wizard_path:
-                messagebox.showwarning("Cancelled", "Mesh creation cancelled.")
+                messagebox.showwarning(
+                    "Cancelled", "Mesh creation cancelled.", parent=self
+                )
                 return
 
-        # Build command with a --folder argument for each selected imagery directory
         folders_cmd = " ".join([f'--folder "{folder}"' for folder in self.image_folder_paths])
         cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" {folders_cmd}'
 
@@ -1993,20 +2004,24 @@ class VBS4Panel(tk.Frame):
 
             if process.returncode == 0:
                 self.log_message("PhotoMesh Wizard launched successfully.")
-                messagebox.showinfo("PhotoMesh Wizard Launched", f"Wizard started for project:\n{project_name}")
+                messagebox.showinfo(
+                    "PhotoMesh Wizard Launched",
+                    f"Wizard started for project:\n{project_name}",
+                    parent=self,
+                )
             else:
                 error_message = f"Failed to start PhotoMesh Wizard.\nError: {stderr.decode()}\n\nCommand used: {cmd}"
                 self.log_message(error_message)
-                messagebox.showerror("Launch Error", error_message)
+                messagebox.showerror("Launch Error", error_message, parent=self)
 
-                if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
+                if messagebox.askyesno("Open Folder", "Would you like to open the project folder?", parent=self):
                     os.startfile(project_path)
         except Exception as e:
             error_message = f"An unexpected error occurred:\n{str(e)}\n\nCommand used: {cmd}"
             self.log_message(error_message)
-            messagebox.showerror("Unexpected Error", error_message)
+            messagebox.showerror("Unexpected Error", error_message, parent=self)
 
-            if messagebox.askyesno("Open Folder", "Would you like to open the project folder?"):
+            if messagebox.askyesno("Open Folder", "Would you like to open the project folder?", parent=self):
                 os.startfile(project_path)
 
     def view_mesh(self):
@@ -2016,10 +2031,9 @@ class VBS4Panel(tk.Frame):
         def start_explorer(path):
             try:
                 subprocess.Popen([path])
-                messagebox.showinfo("View Mesh", "TerraExplorer launched.")
+                messagebox.showinfo("View Mesh", "TerraExplorer launched.", parent=self)
             except Exception as e:
-                logging.exception("Failed to launch TerraExplorer")
-                messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}")
+                messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}", parent=self)
 
         if os.path.exists(terra_explorer_path):
             start_explorer(terra_explorer_path)
@@ -2031,7 +2045,7 @@ class VBS4Panel(tk.Frame):
                 else:
                     messagebox.showwarning(
                         "TerraExplorer Not Found",
-                        "TerraExplorer is not installed or could not be found."
+                        "TerraExplorer is not installed or could not be found.", parent=self
                     )
 
             run_in_thread(_search_and_launch)
@@ -2040,11 +2054,11 @@ class VBS4Panel(tk.Frame):
         self.log_message("Starting One-Click Terrain Conversion...")
 
         local_ip = get_local_ip()
-
         ip_input = simpledialog.askstring(
             "Remote IPs",
             "Enter IPs of remote computers (comma separated):",
-            initialvalue=local_ip
+            initialvalue=local_ip,
+            parent=self
         )
         if not ip_input:
             self.log_message("One-Click Conversion cancelled — no IPs entered.")
@@ -2070,7 +2084,7 @@ class VBS4Panel(tk.Frame):
 
 
     def show_terrain_tutorial(self):
-          messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.")
+        messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
     def log_message(self, message):
          self.log_text.config(state="normal")
