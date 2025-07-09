@@ -1,11 +1,16 @@
 {
   "fusers": {
     "192.168.1.100": [
-      {"name": "RyanFuser3", "shared_path": "\\\\192.168.1.100\\SharedMeshDrive\\WorkingFuser"},
-      {"name": "RyanFuser2", "shared_path": "\\\\192.168.1.100\\SharedMeshDrive\\WorkingFuser"}
+      {
+        "name": "RyanFuser1",
+        "shared_path": "\\\\RyansWorkPC2\\SharedMeshDrive\\WorkingFuser"
+      }
     ],
-    "192.168.1.101": [
-      {"name": "RyanFuser1", "shared_path": "\\\\192.168.1.101\\SharedMeshDrive\\WorkingFuser"}
+    "localhost": [
+      {
+        "name": "LocalFuser",
+        "shared_path": "\\\\localhost\\SharedMeshDrive\\WorkingFuser"
+      }
     ]
   }
 }

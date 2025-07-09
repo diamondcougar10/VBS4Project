@@ -1842,7 +1842,10 @@ class VBS4Panel(tk.Frame):
 
     def launch_fusers(self, ip_list):
         config_file = config['Fusers'].get('config_path', 'fuser_config.json')
-        fuser_exe = r'C:\Program Files\Skyline\PhotoMesh\Fuser\PhotoMeshFuser.exe'
+        fuser_exe = config['Fusers'].get(
+            'local_fuser_exe',
+            r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'
+        )
 
         def load_fuser_config(file_path):
             full_path = os.path.join(BASE_DIR, file_path) if not os.path.isabs(file_path) else file_path
@@ -1864,7 +1867,13 @@ class VBS4Panel(tk.Frame):
             for fuser in fusers:
                 name = fuser.get('name')
                 path = fuser.get('shared_path')
-                cmd = f'start "" "{fuser_exe}" "{name}" "{path}" 0 true'
+
+                bat_path = rf'\\{ip}\\C$\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
+                if os.path.isfile(bat_path):
+                    cmd = f'start "" "{bat_path}"'
+                else:
+                    cmd = f'start "" "{fuser_exe}" "{name}" "{path}" 0 true'
+
                 try:
                     subprocess.run(cmd, shell=True, check=True)
                     self.log_message(f"Launched {name} at {path}")
@@ -1874,7 +1883,13 @@ class VBS4Panel(tk.Frame):
         # Launch local fuser
         local_fuser_name = "LocalFuser"  # You may want to make this configurable
         local_fuser_path = r"\\localhost\SharedMeshDrive\WorkingFuser"  # Adjust as needed
-        local_cmd = f'start "" "{fuser_exe}" "{local_fuser_name}" "{local_fuser_path}" 0 true'
+
+        local_bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{local_fuser_name}.bat'
+        if os.path.isfile(local_bat):
+            local_cmd = f'start "" "{local_bat}"'
+        else:
+            local_cmd = f'start "" "{fuser_exe}" "{local_fuser_name}" "{local_fuser_path}" 0 true'
+
         try:
             subprocess.run(local_cmd, shell=True, check=True)
             self.log_message("Local fuser launched.")
