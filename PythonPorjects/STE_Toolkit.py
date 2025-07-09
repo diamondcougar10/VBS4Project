@@ -304,6 +304,32 @@ elif 'fuser_computer' not in config['Fusers']:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
+# Update the shared fuser path in the JSON config to point at this machine
+def update_fuser_shared_path() -> None:
+    if not config['Fusers'].getboolean('fuser_computer', False):
+        return
+
+    config_file = config['Fusers'].get('config_path', 'fuser_config.json')
+    cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
+
+    host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
+
+    try:
+        with open(cfg_path, 'r') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+
+    data.setdefault('fusers', {'localhost': [{'name': 'LocalFuser'}]})
+    # Use a UNC path that points to this host
+    data['shared_path'] = f"\\{host}\\SharedMeshDrive\\WorkingFuser"
+
+    try:
+        with open(cfg_path, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        logging.error("Failed to update fuser config: %s", e)
+
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
 
@@ -2273,9 +2299,10 @@ class SettingsPanel(tk.Frame):
             config['Fusers']['fuser_computer'] = str(self.fuser_var.get())
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
-            self.controller.panels['VBS4'].update_fuser_state()
             if self.fuser_var.get():
+                update_fuser_shared_path()
                 run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
+            self.controller.panels['VBS4'].update_fuser_state()
 
         tk.Checkbutton(self,
                        text="Fuser Computer",
@@ -2704,6 +2731,7 @@ if __name__ == "__main__":
     start_command_server()
     app = MainApp()
     if config['Fusers'].getboolean('fuser_computer', False):
+        update_fuser_shared_path()
         run_in_thread(app.panels['VBS4'].launch_local_fuser)
         app.panels['VBS4'].update_fuser_state()
     app.mainloop()
