@@ -322,7 +322,9 @@ def update_fuser_shared_path() -> None:
 
     data.setdefault('fusers', {'localhost': [{'name': 'LocalFuser'}]})
     # Use a UNC path that points to this host
-    data['shared_path'] = f"\\{host}\\SharedMeshDrive\\WorkingFuser"
+    # Need four leading backslashes in the string literal so that the written
+    # JSON contains a UNC path starting with two backslashes.
+    data['shared_path'] = f"\\\\{host}\\SharedMeshDrive\\WorkingFuser"
 
     try:
         with open(cfg_path, 'w') as f:
