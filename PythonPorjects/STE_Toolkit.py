@@ -1887,6 +1887,7 @@ class VBS4Panel(tk.Frame):
             'local_fuser_exe',
             r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'
         )
+        shared_path = self.ensure_host_fuser_config()
 
         def discover_fusers_from_shared_path(shared_path):
             """Scan *shared_path* for folders named like MACHINE(IP)_Fuser."""
@@ -1918,6 +1919,8 @@ class VBS4Panel(tk.Frame):
                 return {}, None
 
         fuser_settings, default_path = load_fuser_config(config_file)
+        if not default_path:
+            default_path = shared_path
 
         # Replace 'localhost' entries with this machine's hostname
         hostname = os.environ.get('COMPUTERNAME', socket.gethostname())
@@ -1973,13 +1976,46 @@ class VBS4Panel(tk.Frame):
         # Launch local fusers on this machine
         self.launch_local_fuser(default_path)
 
+    def ensure_host_fuser_config(self) -> str:
+        """Update the fuser config file to use this machine's hostname."""
+        cfg_file = config['Fusers'].get('config_path', 'fuser_config.json')
+        full_path = os.path.join(BASE_DIR, cfg_file) if not os.path.isabs(cfg_file) else cfg_file
+        hostname = os.environ.get('COMPUTERNAME', socket.gethostname())
+        data = {'fusers': {}, 'shared_path': rf'\\{hostname}\\SharedMeshDrive\\WorkingFuser'}
+        try:
+            with open(full_path, 'r') as f:
+                data.update(json.load(f))
+        except Exception:
+            pass
+
+        changed = False
+        if data.get('shared_path') != rf'\\{hostname}\\SharedMeshDrive\\WorkingFuser':
+            data['shared_path'] = rf'\\{hostname}\\SharedMeshDrive\\WorkingFuser'
+            changed = True
+
+        fusers = data.setdefault('fusers', {})
+        if 'localhost' in fusers:
+            fusers[hostname] = fusers.pop('localhost')
+            changed = True
+
+        if changed:
+            try:
+                with open(full_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                self.log_message(f"Failed to update fuser config: {e}")
+
+        return data['shared_path']
+
     def launch_local_fuser(self, shared_path=None):
-        config_file = config['Fusers'].get('config_path', 'fuser_config.json')
         fuser_exe = config['Fusers'].get(
             'local_fuser_exe',
             r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'
         )
         bat_file = config['Fusers'].get('local_fuser_bat', '')
+
+        # Update the fuser configuration to reflect this host
+        path_from_config = self.ensure_host_fuser_config()
 
         if bat_file and os.path.isfile(bat_file):
             try:
@@ -1989,19 +2025,7 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to run fuser batch: {e}")
             return
 
-        def load_fuser_config(file_path):
-            full_path = os.path.join(BASE_DIR, file_path) if not os.path.isabs(file_path) else file_path
-            try:
-                with open(full_path, 'r') as f:
-                    data = json.load(f)
-                    return data.get('shared_path')
-            except Exception as e:
-                self.log_message(f"Failed to load fuser config: {e}")
-                return None
-
-        default_path = shared_path
-        if default_path is None:
-            default_path = load_fuser_config(config_file)
+        default_path = shared_path or path_from_config
 
         hostname = os.environ.get('COMPUTERNAME', socket.gethostname())
 
@@ -2298,6 +2322,7 @@ class SettingsPanel(tk.Frame):
                 config.write(f)
             self.controller.panels['VBS4'].update_fuser_state()
             if self.fuser_var.get():
+                self.controller.panels['VBS4'].ensure_host_fuser_config()
                 run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
 
         tk.Checkbutton(self,
@@ -2727,6 +2752,7 @@ if __name__ == "__main__":
     start_command_server()
     app = MainApp()
     if config['Fusers'].getboolean('fuser_computer', False):
+        app.panels['VBS4'].ensure_host_fuser_config()
         run_in_thread(app.panels['VBS4'].launch_local_fuser)
         app.panels['VBS4'].update_fuser_state()
     app.mainloop()
