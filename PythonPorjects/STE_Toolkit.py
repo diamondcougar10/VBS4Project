@@ -1842,10 +1842,7 @@ class VBS4Panel(tk.Frame):
 
     def launch_fusers(self, ip_list):
         config_file = config['Fusers'].get('config_path', 'fuser_config.json')
-        remote_fuser_exe = config['Fusers'].get('remote_fuser_exe',
-                                               r'C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe')
-        local_fuser_exe = config['Fusers'].get('local_fuser_exe',
-                                              r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe')
+        fuser_exe = r'C:\Program Files\Skyline\PhotoMesh\Fuser\PhotoMeshFuser.exe'
 
         def load_fuser_config(file_path):
             full_path = os.path.join(BASE_DIR, file_path) if not os.path.isabs(file_path) else file_path
@@ -1867,19 +1864,22 @@ class VBS4Panel(tk.Frame):
             for fuser in fusers:
                 name = fuser.get('name')
                 path = fuser.get('shared_path')
-                cmd = f'start "" "{remote_fuser_exe}" "{name}" "{path}" 0 true'
+                cmd = f'start "" "{fuser_exe}" "{name}" "{path}" 0 true'
                 try:
-                    subprocess.run(cmd, shell=True)
+                    subprocess.run(cmd, shell=True, check=True)
                     self.log_message(f"Launched {name} at {path}")
-                except Exception as e:
+                except subprocess.CalledProcessError as e:
                     self.log_message(f"Failed to launch {name} on {ip}: {e}")
 
+        # Launch local fuser
+        local_fuser_name = "LocalFuser"  # You may want to make this configurable
+        local_fuser_path = r"\\localhost\SharedMeshDrive\WorkingFuser"  # Adjust as needed
+        local_cmd = f'start "" "{fuser_exe}" "{local_fuser_name}" "{local_fuser_path}" 0 true'
         try:
-            subprocess.run(f'start "" "{local_fuser_exe}"', shell=True)
+            subprocess.run(local_cmd, shell=True, check=True)
             self.log_message("Local fuser launched.")
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
             self.log_message(f"Failed to start local fuser: {e}")
-
 
     def create_mesh(self):
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
