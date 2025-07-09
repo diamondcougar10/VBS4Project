@@ -1961,23 +1961,10 @@ class VBS4Panel(tk.Frame):
                 except subprocess.CalledProcessError as e:
                     self.log_message(f"Failed to launch {name} on {ip}: {e}")
 
-        # Launch local fuser
-        local_fuser_name = "LocalFuser"  # You may want to make this configurable
-        local_fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"  # Adjust as needed
+        # Launch local fusers on this machine
+        self.launch_local_fuser(default_path)
 
-        local_bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{local_fuser_name}.bat'
-        if os.path.isfile(local_bat):
-            local_cmd = f'start "" "{local_bat}"'
-        else:
-            local_cmd = f'start "" "{fuser_exe}" "{local_fuser_name}" "{local_fuser_path}" 0 true'
-
-        try:
-            subprocess.run(local_cmd, shell=True, check=True)
-            self.log_message("Local fuser launched.")
-        except subprocess.CalledProcessError as e:
-            self.log_message(f"Failed to start local fuser: {e}")
-
-    def launch_local_fuser(self):
+    def launch_local_fuser(self, shared_path=None):
         config_file = config['Fusers'].get('config_path', 'fuser_config.json')
         fuser_exe = config['Fusers'].get(
             'local_fuser_exe',
@@ -1994,22 +1981,25 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to load fuser config: {e}")
                 return None
 
-        default_path = load_fuser_config(config_file)
+        default_path = shared_path
+        if default_path is None:
+            default_path = load_fuser_config(config_file)
 
-        local_fuser_name = "LocalFuser"
-        local_fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"
+        fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"
 
-        local_bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{local_fuser_name}.bat'
-        if os.path.isfile(local_bat):
-            local_cmd = f'start "" "{local_bat}"'
-        else:
-            local_cmd = f'start "" "{fuser_exe}" "{local_fuser_name}" "{local_fuser_path}" 0 true'
+        for idx in range(1, 4):
+            name = f"LocalFuser{idx}"
+            bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
+            if os.path.isfile(bat):
+                cmd = f'start "" "{bat}"'
+            else:
+                cmd = f'start "" "{fuser_exe}" "{name}" "{fuser_path}" 0 true'
 
-        try:
-            subprocess.run(local_cmd, shell=True, check=True)
-            self.log_message("Local fuser launched.")
-        except subprocess.CalledProcessError as e:
-            self.log_message(f"Failed to start local fuser: {e}")
+            try:
+                subprocess.run(cmd, shell=True, check=True)
+                self.log_message(f"Launched {name}.")
+            except subprocess.CalledProcessError as e:
+                self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
