@@ -1685,10 +1685,10 @@ class VBS4Panel(tk.Frame):
         self.hidden_buttons = []
 
         buttons = [
-            ("Select Imagery", self.select_imagery,
-             "Choose imagery folders for PhotoMesh"),
             ("One-Click Conversion", self.one_click_conversion,
              "Run the full terrain workflow"),
+            ("Select Imagery", self.select_imagery,
+             "Choose imagery folders for PhotoMesh"),
             ("Create Mesh", self.create_mesh,
              "Launch PhotoMesh Wizard"),
             ("View Mesh", self.view_mesh,
