@@ -1106,6 +1106,7 @@ class MainApp(tk.Tk):
             self.bind(key, self.focus_next)
         for key in ("<Left>", "<Up>"):
             self.bind(key, self.focus_prev)
+        self.bind("<Return>", self.activate_current)
         self.update_navigation()
 
     def toggle_fullscreen(self):
@@ -1203,6 +1204,16 @@ class MainApp(tk.Tk):
             return
         self.focus_index = (self.focus_index - 1) % len(self.focusable_buttons)
         self.highlight_current()
+
+    def activate_current(self, event=None):
+        """Invoke the currently focused button."""
+        if not self.focusable_buttons:
+            return
+        btn = self.focusable_buttons[self.focus_index]
+        try:
+            btn.invoke()
+        except Exception:
+            pass
 
     def create_tutorial_button(self, parent):
         """
