@@ -294,8 +294,13 @@ if 'Fusers' not in config:
     config['Fusers'] = {
         'config_path': 'fuser_config.json',
         'local_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe',
-        'remote_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe'
+        'remote_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe',
+        'fuser_computer': 'False'
     }
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+elif 'fuser_computer' not in config['Fusers']:
+    config['Fusers']['fuser_computer'] = 'False'
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
@@ -1478,6 +1483,7 @@ class VBS4Panel(tk.Frame):
         )
         self.terrain_button.bind("<Leave>", self.hide_tooltip)
         self.create_hidden_terrain_buttons()
+        self.update_fuser_state()
 
         # External Map button
         tk.Button(
@@ -1745,6 +1751,20 @@ class VBS4Panel(tk.Frame):
         else:
             self.vbs4_launcher_button.config(state="disabled", bg="#888888")
 
+    def update_fuser_state(self):
+        is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
+        tip = "This pc is being used as a fuser" if is_fuser else "Show or hide terrain tools"
+        state = "disabled" if is_fuser else "normal"
+        bg = "#888888" if is_fuser else "#444"
+
+        self.terrain_button.config(state=state, bg=bg, text="One-Click Terrain Converter")
+        self.terrain_button.bind("<Enter>", lambda e: self.show_tooltip(e, tip))
+        self.terrain_button.bind("<Leave>", self.hide_tooltip)
+
+        for btn in self.hidden_buttons:
+            btn.pack_forget()
+            btn.config(state=state)
+
     def set_file_location(self, app_name, config_key, button):
         path = filedialog.askopenfilename(
             title=f"Select {app_name} Executable",
@@ -1944,6 +1964,40 @@ class VBS4Panel(tk.Frame):
         # Launch local fuser
         local_fuser_name = "LocalFuser"  # You may want to make this configurable
         local_fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"  # Adjust as needed
+
+        local_bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{local_fuser_name}.bat'
+        if os.path.isfile(local_bat):
+            local_cmd = f'start "" "{local_bat}"'
+        else:
+            local_cmd = f'start "" "{fuser_exe}" "{local_fuser_name}" "{local_fuser_path}" 0 true'
+
+        try:
+            subprocess.run(local_cmd, shell=True, check=True)
+            self.log_message("Local fuser launched.")
+        except subprocess.CalledProcessError as e:
+            self.log_message(f"Failed to start local fuser: {e}")
+
+    def launch_local_fuser(self):
+        config_file = config['Fusers'].get('config_path', 'fuser_config.json')
+        fuser_exe = config['Fusers'].get(
+            'local_fuser_exe',
+            r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'
+        )
+
+        def load_fuser_config(file_path):
+            full_path = os.path.join(BASE_DIR, file_path) if not os.path.isabs(file_path) else file_path
+            try:
+                with open(full_path, 'r') as f:
+                    data = json.load(f)
+                    return data.get('shared_path')
+            except Exception as e:
+                self.log_message(f"Failed to load fuser config: {e}")
+                return None
+
+        default_path = load_fuser_config(config_file)
+
+        local_fuser_name = "LocalFuser"
+        local_fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"
 
         local_bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{local_fuser_name}.bat'
         if os.path.isfile(local_bat):
@@ -2216,6 +2270,27 @@ class SettingsPanel(tk.Frame):
                        text="Close on Software Launch?",
                        variable=self.close_var,
                        command=_on_close_toggle,
+                       font=("Helvetica",20),
+                       bg="#444444", fg="white",
+                       selectcolor="#444444",
+                       indicatoron=True,
+                       width=30, pady=5) \
+          .pack(pady=8)
+
+        self.fuser_var = tk.BooleanVar(value=config['Fusers'].getboolean('fuser_computer', False))
+
+        def _on_fuser_toggle():
+            config['Fusers']['fuser_computer'] = str(self.fuser_var.get())
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            self.controller.panels['VBS4'].update_fuser_state()
+            if self.fuser_var.get():
+                run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
+
+        tk.Checkbutton(self,
+                       text="Fuser Computer",
+                       variable=self.fuser_var,
+                       command=_on_fuser_toggle,
                        font=("Helvetica",20),
                        bg="#444444", fg="white",
                        selectcolor="#444444",
@@ -2637,4 +2712,8 @@ def start_command_server(port: int = 9100) -> None:
 
 if __name__ == "__main__":
     start_command_server()
-    MainApp().mainloop()
+    app = MainApp()
+    if config['Fusers'].getboolean('fuser_computer', False):
+        run_in_thread(app.panels['VBS4'].launch_local_fuser)
+        app.panels['VBS4'].update_fuser_state()
+    app.mainloop()
