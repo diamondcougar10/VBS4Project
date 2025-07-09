@@ -1840,6 +1840,16 @@ class VBS4Panel(tk.Frame):
         fuser_name = simpledialog.askstring("Fuser Name", f"Enter unique fuser name for {ip}:")
         return remote_path, fuser_name
 
+    def resolve_machine_name(self, ip: str) -> str | None:
+        """Try to get the machine name for an IP or prompt the user."""
+        try:
+            host, _, _ = socket.gethostbyaddr(ip)
+            return host.split('.')[0]
+        except Exception:
+            pass
+
+        return simpledialog.askstring("Machine Name", f"Enter machine name for {ip}:")
+
     def launch_fusers(self, ip_list):
         config_file = config['Fusers'].get('config_path', 'fuser_config.json')
         fuser_exe = config['Fusers'].get(
@@ -1847,26 +1857,69 @@ class VBS4Panel(tk.Frame):
             r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'
         )
 
+        def discover_fusers_from_shared_path(shared_path):
+            """Scan *shared_path* for folders named like MACHINE(IP)_Fuser."""
+            discovered = {}
+            if not shared_path or not os.path.isdir(shared_path):
+                return discovered
+
+            pattern = re.compile(r"([^()]+)\(([^()]+)\)_(.+)")
+            for entry in os.scandir(shared_path):
+                if entry.is_dir():
+                    m = pattern.match(entry.name)
+                    if m:
+                        machine, ip, name = m.groups()
+                        discovered.setdefault(ip, []).append({
+                            'name': name,
+                            'machine_name': machine,
+                            'shared_path': shared_path,
+                        })
+            return discovered
+
         def load_fuser_config(file_path):
             full_path = os.path.join(BASE_DIR, file_path) if not os.path.isabs(file_path) else file_path
             try:
                 with open(full_path, 'r') as f:
-                    return json.load(f).get('fusers', {})
+                    data = json.load(f)
+                    return data.get('fusers', {}), data.get('shared_path')
             except Exception as e:
                 self.log_message(f"Failed to load fuser config: {e}")
-                return {}
+                return {}, None
 
-        fuser_settings = load_fuser_config(config_file)
+        fuser_settings, default_path = load_fuser_config(config_file)
+
+        # Auto-discover fuser directories if a shared path is provided
+        discovered = discover_fusers_from_shared_path(default_path)
+        for ip, info in discovered.items():
+            fuser_settings.setdefault(ip, []).extend(info)
+
+        # If user did not supply IPs, run for all discovered/configured IPs
+        if not ip_list:
+            ip_list = list(fuser_settings.keys())
 
         for ip in ip_list:
             fusers = fuser_settings.get(ip, [])
             if not fusers:
                 self.log_message(f"No fuser configuration found for {ip}")
-                continue
+                remote_path, fuser_name = self.prompt_remote_fuser_details(ip)
+                if remote_path and fuser_name:
+                    fusers = [{
+                        'name': fuser_name,
+                        'shared_path': remote_path,
+                        'machine_name': self.resolve_machine_name(ip),
+                    }]
+                else:
+                    continue
 
             for fuser in fusers:
                 name = fuser.get('name')
-                path = fuser.get('shared_path')
+                path = fuser.get('shared_path') or default_path
+                machine_name = fuser.get('machine_name') or self.resolve_machine_name(ip)
+                if not path and machine_name:
+                    path = rf'\\{machine_name}\\SharedMeshDrive\\WorkingFuser'
+                if not path:
+                    self.log_message(f"No shared path for {name} on {ip}")
+                    continue
 
                 bat_path = rf'\\{ip}\\C$\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
                 if os.path.isfile(bat_path):
@@ -1876,13 +1929,14 @@ class VBS4Panel(tk.Frame):
 
                 try:
                     subprocess.run(cmd, shell=True, check=True)
-                    self.log_message(f"Launched {name} at {path}")
+                    host = machine_name or ip
+                    self.log_message(f"Launched {name} on {host} at {path}")
                 except subprocess.CalledProcessError as e:
                     self.log_message(f"Failed to launch {name} on {ip}: {e}")
 
         # Launch local fuser
         local_fuser_name = "LocalFuser"  # You may want to make this configurable
-        local_fuser_path = r"\\localhost\SharedMeshDrive\WorkingFuser"  # Adjust as needed
+        local_fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"  # Adjust as needed
 
         local_bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{local_fuser_name}.bat'
         if os.path.isfile(local_bat):
