@@ -304,15 +304,25 @@ elif 'fuser_computer' not in config['Fusers']:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
-# Update the shared fuser path in the JSON config to point at this machine
-def update_fuser_shared_path() -> None:
-    if not config['Fusers'].getboolean('fuser_computer', False):
+# Update the shared fuser path in the JSON config. If *project_path* is a UNC
+# path, derive the host from it; otherwise fall back to the local machine name.
+def update_fuser_shared_path(project_path: str | None = None) -> None:
+    # If no project path is supplied only update when this machine is marked as
+    # a fuser computer
+    if project_path is None and not config['Fusers'].getboolean('fuser_computer', False):
         return
 
     config_file = config['Fusers'].get('config_path', 'fuser_config.json')
     cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
 
-    host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
+    host = None
+    if project_path and project_path.startswith('\\'):
+        parts = project_path.strip('\\').split('\\')
+        if parts:
+            host = parts[0]
+
+    if not host:
+        host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
 
     try:
         with open(cfg_path, 'r') as f:
@@ -321,9 +331,7 @@ def update_fuser_shared_path() -> None:
         data = {}
 
     data.setdefault('fusers', {'localhost': [{'name': 'LocalFuser'}]})
-    # Use a UNC path that points to this host
-    # Need four leading backslashes in the string literal so that the written
-    # JSON contains a UNC path starting with two backslashes.
+    # Need four leading backslashes so the written JSON contains a UNC path
     data['shared_path'] = f"\\\\{host}\\SharedMeshDrive\\WorkingFuser"
 
     try:
@@ -2044,6 +2052,7 @@ class VBS4Panel(tk.Frame):
         if not project_path:
             messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
             return
+        update_fuser_shared_path(project_path)
         wizard_path = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe"
 
         if not os.path.exists(wizard_path):
