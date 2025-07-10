@@ -1094,19 +1094,23 @@ class MainApp(tk.Tk):
         nav = tk.Frame(self.content, width=200, bg='#333333')
         nav.pack(side='left', fill='y')
 
-        panels_container = tk.Frame(self.content)
-        panels_container.pack(side='right', expand=True, fill='both')
+        self.panels_container = tk.Frame(self.content)
+        self.panels_container.pack(side='right', expand=True, fill='both')
 
         # Instantiate each panel, passing `self` as the controller
         self.panels = {
-            'Main':      MainMenu(panels_container, self),
-            'VBS4':      VBS4Panel(panels_container, self),
-            'BVI':       BVIPanel(panels_container, self),
-            'Settings':  SettingsPanel(panels_container, self),
-            'Tutorials': TutorialsPanel(panels_container, self),
-            'Credits':   CreditsPanel(panels_container, self),
-            'Contact Us': ContactSupportPanel(panels_container, self),
+            'Main':      MainMenu(self.panels_container, self),
+            'VBS4':      VBS4Panel(self.panels_container, self),
+            'BVI':       BVIPanel(self.panels_container, self),
+            'Settings':  SettingsPanel(self.panels_container, self),
+            'Tutorials': TutorialsPanel(self.panels_container, self),
+            'Credits':   CreditsPanel(self.panels_container, self),
+            'Contact Us': ContactSupportPanel(self.panels_container, self),
         }
+
+        # Stack all panels in the same location and raise the active one
+        for panel in self.panels.values():
+            panel.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         # Build the nav buttons
         nav_tip = Tooltip(nav)
@@ -1190,11 +1194,9 @@ class MainApp(tk.Tk):
             button.config(state="disabled")
 
     def show(self, name):
-        """Hide the current panel and pack the new one."""
-        if self.current:
-            self.panels[self.current].pack_forget()
+        """Raise the given panel without unpacking others."""
         panel = self.panels[name]
-        panel.pack(expand=True, fill='both')
+        panel.tkraise()
         self.current = name
         if name == "VBS4":
             self.update_button_state(panel.vbs4_button, 'vbs4_path')
