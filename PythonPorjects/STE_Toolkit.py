@@ -295,12 +295,17 @@ if 'Fusers' not in config:
         'config_path': 'fuser_config.json',
         'local_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe',
         'remote_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh Fuser\\PhotoMeshFuser.exe',
-        'fuser_computer': 'False'
+        'fuser_computer': 'False',
+        'working_folder_host': ''
     }
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 elif 'fuser_computer' not in config['Fusers']:
     config['Fusers']['fuser_computer'] = 'False'
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+if 'working_folder_host' not in config['Fusers']:
+    config['Fusers']['working_folder_host'] = ''
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
@@ -315,8 +320,8 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     config_file = config['Fusers'].get('config_path', 'fuser_config.json')
     cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
 
-    host = None
-    if project_path and project_path.startswith('\\'):
+    host = config['Fusers'].get('working_folder_host', '').strip() or None
+    if project_path and project_path.startswith('\\') and not host:
         parts = project_path.strip('\\').split('\\')
         if parts:
             host = parts[0]
@@ -339,6 +344,10 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
             json.dump(data, f, indent=2)
     except Exception as e:
         logging.error("Failed to update fuser config: %s", e)
+
+    config['Fusers']['working_folder_host'] = host
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
 
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
@@ -2313,6 +2322,17 @@ class SettingsPanel(tk.Frame):
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             if self.fuser_var.get():
+                host = config['Fusers'].get('working_folder_host', '')
+                host = simpledialog.askstring(
+                    "Main PC Name",
+                    "Enter the computer name that hosts the WorkingFuser folder:",
+                    initialvalue=host,
+                    parent=self,
+                )
+                if host:
+                    config['Fusers']['working_folder_host'] = host.strip()
+                    with open(CONFIG_PATH, 'w') as f:
+                        config.write(f)
                 update_fuser_shared_path()
                 run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
             self.controller.panels['VBS4'].update_fuser_state()
