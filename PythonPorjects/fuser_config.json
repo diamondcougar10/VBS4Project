@@ -1,8 +1,10 @@
 {
-  "shared_path": "\\\\SERVER\\SharedMeshDrive\\WorkingFuser",
+  "shared_path": "\\\\RyansWorkPC2\\SharedMeshDrive\\WorkingFuser",
   "fusers": {
     "localhost": [
-      {"name": "LocalFuser"}
+      {
+        "name": "LocalFuser"
+      }
     ]
   }
 }
