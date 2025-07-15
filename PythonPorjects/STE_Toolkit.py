@@ -685,7 +685,7 @@ logo_STE_path         = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
 logo_AFC_army         = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
 logo_first_army       = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
-
+prompt_box_image_path = os.path.join(BASE_DIR, "promptbox.jpg")
 def set_background(window, widget=None):
     screen_width = window.winfo_screenwidth()
     screen_height = window.winfo_screenheight()
@@ -1050,6 +1050,54 @@ def make_borderless(hwnd):
         hwnd, None, 0,0,0,0,
         SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED
     )
+
+def prompt_hostname(parent, initial=""):
+    """Show a themed prompt for entering the main PC name."""
+    top = tk.Toplevel(parent)
+    top.title("Main PC Name")
+    top.resizable(False, False)
+    top.geometry("801x506")
+    top.transient(parent)
+    top.grab_set()
+
+    if os.path.exists(prompt_box_image_path):
+        img = Image.open(prompt_box_image_path).resize((801, 506), Image.Resampling.LANCZOS)
+        ph = ImageTk.PhotoImage(img)
+        lbl = tk.Label(top, image=ph)
+        lbl.image = ph
+        lbl.place(relwidth=1, relheight=1)
+    else:
+        top.configure(bg="#333333")
+
+    var = tk.StringVar(value=initial)
+
+    # Add label for instructions
+    tk.Label(
+        top,
+        text="Enter Host PC name",
+        font=("Helvetica", 18, "bold"),
+        bg="#333333",
+        fg="white"
+    ).place(relx=0.5, rely=0.37, anchor="center")
+
+    entry = tk.Entry(top, textvariable=var, font=("Helvetica", 20))
+    entry.place(relx=0.5, rely=0.45, anchor="center", width=400)
+
+    result = {"value": None}
+
+    def on_ok():
+        result["value"] = var.get().strip()
+        top.destroy()
+
+    def on_cancel():
+        top.destroy()
+
+    tk.Button(top, text="OK", command=on_ok, font=("Helvetica", 16)).place(relx=0.4, rely=0.7, anchor="center")
+    tk.Button(top, text="Cancel", command=on_cancel, font=("Helvetica", 16)).place(relx=0.6, rely=0.7, anchor="center")
+
+    entry.focus()
+    parent.wait_window(top)
+    return result["value"]
 
 # ─── MAINMENU PANEL ────────────────────────────────────────
 class MainApp(tk.Tk):
@@ -2308,12 +2356,7 @@ class SettingsPanel(tk.Frame):
                 config.write(f)
             if self.fuser_var.get():
                 host = config['Fusers'].get('working_folder_host', '')
-                host = simpledialog.askstring(
-                    "Main PC Name",
-                    "Enter the computer name that hosts the WorkingFuser folder:",
-                    initialvalue=host,
-                    parent=self,
-                )
+                host = prompt_hostname(self, host)
                 if host:
                     config['Fusers']['working_folder_host'] = host.strip()
                     with open(CONFIG_PATH, 'w') as f:
