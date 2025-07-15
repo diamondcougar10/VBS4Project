@@ -320,20 +320,14 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     config_file = config['Fusers'].get('config_path', 'fuser_config.json')
     cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
 
-    system_host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
-    stored_host = config['Fusers'].get('working_folder_host', '').strip()
-
-    host = stored_host
-    if config['Fusers'].getboolean('fuser_computer', False):
-        host = system_host
-
+    host = config['Fusers'].get('working_folder_host', '').strip() or None
     if project_path and project_path.startswith('\\') and not host:
         parts = project_path.strip('\\').split('\\')
         if parts:
             host = parts[0]
 
     if not host:
-        host = system_host
+        host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
 
     try:
         with open(cfg_path, 'r') as f:
@@ -351,10 +345,9 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     except Exception as e:
         logging.error("Failed to update fuser config: %s", e)
 
-    if stored_host != host:
-        config['Fusers']['working_folder_host'] = host
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+    config['Fusers']['working_folder_host'] = host
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
 
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
