@@ -2145,20 +2145,6 @@ class VBS4Panel(tk.Frame):
     def one_click_conversion(self):
         self.log_message("Starting One-Click Terrain Conversion...")
 
-        local_ip = get_local_ip()
-        ip_input = simpledialog.askstring(
-            "Remote IPs",
-            "Enter IPs of remote computers (comma separated):",
-            initialvalue=local_ip,
-            parent=self
-        )
-        if not ip_input:
-            self.log_message("One-Click Conversion cancelled — no IPs entered.")
-            return
-
-        ip_list = [ip.strip() for ip in ip_input.split(',')]
-        self.log_message(f"Received remote IPs: {', '.join(ip_list)}")
-
         self.log_message("Prompting user to select imagery folders...")
         self.select_imagery()
 
@@ -2166,8 +2152,7 @@ class VBS4Panel(tk.Frame):
             self.log_message("Imagery folder selection failed or cancelled.")
             return
 
-        self.log_message("Launching fusers...")
-        self.launch_fusers(ip_list)
+        self.log_message("Using existing fusers — skipping launch step.")
 
         self.log_message("Creating mesh with selected imagery...")
         self.create_mesh()
