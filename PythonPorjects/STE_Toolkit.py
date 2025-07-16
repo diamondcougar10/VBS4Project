@@ -1909,9 +1909,20 @@ class VBS4Panel(tk.Frame):
         apply_app_icon(folder_window)
         folder_window.title("Select Imagery Folders")
         folder_window.geometry("500x300")
+        folder_window.resizable(False, False)  # lock size
         folder_window.transient(self)  # associate with parent
         folder_window.grab_set()       # make modal
         folder_window.attributes("-topmost", True)
+
+        # Set background image if available
+        if os.path.exists(prompt_box_image_path):
+            img = Image.open(prompt_box_image_path).resize((500, 300), Image.Resampling.LANCZOS)
+            ph = ImageTk.PhotoImage(img)
+            bg_label = tk.Label(folder_window, image=ph)
+            bg_label.image = ph
+            bg_label.place(relwidth=1, relheight=1)
+        else:
+            folder_window.configure(bg="#333333")
     
         # Create a listbox to display selected folders
         folder_listbox = tk.Listbox(folder_window, width=70, height=10)
