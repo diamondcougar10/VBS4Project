@@ -320,14 +320,22 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     config_file = config['Fusers'].get('config_path', 'fuser_config.json')
     cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
 
-    host = config['Fusers'].get('working_folder_host', '').strip() or None
-    if project_path and project_path.startswith('\\') and not host:
+    host = config['Fusers'].get('working_folder_host', '').strip()
+    env_host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
+
+    # If a project path was provided always derive the host from it when it is a
+    # UNC path. This ensures the shared location is updated when a user selects a
+    # new project on a different machine.
+    if project_path and project_path.startswith('\\'):
         parts = project_path.strip('\\').split('\\')
         if parts:
             host = parts[0]
 
-    if not host:
-        host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
+    # When no project path is provided, fall back to the current machine name if
+    # the stored host does not match. This handles the case where the computer
+    # was renamed since the last run.
+    if not host or host.lower() != env_host.lower():
+        host = env_host
 
     try:
         with open(cfg_path, 'r') as f:
