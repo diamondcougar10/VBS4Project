@@ -3,6 +3,8 @@ from tkinter import messagebox
 import subprocess
 import os
 
+ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+
 # Paths to the application executables
 bypass_launcher_path = r"C:\Bohemia Interactive Simulations\VBS4 24.1 YYMEA_General\VBS4.exe" 
 regular_launcher_path = r"C:\Bohemia Interactive Simulations\VBS4 24.1 YYMEA_General\VBSLauncher.exe"  # Regular launcher path
@@ -35,6 +37,10 @@ def exit_application():
 
 # Create the main GUI window
 root = tk.Tk()
+if os.path.exists(ICON_PATH):
+    root.iconbitmap(ICON_PATH)
+else:
+    print(f"Warning: Icon file not found at {ICON_PATH}")
 root.title("VBS4 Custom Launcher")
 root.geometry("400x300")  # Set the window size
 

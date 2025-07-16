@@ -255,8 +255,17 @@ def find_executable(name, additional_paths=[]):
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
+ICON_PATH   = os.path.join(BASE_DIR, 'icon.ico')
+
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
+
+def apply_app_icon(window):
+    """Apply the application icon to a Tk window if the icon file exists."""
+    if os.path.exists(ICON_PATH):
+        window.iconbitmap(ICON_PATH)
+    else:
+        print(f"Warning: Icon file not found at {ICON_PATH}")
 
 if 'General' not in config:
     config['General'] = {}
@@ -1063,6 +1072,7 @@ def make_borderless(hwnd):
 def prompt_hostname(parent, initial=""):
     """Show a themed prompt for entering the main PC name."""
     top = tk.Toplevel(parent)
+    apply_app_icon(top)
     top.title("Main PC Name")
     top.resizable(False, False)
     top.geometry("801x506")
@@ -1112,6 +1122,7 @@ def prompt_hostname(parent, initial=""):
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
          # Prevent window resizing
         self.resizable(False, False)
@@ -1895,6 +1906,7 @@ class VBS4Panel(tk.Frame):
         # and keep it above the main application so it does not get lost
         # behind the main window while the user is picking folders.
         folder_window = tk.Toplevel(self)
+        apply_app_icon(folder_window)
         folder_window.title("Select Imagery Folders")
         folder_window.geometry("500x300")
         folder_window.transient(self)  # associate with parent
