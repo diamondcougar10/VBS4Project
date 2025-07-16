@@ -320,22 +320,22 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     config_file = config['Fusers'].get('config_path', 'fuser_config.json')
     cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
 
-    host = config['Fusers'].get('working_folder_host', '').strip()
+    stored_host = config['Fusers'].get('working_folder_host', '').strip()
     env_host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
 
-    # If a project path was provided always derive the host from it when it is a
-    # UNC path. This ensures the shared location is updated when a user selects a
-    # new project on a different machine.
+    host = stored_host
+
+    # If project path is a UNC path, derive host from path
     if project_path and project_path.startswith('\\'):
         parts = project_path.strip('\\').split('\\')
         if parts:
             host = parts[0]
 
-    # When no project path is provided, fall back to the current machine name if
-    # the stored host does not match. This handles the case where the computer
-    # was renamed since the last run.
-    if not host or host.lower() != env_host.lower():
+    # If this is a fuser computer and no host is set, use local hostname
+    elif config['Fusers'].getboolean('fuser_computer', False) and not host:
         host = env_host
+
+    # Do not overwrite manually set host otherwise
 
     try:
         with open(cfg_path, 'r') as f:
@@ -344,7 +344,6 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
         data = {}
 
     data.setdefault('fusers', {'localhost': [{'name': 'LocalFuser'}]})
-    # Need four leading backslashes so the written JSON contains a UNC path
     data['shared_path'] = f"\\\\{host}\\SharedMeshDrive\\WorkingFuser"
 
     try:
@@ -353,9 +352,11 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     except Exception as e:
         logging.error("Failed to update fuser config: %s", e)
 
-    config['Fusers']['working_folder_host'] = host
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    # Only write config if the host changed
+    if stored_host != host:
+        config['Fusers']['working_folder_host'] = host
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
 
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
