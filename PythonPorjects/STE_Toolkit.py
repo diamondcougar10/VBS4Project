@@ -250,7 +250,7 @@ def find_executable(name, additional_paths=[]):
 
     return best_path
 #==============================================================================
-# CONFIGURATION - 
+# CONFIGURATION - APP ICON APPLICATION
 #==============================================================================
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -267,6 +267,30 @@ def apply_app_icon(window):
     else:
         print(f"Warning: Icon file not found at {ICON_PATH}")
 
+_orig_toplevel_init = tk.Toplevel.__init__
+
+def _toplevel_init_with_icon(self, *args, **kwargs):
+    _orig_toplevel_init(self, *args, **kwargs)
+
+    def _maybe_icon():
+        # Skip undecorated pop-ups (e.g. tooltips) which use overrideredirect
+        try:
+            if not bool(self.wm_overrideredirect()):
+                apply_app_icon(self)
+        except Exception:
+            pass
+
+    # Wait until idle so attributes set immediately after construction are
+    # respected (e.g. the caller may call ``wm_overrideredirect(True)``).
+    try:
+        self.after_idle(_maybe_icon)
+    except Exception:
+        # ``after_idle`` may not exist on some custom widgets; fallback
+        _maybe_icon()
+
+tk.Toplevel.__init__ = _toplevel_init_with_icon
+
+
 if 'General' not in config:
     config['General'] = {}
 if 'close_on_launch' not in config['General']:
@@ -282,6 +306,8 @@ if 'fullscreen' not in config['General']:
     config['General']['fullscreen'] = 'False'  # Set a default value
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
+       
+
 #==============================================================================
 # AUTO-LAUNCH CONFIG
 #==============================================================================
