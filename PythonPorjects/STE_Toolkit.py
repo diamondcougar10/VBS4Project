@@ -1896,74 +1896,86 @@ class VBS4Panel(tk.Frame):
                 self.update_vbs4_button_state()
         else:
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
-   
+    
     def select_imagery(self):
         """Allow the user to choose one or more imagery folders."""
-    
+
         folders = []
-    
-        # Create a new top-level window for folder selection.  Make it modal
-        # and keep it above the main application so it does not get lost
-        # behind the main window while the user is picking folders.
+
+        # Create the modal top-level window
         folder_window = tk.Toplevel(self)
         apply_app_icon(folder_window)
         folder_window.title("Select Imagery Folders")
-        folder_window.geometry("500x300")
-        folder_window.resizable(False, False)  # lock size
-        folder_window.transient(self)  # associate with parent
-        folder_window.grab_set()       # make modal
+        folder_window.geometry("700x500")
+        folder_window.resizable(False, False)
+        folder_window.transient(self)
+        folder_window.grab_set()
         folder_window.attributes("-topmost", True)
 
-        # Set background image if available
+        # Set background or fallback to color
         if os.path.exists(prompt_box_image_path):
-            img = Image.open(prompt_box_image_path).resize((500, 300), Image.Resampling.LANCZOS)
+            img = Image.open(prompt_box_image_path).resize(
+                (801, 506), Image.Resampling.LANCZOS
+            )
             ph = ImageTk.PhotoImage(img)
             bg_label = tk.Label(folder_window, image=ph)
             bg_label.image = ph
             bg_label.place(relwidth=1, relheight=1)
         else:
-            folder_window.configure(bg="#333333")
-    
-        # Create a listbox to display selected folders
-        folder_listbox = tk.Listbox(folder_window, width=70, height=10)
+            folder_window.configure(bg="#222222")
+
+        # Header
+        tk.Label(
+            folder_window,
+            text="Selected Imagery Folders:",
+            font=("Helvetica", 14, "bold"),
+            bg="#222222",
+            fg="white",
+        ).pack(pady=(20, 5))
+
+        # Folder listbox
+        folder_listbox = tk.Listbox(
+            folder_window,
+            width=80,
+            height=10,
+            bg="#1e1e1e",
+            fg="white",
+            selectbackground="#444",
+        )
         folder_listbox.pack(pady=10)
 
-    
         def add_folder():
             path = simpledialog.askstring(
                 "Network Path",
                 "Enter network folder path (leave blank to browse):",
-                parent=folder_window
+                parent=folder_window,
             )
             if path and os.path.exists(path):
                 found = get_image_folders_recursively(path)
                 folders.extend(found)
             else:
                 selected = filedialog.askdirectory(
-                    title="Select DCIM or base imagery folder",
-                    parent=folder_window
+                    title="Select DCIM or base imagery folder", parent=folder_window
                 )
                 if selected:
                     found = get_image_folders_recursively(selected)
                     folders.extend(found)
-        
-            # Update the listbox
+
+            # Update listbox
             folder_listbox.delete(0, tk.END)
             for folder in folders:
                 folder_listbox.insert(tk.END, folder)
-    
+
         def remove_folder():
             selected_indices = folder_listbox.curselection()
             for index in reversed(selected_indices):
                 del folders[index]
                 folder_listbox.delete(index)
-    
+
         def finish_selection():
             if not folders:
                 messagebox.showwarning(
-                    "No Selection",
-                    "No folder selected.",
-                    parent=folder_window
+                    "No Selection", "No folder selected.", parent=folder_window
                 )
             else:
                 self.image_folder_paths = folders
@@ -1971,22 +1983,35 @@ class VBS4Panel(tk.Frame):
                 messagebox.showinfo(
                     "Imagery Selected",
                     "Selected imagery folders:\n" + "\n".join(folders),
-                    parent=folder_window
+                    parent=folder_window,
                 )
                 self.log_message("Selected imagery folders:")
                 for folder in folders:
                     self.log_message(f" - {folder}")
-
             folder_window.destroy()
 
-        # Add buttons
-        button_frame = tk.Frame(folder_window)
-        button_frame.pack(pady=10)
-    
-        tk.Button(button_frame, text="Add Folder", command=add_folder).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Remove Selected", command=remove_folder).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Finish", command=finish_selection).pack(side=tk.LEFT, padx=5)
-    
+        # --- Button Frame ---
+        button_frame = tk.Frame(folder_window, bg="#222222")
+        button_frame.pack(pady=20)
+
+        def styled_btn(text, cmd):
+            return tk.Button(
+                button_frame,
+                text=text,
+                command=cmd,
+                font=("Helvetica", 12, "bold"),
+                bg="#444",
+                fg="white",
+                activebackground="#666",
+                width=18,
+                height=2,
+                bd=0,
+            )
+
+        styled_btn("➕ Add Folder", add_folder).pack(side=tk.LEFT, padx=10)
+        styled_btn("❌ Remove Selected", remove_folder).pack(side=tk.LEFT, padx=10)
+        styled_btn("✅ Finish", finish_selection).pack(side=tk.LEFT, padx=10)
+
         folder_window.wait_window()
 
     def prompt_remote_fuser_details(self, ip):
