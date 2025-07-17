@@ -84,8 +84,7 @@ def get_vbs4_install_path():
     for base_path in possible_paths:
         if os.path.isdir(base_path):
             # Look for VBS4 directories. Some builds may place the version in a
-            # numeric folder (e.g. "25.1") rather than prefixing it with
-            # "VBS4".  Accept both patterns.
+            # numeric folder rather than prefixing it with "VBS4" Accept both patterns.
             vbs4_dirs = [
                 d for d in os.listdir(base_path)
                 if d.startswith("VBS4") or re.match(r"^[0-9]", d)
@@ -123,7 +122,7 @@ def get_vbs4_launcher_path():
     for base_path in possible_paths:
         if os.path.isdir(base_path):
             # Look for VBS4 directories. Some installations may place the
-            # version number directly under the VBS4 folder (e.g. "25.1").  Allow
+            # version number directly under the VBS4 folder.  Allow
             # numeric names as well as those prefixed with "VBS4".
             vbs4_dirs = [
                 d for d in os.listdir(base_path)
@@ -273,15 +272,14 @@ def _toplevel_init_with_icon(self, *args, **kwargs):
     _orig_toplevel_init(self, *args, **kwargs)
 
     def _maybe_icon():
-        # Skip undecorated pop-ups (e.g. tooltips) which use overrideredirect
+        # Skip undecorated pop-ups which use overrideredirect
         try:
             if not bool(self.wm_overrideredirect()):
                 apply_app_icon(self)
         except Exception:
             pass
 
-    # Wait until idle so attributes set immediately after construction are
-    # respected (e.g. the caller may call ``wm_overrideredirect(True)``).
+    # Wait until idle so attributes set immediately after construction are respected
     try:
         self.after_idle(_maybe_icon)
     except Exception:
@@ -289,7 +287,6 @@ def _toplevel_init_with_icon(self, *args, **kwargs):
         _maybe_icon()
 
 tk.Toplevel.__init__ = _toplevel_init_with_icon
-
 
 if 'General' not in config:
     config['General'] = {}
@@ -470,7 +467,6 @@ exit /b 0
 ''')
     return BVI_BAT
 
-
 def get_image_folders_recursively(base_folder):
     """Return all subfolders within *base_folder* that contain image files."""
     image_folders = []
@@ -480,8 +476,6 @@ def get_image_folders_recursively(base_folder):
         ):
             image_folders.append(root)
     return image_folders
-
-
 
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
     frame = tk.Frame(parent, bg="#333333")
@@ -721,7 +715,6 @@ def open_bvi_terrain():
 
     run_in_thread(_open)
        
-
 # ─── BACKGROUND & LOGOS ──────────────────────────────────────────────────────
 
 background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
@@ -1658,7 +1651,6 @@ class VBS4Panel(tk.Frame):
         self.log_text.pack(fill="x")  
         self.log_text.config(state="disabled")
 
-
         tk.Button(
             self.log_frame, text="Clear Log",
             command=lambda: self.clear_log(),
@@ -1699,7 +1691,6 @@ class VBS4Panel(tk.Frame):
         path = get_blueig_install_path()
         ver = get_blueig_version(path)
         self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
-
 
     def launch_vbs_license_manager(self):
         vbs_license_manager_path = config['General'].get('vbs_license_manager_path', '')
@@ -2290,7 +2281,6 @@ class VBS4Panel(tk.Frame):
 
         self.log_message("One-Click Terrain Conversion completed.")
 
-
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
@@ -2541,7 +2531,6 @@ class SettingsPanel(tk.Frame):
                                         bg="#222222", fg="white",
                                         anchor="w", width=50)
         self.lbl_vbs_license.pack(side="left", padx=10, fill="x", expand=True)
-
 
         # Back
         tk.Button(self, text="Back",
