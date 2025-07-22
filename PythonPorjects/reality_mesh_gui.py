@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk
 import threading
 import os
@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 from datetime import datetime
+import re
 
 
 def load_system_settings(path: str) -> dict:
@@ -57,7 +58,21 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str):
             f.write(f"{k}={v}\n")
 
 
-def run_processor(ps_script: str, settings_path: str, log_fn):
+def extract_progress(line: str) -> int | None:
+    """Return progress percent from a log line if present."""
+    if "Progress:" in line:
+        m = re.search(r"Progress:\s*(\d+)%", line)
+        if m:
+            return int(m.group(1))
+    m = re.search(r"Tile\s+(\d+)\s+of\s+(\d+)", line)
+    if m:
+        done, total = map(int, m.groups())
+        if total:
+            return int(done / total * 100)
+    return None
+
+
+def run_processor(ps_script: str, settings_path: str, log_fn, progress_cb):
     cmd = [
         'powershell',
         '-ExecutionPolicy', 'Bypass',
@@ -66,7 +81,16 @@ def run_processor(ps_script: str, settings_path: str, log_fn):
         '1'
     ]
     log_fn('Running: ' + ' '.join(cmd))
-    subprocess.run(cmd, check=True)
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+        for line in proc.stdout:
+            line = line.rstrip()
+            log_fn(line)
+            percent = extract_progress(line)
+            if percent is not None:
+                progress_cb(percent)
+        proc.wait()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
 def kill_fusers():
@@ -182,6 +206,14 @@ class RealityMeshGUI(tk.Tk):
 
         self.log = scrolledtext.ScrolledText(self, width=70, height=15)
         self.log.grid(row=row, column=0, columnspan=3, pady=5)
+        row += 1
+
+        self.progress_var = tk.IntVar(value=0)
+        self.progress_bar = ttk.Progressbar(self, variable=self.progress_var, maximum=100)
+        self.progress_bar.grid(row=row, column=0, columnspan=3, sticky='we', padx=5)
+        row += 1
+        self.progress_label = tk.Label(self, text='0%')
+        self.progress_label.grid(row=row, column=0, columnspan=3, sticky='e', padx=5)
 
     def browse_build(self):
         path = filedialog.askdirectory()
@@ -202,10 +234,16 @@ class RealityMeshGUI(tk.Tk):
         self.log.insert(tk.END, msg + '\n')
         self.log.see(tk.END)
 
+    def set_progress(self, value: int):
+        self.progress_var.set(value)
+        self.progress_label.config(text=f"{value}%")
+        self.update_idletasks()
+
     def start_process(self):
         if not self.build_dir.get():
             messagebox.showerror('Error', 'Please select a Build_1/out directory')
             return
+        self.set_progress(0)
         threading.Thread(target=self.run, daemon=True).start()
 
     def run(self):
@@ -229,7 +267,12 @@ class RealityMeshGUI(tk.Tk):
             write_project_settings(settings_path, data, data_folder)
             self.log_msg(f'Wrote settings {settings_path}')
 
-            run_processor(self.ps_script.get(), settings_path, self.log_msg)
+            run_processor(
+                self.ps_script.get(),
+                settings_path,
+                self.log_msg,
+                lambda p: self.after(0, self.set_progress, p)
+            )
             self.log_msg('Processing complete')
 
             kill_fusers()
