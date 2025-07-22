@@ -9,8 +9,9 @@ This repository contains automation scripts for processing PhotoMesh builds and 
 4. **(Optional) Split Mesh into 4 Sub‑Projects** – If implemented, the mesh can be divided into four regions for parallel processing.
 5. **Trigger Reality Mesh PowerShell Script** – `RealityMeshProcessor.ps1` is executed with the settings file to build the VBS4 terrain package.
 6. **Done Message and Log File** – Processing progress is logged and a completion message is displayed.
-7. **Copy Output to All VBS4 Install Locations** – Generated terrain is replicated to all configured VBS4 installations as defined in `distribution_paths.json`.
-8. **Close PhotoMesh Fuser Processes** – All running `Fuser.exe` instances are terminated.
+7. **Progress Bar** – The GUI now shows a status bar indicating processing percentage while the Reality Mesh script runs.
+8. **Copy Output to All VBS4 Install Locations** – Generated terrain is replicated to all configured VBS4 installations as defined in `distribution_paths.json`.
+9. **Close PhotoMesh Fuser Processes** – All running `Fuser.exe` instances are terminated.
 
 The `distribution_paths.json` file lists remote VBS4 install paths. Update it with UNC paths to ensure terrain packages are synchronized across machines.
 
