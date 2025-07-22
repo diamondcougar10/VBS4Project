@@ -2484,7 +2484,9 @@ class VBS4Panel(tk.Frame):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
     def open_reality_mesh_gui(self):
-        subprocess.Popen(['python', 'RealityMeshStandalone.py'])
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(script_dir, 'RealityMeshStandalone.py')
+        subprocess.Popen(['python', script_path])
 
     def log_message(self, message):
          self.log_text.config(state="normal")
