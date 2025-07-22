@@ -1554,6 +1554,10 @@ class MainMenu(tk.Frame):
         set_background(controller, self)
         controller.create_tutorial_button(self)   # <— keeps the “?” button
 
+        # The main menu does not use a scrollable content frame like other
+        # panels, so simply use the frame itself as the content container.
+        self.content = self
+
         tk.Label(
             self.content,
             text="STE Mission Planning Toolkit",
