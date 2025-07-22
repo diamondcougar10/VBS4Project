@@ -1,0 +1,1 @@
+start powershell -executionpolicy bypass .\RealityMeshProcess.ps1
