@@ -1961,6 +1961,8 @@ class VBS4Panel(tk.Frame):
              "Open TerraExplorer to view results"),
             ("Post-Process Last Build", self.post_process_last_build,
              "Run Reality Mesh processing on the last build"),
+            ("Open Standalone Post-Processor", self.open_reality_mesh_gui,
+             "Launch external GUI for Reality Mesh post-processing"),
             ("One-Click Terrain Tutorial", self.show_terrain_tutorial,
              "Open help for the terrain tools")
         ]
@@ -2435,6 +2437,9 @@ class VBS4Panel(tk.Frame):
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
+
+    def open_reality_mesh_gui(self):
+        subprocess.Popen(['python', 'RealityMeshStandalone.py'])
 
     def log_message(self, message):
          self.log_text.config(state="normal")
