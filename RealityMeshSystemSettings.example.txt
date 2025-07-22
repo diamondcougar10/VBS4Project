@@ -1,0 +1,9 @@
+blender_path=<path to blender>
+blender_threads=6
+override_Installation_VBS4=1
+override_Path_VBS4=<path to VBS4>
+vbs4_version=<version>
+override_Installation_DevSuite=0
+override_Path_DevSuite=<dev suite path or drive>
+terratools_ssh_path=<path to terratoolssh.exe>
+terratools_home_path=<path to terratools home>

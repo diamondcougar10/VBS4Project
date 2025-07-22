@@ -160,14 +160,15 @@ if ($AREYOUSURE -eq 'y') {
 		$override_Installation_VBS4_bool = "true"
 	}
 
-	$out_in_name = "$project_name"
-	$out_in_name_with_drive = ""
-	if ($override_Installation_DevSuite -eq 1) {
-		$out_in_name_with_drive = "${override_Path_DevSuite}:\temp\RealityMesh\$project_name"
-	}
-	else {
-		$out_in_name_with_drive = "P:\temp\RealityMesh\$project_name"
-	}
+        $out_in_name = "$project_name"
+        $out_in_name_with_drive = ""
+        if ($override_Installation_DevSuite -eq 1) {
+                $out_in_name_with_drive = "${override_Path_DevSuite}:\temp\RealityMesh\$project_name"
+        }
+        else {
+                $tempDir = Join-Path $env:TEMP 'RealityMesh'
+                $out_in_name_with_drive = Join-Path $tempDir $project_name
+        }
 	
 	New-Item -Path $generated_settings_file -ItemType File
 	Add-Content -Path $generated_settings_file -Value "set name {$project_name}"

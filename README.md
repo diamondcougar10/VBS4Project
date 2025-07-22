@@ -25,6 +25,9 @@ python PythonPorjects/RealityMeshStandalone.py
 ```
 
 Avoid hard‑coded absolute paths so the tool can be executed from any checkout location.
-The required `RealityMeshProcess.ps1` script and `RealityMeshSystemSettings.txt` file
-are bundled under `PythonPorjects/photomesh`. The GUI automatically points to these
-files so the user only needs to browse to the `Build_1/out` folder.
+The required `RealityMeshProcess.ps1` script and an example settings file
+`RealityMeshSystemSettings.example.txt` are bundled under
+`PythonPorjects/photomesh`. Copy the example file to
+`RealityMeshSystemSettings.txt` and edit the paths for your system. The GUI
+automatically points to these files so the user only needs to browse to the
+`Build_1/out` folder.

@@ -141,9 +141,11 @@ class RealityMeshGUI(tk.Tk):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         photomesh_dir = os.path.join(base_dir, 'photomesh')
 
-        self.system_settings = tk.StringVar(
-            value=os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
-        )
+        default_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
+        if not os.path.isfile(default_settings):
+            default_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.example.txt')
+
+        self.system_settings = tk.StringVar(value=default_settings)
         self.ps_script = tk.StringVar(
             value=os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
         )
