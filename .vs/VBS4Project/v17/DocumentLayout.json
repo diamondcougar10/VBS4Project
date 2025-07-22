@@ -21,6 +21,10 @@
           "SelectedChildIndex": 2,
           "Children": [
             {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
               "$type": "Document",
               "DocumentIndex": 1,
               "Title": "config.ini",
@@ -28,15 +32,11 @@
               "RelativeDocumentMoniker": "PythonPorjects\\config.ini",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini",
               "RelativeToolTip": "PythonPorjects\\config.ini",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABcAAAAWAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABIAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002768|",
               "WhenOpened": "2025-05-23T18:05:52.943Z",
               "IsPinned": true,
               "EditorCaption": ""
-            },
-            {
-              "$type": "Bookmark",
-              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
             },
             {
               "$type": "Document",
@@ -46,7 +46,7 @@
               "RelativeDocumentMoniker": "PythonPorjects\\STE_Toolkit.py",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py",
               "RelativeToolTip": "PythonPorjects\\STE_Toolkit.py",
-              "ViewState": "AgIAAPwAAAAAAAAAAAAIwA4BAAAaAAAAAAAAAA==",
+              "ViewState": "AgIAABIJAAAAAAAAAAApwDEJAAAYAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-05-21T02:02:53.492Z",
               "EditorCaption": ""
