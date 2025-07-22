@@ -138,8 +138,15 @@ class RealityMeshGUI(tk.Tk):
         self.logo_photo = None
 
         self.build_dir = tk.StringVar()
-        self.system_settings = tk.StringVar(value='RealityMeshSystemSettings.txt')
-        self.ps_script = tk.StringVar(value='RealityMeshProcessor.ps1')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        photomesh_dir = os.path.join(base_dir, 'photomesh')
+
+        self.system_settings = tk.StringVar(
+            value=os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
+        )
+        self.ps_script = tk.StringVar(
+            value=os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
+        )
 
         self.create_widgets()
 
@@ -147,8 +154,7 @@ class RealityMeshGUI(tk.Tk):
         row = 0
         instructions = (
             "1. Select the Build_1/out folder from PhotoMesh.\n"
-            "2. Confirm the settings and script paths.\n"
-            "3. Click Start to generate the terrain package."
+            "2. Click Start to generate the terrain package."
         )
         tk.Label(self, text=instructions, justify='left').grid(row=row, column=0, columnspan=3, sticky='w', padx=5)
         row += 1
@@ -166,24 +172,18 @@ class RealityMeshGUI(tk.Tk):
 
         lbl_settings = tk.Label(self, text='System Settings File:')
         lbl_settings.grid(row=row, column=0, sticky='w')
-        ent_settings = tk.Entry(self, textvariable=self.system_settings, width=50)
+        ent_settings = tk.Entry(self, textvariable=self.system_settings, width=50, state='readonly')
         ent_settings.grid(row=row, column=1, sticky='we')
-        btn_settings = tk.Button(self, text='Browse', command=self.browse_settings)
-        btn_settings.grid(row=row, column=2)
         ToolTip(lbl_settings, 'Text file containing system configuration values.')
         ToolTip(ent_settings, 'Path to RealityMeshSystemSettings.txt.')
-        ToolTip(btn_settings, 'Choose the settings file.')
         row += 1
 
         lbl_ps = tk.Label(self, text='PowerShell Script:')
         lbl_ps.grid(row=row, column=0, sticky='w')
-        ent_ps = tk.Entry(self, textvariable=self.ps_script, width=50)
+        ent_ps = tk.Entry(self, textvariable=self.ps_script, width=50, state='readonly')
         ent_ps.grid(row=row, column=1, sticky='we')
-        btn_ps = tk.Button(self, text='Browse', command=self.browse_ps)
-        btn_ps.grid(row=row, column=2)
-        ToolTip(lbl_ps, 'RealityMeshProcessor.ps1 script used for processing.')
+        ToolTip(lbl_ps, 'RealityMeshProcess.ps1 script used for processing.')
         ToolTip(ent_ps, 'Path to the processing PowerShell script.')
-        ToolTip(btn_ps, 'Select the PowerShell script.')
         row += 1
 
         btn_start = tk.Button(self, text='Start', command=self.start_process)
