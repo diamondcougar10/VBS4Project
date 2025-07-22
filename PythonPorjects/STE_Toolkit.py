@@ -4,6 +4,8 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import os
 import subprocess
+import shutil
+from datetime import datetime
 import webbrowser
 import urllib.request
 import configparser
@@ -266,6 +268,75 @@ def find_executable(name, additional_paths=[]):
                             best_path = os.path.normpath(full_path)
 
     return best_path
+
+# ---------------------------------------------------------------------------
+# Reality Mesh post-processing helpers
+# ---------------------------------------------------------------------------
+
+def load_system_settings(path: str) -> dict:
+    settings = {}
+    if os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                settings[key.strip()] = value.strip()
+    return settings
+
+
+def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
+    while not os.path.exists(path):
+        time.sleep(poll_interval)
+
+
+def create_project_folder(build_dir: str, project_name: str) -> tuple[str, str]:
+    dt = datetime.now().strftime('%Y%m%d_%H%M%S')
+    proj_folder = os.path.join(build_dir, f"{project_name}_{dt}")
+    os.makedirs(proj_folder, exist_ok=True)
+    data_folder = os.path.join(proj_folder, 'Data')
+    os.makedirs(data_folder, exist_ok=True)
+    return proj_folder, data_folder
+
+
+def copy_obj(build_dir: str, data_folder: str) -> None:
+    src = os.path.join(build_dir, 'OBJ')
+    dst = os.path.join(data_folder, 'OBJ')
+    if os.path.isdir(src):
+        if os.path.exists(dst):
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+
+
+def write_project_settings(settings_path: str, data: dict, data_folder: str) -> None:
+    with open(settings_path, 'w', encoding='utf-8') as f:
+        project_name = data.get('project_name', 'project')
+        f.write(f"project_name={project_name}\n")
+        f.write(f"source_Directory={data_folder}\n")
+        for k, v in data.items():
+            if k == 'project_name':
+                continue
+            f.write(f"{k}={v}\n")
+
+
+def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None) -> None:
+    cmd = [
+        'powershell',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ps_script,
+        settings_path,
+        '1'
+    ]
+    log_func('Running: ' + ' '.join(cmd))
+    subprocess.run(cmd, check=True)
+
+
+def kill_fusers() -> None:
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/IM', 'Fuser.exe', '/F'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 #==============================================================================
 # CONFIGURATION - APP ICON APPLICATION
 #==============================================================================
@@ -1695,6 +1766,7 @@ class VBS4Panel(tk.Frame):
         self.progress_job = None
         self.project_log_folder = None
         self.work_folder = None
+        self.last_build_dir = None
 
         tk.Button(
             self.log_frame, text="Clear Log",
@@ -1887,6 +1959,8 @@ class VBS4Panel(tk.Frame):
              "Launch PhotoMesh Wizard"),
             ("View Mesh", self.view_mesh,
              "Open TerraExplorer to view results"),
+            ("Post-Process Last Build", self.post_process_last_build,
+             "Run Reality Mesh processing on the last build"),
             ("One-Click Terrain Tutorial", self.show_terrain_tutorial,
              "Open help for the terrain tools")
         ]
@@ -2317,6 +2391,48 @@ class VBS4Panel(tk.Frame):
 
         self.log_message("One-Click Terrain Conversion completed.")
 
+    def post_process_last_build(self):
+        if not self.last_build_dir:
+            path = filedialog.askdirectory(title="Select Build_1/out Folder", parent=self)
+            if not path:
+                return
+            self.last_build_dir = path
+
+        def _run():
+            json_path = os.path.join(self.last_build_dir, 'Output-CenterPivotOrigin.json')
+            self.log_message(f"Waiting for {json_path}")
+            wait_for_file(json_path)
+            self.log_message("Output JSON detected")
+
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            project_name = data.get('project_name', 'project')
+
+            proj_folder, data_folder = create_project_folder(self.last_build_dir, project_name)
+            self.log_message(f"Created project folder {proj_folder}")
+
+            copy_obj(self.last_build_dir, data_folder)
+            self.log_message("Copied OBJ files")
+
+            settings_path = os.path.join(proj_folder, f'{project_name}.txt')
+            write_project_settings(settings_path, data, data_folder)
+            self.log_message(f"Wrote settings {settings_path}")
+
+            ps_script = os.path.join(BASE_DIR, 'RealityMeshProcessor.ps1')
+            try:
+                run_processor(ps_script, settings_path, self.log_message)
+                self.log_message("Processing complete")
+            except Exception as e:
+                self.log_message(f"Processing failed: {e}")
+                messagebox.showerror("Error", str(e), parent=self)
+                return
+
+            kill_fusers()
+            self.log_message("PhotoMesh fusers closed")
+            messagebox.showinfo("Done", "Processing finished successfully", parent=self)
+
+        run_in_thread(_run)
+
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
@@ -2338,6 +2454,7 @@ class VBS4Panel(tk.Frame):
         """Begin monitoring PhotoMesh render logs under *project_path*."""
         self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
         self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
+        self.last_build_dir = os.path.join(project_path, "Build_1", "out")
         self.progress_var.set(0)
         self.progress_label.config(text="0%")
         if self.progress_job:
