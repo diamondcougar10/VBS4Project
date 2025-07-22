@@ -254,19 +254,24 @@ def find_executable(name, additional_paths=[]):
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
-ICON_PATH   = os.path.join(BASE_DIR, 'icon.ico')
+ICON_NAME   = 'icon.ico'
 
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
-def apply_app_icon(window):
-    """Apply the application icon to a Tk window if the icon file exists."""
-    if os.path.exists(ICON_PATH):
-        window.iconbitmap(ICON_PATH)
-    else:
-        print(f"Warning: Icon file not found at {ICON_PATH}")
+def apply_app_icon(widget):
+    """Apply the application icon to a Tk widget if the icon file exists."""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+        else:
+            base_path = os.path.abspath(os.path.dirname(__file__))
+        icon_path = os.path.join(base_path, ICON_NAME)
+        widget.iconbitmap(icon_path)
+    except Exception as e:
+        print(f"Failed to apply icon: {e}")
 
-_orig_toplevel_init = tk.Toplevel.__init__
+_orig_toplevel_init = tk.Toplevel.__init__   
 
 def _toplevel_init_with_icon(self, *args, **kwargs):
     _orig_toplevel_init(self, *args, **kwargs)
