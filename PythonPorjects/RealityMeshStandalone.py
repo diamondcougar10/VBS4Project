@@ -1,3 +1,12 @@
+"""Standalone launcher for the Reality Mesh GUI.
+
+Run this file directly to open the post‑processing interface:
+
+```
+python RealityMeshStandalone.py
+```
+"""
+
 import os
 import sys
 
