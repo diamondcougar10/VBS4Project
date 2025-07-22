@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+from PIL import Image, ImageTk
 import threading
 import os
 import time
@@ -74,11 +75,43 @@ def kill_fusers():
         subprocess.run(['taskkill', '/IM', exe, '/F'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+class ToolTip:
+    """Simple tooltip for Tkinter widgets."""
+
+    def __init__(self, widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+
+    def show(self, _=None):
+        if self.tip_window or not self.text:
+            return
+        x, y, _, _ = self.widget.bbox("insert") or (0, 0, 0, 0)
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief=tk.SOLID,
+                         borderwidth=1, font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hide(self, _=None):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
 class RealityMeshGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Reality Mesh Post-Process')
-        self.geometry('600x400')
+        self.geometry('620x480')
+
+        self.logo_photo = None
 
         self.build_dir = tk.StringVar()
         self.system_settings = tk.StringVar(value='RealityMeshSystemSettings.txt')
@@ -88,23 +121,63 @@ class RealityMeshGUI(tk.Tk):
 
     def create_widgets(self):
         row = 0
-        tk.Label(self, text='Build_1/out Directory:').grid(row=row, column=0, sticky='w')
-        tk.Entry(self, textvariable=self.build_dir, width=50).grid(row=row, column=1, sticky='we')
-        tk.Button(self, text='Browse', command=self.browse_build).grid(row=row, column=2)
+
+        logo_path = os.path.join(os.path.dirname(__file__), 'logos', 'STE_CFT_Logo.png')
+        try:
+            img = Image.open(logo_path)
+            self.logo_photo = ImageTk.PhotoImage(img)
+            tk.Label(self, image=self.logo_photo).grid(row=row, column=0, columnspan=3, pady=(5, 10))
+            row += 1
+        except Exception:
+            pass
+
+        instructions = (
+            "1. Select the Build_1/out folder from PhotoMesh.\n"
+            "2. Confirm the settings and script paths.\n"
+            "3. Click Start to generate the terrain package."
+        )
+        tk.Label(self, text=instructions, justify='left').grid(row=row, column=0, columnspan=3, sticky='w', padx=5)
         row += 1
 
-        tk.Label(self, text='System Settings File:').grid(row=row, column=0, sticky='w')
-        tk.Entry(self, textvariable=self.system_settings, width=50).grid(row=row, column=1, sticky='we')
-        tk.Button(self, text='Browse', command=self.browse_settings).grid(row=row, column=2)
+        lbl_build = tk.Label(self, text='Build_1/out Directory:')
+        lbl_build.grid(row=row, column=0, sticky='w')
+        ent_build = tk.Entry(self, textvariable=self.build_dir, width=50)
+        ent_build.grid(row=row, column=1, sticky='we')
+        btn_build = tk.Button(self, text='Browse', command=self.browse_build)
+        btn_build.grid(row=row, column=2)
+        ToolTip(lbl_build, 'Folder that contains the OBJ output from PhotoMesh (Build_1/out).')
+        ToolTip(ent_build, 'Path to Build_1/out directory.')
+        ToolTip(btn_build, 'Locate the Build_1/out folder.')
         row += 1
 
-        tk.Label(self, text='PowerShell Script:').grid(row=row, column=0, sticky='w')
-        tk.Entry(self, textvariable=self.ps_script, width=50).grid(row=row, column=1, sticky='we')
-        tk.Button(self, text='Browse', command=self.browse_ps).grid(row=row, column=2)
+        lbl_settings = tk.Label(self, text='System Settings File:')
+        lbl_settings.grid(row=row, column=0, sticky='w')
+        ent_settings = tk.Entry(self, textvariable=self.system_settings, width=50)
+        ent_settings.grid(row=row, column=1, sticky='we')
+        btn_settings = tk.Button(self, text='Browse', command=self.browse_settings)
+        btn_settings.grid(row=row, column=2)
+        ToolTip(lbl_settings, 'Text file containing system configuration values.')
+        ToolTip(ent_settings, 'Path to RealityMeshSystemSettings.txt.')
+        ToolTip(btn_settings, 'Choose the settings file.')
         row += 1
 
-        tk.Button(self, text='Start', command=self.start_process).grid(row=row, column=0, pady=10)
-        tk.Button(self, text='Quit', command=self.destroy).grid(row=row, column=1)
+        lbl_ps = tk.Label(self, text='PowerShell Script:')
+        lbl_ps.grid(row=row, column=0, sticky='w')
+        ent_ps = tk.Entry(self, textvariable=self.ps_script, width=50)
+        ent_ps.grid(row=row, column=1, sticky='we')
+        btn_ps = tk.Button(self, text='Browse', command=self.browse_ps)
+        btn_ps.grid(row=row, column=2)
+        ToolTip(lbl_ps, 'RealityMeshProcessor.ps1 script used for processing.')
+        ToolTip(ent_ps, 'Path to the processing PowerShell script.')
+        ToolTip(btn_ps, 'Select the PowerShell script.')
+        row += 1
+
+        btn_start = tk.Button(self, text='Start', command=self.start_process)
+        btn_start.grid(row=row, column=0, pady=10)
+        ToolTip(btn_start, 'Begin processing the selected project.')
+        btn_quit = tk.Button(self, text='Quit', command=self.destroy)
+        btn_quit.grid(row=row, column=1)
+        ToolTip(btn_quit, 'Close the application.')
         row += 1
 
         self.log = scrolledtext.ScrolledText(self, width=70, height=15)
