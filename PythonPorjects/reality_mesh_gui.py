@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk
 import threading
 import os
@@ -182,6 +182,9 @@ class RealityMeshGUI(tk.Tk):
 
         self.log = scrolledtext.ScrolledText(self, width=70, height=15)
         self.log.grid(row=row, column=0, columnspan=3, pady=5)
+        row += 1
+        self.status = ttk.Progressbar(self, mode='indeterminate')
+        self.status.grid(row=row, column=0, columnspan=3, sticky='we', padx=5)
 
     def browse_build(self):
         path = filedialog.askdirectory()
@@ -206,6 +209,7 @@ class RealityMeshGUI(tk.Tk):
         if not self.build_dir.get():
             messagebox.showerror('Error', 'Please select a Build_1/out directory')
             return
+        self.status.start(10)
         threading.Thread(target=self.run, daemon=True).start()
 
     def run(self):
@@ -238,6 +242,8 @@ class RealityMeshGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror('Error', str(e))
             self.log_msg(f'Error: {e}')
+        finally:
+            self.status.stop()
 
 
 def main():
