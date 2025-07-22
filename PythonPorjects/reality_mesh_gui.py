@@ -133,7 +133,7 @@ class RealityMeshGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Reality Mesh Post-Process')
-        self.geometry('620x480')
+        self.geometry('600x600')
 
         self.logo_photo = None
 
@@ -145,16 +145,6 @@ class RealityMeshGUI(tk.Tk):
 
     def create_widgets(self):
         row = 0
-
-        logo_path = os.path.join(os.path.dirname(__file__), 'logos', 'STE_CFT_Logo.png')
-        try:
-            img = Image.open(logo_path)
-            self.logo_photo = ImageTk.PhotoImage(img)
-            tk.Label(self, image=self.logo_photo).grid(row=row, column=0, columnspan=3, pady=(5, 10))
-            row += 1
-        except Exception:
-            pass
-
         instructions = (
             "1. Select the Build_1/out folder from PhotoMesh.\n"
             "2. Confirm the settings and script paths.\n"
