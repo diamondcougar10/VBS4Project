@@ -332,6 +332,50 @@ def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None)
     subprocess.run(cmd, check=True)
 
 
+def get_distribution_paths() -> list[str]:
+    """Return a list of remote VBS4 install paths for terrain distribution."""
+    paths_file = os.path.join(BASE_DIR, 'distribution_paths.json')
+    if not os.path.isfile(paths_file):
+        return []
+    try:
+        with open(paths_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                paths = data.get('paths', [])
+            else:
+                paths = data
+            return [p for p in paths if isinstance(p, str) and p]
+    except Exception:
+        return []
+
+
+def get_local_terrain_path(project_name: str) -> str | None:
+    """Return the local terrain output folder for *project_name* if it exists."""
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe:
+        return None
+    terrain_dir = os.path.join(os.path.dirname(vbs4_exe), 'terrain', project_name)
+    return terrain_dir if os.path.isdir(terrain_dir) else None
+
+
+def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
+    """Copy processed terrain for *project_name* to all configured VBS4 installs."""
+    src = get_local_terrain_path(project_name)
+    if not src:
+        log_func('Local terrain folder not found; skipping distribution')
+        return
+    for dest_root in get_distribution_paths():
+        dest = os.path.join(dest_root, 'terrain', project_name)
+        log_func(f'Copying {src} -> {dest}')
+        try:
+            if os.path.exists(dest):
+                shutil.rmtree(dest)
+            shutil.copytree(src, dest)
+            log_func(f'Copied terrain to {dest}')
+        except Exception as e:
+            log_func(f'Failed to copy to {dest}: {e}')
+
+
 def kill_fusers() -> None:
     if os.name == 'nt':
         subprocess.run(['taskkill', '/IM', 'Fuser.exe', '/F'],
@@ -2424,6 +2468,7 @@ class VBS4Panel(tk.Frame):
             try:
                 run_processor(ps_script, settings_path, self.log_message)
                 self.log_message("Processing complete")
+                distribute_terrain(project_name, self.log_message)
             except Exception as e:
                 self.log_message(f"Processing failed: {e}")
                 messagebox.showerror("Error", str(e), parent=self)
