@@ -50,24 +50,6 @@ def run_in_thread(target, *args, **kwargs):
                              kwargs=kwargs, daemon=True)
     thread.start()
 
-
-class ScrollableFrame(tk.Frame):
-    """A vertically scrollable frame."""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0)
-        scrollbar = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
-        self.inner = tk.Frame(canvas)
-        self.inner.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=self.inner, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
 # ---------------------------------------------------------------------------
 # PhotoMesh progress helpers
 # ---------------------------------------------------------------------------
@@ -1555,7 +1537,7 @@ class MainMenu(tk.Frame):
         controller.create_tutorial_button(self)   # <— keeps the “?” button
 
         tk.Label(
-            self.content,
+            self,
             text="STE Mission Planning Toolkit",
             font=("Helvetica", 36, "bold"),
             bg="black", fg="white", pady=20
@@ -1588,7 +1570,7 @@ class MainMenu(tk.Frame):
                     bg    = "#888888"
 
             button = tk.Button(
-            self.content,
+                self,
                 text=txt,
                 font=("Helvetica", 24),
                 bg=bg, fg="white",
@@ -1603,7 +1585,7 @@ class MainMenu(tk.Frame):
         state = "normal" if path and os.path.isfile(path) else "disabled"
         bg = "#444444" if state == "normal" else "#888888"
         tk.Button(
-            self.content,
+            self,
             text="Launch VBS4",
             font=("Helvetica", 24),
             bg=bg, fg="white",
@@ -1698,32 +1680,27 @@ class VBS4Panel(tk.Frame):
         super().__init__(parent)
         set_wallpaper(self)
         set_background(controller, self)
-        self.tooltip = Tooltip(self)
-
-        self.scroll_area = ScrollableFrame(self)
-        self.scroll_area.pack(fill="both", expand=True)
-        self.content = self.scroll_area.inner
-
-        controller.create_tutorial_button(self.content)
+        controller.create_tutorial_button(self)
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
+        self.tooltip = Tooltip(self)
 
         tk.Label(
-            self.content,
+            self,
             text="VBS4 / BlueIG",
             font=("Helvetica", 36, "bold"),
             bg="black", fg="white", pady=20
         ).pack(fill="x")
 
          # VBS4 Launch frame
-        vbs4_frame = tk.Frame(self.content, bg="#333333")
+        vbs4_frame = tk.Frame(self, bg="#333333")
         vbs4_frame.pack(pady=8)
 
         vbs4_path = get_vbs4_install_path()
         logging.debug("VBS4 path for button creation: %s", vbs4_path)
 
         self.vbs4_button, self.vbs4_version_label = create_app_button(
-            self.content, "VBS4", get_vbs4_install_path, launch_vbs4,
+            self, "VBS4", get_vbs4_install_path, launch_vbs4,
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
         self.update_vbs4_version()
@@ -1740,7 +1717,7 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_version()
 
         self.vbs4_launcher_button, _ = create_app_button(
-            self.content, "VBS4 Launcher",
+            self, "VBS4 Launcher", 
             lambda: config['General'].get('vbs4_setup_path', ''),
             launch_vbs4_setup,
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
@@ -1748,20 +1725,20 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_launcher_button_state()
 
         # BlueIG frame for dynamic buttons + version label handled below
-        self.blueig_frame = tk.Frame(self.content, bg="#333333")
+        self.blueig_frame = tk.Frame(self, bg="#333333")
         self.blueig_frame.pack(pady=8)
         self.create_blueig_button()
 
         # VBS License Manager button
         self.vbs_license_button, _ = create_app_button(
-            self.content, "VBS License Manager",
+            self, "VBS License Manager", 
             lambda: config['General'].get('vbs_license_manager_path', ''),
             self.launch_vbs_license_manager,
             lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
 
         # Terrain Converter Section
-        self.terrain_frame = tk.Frame(self.content, bg="#333333")
+        self.terrain_frame = tk.Frame(self, bg="#333333")
         self.terrain_frame.pack(pady=8)
         self.terrain_button = tk.Button(
             self.terrain_frame,
@@ -1782,7 +1759,7 @@ class VBS4Panel(tk.Frame):
 
         # External Map button
         tk.Button(
-            self.content,
+            self,
             text="External Map",
             font=("Helvetica", 20),
             bg="#444", fg="white",
@@ -1791,7 +1768,7 @@ class VBS4Panel(tk.Frame):
 
         # Back to main menu
         tk.Button(
-            self.content,
+            self,
             text="Back",
             font=("Helvetica", 18),
             bg="red", fg="white",
@@ -1799,7 +1776,7 @@ class VBS4Panel(tk.Frame):
         ).pack(pady=20)
 
                # Log Window
-        self.log_frame = tk.Frame(self.content, bg="#222222")
+        self.log_frame = tk.Frame(self, bg="#222222")
         self.log_frame.pack(fill="x", padx=10, pady=(5, 10))
 
         tk.Label(
@@ -1851,7 +1828,7 @@ class VBS4Panel(tk.Frame):
 
         # Launch BlueIG button
         self.blueig_button, self.blueig_version_label = create_app_button(
-            self.content, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
+            self, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
             lambda: self.set_file_location("BlueIG", "blueig_path", self.blueig_button)
         )
         self.update_blueig_version()
@@ -1965,7 +1942,7 @@ class VBS4Panel(tk.Frame):
 
     def create_battlespaces_button(self):
         button = tk.Button(
-            self.content,
+            self,
             text="📁",
             font=("Helvetica", 16, "bold"),
             bg="orange", fg="black",
@@ -1980,7 +1957,7 @@ class VBS4Panel(tk.Frame):
 
     def create_vbs4_folder_button(self):
         button = tk.Button(
-            self.content,
+            self,
             text="📂",
             font=("Helvetica", 16, "bold"),
             bg="lightblue", fg="black",
