@@ -2218,27 +2218,17 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Running command:\n{cmd}")
 
         try:
-            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = process.communicate()
-
-            if process.returncode == 0:
-                self.log_message("PhotoMesh Wizard launched successfully.")
-                messagebox.showinfo(
-                    "PhotoMesh Wizard Launched",
-                    f"Wizard started for project:\n{project_name}",
-                    parent=self,
-                )
-            else:
-                error_message = f"Failed to start PhotoMesh Wizard.\nError: {stderr.decode()}\n\nCommand used: {cmd}"
-                self.log_message(error_message)
-                messagebox.showerror("Launch Error", error_message, parent=self)
-
-                if messagebox.askyesno("Open Folder", "Would you like to open the project folder?", parent=self):
-                    os.startfile(project_path)
+            subprocess.Popen(cmd, shell=True)
+            self.log_message("PhotoMesh Wizard launched successfully.")
+            messagebox.showinfo(
+                "PhotoMesh Wizard Launched",
+                f"Wizard started for project:\n{project_name}",
+                parent=self,
+            )
         except Exception as e:
-            error_message = f"An unexpected error occurred:\n{str(e)}\n\nCommand used: {cmd}"
+            error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}\n\nCommand used: {cmd}"
             self.log_message(error_message)
-            messagebox.showerror("Unexpected Error", error_message, parent=self)
+            messagebox.showerror("Launch Error", error_message, parent=self)
 
             if messagebox.askyesno("Open Folder", "Would you like to open the project folder?", parent=self):
                 os.startfile(project_path)
