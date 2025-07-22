@@ -13,3 +13,14 @@ This repository contains automation scripts for processing PhotoMesh builds and 
 8. **Close PhotoMesh Fuser Processes** – All running `Fuser.exe` instances are terminated.
 
 The `distribution_paths.json` file lists remote VBS4 install paths. Update it with UNC paths to ensure terrain packages are synchronized across machines.
+
+## Running the Standalone Post‑Processor
+
+The GUI for post‑processing is located under `PythonPorjects/RealityMeshStandalone.py`.
+Launch it from the repository root with:
+
+```bash
+python PythonPorjects/RealityMeshStandalone.py
+```
+
+Avoid hard‑coded absolute paths so the tool can be executed from any checkout location.
