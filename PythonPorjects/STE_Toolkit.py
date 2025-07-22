@@ -17,6 +17,7 @@ import socket
 import threading
 import shlex
 import time
+import glob
 import win32api, ctypes
 import win32con
 import win32gui
@@ -46,6 +47,23 @@ def run_in_thread(target, *args, **kwargs):
     thread = threading.Thread(target=target, args=args,
                              kwargs=kwargs, daemon=True)
     thread.start()
+
+# ---------------------------------------------------------------------------
+# PhotoMesh progress helpers
+# ---------------------------------------------------------------------------
+
+def extract_progress(line: str) -> int | None:
+    """Return progress percent from a log line if present."""
+    if "Progress:" in line:
+        m = re.search(r"Progress:\s*(\d+)%", line)
+        if m:
+            return int(m.group(1))
+    m = re.search(r"Tile\s+(\d+)\s+of\s+(\d+)", line)
+    if m:
+        done, total = map(int, m.groups())
+        if total:
+            return int(done / total * 100)
+    return None
 
 #==============================================================================
 # NETWORK HELPERS
@@ -1653,8 +1671,30 @@ class VBS4Panel(tk.Frame):
         ).pack(anchor="w")
 
         self.log_text = tk.Text(self.log_frame, height=3, bg="black", fg="lime", wrap="word")
-        self.log_text.pack(fill="x")  
+        self.log_text.pack(fill="x")
         self.log_text.config(state="disabled")
+
+        # Render progress bar
+        self.progress_var = tk.IntVar(value=0)
+        self.progress_bar = ttk.Progressbar(
+            self.log_frame,
+            variable=self.progress_var,
+            maximum=100,
+            orient="horizontal",
+            mode="determinate",
+        )
+        self.progress_bar.pack(fill="x", pady=(5, 0))
+        self.progress_label = tk.Label(
+            self.log_frame,
+            text="0%",
+            font=("Helvetica", 12),
+            bg="#222222",
+            fg="white",
+        )
+        self.progress_label.pack(anchor="e")
+        self.progress_job = None
+        self.project_log_folder = None
+        self.work_folder = None
 
         tk.Button(
             self.log_frame, text="Clear Log",
@@ -2225,6 +2265,7 @@ class VBS4Panel(tk.Frame):
                 f"Wizard started for project:\n{project_name}",
                 parent=self,
             )
+            self.start_progress_monitor(project_path)
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}\n\nCommand used: {cmd}"
             self.log_message(error_message)
@@ -2289,6 +2330,48 @@ class VBS4Panel(tk.Frame):
         self.log_text.config(state="normal")
         self.log_text.delete(1.0, tk.END)
         self.log_text.config(state="disabled")
+
+    # ------------------------------------------------------------------
+    # PhotoMesh progress monitoring
+    # ------------------------------------------------------------------
+    def start_progress_monitor(self, project_path: str):
+        """Begin monitoring PhotoMesh render logs under *project_path*."""
+        self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
+        self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
+        self.progress_var.set(0)
+        self.progress_label.config(text="0%")
+        if self.progress_job:
+            self.after_cancel(self.progress_job)
+        self.progress_job = self.after(2000, self.update_render_progress)
+
+    def update_render_progress(self):
+        paths = []
+        if self.project_log_folder and os.path.isdir(self.project_log_folder):
+            paths += glob.glob(os.path.join(self.project_log_folder, "Out*.log"))
+            paths += glob.glob(os.path.join(self.project_log_folder, "Run*.log"))
+        if self.work_folder and os.path.isdir(self.work_folder):
+            paths += glob.glob(os.path.join(self.work_folder, "*.out"))
+
+        latest = max(paths, key=os.path.getmtime) if paths else None
+        percent = None
+        if latest:
+            try:
+                with open(latest, "r", errors="ignore") as f:
+                    for line in reversed(f.readlines()):
+                        percent = extract_progress(line)
+                        if percent is not None:
+                            break
+            except Exception:
+                pass
+
+        if percent is not None:
+            self.progress_var.set(percent)
+            self.progress_label.config(text=f"{percent}%")
+            if percent >= 100:
+                self.progress_job = None
+                return
+
+        self.progress_job = self.after(2000, self.update_render_progress)
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
