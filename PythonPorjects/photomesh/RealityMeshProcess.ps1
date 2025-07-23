@@ -59,10 +59,27 @@ $srfResolution = (Get-Content "$project_settings_File" | Where-Object { $_ -matc
 
 #System settings
 $blender_path = (Get-Content "$system_settings" | Where-Object { $_ -match "^blender_path=" }) -replace "blender_path=", ""
-if (!(Test-Path $blender_path)) {	
-	Write-Output "Blender Path invalid"
-	Read-Host -Prompt "Press Enter to exit"
-	Return
+$default_blender = "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe"
+if (!(Test-Path $blender_path)) {
+        if (Test-Path $default_blender) {
+                $blender_path = $default_blender
+                Write-Output "Using Blender found at $blender_path"
+        } else {
+                $search = Get-ChildItem "C:\\Program Files\\Blender Foundation" -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object Name -Descending |
+                    ForEach-Object { Join-Path $_.FullName 'blender.exe' } |
+                    Where-Object { Test-Path $_ } |
+                    Select-Object -First 1
+
+                if ($search) {
+                        $blender_path = $search
+                        Write-Output "Using Blender found at $blender_path"
+                } else {
+                        Write-Output "Blender Path invalid"
+                        Read-Host -Prompt "Press Enter to exit"
+                        Return
+                }
+        }
 }
 $blender_threads = (Get-Content "$system_settings" | Where-Object { $_ -match "^blender_threads=" }) -replace "blender_threads=", ""
 $override_Installation_VBS4 = (Get-Content "$system_settings" | Where-Object { $_ -match "^override_Installation_VBS4=" }) -replace "override_Installation_VBS4=", ""

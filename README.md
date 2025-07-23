@@ -28,3 +28,18 @@ Avoid hard‑coded absolute paths so the tool can be executed from any checkout 
 The required `RealityMeshProcess.ps1` script and `RealityMeshSystemSettings.txt` file
 are bundled under `PythonPorjects/photomesh`. The GUI automatically points to these
 files so the user only needs to browse to the `Build_1/out` folder.
+
+### Configuring Tool Paths
+
+Edit `PythonPorjects/photomesh/RealityMeshSystemSettings.txt` to point to your
+local installations of Blender and TerraTools. For Bisim standard installs you
+can use:
+
+```
+blender_path=C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
+terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\bin\terratoolssh.exe
+terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
+```
+
+Adjust these paths if your installers reside elsewhere or you need to reference
+additional tools like ModelExchanger.
