@@ -321,15 +321,16 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
 
 
 def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None) -> None:
-    cmd = [
-        'powershell',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', ps_script,
-        settings_path,
-        '1'
-    ]
-    log_func('Running: ' + ' '.join(cmd))
-    subprocess.run(cmd, check=True)
+    """Run the Reality Mesh PowerShell script via a project-specific batch file."""
+    batch_path = os.path.join(os.path.dirname(settings_path), 'RealityMeshProcess.bat')
+
+    with open(batch_path, 'w', encoding='utf-8') as f:
+        f.write(
+            f'start "" powershell -executionpolicy bypass "{ps_script}" "{settings_path}" 1\n'
+        )
+
+    log_func(f'Created batch file {batch_path}')
+    subprocess.run(batch_path, check=True)
 
 
 def get_distribution_paths() -> list[str]:
