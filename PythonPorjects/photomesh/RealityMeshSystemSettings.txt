@@ -1,4 +1,4 @@
-blender_path=C:\Program Files\Blender\blender-4.3.0-windows-x64\blender.exe
+blender_path=C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
 blender_threads=6
 override_Installation_VBS4=1
 override_Path_VBS4=C:\Bohemia Interactive Simulations\VBS4 24.2 YYMEA_General
@@ -6,3 +6,4 @@ vbs4_version=VBS4_24_2
 override_Installation_DevSuite=0
 override_Path_DevSuite=P
 terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\bin\terratoolssh.exe
+terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
