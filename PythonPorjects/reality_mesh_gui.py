@@ -136,6 +136,8 @@ def extract_progress(line: str) -> int | None:
 
 
 def run_processor(ps_script: str, settings_path: str, log_fn, progress_cb):
+    if not os.path.isfile(ps_script):
+        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
     cmd = [
         'powershell',
         '-ExecutionPolicy', 'Bypass',
@@ -211,6 +213,12 @@ class RealityMeshGUI(tk.Tk):
             value=os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
         )
 
+        # Ensure dataset root exists once on startup
+        settings = load_system_settings(os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt'))
+        ds_root = settings.get('dataset_root')
+        if ds_root:
+            os.makedirs(ds_root, exist_ok=True)
+
         self.create_widgets()
 
     def create_widgets(self):
@@ -232,6 +240,7 @@ class RealityMeshGUI(tk.Tk):
         ToolTip(ent_build, 'Path to Build_1/out directory.')
         ToolTip(btn_build, 'Locate the Build_1/out folder.')
         row += 1
+
 
         lbl_settings = tk.Label(self, text='System Settings File:')
         lbl_settings.grid(row=row, column=0, sticky='w')
