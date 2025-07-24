@@ -445,6 +445,88 @@ def kill_fusers() -> None:
         subprocess.run(['taskkill', '/IM', 'Fuser.exe', '/F'],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+
+def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
+                               origin_json_path: str, datasets_base: str,
+                               config_path: str) -> str:
+    """Create a RealityMesh dataset folder and settings file.
+
+    Parameters
+    ----------
+    project_name : str
+        Name of the dataset/project.
+    source_obj_folder : str
+        Path to the OBJ folder output from PhotoMesh.
+    origin_json_path : str
+        Path to the ``Output-CenterPivotOrigin.json`` file used to obtain
+        ``offset_x``, ``offset_y`` and ``offset_z`` values.
+    datasets_base : str
+        Root folder where RealityMesh datasets should be stored.
+    config_path : str
+        Path to the global ``config.ini`` that will receive/contain the
+        ``[BiSimOneClickPath]`` section.
+
+    Returns
+    -------
+    str
+        The full path to the newly created dataset project folder.
+    """
+
+    dataset_folder = os.path.join(datasets_base, project_name)
+    os.makedirs(dataset_folder, exist_ok=True)
+
+    with open(origin_json_path, 'r', encoding='utf-8') as f:
+        origin_data = json.load(f)
+
+    origin = origin_data.get('Origin') or origin_data.get('origin')
+    if isinstance(origin, (list, tuple)) and len(origin) >= 3:
+        offset_x, offset_y, offset_z = origin[:3]
+    else:
+        offset_x = origin_data.get('offset_x', 0)
+        offset_y = origin_data.get('offset_y', 0)
+        offset_z = origin_data.get('offset_z', 0)
+
+    settings_path = os.path.join(dataset_folder, f"{project_name}-settings.txt")
+    lines = [
+        f"project_name={project_name}",
+        f"source_Directory={source_obj_folder}",
+        "offset_coordsys=UTM zone:11 hemi:N horiz_units:Meters vert_units:Meters",
+        "offset_hdatum=WGS84",
+        "offset_vdatum=WGS84_ellipsoid",
+        f"offset_x={offset_x}",
+        f"offset_y={offset_y}",
+        f"offset_z={offset_z}",
+        "orthocam_Resolution=0.25",
+        "orthocam_Render_Lowest=1",
+        "tin_to_dem_Resolution=0.5",
+        "sel_Area_Size=0.5",
+        "tile_scheme=/Tile_%d_%d_L%d",
+        "collision=true",
+        "visualLODs=true",
+        "project_vdatum=WGS84_ellipsoid",
+        "offset_models=-0.2",
+        "csf_options=2 0.5 false 0.65 2 500",
+        "faceThresh=500",
+        "lodThresh=5",
+        "tileSize=100",
+        "srfResolution=0.5",
+        "",
+        "[BiSimOneClickPath]",
+        f"path={dataset_folder}"
+    ]
+    with open(settings_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+
+    cfg = configparser.ConfigParser()
+    cfg.read(config_path)
+    if 'BiSimOneClickPath' not in cfg:
+        cfg['BiSimOneClickPath'] = {}
+    cfg['BiSimOneClickPath']['path'] = dataset_folder
+    with open(config_path, 'w') as cfg_file:
+        cfg.write(cfg_file)
+
+    return dataset_folder
+
 #==============================================================================
 # CONFIGURATION - APP ICON APPLICATION
 #==============================================================================
