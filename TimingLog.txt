@@ -1,0 +1,1 @@
+Time to run TT project: 0.118116286666667 minutes

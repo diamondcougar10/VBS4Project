@@ -1,0 +1,30 @@
+set name {project (20250724_134443)}
+set blender_path {C:\Program Files\Blender Foundation\Blender 4.5\blender.exe}
+set blender_threads {6}
+set override_Installation_VBS4_bool {true}
+set override_Path_VBS4 {C:\Builds\VBS4\VBS4 YYMEA_General}
+set vbs4_version {25.1.0.664}
+set override_Installation_DevSuite {0}
+set override_Path_DevSuite {P}
+set offset_x {465924.1882981224(centerpointoforigin)}
+set offset_y {3058679.201249619(centerpointoforigin)}
+set offset_z {-28.143394494333535(centerpointoforigin)}
+set offset_coordsys {UTM zone:17 hemi:N horiz_units:Meters vert_units:Meters(centerpointoforigin)}
+set offset_hdatum {WGS84}
+set offset_vdatum {WGS84_ellipsoid}
+set orthocam_Resolution {0.05}
+set orthocam_Render_Lowest {1}
+set tin_to_dem_Resolution {0.5}
+set override_Installation_VBS4 {1}
+set sel_Area_Size {0.5}
+set out_in_name {project (20250724_134443)}
+set out_in_name_with_drive {P:\temp\RealityMesh\project (20250724_134443)}
+set collision {true}
+set visualLODs {true}
+set project_vdatum {WGS84_ellipsoid}
+set offset_models {-0.2}
+set csf_options {2 0.5 false 0.65 2 500}
+set faceThresh {500}
+set lodThresh {5}
+set tileSize {100}
+set srfResolution {0.5}
