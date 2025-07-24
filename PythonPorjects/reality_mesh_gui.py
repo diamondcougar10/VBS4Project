@@ -60,6 +60,23 @@ def wait_for_file(path: str, poll_interval: float = 5.0):
         time.sleep(poll_interval)
 
 
+def find_output_json(start_dir: str) -> str | None:
+    """Return path to the first Output-CenterPivotOrigin.json found under *start_dir*."""
+    for root, _dirs, files in os.walk(start_dir):
+        if 'Output-CenterPivotOrigin.json' in files:
+            return os.path.join(root, 'Output-CenterPivotOrigin.json')
+    return None
+
+
+def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
+    """Search *start_dir* repeatedly until Output-CenterPivotOrigin.json exists."""
+    json_path = find_output_json(start_dir)
+    while not json_path or not os.path.exists(json_path):
+        time.sleep(poll_interval)
+        json_path = find_output_json(start_dir)
+    return json_path
+
+
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> str:
     """Create the project directory structure.
 
@@ -256,21 +273,21 @@ class RealityMeshGUI(tk.Tk):
     def create_widgets(self):
         row = 0
         instructions = (
-            "1. Select the Build_1/out folder from PhotoMesh.\n"
+            "1. Select the PhotoMesh project folder (contains Build_1).\n"
             "2. Click Start to generate the terrain package."
         )
         tk.Label(self, text=instructions, justify='left').grid(row=row, column=0, columnspan=3, sticky='w', padx=5)
         row += 1
 
-        lbl_build = tk.Label(self, text='Build_1/out Directory:')
+        lbl_build = tk.Label(self, text='Project Directory:')
         lbl_build.grid(row=row, column=0, sticky='w')
         ent_build = tk.Entry(self, textvariable=self.build_dir, width=50)
         ent_build.grid(row=row, column=1, sticky='we')
         btn_build = tk.Button(self, text='Browse', command=self.browse_build)
         btn_build.grid(row=row, column=2)
-        ToolTip(lbl_build, 'Folder that contains the OBJ output from PhotoMesh (Build_1/out).')
-        ToolTip(ent_build, 'Path to Build_1/out directory.')
-        ToolTip(btn_build, 'Locate the Build_1/out folder.')
+        ToolTip(lbl_build, 'Root folder of the PhotoMesh project.')
+        ToolTip(ent_build, 'Path to the project directory.')
+        ToolTip(btn_build, 'Locate the PhotoMesh project folder.')
         row += 1
 
 
@@ -335,18 +352,18 @@ class RealityMeshGUI(tk.Tk):
 
     def start_process(self):
         if not self.build_dir.get():
-            messagebox.showerror('Error', 'Please select a Build_1/out directory')
+            messagebox.showerror('Error', 'Please select a project directory')
             return
         self.set_progress(0)
         threading.Thread(target=self.run, daemon=True).start()
 
     def run(self):
         try:
-            build_dir = self.build_dir.get()
-            json_path = os.path.join(build_dir, 'Output-CenterPivotOrigin.json')
-            self.log_msg(f'Waiting for {json_path}')
-            wait_for_file(json_path)
-            self.log_msg('JSON found')
+            build_root = self.build_dir.get()
+            self.log_msg(f'Searching for Output-CenterPivotOrigin.json under {build_root}')
+            json_path = wait_for_output_json(build_root)
+            build_dir = os.path.dirname(json_path)
+            self.log_msg(f'Found JSON: {json_path}')
 
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
