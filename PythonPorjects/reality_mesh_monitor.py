@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 from datetime import datetime
+from collections import OrderedDict
 
 
 def load_system_settings(path: str) -> dict:
@@ -32,29 +33,68 @@ def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
 
 
 def create_data_folder(project_dir: str) -> str:
-    """Create a Data folder in *project_dir* and copy OBJ folder."""
-    data_folder = os.path.join(project_dir, 'Data')
+    """Create a data folder in *project_dir* and copy raw tiles."""
+    data_folder = os.path.join(project_dir, 'data')
     os.makedirs(data_folder, exist_ok=True)
 
-    src_obj = os.path.join(project_dir, 'OBJ')
-    dst_obj = os.path.join(data_folder, 'OBJ')
-    if os.path.isdir(src_obj):
-        print(f"Copying {src_obj} -> {dst_obj}")
-        if os.path.exists(dst_obj):
-            shutil.rmtree(dst_obj)
-        shutil.copytree(src_obj, dst_obj)
+    for name in ('Tiles', 'OBJ'):
+        src = os.path.join(project_dir, name)
+        dst = os.path.join(data_folder, name)
+        if os.path.isdir(src):
+            print(f"Copying {src} -> {dst}")
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+            break
     return data_folder
 
 
+def _parse_offset_coordsys(wkt: str) -> str:
+    zone = ''
+    hemi = ''
+    m = re.search(r"UTM zone\s*(\d+),\s*(Northern|Southern)", wkt)
+    if m:
+        zone = m.group(1)
+        hemi = 'N' if m.group(2).startswith('Northern') else 'S'
+    return f"UTM zone:{zone} hemi:{hemi} horiz_units:Meters vert_units:Meters"
+
+
 def write_project_settings(settings_path: str, data: dict, data_folder: str) -> None:
-    """Write key=value pairs to *settings_path* from *data* and extras."""
+    defaults = OrderedDict([
+        ("orthocam_Resolution", "0.05"),
+        ("orthocam_Render_Lowest", "1"),
+        ("tin_to_dem_Resolution", "0.5"),
+        ("sel_Area_Size", "0.5"),
+        ("tile_scheme", "/Tile_%d_%d_L%d"),
+        ("collision", "true"),
+        ("visualLODs", "true"),
+        ("project_vdatum", "WGS84_ellipsoid"),
+        ("offset_models", "-0.2"),
+        ("csf_options", "2 0.5 false 0.65 2 500"),
+        ("faceThresh", "500"),
+        ("lodThresh", "5"),
+        ("tileSize", "100"),
+        ("srfResolution", "0.5"),
+    ])
+
+    project_name = data.get('project_name', 'unknown')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    origin = data.get('Origin', [0, 0, 0])
+    wkt = data.get('WKT', '')
+
+    settings = OrderedDict()
+    settings['project_name'] = f"{project_name} ({timestamp})"
+    settings['source_Directory'] = data_folder
+    settings['offset_coordsys'] = _parse_offset_coordsys(wkt) + '(centerpointoforigin)'
+    settings['offset_hdatum'] = 'WGS84'
+    settings['offset_vdatum'] = 'WGS84_ellipsoid'
+    settings['offset_x'] = f"{origin[0]}(centerpointoforigin)"
+    settings['offset_y'] = f"{origin[1]}(centerpointoforigin)"
+    settings['offset_z'] = f"{origin[2]}(centerpointoforigin)"
+    settings.update(defaults)
+
     with open(settings_path, 'w', encoding='utf-8') as f:
-        project_name = data.get('project_name', 'unknown')
-        f.write(f"project_name={project_name}\n")
-        f.write(f"source_Directory={data_folder}\n")
-        for key, value in data.items():
-            if key == 'project_name':
-                continue
+        for key, value in settings.items():
             f.write(f"{key}={value}\n")
     print(f"Wrote settings file {settings_path}")
 
