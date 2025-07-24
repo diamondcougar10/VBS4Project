@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from datetime import datetime
 import re
+from collections import OrderedDict
 
 
 def load_system_settings(path: str) -> dict:
@@ -46,29 +47,71 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
         project_folder = os.path.join(build_dir, f"{project_name}_{dt}")
 
     os.makedirs(project_folder, exist_ok=True)
-    data_folder = os.path.join(project_folder, 'Data')
+    data_folder = os.path.join(project_folder, 'data')
     os.makedirs(data_folder, exist_ok=True)
     return project_folder, data_folder
 
 
-def copy_obj(build_dir: str, data_folder: str):
-    src = os.path.join(build_dir, 'OBJ')
-    dst = os.path.join(data_folder, 'OBJ')
-    if os.path.isdir(src):
-        if os.path.exists(dst):
-            shutil.rmtree(dst)
-        shutil.copytree(src, dst)
+def copy_tiles(build_dir: str, data_folder: str):
+    """Copy raw tile data from *build_dir* into *data_folder*."""
+    for name in ('Tiles', 'OBJ'):
+        src = os.path.join(build_dir, name)
+        if os.path.isdir(src):
+            dst = os.path.join(data_folder, name)
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+            break
+
+
+def _parse_offset_coordsys(wkt: str) -> str:
+    """Return formatted offset coordinate system string from *wkt*."""
+    zone = ''
+    hemi = ''
+    m = re.search(r"UTM zone\s*(\d+),\s*(Northern|Southern)", wkt)
+    if m:
+        zone = m.group(1)
+        hemi = 'N' if m.group(2).startswith('Northern') else 'S'
+    return f"UTM zone:{zone} hemi:{hemi} horiz_units:Meters vert_units:Meters"
 
 
 def write_project_settings(settings_path: str, data: dict, data_folder: str):
+    defaults = OrderedDict([
+        ("orthocam_Resolution", "0.05"),
+        ("orthocam_Render_Lowest", "1"),
+        ("tin_to_dem_Resolution", "0.5"),
+        ("sel_Area_Size", "0.5"),
+        ("tile_scheme", "/Tile_%d_%d_L%d"),
+        ("collision", "true"),
+        ("visualLODs", "true"),
+        ("project_vdatum", "WGS84_ellipsoid"),
+        ("offset_models", "-0.2"),
+        ("csf_options", "2 0.5 false 0.65 2 500"),
+        ("faceThresh", "500"),
+        ("lodThresh", "5"),
+        ("tileSize", "100"),
+        ("srfResolution", "0.5"),
+    ])
+
+    project_name = data.get('project_name', 'project')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    origin = data.get('Origin', [0, 0, 0])
+    wkt = data.get('WKT', '')
+
+    settings = OrderedDict()
+    settings['project_name'] = f"{project_name} ({timestamp})"
+    settings['source_Directory'] = data_folder
+    settings['offset_coordsys'] = _parse_offset_coordsys(wkt) + '(centerpointoforigin)'
+    settings['offset_hdatum'] = 'WGS84'
+    settings['offset_vdatum'] = 'WGS84_ellipsoid'
+    settings['offset_x'] = f"{origin[0]}(centerpointoforigin)"
+    settings['offset_y'] = f"{origin[1]}(centerpointoforigin)"
+    settings['offset_z'] = f"{origin[2]}(centerpointoforigin)"
+    settings.update(defaults)
+
     with open(settings_path, 'w', encoding='utf-8') as f:
-        project_name = data.get('project_name', 'project')
-        f.write(f"project_name={project_name}\n")
-        f.write(f"source_Directory={data_folder}\n")
-        for k, v in data.items():
-            if k == 'project_name':
-                continue
-            f.write(f"{k}={v}\n")
+        for key, value in settings.items():
+            f.write(f"{key}={value}\n")
 
 
 def extract_progress(line: str) -> int | None:
@@ -266,8 +309,8 @@ class RealityMeshGUI(tk.Tk):
             proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
             self.log_msg(f'Created project folder {proj_folder}')
 
-            copy_obj(build_dir, data_folder)
-            self.log_msg('Copied OBJ files')
+            copy_tiles(build_dir, data_folder)
+            self.log_msg('Copied raw tiles')
 
             settings_path = os.path.join(proj_folder, f'{project_name}.txt')
             write_project_settings(settings_path, data, data_folder)
