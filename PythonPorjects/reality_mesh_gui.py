@@ -136,6 +136,8 @@ def extract_progress(line: str) -> int | None:
 
 
 def run_processor(ps_script: str, settings_path: str, log_fn, progress_cb):
+    if not os.path.isfile(ps_script):
+        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
     cmd = [
         'powershell',
         '-ExecutionPolicy', 'Bypass',
@@ -200,6 +202,7 @@ class RealityMeshGUI(tk.Tk):
 
         self.logo_photo = None
 
+        self.project_name = tk.StringVar()
         self.build_dir = tk.StringVar()
         base_dir = os.path.dirname(os.path.abspath(__file__))
         photomesh_dir = os.path.join(base_dir, 'photomesh')
@@ -210,6 +213,12 @@ class RealityMeshGUI(tk.Tk):
         self.ps_script = tk.StringVar(
             value=os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
         )
+
+        # Ensure dataset root exists once on startup
+        settings = load_system_settings(os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt'))
+        ds_root = settings.get('dataset_root')
+        if ds_root:
+            os.makedirs(ds_root, exist_ok=True)
 
         self.create_widgets()
 
@@ -231,6 +240,14 @@ class RealityMeshGUI(tk.Tk):
         ToolTip(lbl_build, 'Folder that contains the OBJ output from PhotoMesh (Build_1/out).')
         ToolTip(ent_build, 'Path to Build_1/out directory.')
         ToolTip(btn_build, 'Locate the Build_1/out folder.')
+        row += 1
+
+        lbl_proj = tk.Label(self, text='Project Name:')
+        lbl_proj.grid(row=row, column=0, sticky='w')
+        ent_proj = tk.Entry(self, textvariable=self.project_name, width=50)
+        ent_proj.grid(row=row, column=1, sticky='we')
+        ToolTip(lbl_proj, 'Name used for the generated dataset folder.')
+        ToolTip(ent_proj, 'Enter a unique project name.')
         row += 1
 
         lbl_settings = tk.Label(self, text='System Settings File:')
@@ -296,6 +313,9 @@ class RealityMeshGUI(tk.Tk):
         if not self.build_dir.get():
             messagebox.showerror('Error', 'Please select a Build_1/out directory')
             return
+        if not self.project_name.get().strip():
+            messagebox.showerror('Error', 'Please enter a project name')
+            return
         self.set_progress(0)
         threading.Thread(target=self.run, daemon=True).start()
 
@@ -309,7 +329,8 @@ class RealityMeshGUI(tk.Tk):
 
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            project_name = data.get('project_name', 'project')
+            project_name = self.project_name.get().strip() or data.get('project_name', 'project')
+            data['project_name'] = project_name
 
             settings = load_system_settings(self.system_settings.get())
             dataset_root = settings.get('dataset_root')
