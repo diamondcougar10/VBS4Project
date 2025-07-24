@@ -26,11 +26,8 @@ python PythonPorjects/RealityMeshStandalone.py
 
 Avoid hard‑coded absolute paths so the tool can be executed from any checkout location.
 The required `RealityMeshProcess.ps1` script and `RealityMeshSystemSettings.txt` file
-are bundled under `PythonPorjects/photomesh`. The GUI automatically points to
-these files so the user only needs to browse to the `Build_1/out` folder. When
-starting the process you will be asked for a **project name**. This name is
-used for the resulting dataset and ensures each run is created in a unique
-folder.
+are bundled under `PythonPorjects/photomesh`. The GUI automatically points to these
+files so the user only needs to browse to the `Build_1/out` folder.
 
 ### Configuring Tool Paths
 
@@ -45,9 +42,8 @@ terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
 dataset_root=C:\BiSim OneClick\Datasets
 ```
 
-`dataset_root` specifies where new project folders are created before running
-the Reality Mesh process. The folder will be created automatically the first
-time the tool runs if it does not already exist.
+`dataset_root` specifies where new project folders are created before
+running the Reality Mesh process.
 
 Adjust these paths if your installers reside elsewhere or you need to reference
 additional tools like ModelExchanger.
