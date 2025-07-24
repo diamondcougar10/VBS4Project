@@ -326,6 +326,23 @@ def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
         time.sleep(poll_interval)
 
 
+def find_output_json(start_dir: str) -> str | None:
+    """Return path to Output-CenterPivotOrigin.json under *start_dir* if found."""
+    for root, _dirs, files in os.walk(start_dir):
+        if 'Output-CenterPivotOrigin.json' in files:
+            return os.path.join(root, 'Output-CenterPivotOrigin.json')
+    return None
+
+
+def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
+    """Search *start_dir* repeatedly until the output JSON exists."""
+    json_path = find_output_json(start_dir)
+    while not json_path or not os.path.exists(json_path):
+        time.sleep(poll_interval)
+        json_path = find_output_json(start_dir)
+    return json_path
+
+
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
     """Create the project directory structure used by Reality Mesh.
 
@@ -2633,33 +2650,34 @@ class VBS4Panel(tk.Frame):
 
     def post_process_last_build(self):
         if not self.last_build_dir:
-            path = filedialog.askdirectory(title="Select Build_1/out Folder", parent=self)
+            path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self)
             if not path:
                 return
             self.last_build_dir = path
 
         def _run():
-            json_path = os.path.join(self.last_build_dir, 'Output-CenterPivotOrigin.json')
-            self.log_message(f"Waiting for {json_path}")
-            wait_for_file(json_path)
-            self.log_message("Output JSON detected")
+            build_root = self.last_build_dir
+            self.log_message(f"Searching for Output-CenterPivotOrigin.json under {build_root}")
+            json_path = wait_for_output_json(build_root)
+            build_dir = os.path.dirname(json_path)
+            self.log_message(f"Found JSON: {json_path}")
 
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            project_name = data.get('project_name', 'project')
+
+            match = re.search(r"\\\s*Projects\\\s*([^\\]+)", build_root, re.IGNORECASE)
+            project_name = match.group(1) if match else data.get('project_name', 'project')
 
             sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
             settings = load_system_settings(sys_settings_path)
-            dataset_root = settings.get('dataset_root')
             update_vbs4_settings(sys_settings_path)
-            proj_folder, data_folder = create_project_folder(self.last_build_dir, project_name, dataset_root)
+            dataset_root = settings.get('dataset_root')
+            proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
             self.log_message(f"Created project folder {proj_folder}")
 
-            copy_tiles(self.last_build_dir, data_folder)
+            copy_tiles(build_dir, data_folder)
             self.log_message("Copied raw tiles")
 
-            # Use a consistent naming pattern for the project settings file
-            # when creating project folders during post processing
             settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
             write_project_settings(settings_path, data, data_folder)
             self.log_message(f"Wrote settings {settings_path}")
@@ -2667,9 +2685,30 @@ class VBS4Panel(tk.Frame):
             set_oneclick_output_path(proj_folder)
             self.controller.panels['Settings'].update_oneclick_path_label()
 
-            ps_script = os.path.join(BASE_DIR, 'RealityMeshProcessor.ps1')
+            ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshProcess.ps1')
+
+            cmd = [
+                'powershell',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', ps_script,
+                settings_path,
+                '1'
+            ]
+            self.log_message('Running: ' + ' '.join(cmd))
+            self.progress_var.set(0)
+            self.progress_label.config(text='0%')
             try:
-                run_processor(ps_script, settings_path, self.log_message)
+                with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+                    for line in proc.stdout:
+                        line = line.rstrip()
+                        self.log_message(line)
+                        percent = extract_progress(line)
+                        if percent is not None:
+                            self.progress_var.set(percent)
+                            self.progress_label.config(text=f"{percent}%")
+                    proc.wait()
+                    if proc.returncode != 0:
+                        raise subprocess.CalledProcessError(proc.returncode, cmd)
                 self.log_message("Processing complete")
                 distribute_terrain(project_name, self.log_message)
             except Exception as e:
