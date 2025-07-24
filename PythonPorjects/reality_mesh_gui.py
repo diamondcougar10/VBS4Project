@@ -288,6 +288,7 @@ class RealityMeshGUI(tk.Tk):
         default_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
         default_ps = os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
 
+        self.dataset_root = ''
         if os.path.isfile(default_settings) and not self.system_settings.get():
             self.system_settings.set(default_settings)
             try:
@@ -295,6 +296,7 @@ class RealityMeshGUI(tk.Tk):
                 settings = load_system_settings(default_settings)
                 ds_root = settings.get('dataset_root')
                 if ds_root:
+                    self.dataset_root = ds_root
                     os.makedirs(ds_root, exist_ok=True)
             except OSError:
                 pass
@@ -367,7 +369,7 @@ class RealityMeshGUI(tk.Tk):
         self.progress_label.grid(row=row, column=0, columnspan=3, sticky='e', padx=5)
 
     def browse_build(self):
-        path = filedialog.askdirectory()
+        path = filedialog.askdirectory(initialdir=self.dataset_root or None)
         if path:
             self.build_dir.set(path)
 
