@@ -384,12 +384,21 @@ class RealityMeshGUI(tk.Tk):
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Extract project name from the selected path if possible
+            # Determine project name from the selected directory when possible.
+            # The previous logic attempted to grab the name only when the path
+            # contained a ``\Projects\`` segment which does not cover all
+            # installations.  Fall back to using the last folder of the
+            # selected path (or its parent when "Build_1" is chosen) before
+            # resorting to the value from the JSON file.
             match = re.search(r'\\Projects\\([^\\]+)', build_root, re.IGNORECASE)
             if match:
                 project_name = match.group(1)
             else:
-                project_name = data.get('project_name', 'project')
+                project_name = os.path.basename(os.path.normpath(build_root))
+                if project_name.lower() == 'build_1':
+                    project_name = os.path.basename(os.path.dirname(os.path.normpath(build_root)))
+                if not project_name:
+                    project_name = data.get('project_name', 'project')
 
             sys_set = self.system_settings.get()
             settings = {}
