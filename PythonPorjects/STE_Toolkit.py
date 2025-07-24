@@ -291,9 +291,21 @@ def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
         time.sleep(poll_interval)
 
 
-def create_project_folder(build_dir: str, project_name: str) -> tuple[str, str]:
-    dt = datetime.now().strftime('%Y%m%d_%H%M%S')
-    proj_folder = os.path.join(build_dir, f"{project_name}_{dt}")
+def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
+    """Create the project directory structure used by Reality Mesh.
+
+    When *dataset_root* is supplied the folder is created there using just
+    the project name.  Otherwise it is created under *build_dir* and
+    includes a timestamp suffix as before.
+    """
+
+    if dataset_root:
+        os.makedirs(dataset_root, exist_ok=True)
+        proj_folder = os.path.join(dataset_root, project_name)
+    else:
+        dt = datetime.now().strftime('%Y%m%d_%H%M%S')
+        proj_folder = os.path.join(build_dir, f"{project_name}_{dt}")
+
     os.makedirs(proj_folder, exist_ok=True)
     data_folder = os.path.join(proj_folder, 'Data')
     os.makedirs(data_folder, exist_ok=True)
@@ -2455,7 +2467,9 @@ class VBS4Panel(tk.Frame):
                 data = json.load(f)
             project_name = data.get('project_name', 'project')
 
-            proj_folder, data_folder = create_project_folder(self.last_build_dir, project_name)
+            settings = load_system_settings(os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt'))
+            dataset_root = settings.get('dataset_root')
+            proj_folder, data_folder = create_project_folder(self.last_build_dir, project_name, dataset_root)
             self.log_message(f"Created project folder {proj_folder}")
 
             copy_obj(self.last_build_dir, data_folder)

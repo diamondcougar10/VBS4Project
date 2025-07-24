@@ -14,3 +14,4 @@ terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\
 terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
 
 # Optional: set paths to other tools such as ModelExchanger if required.
+dataset_root=C:\BiSim OneClick\Datasets  # where project folders will be stored

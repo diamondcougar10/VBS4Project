@@ -39,7 +39,11 @@ can use:
 blender_path=C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
 terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\bin\terratoolssh.exe
 terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
+dataset_root=C:\BiSim OneClick\Datasets
 ```
+
+`dataset_root` specifies where new project folders are created before
+running the Reality Mesh process.
 
 Adjust these paths if your installers reside elsewhere or you need to reference
 additional tools like ModelExchanger.
