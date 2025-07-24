@@ -2654,8 +2654,9 @@ class VBS4Panel(tk.Frame):
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            match = re.search(r"\\\s*Projects\\\s*([^\\]+)", build_root, re.IGNORECASE)
-            project_name = match.group(1) if match else data.get('project_name', 'project')
+            # Extract the project name from the build_root path
+            project_name = os.path.basename(build_root)
+            self.log_message(f"Using project name: {project_name}")
 
             sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
             settings = load_system_settings(sys_settings_path)
