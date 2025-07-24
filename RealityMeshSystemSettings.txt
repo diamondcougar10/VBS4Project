@@ -7,5 +7,3 @@ override_Installation_DevSuite=0
 override_Path_DevSuite=P
 terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\bin\terratoolssh.exe
 terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
-
-dataset_root=C:\BiSim OneClick\Datasets
