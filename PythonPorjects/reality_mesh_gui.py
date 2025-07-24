@@ -253,20 +253,30 @@ class RealityMeshGUI(tk.Tk):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         photomesh_dir = os.path.join(base_dir, 'photomesh')
 
-        self.system_settings = tk.StringVar(
-            value=os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
-        )
-        self.ps_script = tk.StringVar(
-            value=os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
-        )
+        # Paths to the system settings and PowerShell script are no longer
+        # hard coded so the application can be distributed without assuming a
+        # specific folder layout.
+        self.system_settings = tk.StringVar(value='')
+        self.ps_script = tk.StringVar(value='')
 
-        # Ensure dataset root exists once on startup
-        sys_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
-        settings = load_system_settings(sys_settings)
-        update_vbs4_settings(sys_settings)
-        ds_root = settings.get('dataset_root')
-        if ds_root:
-            os.makedirs(ds_root, exist_ok=True)
+        # When a default settings file is bundled with the application, placing
+        # it next to this script allows the GUI to locate it automatically.
+        default_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
+        default_ps = os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
+
+        if os.path.isfile(default_settings) and not self.system_settings.get():
+            self.system_settings.set(default_settings)
+            try:
+                update_vbs4_settings(default_settings)
+                settings = load_system_settings(default_settings)
+                ds_root = settings.get('dataset_root')
+                if ds_root:
+                    os.makedirs(ds_root, exist_ok=True)
+            except OSError:
+                pass
+
+        if os.path.isfile(default_ps) and not self.ps_script.get():
+            self.ps_script.set(default_ps)
 
         self.create_widgets()
 
@@ -293,18 +303,24 @@ class RealityMeshGUI(tk.Tk):
 
         lbl_settings = tk.Label(self, text='System Settings File:')
         lbl_settings.grid(row=row, column=0, sticky='w')
-        ent_settings = tk.Entry(self, textvariable=self.system_settings, width=50, state='readonly')
+        ent_settings = tk.Entry(self, textvariable=self.system_settings, width=50)
         ent_settings.grid(row=row, column=1, sticky='we')
+        btn_settings = tk.Button(self, text='Browse', command=self.browse_settings)
+        btn_settings.grid(row=row, column=2)
         ToolTip(lbl_settings, 'Text file containing system configuration values.')
         ToolTip(ent_settings, 'Path to RealityMeshSystemSettings.txt.')
+        ToolTip(btn_settings, 'Locate the system settings file.')
         row += 1
 
         lbl_ps = tk.Label(self, text='PowerShell Script:')
         lbl_ps.grid(row=row, column=0, sticky='w')
-        ent_ps = tk.Entry(self, textvariable=self.ps_script, width=50, state='readonly')
+        ent_ps = tk.Entry(self, textvariable=self.ps_script, width=50)
         ent_ps.grid(row=row, column=1, sticky='we')
+        btn_ps = tk.Button(self, text='Browse', command=self.browse_ps)
+        btn_ps.grid(row=row, column=2)
         ToolTip(lbl_ps, 'RealityMeshProcess.ps1 script used for processing.')
         ToolTip(ent_ps, 'Path to the processing PowerShell script.')
+        ToolTip(btn_ps, 'Locate the RealityMesh PowerShell script.')
         row += 1
 
         btn_start = tk.Button(self, text='Start', command=self.start_process)
@@ -370,9 +386,12 @@ class RealityMeshGUI(tk.Tk):
             project_name = data.get('project_name', 'project')
 
             sys_set = self.system_settings.get()
-            settings = load_system_settings(sys_set)
-            update_vbs4_settings(sys_set)
-            dataset_root = settings.get('dataset_root')
+            settings = {}
+            dataset_root = None
+            if sys_set:
+                settings = load_system_settings(sys_set)
+                update_vbs4_settings(sys_set)
+                dataset_root = settings.get('dataset_root')
             proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
             self.log_msg(f'Created project folder {proj_folder}')
 
