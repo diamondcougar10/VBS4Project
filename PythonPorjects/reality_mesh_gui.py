@@ -383,7 +383,13 @@ class RealityMeshGUI(tk.Tk):
 
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            project_name = data.get('project_name', 'project')
+
+            # Extract project name from the selected path if possible
+            match = re.search(r'\\Projects\\([^\\]+)', build_root, re.IGNORECASE)
+            if match:
+                project_name = match.group(1)
+            else:
+                project_name = data.get('project_name', 'project')
 
             sys_set = self.system_settings.get()
             settings = {}
