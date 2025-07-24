@@ -2658,6 +2658,11 @@ class VBS4Panel(tk.Frame):
         self.log_message("One-Click Terrain Conversion completed.")
 
     def post_process_last_build(self):
+        # Hide the terrain options if they are currently visible so the
+        # progress bar remains unobstructed during processing.
+        if self.terrain_button.cget("text") == "Hide Terrain Options":
+            self.toggle_terrain_buttons()
+
         if not self.last_build_dir:
             path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self)
             if not path:
