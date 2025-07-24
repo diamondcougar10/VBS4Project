@@ -392,7 +392,7 @@ class RealityMeshGUI(tk.Tk):
             # This mirrors the logic used by the STE Toolkit post-processing
             # button so the resulting dataset name matches the PhotoMesh
             # project folder.
-            project_name = os.path.basename(os.path.normpath(build_root))
+            project_name = os.path.basename(build_root)
             self.log_msg(f'Using project name: {project_name}')
 
             sys_set = self.system_settings.get()
