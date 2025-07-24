@@ -53,7 +53,8 @@ def create_settings_file(info: dict, project_folder: str) -> str:
     for both the ``source_Directory`` value and a ``[BiSimOneClickPath]``
     section.
     """
-    settings_path = os.path.join(project_folder, f"{info['project_name']}.txt")
+    # Name the settings file using the conventional "<project>-settings.txt"
+    settings_path = os.path.join(project_folder, f"{info['project_name']}-settings.txt")
     dataset_root = os.path.join('C:\\BiSim OneClick\\Datasets', info['project_name'])
     dataset_data = os.path.join(dataset_root, 'data')
     os.makedirs(dataset_data, exist_ok=True)
