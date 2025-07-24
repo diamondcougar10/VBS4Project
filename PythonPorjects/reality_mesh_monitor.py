@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from collections import OrderedDict
+from STE_Toolkit import get_vbs4_install_path, get_vbs4_version
 
 
 def load_system_settings(path: str) -> dict:
@@ -22,6 +23,34 @@ def load_system_settings(path: str) -> dict:
                 key, value = line.split('=', 1)
                 settings[key.strip()] = value.strip()
     return settings
+
+
+def update_vbs4_settings(path: str) -> None:
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe:
+        return
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    vbs4_version = get_vbs4_version(vbs4_exe)
+
+    lines = []
+    found_path = False
+    found_ver = False
+    if os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('override_Path_VBS4='):
+                    line = f'override_Path_VBS4={vbs4_dir}\n'
+                    found_path = True
+                elif line.startswith('vbs4_version='):
+                    line = f'vbs4_version={vbs4_version}\n'
+                    found_ver = True
+                lines.append(line)
+    if not found_path:
+        lines.append(f'override_Path_VBS4={vbs4_dir}\n')
+    if not found_ver:
+        lines.append(f'vbs4_version={vbs4_version}\n')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
 
 
 def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
@@ -129,6 +158,7 @@ def main() -> None:
     args = parser.parse_args()
 
     system_settings = load_system_settings(args.system_settings)
+    update_vbs4_settings(args.system_settings)
     if system_settings:
         print('Loaded system settings:')
         for k, v in system_settings.items():
