@@ -960,7 +960,6 @@ def launch_vbs4_setup():
     try:
         vbs4_setup_exe = ensure_executable('vbs4_setup_path', 'VBSLauncher.exe', "Select VBSLauncher.exe")
         subprocess.Popen([vbs4_setup_exe], creationflags=subprocess.CREATE_NO_WINDOW)
-        messagebox.showinfo("Launch Successful", "VBS4 Setup Launcher has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
@@ -1016,7 +1015,6 @@ def launch_blueig():
 
     try:
         subprocess.Popen(args, cwd=blueig_dir, creationflags=subprocess.CREATE_NO_WINDOW)
-        messagebox.showinfo("Launch Successful", f"BlueIG HammerKit 1-{n} started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
@@ -1029,7 +1027,6 @@ def launch_blueig():
 def launch_bvi():
     try:
         subprocess.Popen([bvi_batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        messagebox.showinfo("Launch Successful", "BVI has started.")
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
@@ -1872,10 +1869,6 @@ class MainMenu(tk.Frame):
 
         try:
             subprocess.Popen(args, cwd=blueig_dir)
-            messagebox.showinfo(
-                "Launch Successful",
-                f"BlueIG HammerKit 1-{scenario_num} started."
-            )
             if is_close_on_launch_enabled():
                 sys.exit(0)
         except Exception as e:
@@ -2073,7 +2066,6 @@ class VBS4Panel(tk.Frame):
 
         try:
             subprocess.Popen([vbs_license_manager_path])
-            messagebox.showinfo("Launch Successful", "VBS License Manager has started.")
             if is_close_on_launch_enabled():
                 sys.exit(0)
         except FileNotFoundError:
@@ -2124,10 +2116,6 @@ class VBS4Panel(tk.Frame):
 
         try:
             subprocess.Popen(args, cwd=blueig_dir)
-            messagebox.showinfo(
-                "Launch Successful",
-                f"BlueIG HammerKit 1-{scenario_num} started."
-            )
             if is_close_on_launch_enabled():
                 sys.exit(0)
         except Exception as e:
