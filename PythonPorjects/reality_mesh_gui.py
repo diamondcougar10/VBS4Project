@@ -29,9 +29,22 @@ def wait_for_file(path: str, poll_interval: float = 5.0):
         time.sleep(poll_interval)
 
 
-def create_project_folder(build_dir: str, project_name: str) -> str:
-    dt = datetime.now().strftime('%Y%m%d_%H%M%S')
-    project_folder = os.path.join(build_dir, f"{project_name}_{dt}")
+def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> str:
+    """Create the project directory structure.
+
+    If *dataset_root* is provided, the project is created under that
+    directory using just the project name (no timestamp).  Otherwise the
+    folder is created inside *build_dir* with a timestamp suffix as
+    before.
+    """
+
+    if dataset_root:
+        os.makedirs(dataset_root, exist_ok=True)
+        project_folder = os.path.join(dataset_root, project_name)
+    else:
+        dt = datetime.now().strftime('%Y%m%d_%H%M%S')
+        project_folder = os.path.join(build_dir, f"{project_name}_{dt}")
+
     os.makedirs(project_folder, exist_ok=True)
     data_folder = os.path.join(project_folder, 'Data')
     os.makedirs(data_folder, exist_ok=True)
@@ -247,7 +260,10 @@ class RealityMeshGUI(tk.Tk):
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             project_name = data.get('project_name', 'project')
-            proj_folder, data_folder = create_project_folder(build_dir, project_name)
+
+            settings = load_system_settings(self.system_settings.get())
+            dataset_root = settings.get('dataset_root')
+            proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
             self.log_msg(f'Created project folder {proj_folder}')
 
             copy_obj(build_dir, data_folder)
