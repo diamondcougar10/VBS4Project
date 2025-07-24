@@ -295,17 +295,16 @@ def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
     """Create the project directory structure used by Reality Mesh.
 
-    When *dataset_root* is supplied the folder is created there using just
-    the project name.  Otherwise it is created under *build_dir* and
-    includes a timestamp suffix as before.
+    A folder named ``<project_name>_<timestamp>`` is created under
+    ``dataset_root`` when provided or ``build_dir`` otherwise.  A ``data``
+    subfolder is also ensured inside the project folder.
     """
 
-    if dataset_root:
-        os.makedirs(dataset_root, exist_ok=True)
-        proj_folder = os.path.join(dataset_root, project_name)
-    else:
-        dt = datetime.now().strftime('%Y%m%d_%H%M%S')
-        proj_folder = os.path.join(build_dir, f"{project_name}_{dt}")
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base = dataset_root if dataset_root else build_dir
+    if base:
+        os.makedirs(base, exist_ok=True)
+    proj_folder = os.path.join(base, f"{project_name}_{ts}")
 
     os.makedirs(proj_folder, exist_ok=True)
     data_folder = os.path.join(proj_folder, 'data')
@@ -336,6 +335,13 @@ def _parse_offset_coordsys(wkt: str) -> str:
 
 
 def write_project_settings(settings_path: str, data: dict, data_folder: str) -> None:
+    """Write the Reality Mesh settings file for *data*.
+
+    ``data_folder`` is ensured to exist and used for the ``source_Directory``
+    setting.  The same path is also written under a ``[BiSimOneClickPath]``
+    section.
+    """
+
     defaults = OrderedDict([
         ("orthocam_Resolution", "0.05"),
         ("orthocam_Render_Lowest", "1"),
@@ -360,6 +366,7 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
 
     settings = OrderedDict()
     settings['project_name'] = f"{project_name} ({timestamp})"
+    os.makedirs(data_folder, exist_ok=True)
     settings['source_Directory'] = data_folder
     settings['offset_coordsys'] = _parse_offset_coordsys(wkt) + '(centerpointoforigin)'
     settings['offset_hdatum'] = 'WGS84'
@@ -372,6 +379,8 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
     with open(settings_path, 'w', encoding='utf-8') as f:
         for key, value in settings.items():
             f.write(f"{key}={value}\n")
+        f.write("\n[BiSimOneClickPath]\n")
+        f.write(f"path={data_folder}\n")
 
 
 def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None) -> None:

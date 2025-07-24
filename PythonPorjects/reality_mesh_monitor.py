@@ -60,6 +60,12 @@ def _parse_offset_coordsys(wkt: str) -> str:
 
 
 def write_project_settings(settings_path: str, data: dict, data_folder: str) -> None:
+    """Write settings for Reality Mesh processing.
+
+    Ensures ``data_folder`` exists and sets it as ``source_Directory`` while
+    also adding a ``[BiSimOneClickPath]`` section.
+    """
+
     defaults = OrderedDict([
         ("orthocam_Resolution", "0.05"),
         ("orthocam_Render_Lowest", "1"),
@@ -84,6 +90,7 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
 
     settings = OrderedDict()
     settings['project_name'] = f"{project_name} ({timestamp})"
+    os.makedirs(data_folder, exist_ok=True)
     settings['source_Directory'] = data_folder
     settings['offset_coordsys'] = _parse_offset_coordsys(wkt) + '(centerpointoforigin)'
     settings['offset_hdatum'] = 'WGS84'
@@ -96,6 +103,8 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
     with open(settings_path, 'w', encoding='utf-8') as f:
         for key, value in settings.items():
             f.write(f"{key}={value}\n")
+        f.write("\n[BiSimOneClickPath]\n")
+        f.write(f"path={data_folder}\n")
     print(f"Wrote settings file {settings_path}")
 
 
