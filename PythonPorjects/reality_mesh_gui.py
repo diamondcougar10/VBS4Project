@@ -10,6 +10,7 @@ import subprocess
 from datetime import datetime
 import re
 from collections import OrderedDict
+from STE_Toolkit import get_vbs4_install_path, get_vbs4_version
 
 
 def load_system_settings(path: str) -> dict:
@@ -23,6 +24,35 @@ def load_system_settings(path: str) -> dict:
                 key, value = line.split('=', 1)
                 settings[key.strip()] = value.strip()
     return settings
+
+
+def update_vbs4_settings(path: str) -> None:
+    """Update VBS4 path and version in *path* using configured settings."""
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe:
+        return
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    vbs4_version = get_vbs4_version(vbs4_exe)
+
+    lines = []
+    found_path = False
+    found_ver = False
+    if os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('override_Path_VBS4='):
+                    line = f'override_Path_VBS4={vbs4_dir}\n'
+                    found_path = True
+                elif line.startswith('vbs4_version='):
+                    line = f'vbs4_version={vbs4_version}\n'
+                    found_ver = True
+                lines.append(line)
+    if not found_path:
+        lines.append(f'override_Path_VBS4={vbs4_dir}\n')
+    if not found_ver:
+        lines.append(f'vbs4_version={vbs4_version}\n')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
 
 
 def wait_for_file(path: str, poll_interval: float = 5.0):
@@ -214,7 +244,9 @@ class RealityMeshGUI(tk.Tk):
         )
 
         # Ensure dataset root exists once on startup
-        settings = load_system_settings(os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt'))
+        sys_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
+        settings = load_system_settings(sys_settings)
+        update_vbs4_settings(sys_settings)
         ds_root = settings.get('dataset_root')
         if ds_root:
             os.makedirs(ds_root, exist_ok=True)
@@ -320,7 +352,9 @@ class RealityMeshGUI(tk.Tk):
                 data = json.load(f)
             project_name = data.get('project_name', 'project')
 
-            settings = load_system_settings(self.system_settings.get())
+            sys_set = self.system_settings.get()
+            settings = load_system_settings(sys_set)
+            update_vbs4_settings(sys_set)
             dataset_root = settings.get('dataset_root')
             proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
             self.log_msg(f'Created project folder {proj_folder}')
