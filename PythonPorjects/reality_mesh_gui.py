@@ -10,7 +10,11 @@ import subprocess
 from datetime import datetime
 import re
 from collections import OrderedDict
-from STE_Toolkit import get_vbs4_install_path, get_vbs4_version
+from STE_Toolkit import (
+    get_vbs4_install_path,
+    get_vbs4_version,
+    distribute_terrain,
+)
 
 
 def load_system_settings(path: str) -> dict:
@@ -384,21 +388,12 @@ class RealityMeshGUI(tk.Tk):
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Determine project name from the selected directory when possible.
-            # The previous logic attempted to grab the name only when the path
-            # contained a ``\Projects\`` segment which does not cover all
-            # installations.  Fall back to using the last folder of the
-            # selected path (or its parent when "Build_1" is chosen) before
-            # resorting to the value from the JSON file.
-            match = re.search(r'\\Projects\\([^\\]+)', build_root, re.IGNORECASE)
-            if match:
-                project_name = match.group(1)
-            else:
-                project_name = os.path.basename(os.path.normpath(build_root))
-                if project_name.lower() == 'build_1':
-                    project_name = os.path.basename(os.path.dirname(os.path.normpath(build_root)))
-                if not project_name:
-                    project_name = data.get('project_name', 'project')
+            # Extract the project name directly from the selected directory.
+            # This mirrors the logic used by the STE Toolkit post-processing
+            # button so the resulting dataset name matches the PhotoMesh
+            # project folder.
+            project_name = os.path.basename(os.path.normpath(build_root))
+            self.log_msg(f'Using project name: {project_name}')
 
             sys_set = self.system_settings.get()
             settings = {}
@@ -425,6 +420,8 @@ class RealityMeshGUI(tk.Tk):
                 lambda p: self.after(0, self.set_progress, p)
             )
             self.log_msg('Processing complete')
+
+            distribute_terrain(project_name, self.log_msg)
 
             kill_fusers()
             self.log_msg('PhotoMesh fusers closed')
