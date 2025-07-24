@@ -1294,6 +1294,20 @@ def set_default_browser():
     else:
         messagebox.showerror("Settings", "Invalid browser path selected.")
 
+# ─── One Click Dataset Helpers ─────────────────────────────────────────────
+
+def get_oneclick_output_path() -> str:
+    """Return the last One‑Click dataset folder path saved in config."""
+    return config.get('BiSimOneClickPath', 'path', fallback='')
+
+def set_oneclick_output_path(path: str) -> None:
+    """Save the provided dataset folder path to ``config.ini``."""
+    if 'BiSimOneClickPath' not in config:
+        config['BiSimOneClickPath'] = {}
+    config['BiSimOneClickPath']['path'] = path
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+
 # ======================== SETUP & CONFIGURATION ========================= #
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -2648,6 +2662,9 @@ class VBS4Panel(tk.Frame):
             write_project_settings(settings_path, data, data_folder)
             self.log_message(f"Wrote settings {settings_path}")
 
+            set_oneclick_output_path(proj_folder)
+            self.controller.panels['Settings'].update_oneclick_path_label()
+
             ps_script = os.path.join(BASE_DIR, 'RealityMeshProcessor.ps1')
             try:
                 run_processor(ps_script, settings_path, self.log_message)
@@ -2963,6 +2980,20 @@ class SettingsPanel(tk.Frame):
                                         anchor="w", width=50)
         self.lbl_vbs_license.pack(side="left", padx=10, fill="x", expand=True)
 
+        # One-Click Dataset Location
+        frame_ds = tk.Frame(self, bg=self["bg"])
+        frame_ds.pack(fill="x", pady=8, padx=20)
+        tk.Button(frame_ds, text="Set One-Click Output Folder",
+                  font=("Helvetica",20), bg="#444444", fg="white",
+                  command=self._on_set_oneclick) \
+          .pack(side="left", ipadx=10, ipady=5)
+        self.lbl_oneclick = tk.Label(frame_ds,
+                                     text=get_oneclick_output_path() or "[not set]",
+                                     font=("Helvetica",14),
+                                     bg="#222222", fg="white",
+                                     anchor="w", width=50)
+        self.lbl_oneclick.pack(side="left", padx=10, fill="x", expand=True)
+
         # Back
         tk.Button(self, text="Back",
                   font=("Helvetica",18), bg="red", fg="white",
@@ -3021,6 +3052,17 @@ class SettingsPanel(tk.Frame):
             messagebox.showinfo("Settings", f"VBS License Manager path set to:\n{path}")
         else:
             messagebox.showerror("Settings", "Invalid VBS License Manager path selected.")
+
+    def _on_set_oneclick(self):
+        path = filedialog.askdirectory(title="Select One-Click Output Folder")
+        if path:
+            set_oneclick_output_path(path)
+            self.lbl_oneclick.config(text=path)
+        else:
+            messagebox.showerror("Settings", "Invalid folder selected.")
+
+    def update_oneclick_path_label(self):
+        self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
 
     def _on_fullscreen_toggle(self):
      self.controller.toggle_fullscreen()

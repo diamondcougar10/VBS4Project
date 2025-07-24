@@ -46,5 +46,10 @@ dataset_root=C:\BiSim OneClick\Datasets
 the Reality Mesh process. The folder will be created automatically the first
 time the tool runs if it does not already exist.
 
+Once a project is processed, the toolkit saves the full path to the generated
+dataset under a `[BiSimOneClickPath]` section in `config.ini`. The Settings
+panel now exposes this path and allows manually browsing for a different
+output folder.
+
 Adjust these paths if your installers reside elsewhere or you need to reference
 additional tools like ModelExchanger.
