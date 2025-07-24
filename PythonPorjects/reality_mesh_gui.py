@@ -101,7 +101,27 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     return project_folder, data_folder
 
 
-def copy_tiles(build_dir: str, data_folder: str):
+def _copytree_progress(src: str, dst: str, progress_cb=None) -> None:
+    """Recursively copy *src* to *dst* reporting progress."""
+    files = []
+    for root, _, filenames in os.walk(src):
+        for f in filenames:
+            files.append(os.path.join(root, f))
+
+    total = len(files)
+    copied = 0
+    for root, _, filenames in os.walk(src):
+        rel = os.path.relpath(root, src)
+        dest_dir = os.path.join(dst, rel)
+        os.makedirs(dest_dir, exist_ok=True)
+        for f in filenames:
+            shutil.copy2(os.path.join(root, f), os.path.join(dest_dir, f))
+            copied += 1
+            if progress_cb and total:
+                progress_cb(int(copied / total * 100))
+
+
+def copy_tiles(build_dir: str, data_folder: str, progress_cb=None):
     """Copy raw tile data from *build_dir* into *data_folder*."""
     for name in ('Tiles', 'OBJ'):
         src = os.path.join(build_dir, name)
@@ -109,7 +129,7 @@ def copy_tiles(build_dir: str, data_folder: str):
             dst = os.path.join(data_folder, name)
             if os.path.exists(dst):
                 shutil.rmtree(dst)
-            shutil.copytree(src, dst)
+            _copytree_progress(src, dst, progress_cb)
             break
 
 
@@ -405,8 +425,13 @@ class RealityMeshGUI(tk.Tk):
             proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
             self.log_msg(f'Created project folder {proj_folder}')
 
-            copy_tiles(build_dir, data_folder)
+            copy_tiles(
+                build_dir,
+                data_folder,
+                lambda p: self.after(0, self.set_progress, p),
+            )
             self.log_msg('Copied raw tiles')
+            self.after(0, self.set_progress, 0)
 
             # Save the per-project settings using the "<name>-settings.txt" pattern
             settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
