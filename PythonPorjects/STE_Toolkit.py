@@ -287,6 +287,40 @@ def load_system_settings(path: str) -> dict:
     return settings
 
 
+def update_vbs4_settings(path: str) -> None:
+    """Ensure ``override_Path_VBS4`` and ``vbs4_version`` reflect the
+    configured VBS4 installation."""
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe:
+        logging.warning("VBS4 path could not be determined; settings not updated")
+        return
+
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    vbs4_version = get_vbs4_version(vbs4_exe)
+
+    lines = []
+    found_path = False
+    found_ver = False
+    if os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('override_Path_VBS4='):
+                    line = f'override_Path_VBS4={vbs4_dir}\n'
+                    found_path = True
+                elif line.startswith('vbs4_version='):
+                    line = f'vbs4_version={vbs4_version}\n'
+                    found_ver = True
+                lines.append(line)
+
+    if not found_path:
+        lines.append(f'override_Path_VBS4={vbs4_dir}\n')
+    if not found_ver:
+        lines.append(f'vbs4_version={vbs4_version}\n')
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+
+
 def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
     while not os.path.exists(path):
         time.sleep(poll_interval)
@@ -2600,8 +2634,10 @@ class VBS4Panel(tk.Frame):
                 data = json.load(f)
             project_name = data.get('project_name', 'project')
 
-            settings = load_system_settings(os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt'))
+            sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+            settings = load_system_settings(sys_settings_path)
             dataset_root = settings.get('dataset_root')
+            update_vbs4_settings(sys_settings_path)
             proj_folder, data_folder = create_project_folder(self.last_build_dir, project_name, dataset_root)
             self.log_message(f"Created project folder {proj_folder}")
 

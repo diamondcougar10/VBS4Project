@@ -1,11 +1,15 @@
-You will need to create a text file in this folder named RealityMeshSystemSettings.txt.  In it you will include the contents below, adjusted after the = signs to point to the appropriate values on your machine.
-These are just example values, you will want to configure everything to your specific machine.  This only needs created once.  The items below should be all that is in the file.  To note, 1 = true, 0 = false
+Create a text file in this folder named ``RealityMeshSystemSettings.txt``. The
+VBS4 path no longer needs to be edited manually – it will be updated
+automatically based on the toolkit configuration.  The remaining values are
+examples that can be tailored to your machine.  This file only needs to be
+created once.  To note, ``1`` = true, ``0`` = false.
 
 blender_path=C:\Program Files\Blender Foundation\Blender 4.5\blender.exe
 blender_threads=6
 override_Installation_VBS4=1
-override_Path_VBS4=F:\VBS4_24_2
-vbs4_version=VBS4_24_2
+# Path and version are injected automatically when the scripts run
+override_Path_VBS4=
+vbs4_version=
 override_Installation_DevSuite=0
 override_Path_DevSuite=P
 terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\bin\terratoolssh.exe
