@@ -2663,8 +2663,17 @@ class VBS4Panel(tk.Frame):
         if self.terrain_button.cget("text") == "Hide Terrain Options":
             self.toggle_terrain_buttons()
 
+        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        dataset_root = ''
+        try:
+            settings = load_system_settings(sys_settings_path)
+            dataset_root = settings.get('dataset_root', '')
+        except Exception:
+            pass
+
         if not self.last_build_dir:
-            path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self)
+            path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self,
+                                           initialdir=dataset_root or None)
             if not path:
                 return
             self.last_build_dir = path
