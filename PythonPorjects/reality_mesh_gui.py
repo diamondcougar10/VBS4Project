@@ -404,7 +404,8 @@ class RealityMeshGUI(tk.Tk):
             copy_tiles(build_dir, data_folder)
             self.log_msg('Copied raw tiles')
 
-            settings_path = os.path.join(proj_folder, f'{project_name}.txt')
+            # Save the per-project settings using the "<name>-settings.txt" pattern
+            settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
             write_project_settings(settings_path, data, data_folder)
             self.log_msg(f'Wrote settings {settings_path}')
 

@@ -2658,7 +2658,9 @@ class VBS4Panel(tk.Frame):
             copy_tiles(self.last_build_dir, data_folder)
             self.log_message("Copied raw tiles")
 
-            settings_path = os.path.join(proj_folder, f'{project_name}.txt')
+            # Use a consistent naming pattern for the project settings file
+            # when creating project folders during post processing
+            settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
             write_project_settings(settings_path, data, data_folder)
             self.log_message(f"Wrote settings {settings_path}")
 
