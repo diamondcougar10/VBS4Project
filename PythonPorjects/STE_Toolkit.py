@@ -1891,6 +1891,7 @@ class VBS4Panel(tk.Frame):
         super().__init__(parent)
         set_wallpaper(self)
         set_background(controller, self)
+        self.controller = controller
         controller.create_tutorial_button(self)
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
