@@ -2762,7 +2762,8 @@ class VBS4Panel(tk.Frame):
     def open_reality_mesh_gui(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         script_path = os.path.join(script_dir, 'RealityMeshStandalone.py')
-        subprocess.Popen(['python', script_path])
+        python_exe = sys.executable if sys.executable else 'python'
+        subprocess.Popen([python_exe, script_path])
 
     def log_message(self, message):
          self.log_text.config(state="normal")
