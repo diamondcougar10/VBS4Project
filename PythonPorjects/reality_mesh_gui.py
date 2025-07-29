@@ -15,6 +15,7 @@ from STE_Toolkit import (
     get_vbs4_version,
     distribute_terrain,
 )
+from post_process_utils import clean_project_settings
 
 
 def load_system_settings(path: str) -> dict:
@@ -439,6 +440,8 @@ class RealityMeshGUI(tk.Tk):
             settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
             write_project_settings(settings_path, data, data_folder)
             self.log_msg(f'Wrote settings {settings_path}')
+            settings_path = clean_project_settings(settings_path)
+            self.log_msg('Cleaned offset values')
 
             run_processor(
                 self.ps_script.get(),
