@@ -47,7 +47,7 @@ def parse_centerpivot_json(json_path: str, project_name: str) -> dict:
 
 
 def create_settings_file(info: dict, project_folder: str) -> str:
-    """Write the Reality Mesh settings file using *info*.
+    r"""Write the Reality Mesh settings file using *info*.
 
     A matching folder is created under ``C:\BiSim OneClick\Datasets`` and used
     for both the ``source_Directory`` value and a ``[BiSimOneClickPath]``
