@@ -32,10 +32,10 @@ if (!(Test-Path $system_settings))
 
 Write-Output "Project and System settings found"
 
-# Determine the location of the RealityMesh_tt template folder.  Prefer the
-# repository location used for production builds but fall back to the STE
-# Toolkit install path if needed.
-$RealityMeshTTPath = "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh\RealityMesh_tt"
+# Determine the location of the RealityMesh_tt template folder. Prefer the
+# copy distributed alongside this script. If that folder is not present,
+# fall back to the legacy STE Toolkit install path.
+$RealityMeshTTPath = Join-Path $PSScriptRoot 'RealityMesh_tt'
 $defaultRealityMeshTTPath = "C:\Program Files (x86)\STE Toolkit\RealityMesh_tt"
 if (!(Test-Path $RealityMeshTTPath)) {
     if (Test-Path $defaultRealityMeshTTPath) {
