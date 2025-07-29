@@ -16,11 +16,21 @@ if (-not (Test-Path $SettingsFile)) {
     exit 1
 }
 
-Write-Host "Launching RealityMeshProcess.tcl with settings from $SettingsFile" -ForegroundColor Cyan
-
-# Execute the TCL script using tclsh within the correct working directory
+# Ensure n33.tbr is present before running the main TCL script
 Push-Location $tclWorkingDir
 try {
+    $n33File = "n33.tbr"
+    if (-not (Test-Path $n33File)) {
+        Write-Host "n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl..." -ForegroundColor Yellow
+        & tclsh "TSG_TBR_to_Vertex_Points_Unique.tcl"
+    }
+
+    if (-not (Test-Path $n33File)) {
+        Write-Host "ERROR: Required file n33.tbr could not be created." -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host "Launching RealityMeshProcess.tcl with settings from $SettingsFile" -ForegroundColor Cyan
     Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
     Start-Sleep -Seconds 2
     & tclsh $tclScript -command_file "$SettingsFile"
