@@ -220,7 +220,19 @@ if ($AREYOUSURE -eq 'y') {
 	
 	$command_path = "..\..\ProjectSettings\GeneratedFiles_DoNotEdit\$project_name.txt"
 
-	robocopy RealityMesh_tt "Projects\$project_name"
+        # Copy the project template files from the repository location.
+        # Previously this expected the template folder to exist under the STE
+        # Toolkit installation directory.  Use the template bundled with this
+        # script instead to avoid relying on a fixed install path.
+        $templatePath = Join-Path $PSScriptRoot 'RealityMesh_tt'
+        $destinationPath = Join-Path $PSScriptRoot "Projects\$project_name"
+        if (Test-Path $templatePath) {
+                robocopy $templatePath $destinationPath
+        }
+        else {
+                Write-Output "Template folder not found at $templatePath"
+                Return
+        }
 	
 	Set-Location -Path "$PSScriptRoot\Projects\$project_name"
 	
