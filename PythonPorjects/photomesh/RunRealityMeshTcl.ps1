@@ -21,6 +21,8 @@ Write-Host "Launching RealityMeshProcess.tcl with settings from $SettingsFile" -
 # Execute the TCL script using tclsh within the correct working directory
 Push-Location $tclWorkingDir
 try {
+    Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
+    Start-Sleep -Seconds 2
     & tclsh $tclScript -command_file "$SettingsFile"
 } finally {
     Pop-Location
