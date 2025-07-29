@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import json
+import re
 from datetime import datetime
 
 
@@ -92,6 +93,32 @@ def run_powershell(ps_script: str, settings_file: str) -> None:
     print('Running:', ' '.join(cmd))
     subprocess.run(cmd, check=True)
     subprocess.run(['taskkill', '/IM', 'Fuser.exe', '/F'])
+
+
+def clean_project_settings(settings_path: str) -> str:
+    """Sanitize offset values in *settings_path*.
+
+    Any ``offset_x``, ``offset_y`` or ``offset_z`` lines will have everything
+    except the numeric portion removed so the RealityMesh TCL script receives
+    valid floating‑point numbers.  The cleaned file path is returned.
+    """
+    if not os.path.isfile(settings_path):
+        raise FileNotFoundError(settings_path)
+
+    lines: list[str] = []
+    with open(settings_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if line.startswith(('offset_x=', 'offset_y=', 'offset_z=')):
+                key, value = line.split('=', 1)
+                # Keep only digits, sign and decimal point
+                match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", value)
+                num = match.group(0) if match else '0'
+                line = f"{key}={num}\n"
+            lines.append(line)
+
+    with open(settings_path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+    return settings_path
 
 
 def distribute_to_installs(result_folder: str) -> None:

@@ -18,6 +18,7 @@ import re
 import socket
 import threading
 import shlex
+from post_process_utils import clean_project_settings
 from collections import OrderedDict
 import time
 import glob
@@ -2714,6 +2715,8 @@ class VBS4Panel(tk.Frame):
             settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
             write_project_settings(settings_path, data, data_folder)
             self.log_message(f"Wrote settings {settings_path}")
+            settings_path = clean_project_settings(settings_path)
+            self.log_message("Cleaned offset values")
 
             set_oneclick_output_path(proj_folder)
             self.controller.panels['Settings'].update_oneclick_path_label()
