@@ -2417,7 +2417,11 @@ class VBS4Panel(tk.Frame):
         folder_window.wait_window()
 
     def prompt_remote_fuser_details(self, ip):
-        remote_path = simpledialog.askstring("Remote Folder Path", f"Enter shared folder path on {ip} (e.g., \{ip}\SharedMeshDrive\WorkingFuser):", parent=self)
+        remote_path = simpledialog.askstring(
+            "Remote Folder Path",
+            fr"Enter shared folder path on {ip} (e.g., \\{ip}\SharedMeshDrive\WorkingFuser):",
+            parent=self,
+        )
         fuser_name = simpledialog.askstring("Fuser Name", f"Enter unique fuser name for {ip}:", parent=self)
         return remote_path, fuser_name
 
