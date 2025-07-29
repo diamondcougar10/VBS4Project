@@ -249,20 +249,38 @@ if ($AREYOUSURE -eq 'y') {
                 Return
         }
 	
-	Set-Location -Path "$PSScriptRoot\Projects\$project_name"
-	
-	Rename-Item -Path "RealityMeshProcess.ttp" -NewName "$project_name.ttp"
-	
-	"set sourceDir `"$source_Directory`" " | Out-File sourceDir.txt -Encoding Default
-	"set tileScheme `"$tile_scheme`" " | Out-File tileScheme.txt -Encoding Default
-	if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path $terratools_home_path)) {	
-		Write-Output "Using custom TERRATOOLS_HOME path at $terratools_home_path"
-		$env:TERRASIM_HOME = $terratools_home_path
-	}
-	$time = Measure-Command {
-		#& "$terratools_ssh_path" OneClick.tcl -command_file "$command_path"
-		Start-Process -FilePath "$terratools_ssh_path" -Wait -NoNewWindow -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
-	}
+        Set-Location -Path "$PSScriptRoot\Projects\$project_name"
+
+        Rename-Item -Path "RealityMeshProcess.ttp" -NewName "$project_name.ttp"
+
+        "set sourceDir `"$source_Directory`" " | Out-File sourceDir.txt -Encoding Default
+        "set tileScheme `"$tile_scheme`" " | Out-File tileScheme.txt -Encoding Default
+
+        # Ensure n33.tbr exists before running the main TCL script
+        $n33File = "n33.tbr"
+        if (-not (Test-Path $n33File)) {
+                Write-Host "n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl..." -ForegroundColor Yellow
+                & tclsh "TSG_TBR_to_Vertex_Points_Unique.tcl"
+        }
+
+        if (-not (Test-Path $n33File)) {
+                Write-Host "ERROR: Required file n33.tbr could not be created." -ForegroundColor Red
+                if ($fully_automate -eq 0) { Read-Host -Prompt "Press Enter to exit" }
+                return
+        }
+
+        if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path $terratools_home_path)) {
+                Write-Output "Using custom TERRATOOLS_HOME path at $terratools_home_path"
+                $env:TERRASIM_HOME = $terratools_home_path
+        }
+
+        Write-Host "Launching RealityMeshProcess.tcl with settings from $command_path" -ForegroundColor Cyan
+        Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
+        Start-Sleep -Seconds 2
+        $time = Measure-Command {
+                #& "$terratools_ssh_path" OneClick.tcl -command_file "$command_path"
+                Start-Process -FilePath "$terratools_ssh_path" -Wait -NoNewWindow -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
+        }
 	
 	$minutes = $time.TotalSeconds / 60 
 	Write-Output "`nTime to run TT project: $minutes minutes"
