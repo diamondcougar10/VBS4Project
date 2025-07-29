@@ -21,12 +21,16 @@ Push-Location $tclWorkingDir
 try {
     $n33File = "n33.tbr"
     if (-not (Test-Path $n33File)) {
-        Write-Host "n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl..." -ForegroundColor Yellow
-        & tclsh "TSG_TBR_to_Vertex_Points_Unique.tcl"
+        Write-Host "Generating missing n33.tbr with TSG_TBR_to_Vertex_Points_Unique.tcl..." -ForegroundColor Yellow
+        $genOutput = & tclsh "TSG_TBR_to_Vertex_Points_Unique.tcl" 2>&1
+        $exitCode = $LASTEXITCODE
+        $genOutput | ForEach-Object { Write-Host $_ }
     }
 
-    if (-not (Test-Path $n33File)) {
+    if (-not (Test-Path $n33File) -or $exitCode -ne 0) {
         Write-Host "ERROR: Required file n33.tbr could not be created." -ForegroundColor Red
+        Write-Host "Did TSG_TBR_to_Vertex_Points_Unique.tcl run without errors?" -ForegroundColor Red
+        Write-Host "Was it run in the correct directory?" -ForegroundColor Red
         exit 1
     }
 
@@ -37,3 +41,5 @@ try {
 } finally {
     Pop-Location
 }
+
+Read-Host -Prompt "Press Enter to exit"
