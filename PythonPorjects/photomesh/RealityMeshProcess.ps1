@@ -32,6 +32,20 @@ if (!(Test-Path $system_settings))
 
 Write-Output "Project and System settings found"
 
+# Determine the location of the RealityMesh_tt template folder. Prefer the
+# copy distributed alongside this script. If that folder is not present,
+# fall back to the legacy STE Toolkit install path.
+$RealityMeshTTPath = Join-Path $PSScriptRoot 'RealityMesh_tt'
+$defaultRealityMeshTTPath = "C:\Program Files (x86)\STE Toolkit\RealityMesh_tt"
+if (!(Test-Path $RealityMeshTTPath)) {
+    if (Test-Path $defaultRealityMeshTTPath) {
+        $RealityMeshTTPath = $defaultRealityMeshTTPath
+    } else {
+        Write-Error "RealityMesh_tt folder not found at '$RealityMeshTTPath' or '$defaultRealityMeshTTPath'"
+        return
+    }
+}
+
 #Project settings
 $project_name = (Get-Content "$project_settings_File" | Where-Object { $_ -match "^project_name=" }) -replace "project_name=", ""
 $source_Directory_temp = (Get-Content "$project_settings_File" | Where-Object { $_ -match "^source_Directory=" }) -replace "source_Directory=", ""
@@ -224,7 +238,8 @@ if ($AREYOUSURE -eq 'y') {
         # Previously this expected the template folder to exist under the STE
         # Toolkit installation directory.  Use the template bundled with this
         # script instead to avoid relying on a fixed install path.
-        $templatePath = Join-Path $PSScriptRoot 'RealityMesh_tt'
+        # Use the previously resolved RealityMesh template path
+        $templatePath = $RealityMeshTTPath
         $destinationPath = Join-Path $PSScriptRoot "Projects\$project_name"
         if (Test-Path $templatePath) {
                 robocopy $templatePath $destinationPath
