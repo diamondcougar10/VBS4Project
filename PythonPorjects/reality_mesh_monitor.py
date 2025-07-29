@@ -7,6 +7,7 @@ import subprocess
 from datetime import datetime
 from collections import OrderedDict
 from STE_Toolkit import get_vbs4_install_path, get_vbs4_version
+from post_process_utils import clean_project_settings
 
 
 def load_system_settings(path: str) -> dict:
@@ -178,6 +179,8 @@ def main() -> None:
     settings_filename = f"{project_name}_build1_{dt_str}.txt"
     settings_path = os.path.join(project_dir, settings_filename)
     write_project_settings(settings_path, data, data_folder)
+
+    settings_path = clean_project_settings(settings_path)
 
     run_processor(args.ps_script, settings_path)
 
