@@ -25,6 +25,11 @@ Launch it from the repository root with:
 python PythonPorjects/RealityMeshStandalone.py
 ```
 
+When running a packaged release created with PyInstaller, a
+`RealityMeshStandalone.exe` is located next to the main toolkit
+executable. The "Open Standalone Post-Processor" button now looks for
+this executable and launches it when available.
+
 Avoid hard‑coded absolute paths so the tool can be executed from any checkout location.
 The required `RealityMeshProcess.ps1` script and `RealityMeshSystemSettings.txt` file
 are bundled under `PythonPorjects/photomesh`. The GUI automatically points to

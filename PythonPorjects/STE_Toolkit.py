@@ -2817,7 +2817,20 @@ class VBS4Panel(tk.Frame):
     def open_reality_mesh_gui(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         script_path = os.path.join(script_dir, 'RealityMeshStandalone.py')
-        python_exe = sys.executable if sys.executable else 'python'
+
+        # When running from a PyInstaller build, sys.executable points to the
+        # bundled executable rather than the Python interpreter. Launching the
+        # script with this path would simply reopen the current application.
+        if getattr(sys, 'frozen', False):
+            exe_path = os.path.join(os.path.dirname(sys.executable),
+                                   'RealityMeshStandalone.exe')
+            if os.path.exists(exe_path):
+                subprocess.Popen([exe_path])
+                return
+            python_exe = 'python'
+        else:
+            python_exe = sys.executable if sys.executable else 'python'
+
         subprocess.Popen([python_exe, script_path])
 
     def log_message(self, message):
