@@ -2082,6 +2082,7 @@ class VBS4Panel(tk.Frame):
         ).pack(pady=20)
 
                # Log Window
+            # Log Window
         self.log_frame = tk.Frame(self, bg="#222222")
         self.log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
@@ -2097,23 +2098,29 @@ class VBS4Panel(tk.Frame):
         self.log_text.config(state="disabled")
 
         # Render progress bar
+        progress_frame = tk.Frame(self.log_frame, bg="#222222")
+        progress_frame.pack(fill="x", pady=(5, 0))
+
         self.progress_var = tk.IntVar(value=0)
         self.progress_bar = ttk.Progressbar(
-            self.log_frame,
+            progress_frame,
             variable=self.progress_var,
             maximum=100,
             orient="horizontal",
             mode="determinate",
         )
-        self.progress_bar.pack(fill="x", pady=(5, 0))
+        self.progress_bar.pack(side="left", fill="x", expand=True)
+
         self.progress_label = tk.Label(
-            self.log_frame,
+            progress_frame,
             text="0%",
             font=("Helvetica", 12),
             bg="#222222",
             fg="white",
+            width=5,
         )
-        self.progress_label.pack(anchor="e")
+        self.progress_label.pack(side="right", padx=(5, 0))
+
         self.progress_job = None
         self.project_log_folder = None
         self.work_folder = None
@@ -2128,6 +2135,12 @@ class VBS4Panel(tk.Frame):
             bg="#555", fg="white"
         )
         self.toggle_log_button.pack(side="left")
+
+        tk.Button(
+            button_frame, text="Clear Log",
+            command=self.clear_log,
+            bg="#555", fg="white"
+        ).pack(side="right")
 
         tk.Button(
             button_frame, text="Clear Log",
