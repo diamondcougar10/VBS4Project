@@ -2921,6 +2921,10 @@ class VBS4Panel(tk.Frame):
         self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
         self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
         self.last_build_dir = os.path.join(project_path, "Build_1", "out")
+        # Ensure the progress bar width fits within the log panel. On some
+        # systems the default width causes the bar to extend slightly beyond
+        # the window bounds, so explicitly size it a bit smaller.
+        self.progress_bar.config(length=500)
         self.progress_var.set(0)
         self.progress_label.config(text="0%")
         if self.progress_job:
