@@ -286,10 +286,15 @@ if ($AREYOUSURE -eq 'y') {
                 Start-Process -FilePath "$terratools_ssh_path" -Wait -NoNewWindow -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
         }
 	
-	$minutes = $time.TotalSeconds / 60 
-	Write-Output "`nTime to run TT project: $minutes minutes"
-	
-	"Time to run TT project: $minutes minutes" | Out-File TimingLog.txt -Encoding Default
+        $minutes = $time.TotalSeconds / 60
+        Write-Output "`nTime to run TT project: $minutes minutes"
+
+        "Time to run TT project: $minutes minutes" | Out-File TimingLog.txt -Encoding Default
+
+        # Signal completion for remote monitors
+        $doneFile = Join-Path $out_in_name_with_drive 'DONE.txt'
+        New-Item -ItemType File -Path $doneFile -Force | Out-Null
+        Write-Output "Created $doneFile"
 } 
 else 
 {

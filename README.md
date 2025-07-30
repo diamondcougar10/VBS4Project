@@ -7,11 +7,12 @@ This repository contains automation scripts for processing PhotoMesh builds and 
 2. **Create `/Data` Folder and Copy OBJs** – The entire OBJ directory is copied into `Data/OBJ` inside the new project folder.
 3. **Create Project Settings File** – A text file next to `Data` stores project metadata and configuration for the `RealityMeshProcess.ps1` script.
 4. **(Optional) Split Mesh into 4 Sub‑Projects** – If implemented, the mesh can be divided into four regions for parallel processing.
-5. **Trigger Reality Mesh PowerShell Script** – `RealityMeshProcess.ps1` is executed with the settings file to build the VBS4 terrain package.
-6. **Done Message and Log File** – Processing progress is logged and a completion message is displayed.
-7. **Progress Bar** – The GUI now shows a status bar indicating processing percentage while the Reality Mesh script runs.
-8. **Copy Output to All VBS4 Install Locations** – Generated terrain is replicated to all configured VBS4 installations as defined in `distribution_paths.json`.
-9. **Close PhotoMesh Fuser Processes** – All running `Fuser.exe` instances are terminated.
+5. **Trigger Reality Mesh PowerShell Script** – `Invoke-RemoteRealityMesh.ps1` launches `RealityMeshProcess.ps1` on a remote workstation via PowerShell Remoting.
+6. **Monitor for `DONE.txt`** – The script waits for a `DONE.txt` flag in the shared output directory then copies the finished project back to the local results folder.
+7. **Done Message and Log File** – Processing progress is logged and a completion message is displayed.
+8. **Progress Bar** – The GUI now shows a status bar indicating processing percentage while the Reality Mesh script runs.
+9. **Copy Output to All VBS4 Install Locations** – Generated terrain is replicated to all configured VBS4 installations as defined in `distribution_paths.json`.
+10. **Close PhotoMesh Fuser Processes** – All running `Fuser.exe` instances are terminated.
 
 The `distribution_paths.json` file lists remote VBS4 install paths. Update it with UNC paths to ensure terrain packages are synchronized across machines.
 
