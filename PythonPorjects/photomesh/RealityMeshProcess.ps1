@@ -281,11 +281,20 @@ if ($AREYOUSURE -eq 'y') {
         Write-Host "Launching RealityMeshProcess.tcl with settings from $command_path" -ForegroundColor Cyan
         Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
         Start-Sleep -Seconds 2
-        $time = Measure-Command {
-                #& "$terratools_ssh_path" OneClick.tcl -command_file "$command_path"
-                Start-Process -FilePath "$terratools_ssh_path" -Wait -NoNewWindow -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
+
+        $startTime = Get-Date
+        $proc = Start-Process -FilePath "$terratools_ssh_path" -NoNewWindow -PassThru -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
+        $spinner = '/-\|'
+        $i = 0
+        while (-not $proc.HasExited) {
+                $char = $spinner[$i % $spinner.Length]
+                Write-Host -NoNewline "`r$char Processing..."
+                Start-Sleep -Seconds 1
+                $i++
         }
-	
+        $proc.WaitForExit()
+        Write-Host "`rProcessing complete.             "
+        $time = (Get-Date) - $startTime
         $minutes = $time.TotalSeconds / 60
         Write-Output "`nTime to run TT project: $minutes minutes"
 
