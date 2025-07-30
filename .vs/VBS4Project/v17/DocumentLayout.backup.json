@@ -3,6 +3,14 @@
   "WorkspaceRootPath": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\RealityMeshProcess.ps1||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\photomesh\\RealityMeshProcess.ps1||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\RealityMeshSystemSettings.txt||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\photomesh\\RealityMeshSystemSettings.txt||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py||{8B382828-6202-11D1-8870-0000F87579D2}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\STE_Toolkit.py||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
@@ -18,20 +26,46 @@
       "DocumentGroups": [
         {
           "DockedWidth": 316,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 3,
               "Title": "config.ini",
               "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini",
               "RelativeDocumentMoniker": "PythonPorjects\\config.ini",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini",
               "RelativeToolTip": "PythonPorjects\\config.ini",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABIAAAAIAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAANAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002768|",
               "WhenOpened": "2025-05-23T18:05:52.943Z",
               "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "RealityMeshProcess.ps1",
+              "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\RealityMeshProcess.ps1",
+              "RelativeDocumentMoniker": "PythonPorjects\\photomesh\\RealityMeshProcess.ps1",
+              "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\RealityMeshProcess.ps1",
+              "RelativeToolTip": "PythonPorjects\\photomesh\\RealityMeshProcess.ps1",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAB4AAAAiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2025-07-30T18:51:05.688Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "RealityMeshSystemSettings.txt",
+              "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\RealityMeshSystemSettings.txt",
+              "RelativeDocumentMoniker": "PythonPorjects\\photomesh\\RealityMeshSystemSettings.txt",
+              "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\RealityMeshSystemSettings.txt",
+              "RelativeToolTip": "PythonPorjects\\photomesh\\RealityMeshSystemSettings.txt",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAnAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
+              "WhenOpened": "2025-07-30T18:50:46.408Z",
               "EditorCaption": ""
             },
             {
@@ -40,13 +74,13 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "STE_Toolkit.py",
               "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py",
               "RelativeDocumentMoniker": "PythonPorjects\\STE_Toolkit.py",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py",
               "RelativeToolTip": "PythonPorjects\\STE_Toolkit.py",
-              "ViewState": "AgIAAEcKAAAAAAAAAAAAAE4KAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAKoJAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-05-21T02:02:53.492Z",
               "EditorCaption": ""
