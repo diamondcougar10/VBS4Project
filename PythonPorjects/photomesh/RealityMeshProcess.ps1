@@ -3,7 +3,7 @@ $project_settings_File = $args[0]
 $fully_automate = $args[1]
 
 # Base shared drive accessible by both the calling and remote machines
-$sharedRoot = "\\\SharedDrive\PhotoMesh"
+$sharedRoot = "\\\SharedMeshDrive\RealityMesh"
 $inputRoot = Join-Path $sharedRoot 'Input'
 $outputRoot = Join-Path $sharedRoot 'Output'
 
