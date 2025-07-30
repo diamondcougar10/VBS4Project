@@ -2,6 +2,11 @@
 $project_settings_File = $args[0]
 $fully_automate = $args[1]
 
+# Base shared drive accessible by both the calling and remote machines
+$sharedRoot = "\\\SharedDrive\PhotoMesh"
+$inputRoot = Join-Path $sharedRoot 'Input'
+$outputRoot = Join-Path $sharedRoot 'Output'
+
 if ([string]::IsNullOrEmpty($project_settings_File))
 {
 	$project_settings_File = Read-Host -Prompt "Enter absolute path to project settings file"
@@ -130,7 +135,7 @@ if ($AREYOUSURE -eq 'y') {
 	
 	if ($fully_automate -eq 0) 
 	{
-		if (Test-Path "$PSScriptRoot\Projects\$project_name")
+                if (Test-Path (Join-Path $inputRoot $project_name))
 		{
 			$newName = Read-Host -Prompt "$project_name already exists in projects folder.  Do you want to rename the project(a)?  Or cancel the process(b)?  (a/b)? "
 			if ($newName -eq 'a') {
@@ -143,7 +148,7 @@ if ($AREYOUSURE -eq 'y') {
 		}
 	}
 	else {
-		if (Test-Path "$PSScriptRoot\Projects\$project_name")
+                if (Test-Path (Join-Path $inputRoot $project_name))
 		{
 			$timestamp = Get-Date -UFormat "%D_%T" | ForEach-Object { $_ -replace ":", "_" } | ForEach-Object { $_ -replace "/", "-" }
 			$tempPath = ($project_name + "_" + $timestamp)
@@ -180,25 +185,24 @@ if ($AREYOUSURE -eq 'y') {
 		Write-Output "Cleaned files before creating new ones"
 	}	
 
-	#Delete existing settings and create new file
-	$generated_settings_file = "$PSScriptRoot\ProjectSettings\GeneratedFiles_DoNotEdit\$project_name.txt"
-	if ((Test-Path $generated_settings_file)) {
-		Remove-Item -Path $generated_settings_file
-	}
+        #Delete existing settings and create new file in the shared Input folder
+        $projectFolder = Join-Path $inputRoot $project_name
+        New-Item -ItemType Directory -Path $projectFolder -Force | Out-Null
+
+        $generated_settings_file = Join-Path $projectFolder "$project_name.txt"
+        if ((Test-Path $generated_settings_file)) {
+                Remove-Item -Path $generated_settings_file
+        }
 	
 	$override_Installation_VBS4_bool = "false"
 	if ($override_Installation_VBS4 -eq 1) {
 		$override_Installation_VBS4_bool = "true"
 	}
 
-	$out_in_name = "$project_name"
-	$out_in_name_with_drive = ""
-	if ($override_Installation_DevSuite -eq 1) {
-		$out_in_name_with_drive = "${override_Path_DevSuite}:\temp\RealityMesh\$project_name"
-	}
-	else {
-		$out_in_name_with_drive = "P:\temp\RealityMesh\$project_name"
-	}
+        $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $out_in_name = "$project_name"
+        $out_in_name_with_drive = Join-Path $outputRoot "${project_name}_$timestamp"
+        New-Item -ItemType Directory -Path $out_in_name_with_drive -Force | Out-Null
 	
 	New-Item -Path $generated_settings_file -ItemType File
 	Add-Content -Path $generated_settings_file -Value "set name {$project_name}"
@@ -232,7 +236,7 @@ if ($AREYOUSURE -eq 'y') {
 	Add-Content -Path $generated_settings_file -Value "set tileSize {$tileSize}"
 	Add-Content -Path $generated_settings_file -Value "set srfResolution {$srfResolution}"
 	
-	$command_path = "..\..\ProjectSettings\GeneratedFiles_DoNotEdit\$project_name.txt"
+        $command_path = $generated_settings_file
 
         # Copy the project template files from the repository location.
         # Previously this expected the template folder to exist under the STE
@@ -240,7 +244,7 @@ if ($AREYOUSURE -eq 'y') {
         # script instead to avoid relying on a fixed install path.
         # Use the previously resolved RealityMesh template path
         $templatePath = $RealityMeshTTPath
-        $destinationPath = Join-Path $PSScriptRoot "Projects\$project_name"
+        $destinationPath = $projectFolder
         if (Test-Path $templatePath) {
                 robocopy $templatePath $destinationPath
         }
@@ -249,7 +253,7 @@ if ($AREYOUSURE -eq 'y') {
                 Return
         }
 	
-        Set-Location -Path "$PSScriptRoot\Projects\$project_name"
+        Set-Location -Path $destinationPath
 
         Rename-Item -Path "RealityMeshProcess.ttp" -NewName "$project_name.ttp"
 
