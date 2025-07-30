@@ -2537,22 +2537,28 @@ class VBS4Panel(tk.Frame):
                 folder_listbox.delete(index)
 
         def finish_selection():
+            """Finalize folder choice if at least one folder was added."""
             if not folders:
                 messagebox.showwarning(
                     "No Selection", "No folder selected.", parent=folder_window
                 )
-            else:
-                norm_folders = [os.path.normpath(f) for f in folders]
-                self.image_folder_paths = norm_folders
-                self.image_folder_path = ";".join(norm_folders)
-                messagebox.showinfo(
-                    "Imagery Selected",
-                    "Selected imagery folders:\n" + "\n".join(norm_folders),
-                    parent=folder_window,
-                )
-                self.log_message("Selected imagery folders:")
-                for folder in norm_folders:
-                    self.log_message(f" - {folder}")
+                return
+
+            norm_folders = [os.path.normpath(f) for f in folders]
+            self.image_folder_paths = norm_folders
+            self.image_folder_path = ";".join(norm_folders)
+            messagebox.showinfo(
+                "Imagery Selected",
+                "Selected imagery folders:\n" + "\n".join(norm_folders),
+                parent=folder_window,
+            )
+            self.log_message("Selected imagery folders:")
+            for folder in norm_folders:
+                self.log_message(f" - {folder}")
+            folder_window.destroy()
+
+        def cancel_selection():
+            """Close the imagery selection window without saving."""
             folder_window.destroy()
 
         # --- Button Frame ---
@@ -2576,6 +2582,7 @@ class VBS4Panel(tk.Frame):
         styled_btn("➕ Add Folder", add_folder).pack(side=tk.LEFT, padx=10)
         styled_btn("❌ Remove Selected", remove_folder).pack(side=tk.LEFT, padx=10)
         styled_btn("✅ Finish", finish_selection).pack(side=tk.LEFT, padx=10)
+        styled_btn("Cancel", cancel_selection).pack(side=tk.LEFT, padx=10)
 
         folder_window.wait_window()
 
