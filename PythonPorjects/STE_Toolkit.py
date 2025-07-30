@@ -2083,7 +2083,7 @@ class VBS4Panel(tk.Frame):
 
                # Log Window
         self.log_frame = tk.Frame(self, bg="#222222")
-        self.log_frame.pack(fill="x", padx=10, pady=(5, 10))
+        self.log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         tk.Label(
             self.log_frame, text="Activity Log",
@@ -2092,7 +2092,7 @@ class VBS4Panel(tk.Frame):
         ).pack(anchor="w")
 
         self.log_text = tk.Text(self.log_frame, height=3, bg="black", fg="lime", wrap="word")
-        self.log_text.pack(fill="x")
+        self.log_text.pack(fill="both", expand=True)
         self.log_expanded = False
         self.log_text.config(state="disabled")
 
@@ -2921,10 +2921,7 @@ class VBS4Panel(tk.Frame):
         self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
         self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
         self.last_build_dir = os.path.join(project_path, "Build_1", "out")
-        # Ensure the progress bar width fits within the log panel. On some
-        # systems the default width causes the bar to extend slightly beyond
-        # the window bounds, so explicitly size it a bit smaller.
-        self.progress_bar.config(length=500)
+        # Reset progress indicators
         self.progress_var.set(0)
         self.progress_label.config(text="0%")
         if self.progress_job:
