@@ -855,11 +855,21 @@ exit /b 0
     return BVI_BAT
 
 def get_image_folders_recursively(base_folder):
-    """Return all subfolders within *base_folder* that contain image files."""
+    """Return all subfolders within *base_folder* that contain image files.
+
+    ``os.walk`` preserves whatever path separators the caller provides. When a
+    user enters a path with forward slashes on Windows this can result in mixed
+    ``/`` and ``\`` in the returned folder names. Normalizing both the base
+    folder and discovered paths ensures consistent separators.
+    """
+
+    base_folder = os.path.normpath(base_folder)
     image_folders = []
     for root, dirs, files in os.walk(base_folder):
-        if any(file.lower().endswith(
-            (".jpg", ".jpeg", ".png", ".tif", ".tiff")) for file in files
+        root = os.path.normpath(root)
+        if any(
+            file.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff"))
+            for file in files
         ):
             image_folders.append(root)
     return image_folders
@@ -2393,14 +2403,16 @@ class VBS4Panel(tk.Frame):
                 parent=folder_window,
             )
             if path and os.path.exists(path):
-                found = get_image_folders_recursively(path)
+                norm = os.path.normpath(path)
+                found = get_image_folders_recursively(norm)
                 folders.extend(found)
             else:
                 selected = filedialog.askdirectory(
                     title="Select DCIM or base imagery folder", parent=folder_window
                 )
                 if selected:
-                    found = get_image_folders_recursively(selected)
+                    norm = os.path.normpath(selected)
+                    found = get_image_folders_recursively(norm)
                     folders.extend(found)
 
             # Update listbox
@@ -2420,15 +2432,16 @@ class VBS4Panel(tk.Frame):
                     "No Selection", "No folder selected.", parent=folder_window
                 )
             else:
-                self.image_folder_paths = folders
-                self.image_folder_path = ";".join(folders)
+                norm_folders = [os.path.normpath(f) for f in folders]
+                self.image_folder_paths = norm_folders
+                self.image_folder_path = ";".join(norm_folders)
                 messagebox.showinfo(
                     "Imagery Selected",
-                    "Selected imagery folders:\n" + "\n".join(folders),
+                    "Selected imagery folders:\n" + "\n".join(norm_folders),
                     parent=folder_window,
                 )
                 self.log_message("Selected imagery folders:")
-                for folder in folders:
+                for folder in norm_folders:
                     self.log_message(f" - {folder}")
             folder_window.destroy()
 
