@@ -40,7 +40,10 @@ try {
     Write-Host "Launching RealityMeshProcess.ps1 on $TargetIP" -ForegroundColor Cyan
     Invoke-Command -Session $session -ScriptBlock {
         param($script, $settings)
-        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `\"$script`\" `\"$settings`\"" -NoNewWindow
+        # Show a visible command window on the remote machine with a status
+        # message so users know processing is running.
+        $args = "/c start cmd /k \"echo RealityMeshProcess in progress do not turn off pc && powershell -ExecutionPolicy Bypass -File `"$script`" `"$settings`"\""
+        Start-Process -FilePath cmd.exe -ArgumentList $args
     } -ArgumentList $scriptPath, $remoteSettings
 }
 finally {
