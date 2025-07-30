@@ -2093,6 +2093,7 @@ class VBS4Panel(tk.Frame):
 
         self.log_text = tk.Text(self.log_frame, height=3, bg="black", fg="lime", wrap="word")
         self.log_text.pack(fill="x")
+        self.log_expanded = False
         self.log_text.config(state="disabled")
 
         # Render progress bar
@@ -2118,11 +2119,21 @@ class VBS4Panel(tk.Frame):
         self.work_folder = None
         self.last_build_dir = None
 
-        tk.Button(
-            self.log_frame, text="Clear Log",
-            command=lambda: self.clear_log(),
+        button_frame = tk.Frame(self.log_frame, bg="#222222")
+        button_frame.pack(fill="x", pady=5)
+
+        self.toggle_log_button = tk.Button(
+            button_frame, text="Expand Log",
+            command=self.toggle_log,
             bg="#555", fg="white"
-        ).pack(pady=5, anchor="e")
+        )
+        self.toggle_log_button.pack(side="left")
+
+        tk.Button(
+            button_frame, text="Clear Log",
+            command=self.clear_log,
+            bg="#555", fg="white"
+        ).pack(side="right")
 
     def create_blueig_button(self):
         # Clear out any existing widgets
@@ -2887,6 +2898,16 @@ class VBS4Panel(tk.Frame):
         self.log_text.config(state="normal")
         self.log_text.delete(1.0, tk.END)
         self.log_text.config(state="disabled")
+
+    def toggle_log(self):
+        if self.log_expanded:
+            self.log_text.config(height=3)
+            self.toggle_log_button.config(text="Expand Log")
+            self.log_expanded = False
+        else:
+            self.log_text.config(height=15)
+            self.toggle_log_button.config(text="Collapse Log")
+            self.log_expanded = True
 
     def set_progress(self, value: int):
         self.progress_var.set(value)
