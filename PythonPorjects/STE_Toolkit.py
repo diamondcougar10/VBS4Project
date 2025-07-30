@@ -22,6 +22,9 @@ from post_process_utils import clean_project_settings
 from collections import OrderedDict
 import time
 import glob
+import tempfile
+import msvcrt
+import atexit
 import win32api, ctypes
 import win32con
 import win32gui
@@ -45,6 +48,34 @@ logging.basicConfig(
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+_lock_file = None
+
+def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
+    """Prevent multiple instances by locking a file in the temp directory."""
+    global _lock_file
+    lock_path = os.path.join(tempfile.gettempdir(), name)
+    try:
+        _lock_file = open(lock_path, 'w')
+        msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        if _lock_file:
+            _lock_file.close()
+            _lock_file = None
+        return False
+    atexit.register(release_singleton)
+    return True
+
+
+def release_singleton() -> None:
+    global _lock_file
+    if _lock_file:
+        try:
+            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        _lock_file.close()
+        _lock_file = None
 
 def run_in_thread(target, *args, **kwargs):
     """Run *target* in a background daemon thread."""
@@ -3495,6 +3526,9 @@ def start_command_server(port: int = 9100) -> None:
     thread.start()
 
 if __name__ == "__main__":
+    if not acquire_singleton():
+        print("STE Toolkit is already running.")
+        sys.exit(0)
     start_command_server()
     app = MainApp()
     if config['Fusers'].getboolean('fuser_computer', False):
