@@ -50,7 +50,7 @@ logging.basicConfig(
 )
 
 _lock_file = None
-
+#------------SINGLETON DEF------------------------------------------------------
 def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
     """Prevent multiple instances by locking a file in the temp directory."""
     global _lock_file
