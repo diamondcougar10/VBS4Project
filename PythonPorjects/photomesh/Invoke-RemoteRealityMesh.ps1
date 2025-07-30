@@ -8,7 +8,7 @@ param(
 )
 
 # Shared drive used by both machines
-$sharedRoot = "\\\SharedDrive\PhotoMesh"
+$sharedRoot = "\\\SharedMeshDrive\RealityMesh"
 $inputRoot = Join-Path $sharedRoot 'Input'
 $outputRoot = Join-Path $sharedRoot 'Output'
 
