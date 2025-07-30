@@ -54,3 +54,12 @@ output folder.
 
 Adjust these paths if your installers reside elsewhere or you need to reference
 additional tools like ModelExchanger.
+
+### Remote Processing
+
+Enter the destination workstation's IP address in the **Remote Host** field of
+the GUI to offload processing. When a remote host is provided the toolkit calls
+`Invoke-RemoteRealityMesh.ps1` which launches `RealityMeshProcess.ps1` on the
+remote machine and copies the finished dataset back to the results folder.
+The "Post-Process Last Build" button prompts for a remote host similarly when
+launched from the main STE Toolkit.
