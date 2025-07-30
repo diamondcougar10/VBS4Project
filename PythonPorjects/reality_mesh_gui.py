@@ -230,6 +230,30 @@ def run_processor(ps_script: str, settings_path: str, log_fn, progress_cb):
             raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
+def run_remote_processor(ps_script: str, target_ip: str, settings_path: str, log_fn, progress_cb):
+    """Launch *ps_script* on *target_ip* passing it *settings_path*."""
+    if not os.path.isfile(ps_script):
+        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
+    cmd = [
+        'powershell',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ps_script,
+        target_ip,
+        settings_path,
+    ]
+    log_fn('Running: ' + ' '.join(cmd))
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+        for line in proc.stdout:
+            line = line.rstrip()
+            log_fn(line)
+            percent = extract_progress(line)
+            if percent is not None:
+                progress_cb(percent)
+        proc.wait()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+
 def kill_fusers():
     exe = 'Fuser.exe'
     if os.name == 'nt':
@@ -283,11 +307,14 @@ class RealityMeshGUI(tk.Tk):
         # specific folder layout.
         self.system_settings = tk.StringVar(value='')
         self.ps_script = tk.StringVar(value='')
+        self.remote_host = tk.StringVar(value='')
+        self.invoke_script = os.path.join(photomesh_dir, 'Invoke-RemoteRealityMesh.ps1')
 
         # When a default settings file is bundled with the application, placing
         # it next to this script allows the GUI to locate it automatically.
         default_settings = os.path.join(photomesh_dir, 'RealityMeshSystemSettings.txt')
         default_ps = os.path.join(photomesh_dir, 'RealityMeshProcess.ps1')
+        default_invoke = os.path.join(photomesh_dir, 'Invoke-RemoteRealityMesh.ps1')
 
         self.dataset_root = ''
         if os.path.isfile(default_settings) and not self.system_settings.get():
@@ -304,6 +331,8 @@ class RealityMeshGUI(tk.Tk):
 
         if os.path.isfile(default_ps) and not self.ps_script.get():
             self.ps_script.set(default_ps)
+        if os.path.isfile(default_invoke):
+            self.invoke_script = default_invoke
 
         self.create_widgets()
 
@@ -348,6 +377,14 @@ class RealityMeshGUI(tk.Tk):
         ToolTip(lbl_ps, 'RealityMeshProcess.ps1 script used for processing.')
         ToolTip(ent_ps, 'Path to the processing PowerShell script.')
         ToolTip(btn_ps, 'Locate the RealityMesh PowerShell script.')
+        row += 1
+
+        lbl_remote = tk.Label(self, text='Remote Host (optional):')
+        lbl_remote.grid(row=row, column=0, sticky='w')
+        ent_remote = tk.Entry(self, textvariable=self.remote_host, width=50)
+        ent_remote.grid(row=row, column=1, sticky='we')
+        ToolTip(lbl_remote, 'Hostname or IP for remote processing.')
+        ToolTip(ent_remote, 'Leave blank to run locally.')
         row += 1
 
         btn_start = tk.Button(self, text='Start', command=self.start_process)
@@ -443,12 +480,21 @@ class RealityMeshGUI(tk.Tk):
             settings_path = clean_project_settings(settings_path)
             self.log_msg('Cleaned offset values')
 
-            run_processor(
-                self.ps_script.get(),
-                settings_path,
-                self.log_msg,
-                lambda p: self.after(0, self.set_progress, p)
-            )
+            if self.remote_host.get():
+                run_remote_processor(
+                    self.invoke_script,
+                    self.remote_host.get(),
+                    settings_path,
+                    self.log_msg,
+                    lambda p: self.after(0, self.set_progress, p)
+                )
+            else:
+                run_processor(
+                    self.ps_script.get(),
+                    settings_path,
+                    self.log_msg,
+                    lambda p: self.after(0, self.set_progress, p)
+                )
             self.log_msg('Processing complete')
 
             distribute_terrain(project_name, self.log_msg)
