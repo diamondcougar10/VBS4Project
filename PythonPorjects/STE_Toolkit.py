@@ -1584,6 +1584,61 @@ def prompt_hostname(parent, initial=""):
     parent.wait_window(top)
     return result["value"]
 
+def prompt_project_name(parent):
+    """Prompt for a PhotoMesh project name with validation."""
+    top = tk.Toplevel(parent)
+    apply_app_icon(top)
+    top.title("Project Name")
+    top.resizable(False, False)
+    top.geometry("801x506")
+    top.transient(parent)
+    top.grab_set()
+
+    if os.path.exists(prompt_box_image_path):
+        img = Image.open(prompt_box_image_path).resize((801, 506), Image.Resampling.LANCZOS)
+        ph = ImageTk.PhotoImage(img)
+        lbl = tk.Label(top, image=ph)
+        lbl.image = ph
+        lbl.place(relwidth=1, relheight=1)
+    else:
+        top.configure(bg="#333333")
+
+    var = tk.StringVar()
+
+    tk.Label(
+        top,
+        text="Enter PhotoMesh project name",
+        font=("Helvetica", 18, "bold"),
+        bg="#333333",
+        fg="white",
+    ).place(relx=0.5, rely=0.37, anchor="center")
+
+    entry = tk.Entry(top, textvariable=var, font=("Helvetica", 20))
+    entry.place(relx=0.5, rely=0.45, anchor="center", width=400)
+
+    result = {"value": None}
+
+    def on_ok():
+        result["value"] = var.get().strip()
+        top.destroy()
+
+    def on_cancel():
+        top.destroy()
+
+    ok_btn = tk.Button(top, text="OK", command=on_ok, font=("Helvetica", 16), state="disabled")
+    ok_btn.place(relx=0.4, rely=0.7, anchor="center")
+    tk.Button(top, text="Cancel", command=on_cancel, font=("Helvetica", 16)).place(relx=0.6, rely=0.7, anchor="center")
+
+    def validate(*_):
+        ok_btn.config(state="normal" if var.get().strip() else "disabled")
+
+    var.trace_add("write", validate)
+
+    entry.focus()
+    validate()
+    parent.wait_window(top)
+    return result["value"]
+
 # ─── MAINMENU PANEL ────────────────────────────────────────
 class MainApp(tk.Tk):
     def __init__(self):
@@ -2673,7 +2728,7 @@ class VBS4Panel(tk.Frame):
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
                 return
 
-        project_name = simpledialog.askstring("Project Name", "Enter a name for the PhotoMesh project:", parent=self)
+        project_name = prompt_project_name(self)
         if not project_name:
             messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
             return
