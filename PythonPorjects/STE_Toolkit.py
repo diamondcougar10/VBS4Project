@@ -468,6 +468,37 @@ def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None)
     subprocess.run(batch_path, check=True)
 
 
+def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
+                         log_func=lambda msg: None,
+                         progress_cb=lambda p: None) -> None:
+    """Execute *ps_script* on *target_ip* passing it *settings_path*.
+
+    Output from the PowerShell process is streamed back and parsed for
+    progress updates using :func:`extract_progress`.
+    """
+    if not os.path.isfile(ps_script):
+        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
+    cmd = [
+        'powershell',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ps_script,
+        target_ip,
+        settings_path,
+    ]
+    log_func('Running: ' + ' '.join(cmd))
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True) as proc:
+        for line in proc.stdout:
+            line = line.rstrip()
+            log_func(line)
+            percent = extract_progress(line)
+            if percent is not None:
+                progress_cb(percent)
+        proc.wait()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+
 def get_distribution_paths() -> list[str]:
     """Return a list of remote VBS4 install paths for terrain distribution."""
     paths_file = os.path.join(BASE_DIR, 'distribution_paths.json')
@@ -2683,6 +2714,12 @@ class VBS4Panel(tk.Frame):
                 return
             self.last_build_dir = path
 
+        remote_host = simpledialog.askstring(
+            "Remote Host",
+            "Enter IP or hostname for remote processing (leave blank to run locally):",
+            parent=self,
+        )
+
         def _run():
             build_root = self.last_build_dir
             self.log_message(f"Searching for Output-CenterPivotOrigin.json under {build_root}")
@@ -2722,27 +2759,37 @@ class VBS4Panel(tk.Frame):
             self.controller.panels['Settings'].update_oneclick_path_label()
 
             ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshProcess.ps1')
+            invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
 
-            cmd = [
-                'powershell',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', ps_script,
-                settings_path,
-                '1'
-            ]
-            self.log_message('Running: ' + ' '.join(cmd))
-            self.set_progress(0)
             try:
-                with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
-                    for line in proc.stdout:
-                        line = line.rstrip()
-                        self.log_message(line)
-                        percent = extract_progress(line)
-                        if percent is not None:
-                            self.set_progress(percent)
-                    proc.wait()
-                    if proc.returncode != 0:
-                        raise subprocess.CalledProcessError(proc.returncode, cmd)
+                if remote_host:
+                    run_remote_processor(
+                        invoke_script,
+                        remote_host,
+                        settings_path,
+                        self.log_message,
+                        lambda p: self.after(0, self.set_progress, p),
+                    )
+                else:
+                    cmd = [
+                        'powershell',
+                        '-ExecutionPolicy', 'Bypass',
+                        '-File', ps_script,
+                        settings_path,
+                        '1'
+                    ]
+                    self.log_message('Running: ' + ' '.join(cmd))
+                    self.set_progress(0)
+                    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+                        for line in proc.stdout:
+                            line = line.rstrip()
+                            self.log_message(line)
+                            percent = extract_progress(line)
+                            if percent is not None:
+                                self.set_progress(percent)
+                        proc.wait()
+                        if proc.returncode != 0:
+                            raise subprocess.CalledProcessError(proc.returncode, cmd)
                 self.log_message("Processing complete")
                 distribute_terrain(project_name, self.log_message)
             except Exception as e:
