@@ -979,8 +979,15 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     return path
 
 # BVI (ARES Manager)
-ares_exe = ensure_executable('bvi_manager_path', ['ares.manager.exe', 'ARES.Manager.exe'], "Select ARES Manager executable")
-bvi_batch_file = create_bvi_batch_file(ares_exe)
+
+def get_bvi_batch_file() -> str:
+    """Return path to a temporary batch file for launching BVI."""
+    ares_exe = ensure_executable(
+        'bvi_manager_path',
+        ['ares.manager.exe', 'ARES.Manager.exe'],
+        "Select ARES Manager executable",
+    )
+    return create_bvi_batch_file(ares_exe)
 
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')
@@ -1078,15 +1085,16 @@ def launch_blueig():
 
 def launch_bvi():
     try:
-        subprocess.Popen([bvi_batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        batch_file = get_bvi_batch_file()
+        subprocess.Popen([batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
-        logging.exception("BVI batch file not found")
-        messagebox.showerror("Launch Failed", "BVI batch file not found.")
+        logging.exception("BVI executable not found")
+        messagebox.showerror("Launch Failed", "BVI executable not found.")
     except OSError as e:
         logging.exception("Failed to launch BVI")
-        messagebox.showerror("Launch Failed", f"Couldn’t launch BVI:\n{e}")
+        messagebox.showerror("Launch Failed", f"Couldn't launch BVI:\n{e}")
 
 def open_bvi_terrain():
     url = "http://localhost:9080/terrain"
