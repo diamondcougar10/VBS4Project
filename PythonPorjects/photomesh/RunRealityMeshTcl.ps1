@@ -33,7 +33,18 @@ try {
     Write-Host "Launching RealityMeshProcess.tcl with settings from $SettingsFile" -ForegroundColor Cyan
     Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
     Start-Sleep -Seconds 2
-    & tclsh $tclScript -command_file "$SettingsFile"
+
+    $proc = Start-Process tclsh -ArgumentList "`"$tclScript`" -command_file `"$SettingsFile`"" -NoNewWindow -PassThru
+    $spinner = '/-\|'
+    $i = 0
+    while (-not $proc.HasExited) {
+        $char = $spinner[$i % $spinner.Length]
+        Write-Host -NoNewline "`r$char Processing..."
+        Start-Sleep -Seconds 1
+        $i++
+    }
+    $proc.WaitForExit()
+    Write-Host "`rProcessing complete.             "
 } finally {
     Pop-Location
 }
