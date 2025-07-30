@@ -1580,9 +1580,57 @@ def prompt_hostname(parent, initial=""):
     tk.Button(top, text="OK", command=on_ok, font=("Helvetica", 16)).place(relx=0.4, rely=0.7, anchor="center")
     tk.Button(top, text="Cancel", command=on_cancel, font=("Helvetica", 16)).place(relx=0.6, rely=0.7, anchor="center")
 
+
     entry.focus()
     parent.wait_window(top)
     return result["value"]
+
+# ---------------------------------------------------------------------------
+# Helper for scrollable backgrounds
+# ---------------------------------------------------------------------------
+
+def container_for_background(widget):
+    """Return the container that should hold static backgrounds."""
+    master = widget.master
+    if isinstance(master, tk.Canvas) and isinstance(master.master, ScrollablePanel):
+        return master.master
+    return widget
+
+# ---------------------------------------------------------------------------
+# Scrollable wrapper for panels
+# ---------------------------------------------------------------------------
+
+class ScrollablePanel(tk.Frame):
+    """A simple frame with a vertical scrollbar on the left."""
+
+    def __init__(self, parent, panel_cls, controller):
+        super().__init__(parent)
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical",
+                                       command=self.canvas.yview)
+        self.scrollbar.pack(side="left", fill="y")
+        self.canvas.pack(side="right", fill="both", expand=True)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.panel = panel_cls(self.canvas, controller)
+        self._window = self.canvas.create_window((0, 0), window=self.panel,
+                                                 anchor="nw")
+
+        self.panel.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas.bind(
+            "<Configure>",
+            lambda e: self.canvas.itemconfigure(self._window, width=e.width)
+        )
+        self.canvas.bind_all(
+            "<MouseWheel>",
+            lambda e: self.canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        )
+
+    def __getattr__(self, name):
+        return getattr(self.panel, name)
 
 # ─── MAINMENU PANEL ────────────────────────────────────────
 class MainApp(tk.Tk):
@@ -1642,13 +1690,13 @@ class MainApp(tk.Tk):
 
         # Instantiate each panel, passing `self` as the controller
         self.panels = {
-            'Main':      MainMenu(self.panels_container, self),
-            'VBS4':      VBS4Panel(self.panels_container, self),
-            'BVI':       BVIPanel(self.panels_container, self),
-            'Settings':  SettingsPanel(self.panels_container, self),
-            'Tutorials': TutorialsPanel(self.panels_container, self),
-            'Credits':   CreditsPanel(self.panels_container, self),
-            'Contact Us': ContactSupportPanel(self.panels_container, self),
+            'Main':      ScrollablePanel(self.panels_container, MainMenu, self),
+            'VBS4':      ScrollablePanel(self.panels_container, VBS4Panel, self),
+            'BVI':       ScrollablePanel(self.panels_container, BVIPanel, self),
+            'Settings':  ScrollablePanel(self.panels_container, SettingsPanel, self),
+            'Tutorials': ScrollablePanel(self.panels_container, TutorialsPanel, self),
+            'Credits':   ScrollablePanel(self.panels_container, CreditsPanel, self),
+            'Contact Us': ScrollablePanel(self.panels_container, ContactSupportPanel, self),
         }
 
         # Stack all panels in the same location and raise the active one
@@ -1841,8 +1889,9 @@ class MainApp(tk.Tk):
 class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         controller.create_tutorial_button(self)   # <— keeps the “?” button
 
         tk.Label(
@@ -1983,8 +2032,9 @@ class MainMenu(tk.Frame):
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         self.controller = controller
         controller.create_tutorial_button(self)
         self.create_battlespaces_button()
@@ -2959,8 +3009,9 @@ class VBS4Panel(tk.Frame):
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         controller.create_tutorial_button(self)
 
         tk.Label(self, text="BVI",
@@ -3026,8 +3077,9 @@ class BVIPanel(tk.Frame):
 class SettingsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         controller.create_tutorial_button(self)
         self.controller = controller
 
@@ -3284,8 +3336,9 @@ class SettingsPanel(tk.Frame):
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         tk.Label(self, text="Tutorials ❓",
                  font=("Helvetica", 36, "bold"),
                  bg='black', fg='white', pady=20)\
@@ -3370,8 +3423,9 @@ class TutorialsPanel(tk.Frame):
 class CreditsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         controller.create_tutorial_button(self)
 
         # Add header
@@ -3424,8 +3478,9 @@ class CreditsPanel(tk.Frame):
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        bg_holder = container_for_background(self)
+        set_wallpaper(bg_holder)
+        set_background(controller, bg_holder)
         controller.create_tutorial_button(self)
 
         # Add header
