@@ -1986,45 +1986,27 @@ class VBS4Panel(tk.Frame):
         set_wallpaper(self)
         set_background(controller, self)
         self.controller = controller
-
-        # -- Scrollable canvas setup ----------------------------------------
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg=self['bg'])
-        vscroll = tk.Scrollbar(self, orient='vertical', command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=vscroll.set)
-        vscroll.pack(side='right', fill='y')
-        self.canvas.pack(side='left', fill='both', expand=True)
-
-        self.content_frame = tk.Frame(self.canvas, bg=self['bg'])
-        self.canvas.create_window((0, 0), window=self.content_frame, anchor='nw')
-        self.content_frame.bind(
-            '<Configure>',
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox('all'))
-        )
-
-        self.canvas.bind('<Enter>', lambda e: self._bind_mousewheel())
-        self.canvas.bind('<Leave>', lambda e: self._unbind_mousewheel())
-
-        controller.create_tutorial_button(self.content_frame)
+        controller.create_tutorial_button(self)
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
 
         tk.Label(
-            self.content_frame,
+            self,
             text="VBS4 / BlueIG",
             font=("Helvetica", 36, "bold"),
             bg="black", fg="white", pady=20
         ).pack(fill="x")
 
          # VBS4 Launch frame
-        vbs4_frame = tk.Frame(self.content_frame, bg="#333333")
+        vbs4_frame = tk.Frame(self, bg="#333333")
         vbs4_frame.pack(pady=8)
 
         vbs4_path = get_vbs4_install_path()
         logging.debug("VBS4 path for button creation: %s", vbs4_path)
 
         self.vbs4_button, self.vbs4_version_label = create_app_button(
-            self.content_frame, "VBS4", get_vbs4_install_path, launch_vbs4,
+            self, "VBS4", get_vbs4_install_path, launch_vbs4,
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
         self.update_vbs4_version()
@@ -2041,7 +2023,7 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_version()
 
         self.vbs4_launcher_button, _ = create_app_button(
-            self.content_frame, "VBS4 Launcher",
+            self, "VBS4 Launcher", 
             lambda: config['General'].get('vbs4_setup_path', ''),
             launch_vbs4_setup,
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
@@ -2049,20 +2031,20 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_launcher_button_state()
 
         # BlueIG frame for dynamic buttons + version label handled below
-        self.blueig_frame = tk.Frame(self.content_frame, bg="#333333")
+        self.blueig_frame = tk.Frame(self, bg="#333333")
         self.blueig_frame.pack(pady=8)
         self.create_blueig_button()
 
         # VBS License Manager button
         self.vbs_license_button, _ = create_app_button(
-            self.content_frame, "VBS License Manager",
+            self, "VBS License Manager", 
             lambda: config['General'].get('vbs_license_manager_path', ''),
             self.launch_vbs_license_manager,
             lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
 
         # Terrain Converter Section
-        self.terrain_frame = tk.Frame(self.content_frame, bg="#333333")
+        self.terrain_frame = tk.Frame(self, bg="#333333")
         self.terrain_frame.pack(pady=8)
         self.terrain_button = tk.Button(
             self.terrain_frame,
@@ -2083,7 +2065,7 @@ class VBS4Panel(tk.Frame):
 
         # External Map button
         tk.Button(
-            self.content_frame,
+            self,
             text="External Map",
             font=("Helvetica", 20),
             bg="#444", fg="white",
@@ -2092,7 +2074,7 @@ class VBS4Panel(tk.Frame):
 
         # Back to main menu
         tk.Button(
-            self.content_frame,
+            self,
             text="Back",
             font=("Helvetica", 18),
             bg="red", fg="white",
@@ -2100,7 +2082,7 @@ class VBS4Panel(tk.Frame):
         ).pack(pady=20)
 
                # Log Window
-        self.log_frame = tk.Frame(self.content_frame, bg="#222222")
+        self.log_frame = tk.Frame(self, bg="#222222")
         self.log_frame.pack(fill="x", padx=10, pady=(5, 10))
 
         tk.Label(
@@ -2163,8 +2145,7 @@ class VBS4Panel(tk.Frame):
 
         # Launch BlueIG button
         self.blueig_button, self.blueig_version_label = create_app_button(
-            self.content_frame,
-            "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
+            self, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
             lambda: self.set_file_location("BlueIG", "blueig_path", self.blueig_button)
         )
         self.update_blueig_version()
@@ -2273,7 +2254,7 @@ class VBS4Panel(tk.Frame):
 
     def create_battlespaces_button(self):
         button = tk.Button(
-            self.content_frame,
+            self,
             text="📁",
             font=("Helvetica", 16, "bold"),
             bg="orange", fg="black",
@@ -2288,7 +2269,7 @@ class VBS4Panel(tk.Frame):
 
     def create_vbs4_folder_button(self):
         button = tk.Button(
-            self.content_frame,
+            self,
             text="📂",
             font=("Helvetica", 16, "bold"),
             bg="lightblue", fg="black",
@@ -2945,27 +2926,6 @@ class VBS4Panel(tk.Frame):
         if self.progress_job:
             self.after_cancel(self.progress_job)
         self.progress_job = self.after(2000, self.update_render_progress)
-
-    # ------------------------------------------------------------------
-    # Scrolling helpers for the VBS4 panel
-    # ------------------------------------------------------------------
-    def _on_mousewheel(self, event):
-        if event.delta:
-            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
-        elif event.num == 4:
-            self.canvas.yview_scroll(-1, 'units')
-        elif event.num == 5:
-            self.canvas.yview_scroll(1, 'units')
-
-    def _bind_mousewheel(self):
-        self.canvas.bind_all('<MouseWheel>', self._on_mousewheel)
-        self.canvas.bind_all('<Button-4>', self._on_mousewheel)
-        self.canvas.bind_all('<Button-5>', self._on_mousewheel)
-
-    def _unbind_mousewheel(self):
-        self.canvas.unbind_all('<MouseWheel>')
-        self.canvas.unbind_all('<Button-4>')
-        self.canvas.unbind_all('<Button-5>')
 
     def update_render_progress(self):
         paths = []
