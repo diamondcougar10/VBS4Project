@@ -2967,12 +2967,20 @@ class VBS4Panel(tk.Frame):
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
 
+        exe_path = os.path.join(base_dir, 'RealityMeshStandalone.exe')
         script_path = os.path.join(base_dir, 'RealityMeshStandalone.py')
         log_path = os.path.join(base_dir, 'reality_mesh_launch.log')
-        logging.info("Launching RealityMeshStandalone: %s", script_path)
 
-        if not os.path.exists(script_path):
-            msg = f"Could not find RealityMeshStandalone.py at:\n{script_path}"
+        if os.path.exists(exe_path):
+            command = [exe_path]
+            logging.info("Launching RealityMeshStandalone executable: %s", exe_path)
+        elif os.path.exists(script_path):
+            command = [sys.executable, script_path]
+            logging.info("Launching RealityMeshStandalone script: %s", script_path)
+        else:
+            msg = (
+                "Could not find RealityMeshStandalone.exe or .py in:\n" + base_dir
+            )
             logging.error(msg)
             messagebox.showerror("Error", msg, parent=self)
             return
@@ -2981,7 +2989,7 @@ class VBS4Panel(tk.Frame):
             with open(log_path, 'a', encoding='utf-8') as log_file:
                 log_file.write(f"=== Launch {datetime.now()} ===\n")
                 subprocess.Popen(
-                    [sys.executable, script_path],
+                    command,
                     stdout=log_file,
                     stderr=subprocess.STDOUT,
                 )
