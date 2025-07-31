@@ -100,6 +100,8 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
     """
 
     defaults = OrderedDict([
+        ("export_format", "OBJ"),
+        ("center_pivot_to_project", "true"),
         ("orthocam_Resolution", "0.05"),
         ("orthocam_Render_Lowest", "1"),
         ("tin_to_dem_Resolution", "0.5"),
