@@ -903,18 +903,21 @@ def get_image_folders_recursively(base_folder):
     ``os.walk`` preserves whatever path separators the caller provides. When a
     user enters a path with forward slashes on Windows this can result in mixed
     ``/`` and ``\`` in the returned folder names. Normalizing both the base
-    folder and discovered paths ensures consistent separators.
+    folder and discovered paths ensures consistent separators and proper UNC
+    handling.
     """
 
-    base_folder = os.path.normpath(base_folder)
+    base_folder = clean_path(base_folder)
     image_folders = []
+
     for root, dirs, files in os.walk(base_folder):
-        root = os.path.normpath(root)
+        root = clean_path(root)
         if any(
             file.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff"))
             for file in files
         ):
             image_folders.append(root)
+
     return image_folders
 
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
@@ -2525,16 +2528,14 @@ class VBS4Panel(tk.Frame):
                 parent=folder_window,
             )
             if path and os.path.exists(path):
-                norm = clean_path(path)
-                found = get_image_folders_recursively(norm)
+                found = get_image_folders_recursively(clean_path(path))
                 folders.extend(found)
             else:
                 selected = filedialog.askdirectory(
                     title="Select DCIM or base imagery folder", parent=folder_window
                 )
                 if selected:
-                    norm = clean_path(selected)
-                    found = get_image_folders_recursively(norm)
+                    found = get_image_folders_recursively(clean_path(selected))
                     folders.extend(found)
 
             # Update listbox
