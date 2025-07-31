@@ -2963,12 +2963,25 @@ class VBS4Panel(tk.Frame):
     def open_reality_mesh_gui(self):
         """Launch the Reality Mesh GUI script from the current directory."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        py_path = os.path.join(base_dir, 'RealityMeshStandalone.py')
+        py_path = os.path.join(base_dir, '_internal', 'RealityMeshStandalone.py')
 
         if os.path.exists(py_path):
-            subprocess.Popen([sys.executable, py_path])
-            return
+            self.log_message(f"Launching RealityMeshStandalone: {py_path}")
+            logging.info("Launching RealityMeshStandalone: %s", py_path)
+            try:
+                subprocess.Popen(
+                    [sys.executable, py_path],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                )
+                return
+            except Exception as e:  # pragma: no cover - GUI path
+                self.log_message(f"Failed to launch RealityMeshStandalone: {e}")
+                logging.exception("Failed to launch RealityMeshStandalone")
+                messagebox.showerror("Error", str(e), parent=self)
+                return
 
+        self.log_message(f"RealityMeshStandalone not found at: {py_path}")
+        logging.error("RealityMeshStandalone not found at %s", py_path)
         messagebox.showerror(
             "Error",
             f"Could not find RealityMeshStandalone at:\n{py_path}"
