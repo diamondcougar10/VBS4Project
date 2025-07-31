@@ -2757,6 +2757,8 @@ class VBS4Panel(tk.Frame):
         if not project_path:
             messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
             return
+        # Normalize to UNC style backslashes for PhotoMesh
+        project_path = clean_path(project_path)
         update_fuser_shared_path(project_path)
         wizard_path = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
 
