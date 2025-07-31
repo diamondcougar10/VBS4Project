@@ -10,3 +10,5 @@ terratools_ssh_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools\
 terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
 
 dataset_root=C:\BiSim OneClick\Datasets
+export_format=OBJ
+center_pivot_to_project=true
