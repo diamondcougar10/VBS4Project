@@ -116,6 +116,15 @@ def get_local_ip():
     except Exception:
         return "127.0.0.1"
 
+
+def clean_path(path: str) -> str:
+    """Return *path* normalized with UNC style backslashes."""
+    path = os.path.normpath(path.strip())
+    path = path.replace('/', '\\')
+    if path.startswith('\\') and not path.startswith('\\\\'):
+        path = '\\' + path
+    return path
+
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
@@ -1880,7 +1889,7 @@ class MainApp(tk.Tk):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General'][config_key] = path
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -2451,7 +2460,7 @@ class VBS4Panel(tk.Frame):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General'][config_key] = path
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -2516,7 +2525,7 @@ class VBS4Panel(tk.Frame):
                 parent=folder_window,
             )
             if path and os.path.exists(path):
-                norm = os.path.normpath(path)
+                norm = clean_path(path)
                 found = get_image_folders_recursively(norm)
                 folders.extend(found)
             else:
@@ -2524,7 +2533,7 @@ class VBS4Panel(tk.Frame):
                     title="Select DCIM or base imagery folder", parent=folder_window
                 )
                 if selected:
-                    norm = os.path.normpath(selected)
+                    norm = clean_path(selected)
                     found = get_image_folders_recursively(norm)
                     folders.extend(found)
 
@@ -2547,7 +2556,7 @@ class VBS4Panel(tk.Frame):
                 )
                 return
 
-            norm_folders = [os.path.normpath(f) for f in folders]
+            norm_folders = [clean_path(f) for f in folders]
             self.image_folder_paths = norm_folders
             self.image_folder_path = ";".join(norm_folders)
             messagebox.showinfo(
@@ -3089,7 +3098,7 @@ class BVIPanel(tk.Frame):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General'][config_key] = path
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
