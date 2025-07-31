@@ -22,10 +22,7 @@ def load_system_settings(path: str) -> dict:
                 continue
             if '=' in line:
                 key, value = line.split('=', 1)
-                value = value.strip()
-                if key.strip() == 'dataset_root':
-                    value = os.path.normpath(value)
-                settings[key.strip()] = value
+                settings[key.strip()] = value.strip()
     return settings
 
 
