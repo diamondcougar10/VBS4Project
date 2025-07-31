@@ -924,7 +924,7 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
     frame = tk.Frame(parent, bg="#333333")
     frame.pack(pady=8)
 
-    path = get_path_func()
+    path = clean_path(get_path_func())
     
     if not path or not os.path.exists(path):
         state = "disabled"
@@ -985,7 +985,7 @@ def prompt_for_exe(app_name, config_key):
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
-        config['General'][config_key] = path
+        config['General'][config_key] = clean_path(path)
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
         messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -995,7 +995,7 @@ def prompt_for_exe(app_name, config_key):
         return False
 
 def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
-    path = config['General'].get(config_key, '').strip()
+    path = clean_path(config['General'].get(config_key, '').strip())
     # 1) Try what we already have in config
     if path and os.path.isfile(path):
         return path
@@ -1021,7 +1021,7 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     if path and os.path.isfile(path):
         # store it for next time unless it's the VBS4 path
         if config_key != 'vbs4_path':
-            config['General'][config_key] = path
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
         return path
