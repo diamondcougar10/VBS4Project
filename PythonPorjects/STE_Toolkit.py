@@ -898,14 +898,15 @@ exit /b 0
     return BVI_BAT
 
 def get_image_folders_recursively(base_folder):
-    """Return all subfolders within *base_folder* that contain image files.
+    r"""Return all subfolders within *base_folder* that contain image files.
 
     ``os.walk`` preserves whatever path separators the caller provides. When a
     user enters a path with forward slashes on Windows this can result in mixed
-    ``/`` and ``\`` in the returned folder names. Normalizing both the base
+    ``/`` and ``\\`` in the returned folder names. Normalizing both the base
     folder and discovered paths ensures consistent separators and proper UNC
     handling.
     """
+
 
     base_folder = clean_path(base_folder)
     image_folders = []
