@@ -11,7 +11,6 @@ import os
 import sys
 import importlib
 import logging
-import traceback
 
 def _resource_base() -> str:
     """Return the directory containing bundled resources."""
@@ -27,13 +26,9 @@ if BASE_DIR not in sys.path:
 
 logging.basicConfig(
     level=logging.INFO,
-    filename='reality_mesh.log',
-    filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logging.info("RealityMeshStandalone starting")
-
-print("Starting GUI...")
 
 def main() -> None:
     logging.info("Importing reality_mesh_gui")
@@ -42,8 +37,6 @@ def main() -> None:
         gui.main()
     except Exception:
         logging.exception("Failed to start reality_mesh_gui")
-        with open("gui_error.log", "w") as f:
-            f.write(traceback.format_exc())
         raise
 
 if __name__ == "__main__":
