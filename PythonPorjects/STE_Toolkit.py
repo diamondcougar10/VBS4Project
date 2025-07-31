@@ -2961,23 +2961,23 @@ class VBS4Panel(tk.Frame):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
     def open_reality_mesh_gui(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, 'RealityMeshStandalone.py')
+        """Launch the standalone Reality Mesh GUI."""
 
-        # When running from a PyInstaller build, sys.executable points to the
-        # bundled executable rather than the Python interpreter. Launching the
-        # script with this path would simply reopen the current application.
         if getattr(sys, 'frozen', False):
-            exe_path = os.path.join(os.path.dirname(sys.executable),
-                                   'RealityMeshStandalone.exe')
-            if os.path.exists(exe_path):
-                subprocess.Popen([exe_path])
+            base_dir = os.path.dirname(sys.executable)
+            script_path = os.path.join(base_dir, 'RealityMeshStandalone.py')
+            if os.path.exists(script_path):
+                subprocess.Popen([sys.executable, script_path])
                 return
-            python_exe = 'python'
+            messagebox.showerror(
+                "Error",
+                f"Could not find RealityMeshStandalone.py at:\n{script_path}",
+                parent=self,
+            )
         else:
-            python_exe = sys.executable if sys.executable else 'python'
-
-        subprocess.Popen([python_exe, script_path])
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(script_dir, 'RealityMeshStandalone.py')
+            subprocess.Popen([sys.executable, script_path])
 
     def log_message(self, message):
          self.log_text.config(state="normal")
