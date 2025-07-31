@@ -2961,43 +2961,18 @@ class VBS4Panel(tk.Frame):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
     def open_reality_mesh_gui(self):
-        """Launch the standalone Reality Mesh GUI."""
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+        """Launch the Reality Mesh GUI script from the current directory."""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        py_path = os.path.join(base_dir, 'RealityMeshStandalone.py')
 
-        exe_path = os.path.join(base_dir, 'RealityMeshStandalone.exe')
-        script_path = os.path.join(base_dir, 'RealityMeshStandalone.py')
-        log_path = os.path.join(base_dir, 'reality_mesh_launch.log')
-
-        if os.path.exists(exe_path):
-            command = [exe_path]
-            logging.info("Launching RealityMeshStandalone executable: %s", exe_path)
-        elif os.path.exists(script_path):
-            command = [sys.executable, script_path]
-            logging.info("Launching RealityMeshStandalone script: %s", script_path)
-        else:
-            msg = (
-                "Could not find RealityMeshStandalone.exe or .py in:\n" + base_dir
-            )
-            logging.error(msg)
-            messagebox.showerror("Error", msg, parent=self)
+        if os.path.exists(py_path):
+            subprocess.Popen([sys.executable, py_path])
             return
 
-        try:
-            with open(log_path, 'a', encoding='utf-8') as log_file:
-                log_file.write(f"=== Launch {datetime.now()} ===\n")
-                subprocess.Popen(
-                    command,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                )
-        except Exception as e:
-            logging.exception("Failed to launch RealityMeshStandalone")
-            messagebox.showerror("Error", str(e), parent=self)
-            return
-        logging.info("RealityMeshStandalone started")
+        messagebox.showerror(
+            "Error",
+            f"Could not find RealityMeshStandalone at:\n{py_path}"
+        )
 
     def log_message(self, message):
          self.log_text.config(state="normal")
