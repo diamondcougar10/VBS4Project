@@ -458,6 +458,8 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
     """
 
     defaults = OrderedDict([
+        ("export_format", "OBJ"),
+        ("center_pivot_to_project", "true"),
         ("orthocam_Resolution", "0.05"),
         ("orthocam_Render_Lowest", "1"),
         ("tin_to_dem_Resolution", "0.5"),
@@ -2783,7 +2785,11 @@ class VBS4Panel(tk.Frame):
                 return
 
         folders_cmd = " ".join([f'--folder "{folder}"' for folder in self.image_folder_paths])
-        cmd = f'"{wizard_path}" --projectName "{project_name}" --projectPath "{project_path}" {folders_cmd}'
+        default_opts = "--exportFormat OBJ --centerPivotToProject"
+        cmd = (
+            f'"{wizard_path}" --projectName "{project_name}" '
+            f'--projectPath "{project_path}" {default_opts} {folders_cmd}'
+        )
 
         self.log_message(f"Creating mesh for project: {project_name}")
         self.log_message(f"Running command:\n{cmd}")

@@ -14,6 +14,8 @@ This repository contains automation scripts for processing PhotoMesh builds and 
 9. **Copy Output to All VBS4 Install Locations** – Generated terrain is replicated to all configured VBS4 installations as defined in `distribution_paths.json`.
 10. **Close PhotoMesh Fuser Processes** – All running `Fuser.exe` instances are terminated.
 
+The toolkit now sets PhotoMesh to export **OBJ** files and enable the **Center Pivot to Project** option by default when launching the PhotoMesh Wizard.
+
 The `distribution_paths.json` file lists remote VBS4 install paths. Update it with UNC paths to ensure terrain packages are synchronized across machines.
 
 ## Running the Standalone Post‑Processor
