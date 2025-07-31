@@ -27,7 +27,10 @@ def load_system_settings(path: str) -> dict:
                 if not line or line.startswith('#') or '=' not in line:
                     continue
                 key, value = line.split('=', 1)
-                settings[key.strip()] = value.strip()
+                value = value.strip()
+                if key.strip() == 'dataset_root':
+                    value = os.path.normpath(value)
+                settings[key.strip()] = value
     return settings
 
 
