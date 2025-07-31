@@ -3,7 +3,6 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk
 import threading
 import os
-import sys
 import time
 import json
 import shutil
@@ -17,13 +16,6 @@ from STE_Toolkit import (
     distribute_terrain,
 )
 from post_process_utils import clean_project_settings
-
-# Base directory for bundled resources when packaged by PyInstaller
-BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-
-def resource_path(*parts: str) -> str:
-    """Return the absolute path to a resource bundled with the application."""
-    return os.path.join(BASE_DIR, *parts)
 
 
 def load_system_settings(path: str) -> dict:
@@ -310,7 +302,8 @@ class RealityMeshGUI(tk.Tk):
         self.logo_photo = None
 
         self.build_dir = tk.StringVar()
-        photomesh_dir = resource_path('photomesh')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        photomesh_dir = os.path.join(base_dir, 'photomesh')
 
         # Paths to the system settings and PowerShell script are no longer
         # hard coded so the application can be distributed without assuming a
