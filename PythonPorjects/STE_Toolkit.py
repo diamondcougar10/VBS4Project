@@ -2963,7 +2963,7 @@ class VBS4Panel(tk.Frame):
     def open_reality_mesh_gui(self):
         """Launch the Reality Mesh GUI script from the current directory."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        py_path = os.path.join(base_dir, '_internal', 'RealityMeshStandalone.py')
+        py_path = os.path.join(base_dir,'RealityMeshStandalone.py')
 
         if os.path.exists(py_path):
             self.log_message(f"Launching RealityMeshStandalone: {py_path}")
