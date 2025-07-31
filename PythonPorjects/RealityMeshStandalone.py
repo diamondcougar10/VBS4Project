@@ -9,13 +9,35 @@ python RealityMeshStandalone.py
 
 import os
 import sys
+import importlib
+import logging
 
-# Ensure this script can locate the bundled GUI module regardless of where it's launched from
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _resource_base() -> str:
+    """Return the directory containing bundled resources."""
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+# Ensure this script can locate ``reality_mesh_gui`` when run from a frozen
+# bundle or directly from source.
+BASE_DIR = _resource_base()
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from reality_mesh_gui import main
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logging.info("RealityMeshStandalone starting")
+
+def main() -> None:
+    logging.info("Importing reality_mesh_gui")
+    try:
+        gui = importlib.import_module("reality_mesh_gui")
+        gui.main()
+    except Exception:
+        logging.exception("Failed to start reality_mesh_gui")
+        raise
 
 if __name__ == "__main__":
     main()
