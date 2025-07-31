@@ -2831,21 +2831,51 @@ class VBS4Panel(tk.Frame):
             run_in_thread(_search_and_launch)
 
     def one_click_conversion(self):
+        """Run the entire mesh build and post-process pipeline."""
         self.log_message("Starting One-Click Terrain Conversion...")
 
         self.log_message("Prompting user to select imagery folders...")
         self.select_imagery()
 
-        if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
+        if not getattr(self, 'image_folder_paths', None):
             self.log_message("Imagery folder selection failed or cancelled.")
             return
 
-        self.log_message("Using existing fusers — skipping launch step.")
-
-        self.log_message("Creating mesh with selected imagery...")
+        self.log_message("Launching PhotoMesh Wizard...")
         self.create_mesh()
 
-        self.log_message("One-Click Terrain Conversion completed.")
+        if not getattr(self, 'last_build_dir', None):
+            self.log_message("Mesh creation did not start properly.")
+            messagebox.showerror(
+                "Error", "Unable to determine build directory.", parent=self
+            )
+            return
+
+        def _pipeline():
+            try:
+                self.log_message("Waiting for mesh build to complete...")
+                json_path = wait_for_output_json(self.last_build_dir)
+                self.log_message(f"Mesh build finished: {json_path}")
+            except Exception as exc:
+                self.log_message(f"Failed while waiting for build: {exc}")
+                self.after(0, lambda: messagebox.showerror(
+                    "Build Error", str(exc), parent=self))
+                return
+
+            try:
+                self.log_message("Starting post-processing...")
+                self._process_last_build(self.last_build_dir)
+            except Exception as exc:
+                self.log_message(f"Post-processing failed: {exc}")
+                self.after(0, lambda: messagebox.showerror(
+                    "Post-Process Error", str(exc), parent=self))
+                return
+
+            self.log_message("One-Click Terrain Conversion completed.")
+            self.after(0, lambda: messagebox.showinfo(
+                "Done", "One-Click Terrain Conversion finished.", parent=self))
+
+        run_in_thread(_pipeline)
 
     def post_process_last_build(self):
         # Hide the terrain options if they are currently visible so the
@@ -2956,6 +2986,80 @@ class VBS4Panel(tk.Frame):
             messagebox.showinfo("Done", "Processing finished successfully", parent=self)
 
         run_in_thread(_run)
+
+    def _process_last_build(self, build_root: str, remote_host: str | None = None) -> None:
+        """Internal helper to post-process *build_root* without user prompts."""
+        self.log_message(f"Searching for Output-CenterPivotOrigin.json under {build_root}")
+        json_path = wait_for_output_json(build_root)
+        build_dir = os.path.dirname(json_path)
+        self.log_message(f"Found JSON: {json_path}")
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        project_name = os.path.basename(build_root)
+        self.log_message(f"Using project name: {project_name}")
+
+        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        settings = load_system_settings(sys_settings_path)
+        update_vbs4_settings(sys_settings_path)
+        dataset_root = settings.get('dataset_root')
+        proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
+        self.log_message(f"Created project folder {proj_folder}")
+
+        copy_tiles(
+            build_dir,
+            data_folder,
+            lambda p: self.after(0, self.set_progress, p),
+        )
+        self.log_message("Copied raw tiles")
+        self.after(0, self.set_progress, 0)
+
+        settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
+        write_project_settings(settings_path, data, data_folder)
+        self.log_message(f"Wrote settings {settings_path}")
+        settings_path = clean_project_settings(settings_path)
+        self.log_message("Cleaned offset values")
+
+        set_oneclick_output_path(proj_folder)
+        self.controller.panels['Settings'].update_oneclick_path_label()
+
+        ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshProcess.ps1')
+        invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
+
+        if remote_host:
+            run_remote_processor(
+                invoke_script,
+                remote_host,
+                settings_path,
+                self.log_message,
+                lambda p: self.after(0, self.set_progress, p),
+            )
+        else:
+            cmd = [
+                'powershell',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', ps_script,
+                settings_path,
+                '1',
+            ]
+            self.log_message('Running: ' + ' '.join(cmd))
+            self.set_progress(0)
+            with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    self.log_message(line)
+                    percent = extract_progress(line)
+                    if percent is not None:
+                        self.set_progress(percent)
+                proc.wait()
+                if proc.returncode != 0:
+                    raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+        self.log_message("Processing complete")
+        distribute_terrain(project_name, self.log_message)
+        kill_fusers()
+        self.log_message("PhotoMesh fusers closed")
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
