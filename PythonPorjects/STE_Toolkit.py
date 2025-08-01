@@ -19,7 +19,7 @@ import socket
 import threading
 import shlex
 from post_process_utils import clean_project_settings
-from launch_photomesh_preset import launch_photomesh_with_preset
+from launch_photomesh_preset import run_photomesh_one_click_conversion
 from collections import OrderedDict
 import time
 import glob
@@ -2795,7 +2795,7 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            launch_photomesh_with_preset(project_name, project_path, self.image_folder_paths)
+            run_photomesh_one_click_conversion(project_name, project_path, self.image_folder_paths)
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
                 "PhotoMesh Wizard Launched",
