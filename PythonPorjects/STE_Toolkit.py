@@ -2180,6 +2180,7 @@ class VBS4Panel(tk.Frame):
         enable_obj_in_photomesh_config()
         write_cpp_obj_preset()
         set_active_wizard_preset()
+       
 
         tk.Label(
             self,
@@ -2866,7 +2867,8 @@ class VBS4Panel(tk.Frame):
     def create_mesh(self):
         enable_obj_in_photomesh_config()
         write_cpp_obj_preset()
-        set_active_wizard_preset()   
+        set_active_wizard_preset()  
+        set_photomesh_preset()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
