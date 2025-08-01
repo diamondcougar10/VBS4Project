@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from typing import Iterable
@@ -53,46 +54,69 @@ PRESET_NAME = "CPP&OBJ"
 
 
 def ensure_preset_exists() -> str:
-    """Ensure the CPP&OBJ preset file exists and return its path."""
+    """Write the CPP&OBJ preset file and return its path."""
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
+
     preset_dir = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
     preset_path = os.path.join(preset_dir, f"{PRESET_NAME}.preset")
-
-    if not os.path.isfile(preset_path):
-        os.makedirs(preset_dir, exist_ok=True)
-        with open(preset_path, "w", encoding="utf-8") as f:
-            f.write(PRESET_XML)
+    os.makedirs(preset_dir, exist_ok=True)
+    with open(preset_path, "w", encoding="utf-8") as f:
+        f.write(PRESET_XML)
     return preset_path
 
 
-def launch_photomesh_with_preset(project_name: str, project_path: str, image_folders: Iterable[str]) -> subprocess.Popen:
-    """Launch PhotoMeshWizard.exe with the CPP&OBJ preset."""
+def ensure_config_json() -> str:
+    """Create Wizard config.json pointing to the preset and return its path."""
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        raise EnvironmentError("%APPDATA% is not set")
+
+    wizard_dir = os.path.join(appdata, "Skyline", "PhotoMesh", "Wizard")
+    os.makedirs(wizard_dir, exist_ok=True)
+    config_path = os.path.join(wizard_dir, "config.json")
+
+    data = {
+        "SelectedPreset": PRESET_NAME,
+        "OverrideSettings": True,
+        "AutoBuild": True,
+    }
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return config_path
+
+
+def launch_photomesh_with_preset(
+    project_name: str,
+    project_path: str,
+    image_folders: Iterable[str],
+) -> subprocess.Popen:
+    """Launch PhotoMeshWizard.exe using the CPP&OBJ preset."""
     if not os.path.isfile(WIZARD_EXE):
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
     ensure_preset_exists()
+    ensure_config_json()
 
-    parts = [
-        f'"{WIZARD_EXE}"',
-        f'--projectName "{project_name}"',
-        f'--projectPath "{project_path}"',
-        f'--preset "{PRESET_NAME}"',
-        "--overrideSettings",
+    cmd = [
+        WIZARD_EXE,
+        "--projectName",
+        project_name,
+        "--projectPath",
+        project_path,
     ]
     for folder in image_folders:
-        parts.append(f'--folder "{folder}"')
-    cmd = " ".join(parts)
+        cmd.extend(["--folder", folder])
 
-    print("Running command:")
-    print(cmd)
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_SHOWMINIMIZED", 2)
 
-    creationflags = 0
-    if hasattr(subprocess, "CREATE_NO_WINDOW"):
-        creationflags = subprocess.CREATE_NO_WINDOW
     try:
-        return subprocess.Popen(cmd, shell=True, creationflags=creationflags)
+        return subprocess.Popen(cmd, startupinfo=startupinfo)
     except Exception as exc:
         raise RuntimeError(f"Failed to launch PhotoMeshWizard: {exc}") from exc
 
