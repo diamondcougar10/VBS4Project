@@ -407,27 +407,113 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     os.makedirs(data_folder, exist_ok=True)
     return proj_folder, data_folder
 
+def write_cpp_obj_preset():
+    import os
+
+    PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
+<BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+  <SerializableVersion>8.0.4.50513</SerializableVersion>
+  <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
+    <d2p1:_Build>4</d2p1:_Build>
+    <d2p1:_Major>8</d2p1:_Major>
+    <d2p1:_Minor>0</d2p1:_Minor>
+    <d2p1:_Revision>50513</d2p1:_Revision>
+  </Version>
+  <BuildParameters>
+    <SerializableVersion>8.0.4.50513</SerializableVersion>
+    <Version xmlns:d3p1="http://schemas.datacontract.org/2004/07/System">
+      <d3p1:_Build>4</d3p1:_Build>
+      <d3p1:_Major>8</d3p1:_Major>
+      <d3p1:_Minor>0</d3p1:_Minor>
+      <d3p1:_Revision>50513</d3p1:_Revision>
+    </Version>
+    <AddWalls>false</AddWalls>
+    <CenterPivotToProject>true</CenterPivotToProject>
+    <DsmSettings />
+    <FillInGround>true</FillInGround>
+    <FocalLengthAccuracy>-1</FocalLengthAccuracy>
+    <HorizontalAccuracyFactor>0.1</HorizontalAccuracyFactor>
+    <IgnoreOrientation>false</IgnoreOrientation>
+    <OrthoSettings />
+    <OutputFormats xmlns:d3p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
+      <d3p1:string>OBJ</d3p1:string>
+    </OutputFormats>
+    <PointCloudFormat>LAS</PointCloudFormat>
+    <PrincipalPointAccuracy>-1</PrincipalPointAccuracy>
+    <RadialAccuracy>false</RadialAccuracy>
+    <TangentialAccuracy>false</TangentialAccuracy>
+    <TileSplitMethod>Simple</TileSplitMethod>
+    <VerticalAccuracyFactor>0.1</VerticalAccuracyFactor>
+    <VerticalBias>false</VerticalBias>
+  </BuildParameters>
+  <Description>OBJ + CenterPivot preset</Description>
+  <IsDefault>false</IsDefault>
+  <IsLastUsed>false</IsLastUsed>
+  <IsSystem>false</IsSystem>
+  <IsSystemDefault>false</IsSystemDefault>
+  <PresetFileName i:nil="true" />
+  <PresetName>CPP&amp;OBJ</PresetName>
+</BuildParametersPreset>
+    """
+
+    appdata = os.environ.get("APPDATA")
+    preset_path = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets", "CPP&OBJ.preset")
+    os.makedirs(os.path.dirname(preset_path), exist_ok=True)
+
+    with open(preset_path, "w", encoding="utf-8") as f:
+        f.write(PRESET_XML)
+
+    print(f"✅ Preset written to {preset_path}")
+
+def set_active_wizard_preset(preset_name="CPP&OBJ"):
+    import os
+    import json
+
+    config_path = os.path.join(
+        os.environ.get("APPDATA", ""),
+        "Skyline", "PhotoMesh", "Wizard", "config.json"
+    )
+
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+    config = {
+        "SelectedPreset": preset_name,
+        "OverrideSettings": True,
+        "AutoBuild": True  # Optional: auto-start build
+    }
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"✅ Set {preset_name} as active preset in Wizard config")
+
+
 def enable_obj_in_photomesh_config():
  config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
 
+ config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+
  try:
-        with open(config_path, 'r') as f:
-            config = json.load(f)
+    with open(config_path, 'r') as f:
+        config = json.load(f)
 
-        # Ensure the structure exists before editing
-        if "DefaultPhotoMeshWizardUI" not in config:
-            config["DefaultPhotoMeshWizardUI"] = {}
-        if "Model3DFormats" not in config["DefaultPhotoMeshWizardUI"]:
-            config["DefaultPhotoMeshWizardUI"]["Model3DFormats"] = {}
+    # Ensure the structure exists before editing
+    if "DefaultPhotoMeshWizardUI" not in config:
+        config["DefaultPhotoMeshWizardUI"] = {}
+    if "Model3DFormats" not in config["DefaultPhotoMeshWizardUI"]:
+        config["DefaultPhotoMeshWizardUI"]["Model3DFormats"] = {}
 
-        # Set OBJ to True
-        config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["OBJ"] = True
+    # ✅ Enable OBJ
+    config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["OBJ"] = True
 
-        # Save changes
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
+    # ❌ Disable 3DML
+    config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["3DML"] = False
 
-        print("✅ OBJ format enabled in config.json")
+    # Save changes
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=4)
+
+    print("✅ OBJ enabled and 3DML disabled in config.json")
 
  except Exception as e:
         print(f"❌ Failed to update config.json: {e}")
@@ -2089,6 +2175,9 @@ class VBS4Panel(tk.Frame):
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
         enable_obj_in_photomesh_config()
+        write_cpp_obj_preset()
+        set_active_wizard_preset()   
+
 
         tk.Label(
             self,
@@ -2774,6 +2863,8 @@ class VBS4Panel(tk.Frame):
 
     def create_mesh(self):
         enable_obj_in_photomesh_config()
+        write_cpp_obj_preset()
+        set_active_wizard_preset()   
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:

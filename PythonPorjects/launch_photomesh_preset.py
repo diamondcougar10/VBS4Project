@@ -66,9 +66,7 @@ def ensure_preset_exists() -> str:
         f.write(PRESET_XML)
     return preset_path
 
-
 def ensure_config_json() -> str:
-    """Create Wizard config.json pointing to the preset and return its path."""
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
@@ -81,11 +79,17 @@ def ensure_config_json() -> str:
         "SelectedPreset": PRESET_NAME,
         "OverrideSettings": True,
         "AutoBuild": True,
+        "DefaultPhotoMeshWizardUI": {
+            "Model3DFormats": {
+                "OBJ": True,
+                "3DML": False
+            }
+        }
     }
+
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return config_path
-
 
 def launch_photomesh_with_preset(
     project_name: str,
