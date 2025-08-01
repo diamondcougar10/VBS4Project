@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 from typing import Iterable
+import logging
 
 PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 <BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
@@ -62,8 +63,14 @@ def ensure_preset_exists() -> str:
     preset_dir = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
     preset_path = os.path.join(preset_dir, f"{PRESET_NAME}.preset")
     os.makedirs(preset_dir, exist_ok=True)
-    with open(preset_path, "w", encoding="utf-8") as f:
-        f.write(PRESET_XML)
+
+    if os.path.isfile(preset_path):
+        logging.info("Using existing preset: %s", preset_path)
+    else:
+        with open(preset_path, "w", encoding="utf-8") as f:
+            f.write(PRESET_XML)
+        logging.info("Created preset: %s", preset_path)
+
     return preset_path
 
 
@@ -84,6 +91,7 @@ def ensure_config_json() -> str:
     }
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    logging.info("Wrote wizard config: %s", config_path)
     return config_path
 
 
@@ -118,5 +126,36 @@ def launch_photomesh_with_preset(
     try:
         return subprocess.Popen(cmd, startupinfo=startupinfo)
     except Exception as exc:
+        raise RuntimeError(f"Failed to launch PhotoMeshWizard: {exc}") from exc
+
+
+def run_photomesh_one_click_conversion(
+    project_name: str,
+    project_path: str,
+    image_folders: Iterable[str],
+) -> subprocess.Popen:
+    """Set up PhotoMesh Wizard and launch it minimized."""
+    preset_path = ensure_preset_exists()
+    config_path = ensure_config_json()
+    logging.info("Preset ready at %s", preset_path)
+    logging.info("Config written to %s", config_path)
+
+    cmd = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path]
+    for folder in image_folders:
+        cmd.extend(["--folder", folder])
+
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_SHOWMINIMIZED", 2)
+
+    logging.info("Launching PhotoMesh Wizard: %s", cmd)
+    try:
+        proc = subprocess.Popen(cmd, startupinfo=startupinfo)
+        logging.info("PhotoMesh Wizard launched (pid %s)", proc.pid)
+        return proc
+    except Exception as exc:
+        logging.error("Failed to launch PhotoMesh Wizard: %s", exc)
         raise RuntimeError(f"Failed to launch PhotoMeshWizard: {exc}") from exc
 
