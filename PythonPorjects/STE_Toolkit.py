@@ -19,7 +19,10 @@ import socket
 import threading
 import shlex
 from post_process_utils import clean_project_settings
-from launch_photomesh_preset import launch_photomesh_with_preset
+from launch_photomesh_preset import (
+    launch_photomesh_with_preset,
+    set_photomesh_preset,
+)
 from collections import OrderedDict
 import time
 import glob
@@ -2177,6 +2180,7 @@ class VBS4Panel(tk.Frame):
         enable_obj_in_photomesh_config()
         write_cpp_obj_preset()
         set_active_wizard_preset()   
+        set_photomesh_preset()
 
 
         tk.Label(
@@ -2886,6 +2890,7 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
+            set_photomesh_preset()
             launch_photomesh_with_preset(project_name, project_path, self.image_folder_paths)
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
