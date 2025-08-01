@@ -19,6 +19,7 @@ import socket
 import threading
 import shlex
 from post_process_utils import clean_project_settings
+from launch_photomesh_preset import launch_photomesh_with_preset
 from collections import OrderedDict
 import time
 import glob
@@ -2790,39 +2791,11 @@ class VBS4Panel(tk.Frame):
         # Normalize to UNC style backslashes for PhotoMesh
         project_path = clean_path(project_path)
         update_fuser_shared_path(project_path)
-        wizard_path = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
-
-        if not os.path.exists(wizard_path):
-            messagebox.showinfo(
-                "PhotoMesh Wizard Not Found",
-                "The PhotoMesh Wizard was not found in the expected location. ",
-                "Please select the PhotoMeshWizard.exe file manually.",
-                parent=self,
-            )
-            wizard_path = filedialog.askopenfilename(
-                title="Select PhotoMeshWizard.exe",
-                filetypes=[("Executable Files", "*.exe")],
-                parent=self,
-            )
-            if not wizard_path:
-                messagebox.showwarning(
-                    "Cancelled", "Mesh creation cancelled.", parent=self
-                )
-                return
-
-        folders_cmd = " ".join([f'--folder "{folder}"' for folder in self.image_folder_paths])
-        default_opts = "--exportFormat OBJ --centerPivotToProject --overrideSettings"
-
-        cmd = (
-            f'"{wizard_path}" --projectName "{project_name}" '
-            f'--projectPath "{project_path}" {default_opts} {folders_cmd}'
-        )
 
         self.log_message(f"Creating mesh for project: {project_name}")
-        self.log_message(f"Running command:\n{cmd}")
 
         try:
-            subprocess.Popen(cmd, shell=True)
+            launch_photomesh_with_preset(project_name, project_path, self.image_folder_paths)
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
                 "PhotoMesh Wizard Launched",
@@ -2831,7 +2804,7 @@ class VBS4Panel(tk.Frame):
             )
             self.start_progress_monitor(project_path)
         except Exception as e:
-            error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}\n\nCommand used: {cmd}"
+            error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
             messagebox.showerror("Launch Error", error_message, parent=self)
 
