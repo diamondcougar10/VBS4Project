@@ -19,10 +19,7 @@ import socket
 import threading
 import shlex
 from post_process_utils import clean_project_settings
-from launch_photomesh_preset import (
-    launch_photomesh_with_preset,
-    set_photomesh_preset,
-)
+from launch_photomesh_preset import launch_photomesh_with_preset
 from collections import OrderedDict
 import time
 import glob
@@ -103,6 +100,7 @@ def extract_progress(line: str) -> int | None:
         if total:
             return int(done / total * 100)
     return None
+
 
 #==============================================================================
 # NETWORK HELPERS
@@ -410,56 +408,6 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     os.makedirs(data_folder, exist_ok=True)
     return proj_folder, data_folder
 
-def write_cpp_obj_preset() -> str:
-    """Return the XML for the CPP&OBJ preset."""
-
-    preset_xml = """<?xml version="1.0" encoding="utf-8"?>
-<BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-  <SerializableVersion>8.0.4.50513</SerializableVersion>
-  <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
-    <d2p1:_Build>4</d2p1:_Build>
-    <d2p1:_Major>8</d2p1:_Major>
-    <d2p1:_Minor>0</d2p1:_Minor>
-    <d2p1:_Revision>50513</d2p1:_Revision>
-  </Version>
-  <BuildParameters>
-    <SerializableVersion>8.0.4.50513</SerializableVersion>
-    <Version xmlns:d3p1="http://schemas.datacontract.org/2004/07/System">
-      <d3p1:_Build>4</d3p1:_Build>
-      <d3p1:_Major>8</d3p1:_Major>
-      <d3p1:_Minor>0</d3p1:_Minor>
-      <d3p1:_Revision>50513</d3p1:_Revision>
-    </Version>
-    <AddWalls>false</AddWalls>
-    <CenterPivotToProject>true</CenterPivotToProject>
-    <DsmSettings />
-    <FillInGround>true</FillInGround>
-    <FocalLengthAccuracy>-1</FocalLengthAccuracy>
-    <HorizontalAccuracyFactor>0.1</HorizontalAccuracyFactor>
-    <IgnoreOrientation>false</IgnoreOrientation>
-    <OrthoSettings />
-    <OutputFormats xmlns:d3p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
-      <d3p1:string>OBJ</d3p1:string>
-    </OutputFormats>
-    <PointCloudFormat>LAS</PointCloudFormat>
-    <PrincipalPointAccuracy>-1</PrincipalPointAccuracy>
-    <RadialAccuracy>false</RadialAccuracy>
-    <TangentialAccuracy>false</TangentialAccuracy>
-    <TileSplitMethod>Simple</TileSplitMethod>
-    <VerticalAccuracyFactor>0.1</VerticalAccuracyFactor>
-    <VerticalBias>false</VerticalBias>
-  </BuildParameters>
-  <Description>OBJ + CenterPivot preset</Description>
-  <IsDefault>false</IsDefault>
-  <IsLastUsed>false</IsLastUsed>
-  <IsSystem>false</IsSystem>
-  <IsSystemDefault>false</IsSystemDefault>
-  <PresetFileName i:nil="true" />
-  <PresetName>CPP&amp;OBJ</PresetName>
-</BuildParametersPreset>
-    """
-
-    return preset_xml
 
 def set_active_wizard_preset(preset_name="CPP&OBJ"):
     import os
@@ -2171,8 +2119,6 @@ class VBS4Panel(tk.Frame):
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
         enable_obj_in_photomesh_config()
-        preset_xml = write_cpp_obj_preset()
-        set_photomesh_preset(preset_xml)
         set_active_wizard_preset()
        
 
@@ -2860,9 +2806,7 @@ class VBS4Panel(tk.Frame):
 
     def create_mesh(self):
         enable_obj_in_photomesh_config()
-        preset_xml = write_cpp_obj_preset()
         set_active_wizard_preset()
-        set_photomesh_preset(preset_xml)
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:

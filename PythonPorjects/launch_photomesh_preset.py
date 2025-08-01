@@ -1,13 +1,15 @@
-import json
+from pathlib import Path
 import os
+import json
 import subprocess
 from typing import Iterable
 
+# Constants
 PRESET_NAME = "CPP&OBJ"
-def write_cpp_obj_preset() -> str:
-    """Return the XML for the CPP&OBJ build preset."""
+WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
+PHOTOMESH_CONFIG = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\config.json"
 
-    return f"""<?xml version="1.0" encoding="utf-8"?>
+PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 <BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
   <SerializableVersion>8.0.4.50513</SerializableVersion>
   <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
@@ -43,45 +45,33 @@ def write_cpp_obj_preset() -> str:
     <VerticalAccuracyFactor>0.1</VerticalAccuracyFactor>
     <VerticalBias>false</VerticalBias>
   </BuildParameters>
-  <Description>Center Pivot & OBJ Export Preset</Description>
-  <IsDefault>true</IsDefault>
-  <IsLastUsed>true</IsLastUsed>
+  <Description>saves as center piviot</Description>
+  <IsDefault>false</IsDefault>
+  <IsLastUsed>false</IsLastUsed>
   <IsSystem>false</IsSystem>
   <IsSystemDefault>false</IsSystemDefault>
   <PresetFileName i:nil="true" />
-  <PresetName>{PRESET_NAME}</PresetName>
+  <PresetName>CPP&amp;OBJ</PresetName>
 </BuildParametersPreset>
 """
 
-WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
-
-
-def ensure_preset_exists(preset_xml: str) -> str:
-    """Write ``preset_xml`` to the preset folder and remove other presets."""
-
+def ensure_preset_exists() -> str:
+    """Write the CPP&OBJ preset file and return its path."""
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
 
     preset_dir = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
-    os.makedirs(preset_dir, exist_ok=True)
     preset_path = os.path.join(preset_dir, f"{PRESET_NAME}.preset")
-
-    # Remove other presets so only ours is available
-    for file in os.listdir(preset_dir):
-        if file.endswith(".preset") and file != f"{PRESET_NAME}.preset":
-            os.remove(os.path.join(preset_dir, file))
-
-    # Write our preset
+    os.makedirs(preset_dir, exist_ok=True)
     with open(preset_path, "w", encoding="utf-8") as f:
-        f.write(preset_xml)
-
-    return preset_xml
+        f.write(PRESET_XML)
 
 
-def ensure_config_json(preset_xml: str) -> str:
-    """Ensure the Wizard config selects our preset."""
+    return preset_path
 
+def ensure_config_json() -> str:
+    """Create Wizard config.json pointing to the preset and return its path."""
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
@@ -90,37 +80,32 @@ def ensure_config_json(preset_xml: str) -> str:
     os.makedirs(wizard_dir, exist_ok=True)
     config_path = os.path.join(wizard_dir, "config.json")
 
-    data = {}
-    if os.path.isfile(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
-
-    data["SelectedPreset"] = PRESET_NAME
-    data["OverrideSettings"] = True
-    data["AutoBuild"] = True
-
+    data = {
+        "SelectedPreset": PRESET_NAME,
+        "OverrideSettings": True,
+        "AutoBuild": True,
+    }
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-
     return config_path
 
+
+def launch_photomesh_with_preset(
+    project_name: str,
+    project_path: str,
+    image_folders: Iterable[str],
+) -> subprocess.Popen:
+    """Launch PhotoMeshWizard.exe using the CPP&OBJ preset."""
+    if not os.path.isfile(WIZARD_EXE):
+        raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
+
+    ensure_preset_exists()
+    ensure_config_json()
 
 def set_photomesh_preset(preset_xml: str) -> None:
     """Write the preset and update all PhotoMesh configuration files."""
 
-    # Ensure the preset file itself exists
-    ensure_preset_exists(preset_xml)
-
-    # Update the Wizard configuration stored in the user profile
-    ensure_config_json(preset_xml)
-
-    # Also update the global PhotoMeshWizard configuration so new
-    # projects default to this preset when launched via the UI.
     pm_config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
-
     data = {}
     if os.path.isfile(pm_config_path):
         try:
@@ -130,44 +115,39 @@ def set_photomesh_preset(preset_xml: str) -> None:
             data = {}
 
     data.setdefault("DefaultPhotoMeshWizardUI", {})["Preset"] = PRESET_NAME
+    data["LastUsedPreset"] = PRESET_NAME
 
     try:
         with open(pm_config_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except PermissionError:
-        # Access may be denied if the user is not elevated.  Fail silently
-        # to allow the Wizard to still run with the preset written to the
-        # user profile.
         pass
 
-
-def launch_photomesh_with_preset(
-    project_name: str,
-    project_path: str,
-    image_folders: Iterable[str],
-) -> subprocess.Popen:
-    """Launch PhotoMeshWizard with the custom preset."""
+def launch_photomesh_with_preset(project_name: str, project_path: str, image_folders: Iterable[str]) -> subprocess.Popen:
+    """Launch PhotoMeshWizard.exe with the CPP&OBJ preset."""
     if not os.path.isfile(WIZARD_EXE):
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
-    preset_xml = write_cpp_obj_preset()
-    set_photomesh_preset(preset_xml)
+    ensure_preset_exists()
 
-    cmd = [
-        WIZARD_EXE,
-        "--projectName", project_name,
-        "--projectPath", project_path,
+    parts = [
+        f'"{WIZARD_EXE}"',
+        f'--projectName "{project_name}"',
+        f'--projectPath "{project_path}"',
+        f'--preset "{PRESET_NAME}"',
+        "--overrideSettings",
     ]
     for folder in image_folders:
-        cmd.extend(["--folder", folder])
+        parts.append(f'--folder "{folder}"')
+    cmd = " ".join(parts)
 
-    startupinfo = None
-    if os.name == "nt":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
-        startupinfo.wShowWindow = getattr(subprocess, "SW_SHOWMINIMIZED", 2)
+    print("Running command:")
+    print(cmd)
 
+    creationflags = 0
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        creationflags = subprocess.CREATE_NO_WINDOW
     try:
-        return subprocess.Popen(cmd, startupinfo=startupinfo)
+        return subprocess.Popen(cmd, shell=True, creationflags=creationflags)
     except Exception as exc:
         raise RuntimeError(f"Failed to launch PhotoMeshWizard: {exc}") from exc
