@@ -54,7 +54,7 @@ PRESET_NAME = "CPP&OBJ"
 
 
 def ensure_preset_exists() -> str:
-    """Write the CPP&OBJ preset file and return its path."""
+    """Return the path to the ``CPP&OBJ`` preset, creating it if needed."""
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
@@ -62,13 +62,16 @@ def ensure_preset_exists() -> str:
     preset_dir = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
     preset_path = os.path.join(preset_dir, f"{PRESET_NAME}.preset")
     os.makedirs(preset_dir, exist_ok=True)
-    with open(preset_path, "w", encoding="utf-8") as f:
-        f.write(PRESET_XML)
+
+    if not os.path.isfile(preset_path):
+        with open(preset_path, "w", encoding="utf-8") as f:
+            f.write(PRESET_XML)
+
     return preset_path
 
 
 def ensure_config_json() -> str:
-    """Create Wizard config.json pointing to the preset and return its path."""
+    """Ensure ``config.json`` selects the preset and return its path."""
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
@@ -77,14 +80,28 @@ def ensure_config_json() -> str:
     os.makedirs(wizard_dir, exist_ok=True)
     config_path = os.path.join(wizard_dir, "config.json")
 
-    data = {
-        "SelectedPreset": PRESET_NAME,
-        "OverrideSettings": True,
-        "AutoBuild": True,
-    }
+    data: dict = {}
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    data["SelectedPreset"] = PRESET_NAME
+    data["OverrideSettings"] = True
+    data["AutoBuild"] = True
+
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
     return config_path
+
+
+def set_photomesh_preset() -> None:
+    """Ensure the CPP&OBJ preset exists and is set active."""
+    ensure_preset_exists()
+    ensure_config_json()
 
 
 def launch_photomesh_with_preset(
@@ -96,8 +113,7 @@ def launch_photomesh_with_preset(
     if not os.path.isfile(WIZARD_EXE):
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
-    ensure_preset_exists()
-    ensure_config_json()
+    set_photomesh_preset()
 
     cmd = [
         WIZARD_EXE,
