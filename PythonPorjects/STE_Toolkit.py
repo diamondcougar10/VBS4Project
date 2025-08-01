@@ -406,6 +406,30 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     os.makedirs(data_folder, exist_ok=True)
     return proj_folder, data_folder
 
+def enable_obj_in_photomesh_config():
+ config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+
+ try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+
+        # Ensure the structure exists before editing
+        if "DefaultPhotoMeshWizardUI" not in config:
+            config["DefaultPhotoMeshWizardUI"] = {}
+        if "Model3DFormats" not in config["DefaultPhotoMeshWizardUI"]:
+            config["DefaultPhotoMeshWizardUI"]["Model3DFormats"] = {}
+
+        # Set OBJ to True
+        config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["OBJ"] = True
+
+        # Save changes
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=4)
+
+        print("✅ OBJ format enabled in config.json")
+
+ except Exception as e:
+        print(f"❌ Failed to update config.json: {e}")
 
 def _copytree_progress(src: str, dst: str, progress_cb=None) -> None:
     """Recursively copy *src* to *dst* reporting progress."""
@@ -2063,6 +2087,7 @@ class VBS4Panel(tk.Frame):
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
+        enable_obj_in_photomesh_config()
 
         tk.Label(
             self,
@@ -2747,6 +2772,7 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
+        enable_obj_in_photomesh_config()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -2785,7 +2811,8 @@ class VBS4Panel(tk.Frame):
                 return
 
         folders_cmd = " ".join([f'--folder "{folder}"' for folder in self.image_folder_paths])
-        default_opts = "--exportFormat OBJ --centerPivotToProject"
+        default_opts = "--exportFormat OBJ --centerPivotToProject --overrideSettings"
+
         cmd = (
             f'"{wizard_path}" --projectName "{project_name}" '
             f'--projectPath "{project_path}" {default_opts} {folders_cmd}'
