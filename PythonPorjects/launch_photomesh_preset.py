@@ -4,7 +4,10 @@ import subprocess
 from typing import Iterable
 
 PRESET_NAME = "CPP&OBJ"
-PRESET_XML = f"""<?xml version="1.0" encoding="utf-8"?>
+def write_cpp_obj_preset() -> str:
+    """Return the XML for the CPP&OBJ build preset."""
+
+    return f"""<?xml version="1.0" encoding="utf-8"?>
 <BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
   <SerializableVersion>8.0.4.50513</SerializableVersion>
   <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
@@ -52,8 +55,10 @@ PRESET_XML = f"""<?xml version="1.0" encoding="utf-8"?>
 
 WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
 
-def ensure_preset_exists() -> str:
-    """Create CPP&OBJ preset and remove conflicting presets."""
+
+def ensure_preset_exists(preset_xml: str) -> str:
+    """Write ``preset_xml`` to the preset folder and remove other presets."""
+
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
@@ -62,20 +67,21 @@ def ensure_preset_exists() -> str:
     os.makedirs(preset_dir, exist_ok=True)
     preset_path = os.path.join(preset_dir, f"{PRESET_NAME}.preset")
 
-    # Remove other presets
+    # Remove other presets so only ours is available
     for file in os.listdir(preset_dir):
         if file.endswith(".preset") and file != f"{PRESET_NAME}.preset":
             os.remove(os.path.join(preset_dir, file))
 
-    # Write the preset
+    # Write our preset
     with open(preset_path, "w", encoding="utf-8") as f:
-        f.write(PRESET_XML)
+        f.write(preset_xml)
 
-    return preset_path
+    return preset_xml
 
 
-def ensure_config_json() -> str:
-    """Ensure config.json selects our preset."""
+def ensure_config_json(preset_xml: str) -> str:
+    """Ensure the Wizard config selects our preset."""
+
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise EnvironmentError("%APPDATA% is not set")
@@ -102,10 +108,37 @@ def ensure_config_json() -> str:
     return config_path
 
 
-def set_photomesh_preset() -> None:
-    """Ensure the preset exists and is active."""
-    ensure_preset_exists()
-    ensure_config_json()
+def set_photomesh_preset(preset_xml: str) -> None:
+    """Write the preset and update all PhotoMesh configuration files."""
+
+    # Ensure the preset file itself exists
+    ensure_preset_exists(preset_xml)
+
+    # Update the Wizard configuration stored in the user profile
+    ensure_config_json(preset_xml)
+
+    # Also update the global PhotoMeshWizard configuration so new
+    # projects default to this preset when launched via the UI.
+    pm_config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+
+    data = {}
+    if os.path.isfile(pm_config_path):
+        try:
+            with open(pm_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    data.setdefault("DefaultPhotoMeshWizardUI", {})["Preset"] = PRESET_NAME
+
+    try:
+        with open(pm_config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except PermissionError:
+        # Access may be denied if the user is not elevated.  Fail silently
+        # to allow the Wizard to still run with the preset written to the
+        # user profile.
+        pass
 
 
 def launch_photomesh_with_preset(
@@ -117,7 +150,8 @@ def launch_photomesh_with_preset(
     if not os.path.isfile(WIZARD_EXE):
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
-    set_photomesh_preset()
+    preset_xml = write_cpp_obj_preset()
+    set_photomesh_preset(preset_xml)
 
     cmd = [
         WIZARD_EXE,

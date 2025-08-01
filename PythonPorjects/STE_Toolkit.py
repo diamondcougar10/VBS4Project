@@ -410,10 +410,10 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     os.makedirs(data_folder, exist_ok=True)
     return proj_folder, data_folder
 
-def write_cpp_obj_preset():
-    import os
+def write_cpp_obj_preset() -> str:
+    """Return the XML for the CPP&OBJ preset."""
 
-    PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
+    preset_xml = """<?xml version="1.0" encoding="utf-8"?>
 <BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
   <SerializableVersion>8.0.4.50513</SerializableVersion>
   <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
@@ -459,14 +459,7 @@ def write_cpp_obj_preset():
 </BuildParametersPreset>
     """
 
-    appdata = os.environ.get("APPDATA")
-    preset_path = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets", "CPP&OBJ.preset")
-    os.makedirs(os.path.dirname(preset_path), exist_ok=True)
-
-    with open(preset_path, "w", encoding="utf-8") as f:
-        f.write(PRESET_XML)
-
-    print(f"✅ Preset written to {preset_path}")
+    return preset_xml
 
 def set_active_wizard_preset(preset_name="CPP&OBJ"):
     import os
@@ -2178,7 +2171,8 @@ class VBS4Panel(tk.Frame):
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
         enable_obj_in_photomesh_config()
-        write_cpp_obj_preset()
+        preset_xml = write_cpp_obj_preset()
+        set_photomesh_preset(preset_xml)
         set_active_wizard_preset()
        
 
@@ -2866,9 +2860,9 @@ class VBS4Panel(tk.Frame):
 
     def create_mesh(self):
         enable_obj_in_photomesh_config()
-        write_cpp_obj_preset()
-        set_active_wizard_preset()  
-        set_photomesh_preset()
+        preset_xml = write_cpp_obj_preset()
+        set_active_wizard_preset()
+        set_photomesh_preset(preset_xml)
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
