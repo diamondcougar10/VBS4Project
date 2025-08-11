@@ -33,6 +33,12 @@ import win32net
 import win32netcon
 import ctypes.wintypes
 import logging
+from pathlib import Path
+
+try:  # Optional atomic write helper
+    from steup.utils import write_config_atomic  # type: ignore
+except Exception:  # pragma: no cover - helper may not exist
+    write_config_atomic = None
 
 # Win32 constants for tweaking window styles:
 GWL_STYLE        = -16
@@ -127,46 +133,72 @@ def clean_path(path: str) -> str:
         path = '\\' + path
     return path
 
+
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
 
-def get_vbs4_install_path():
-    # First, check the config file
+def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
+    """Return the file version of *exe* as a tuple or ``None`` on failure."""
+    try:
+        info = win32api.GetFileVersionInfo(exe, "\\")
+        ms = info["FileVersionMS"]
+        ls = info["FileVersionLS"]
+        return (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
+    except Exception:
+        return None
+
+
+def get_vbs4_install_path() -> str:
+    """Return the best VBS4.exe path found on the system.
+
+    Searches common installation roots, preferring the highest file version and
+    using the newest modification time as a tiebreaker.  The discovered path is
+    cached in ``config['General']['vbs4_path']``.
+    """
     path = config['General'].get('vbs4_path', '').strip()
     if path and os.path.isfile(path):
         logging.info("VBS4 path found in config: %s", path)
         return path
 
-    # If not in config, try to find it
-    possible_paths = [
+    roots = [
         r"C:\BISIM\VBS4",
         r"C:\Builds\VBS4",
         r"C:\Builds",
-        r"C:\Bohemia Interactive Simulations"
+        r"C:\Bohemia Interactive Simulations",
     ]
-    for base_path in possible_paths:
-        if os.path.isdir(base_path):
-            # Look for VBS4 directories. Some builds may place the version in a
-            # numeric folder rather than prefixing it with "VBS4" Accept both patterns.
-            vbs4_dirs = [
-                d for d in os.listdir(base_path)
-                if d.startswith("VBS4") or re.match(r"^[0-9]", d)
-            ]
-            vbs4_dirs.sort(reverse=True)  # Sort in descending order to get the latest version first
-            
-            for vbs4_dir in vbs4_dirs:
-                full_path = os.path.join(base_path, vbs4_dir, "VBS4.exe")
-                if os.path.isfile(full_path):
-                    logging.info("VBS4 path found: %s", full_path)
-                    # Save the found path to config
-                    config['General']['vbs4_path'] = full_path
-                    with open(CONFIG_PATH, 'w') as f:
-                        config.write(f)
-                    return full_path
+
+    best_path = ""
+    best_key: tuple[int, tuple[int, ...], float] = (0, (-1,), 0.0)
+
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            if "VBS4.exe" not in filenames:
+                continue
+            exe_path = os.path.join(dirpath, "VBS4.exe")
+            ver = _exe_version_tuple(exe_path) or (-1,)
+            mtime = os.path.getmtime(exe_path)
+            key = (1 if ver != (-1,) else 0, ver, mtime)
+            if key > best_key:
+                best_key = key
+                best_path = exe_path
+
+    if best_path:
+        config['General']['vbs4_path'] = best_path
+        try:
+            if write_config_atomic:
+                write_config_atomic(Path(CONFIG_PATH), config)
+            else:
+                with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
+                    config.write(fh)
+        except Exception:
+            logging.exception("Failed to write VBS4 path to config")
+        return best_path
 
     logging.warning("VBS4 path not found")
-    return ''
+    return ""
 
 def get_vbs4_launcher_path():
     # First, check the config file
