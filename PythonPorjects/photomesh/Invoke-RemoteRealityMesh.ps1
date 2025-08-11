@@ -1,81 +1,144 @@
+<# ======================================================================
+ Invoke-RemoteRealityMesh.ps1  (PRODUCTION)
+ Repo layout expected:
+   PythonPorjects\
+     Tools\PsExec.exe
+     photomesh\Invoke-RemoteRealityMesh.ps1   <-- this file
+ Network layout expected:
+   \\HAMMERKIT1-4\SharedMeshDrive\RealityMesh\Input\<ProjectFolder>\ 
+      - RealityMeshProcess.ps1
+      - <ProjectFolder>.txt
+ ===================================================================== #>
+
+[CmdletBinding()]
 param(
+    # Remote PC IP or hostname
     [Parameter(Mandatory=$true, Position=0)]
-    [string]$TargetIP,
-    [Parameter(Mandatory=$true, Position=1)]
-    [string]$SettingsFile,
+    [string]$Target,
+
+    # Project folder name under ...\RealityMesh\Input\ (omit to auto-pick latest)
+    [Parameter(Position=1)]
+    [string]$ProjectFolder,
+
+    # Root UNC share for RealityMesh
     [Parameter(Position=2)]
-    [string]$ResultsDir = "$PSScriptRoot\Results"
+    [string]$ShareRoot = "\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh",
+
+    # Optional pre-supplied credentials (Domain\User or .\User)
+    [Parameter(Position=3)]
+    [PSCredential]$Credential,
+
+    # Hide the yellow “in progress” banner on the remote window
+    [Parameter(Position=4)]
+    [switch]$NoBanner
 )
 
-# Shared drive used by both machines
-$sharedRoot = "\\\SharedMeshDrive\RealityMesh"
-$inputRoot = Join-Path $sharedRoot 'Input'
-$outputRoot = Join-Path $sharedRoot 'Output'
+# ------------------- Paths & Logging -------------------
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# PsExec is in ..\Tools\PsExec.exe (one level above this photomesh folder)
+$PsExecPath = Join-Path (Split-Path $ScriptDir -Parent) "Tools\PsExec.exe"
 
-if (-not (Test-Path $SettingsFile)) {
-    Write-Error "Settings file not found: $SettingsFile"
-    exit 1
+$LogFile   = Join-Path $ScriptDir "Invoke-RemoteRealityMesh.log"
+function Log($msg) {
+    $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
+    Write-Host $line
+    Add-Content -Path $LogFile -Value $line
 }
 
-# Read basic info from the local settings file
-$settingsContent = Get-Content $SettingsFile
-$projectName = ($settingsContent | Where-Object { $_ -match '^project_name=' }) -replace 'project_name=', ''
-$sourceDir = ($settingsContent | Where-Object { $_ -match '^source_Directory=' }) -replace 'source_Directory=', ''
+if (-not (Test-Path $PsExecPath)) { throw "PsExec.exe not found. Expected at: $PsExecPath" }
+# Accept EULA silently (first run on a machine)
+& $PsExecPath -accepteula | Out-Null
 
-$projectInputDir = Join-Path $inputRoot $projectName
-New-Item -ItemType Directory -Path $projectInputDir -Force | Out-Null
-$destDataDir = Join-Path $projectInputDir 'data'
-robocopy $sourceDir $destDataDir /MIR | Out-Null
+$InputRoot  = Join-Path $ShareRoot 'Input'
+$OutputRoot = Join-Path $ShareRoot 'Output'
+if (-not (Test-Path $InputRoot))  { throw "Input root not found: $InputRoot" }
+if (-not (Test-Path $OutputRoot)) { New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null }
 
-# Copy and update the settings file on the shared drive
-$remoteSettings = Join-Path $projectInputDir (Split-Path $SettingsFile -Leaf)
-Copy-Item $SettingsFile $remoteSettings -Force
-(Get-Content $remoteSettings) | ForEach-Object {
-    if ($_ -match '^source_Directory=') { "source_Directory=$destDataDir" } else { $_ }
-} | Set-Content $remoteSettings
-
-$session = New-PSSession -ComputerName $TargetIP
-try {
-    $scriptPath = Join-Path $PSScriptRoot 'RealityMeshProcess.ps1'
-    Write-Host "Launching RealityMeshProcess.ps1 on $TargetIP" -ForegroundColor Cyan
-    Invoke-Command -Session $session -ScriptBlock {
-        param($script, $settings)
-        # Show a visible PowerShell window on the remote machine with a status
-        # message so users know processing is running.
-        $msg = 'RealityMeshProcess in progress — do not turn off PC'
-        Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoExit',
-            '-ExecutionPolicy','Bypass',
-            '-Command', "Write-Host '$msg' -ForegroundColor Yellow; & '$script' '$settings' 1"
-        )
-    } -ArgumentList $scriptPath, $remoteSettings
-}
-finally {
-    if ($session) {
-        Remove-PSSession $session
-    }
+# Auto-pick latest project folder if not provided
+if (-not $ProjectFolder) {
+    $latest = Get-ChildItem -Path $InputRoot -Directory |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $latest) { throw "No project directories found under $InputRoot" }
+    $ProjectFolder = $latest.Name
+    Log "Auto-selected latest project folder: $ProjectFolder"
 }
 
-$start = Get-Date
-Write-Host "Waiting for completion flag..." -ForegroundColor Yellow
-$doneFile = $null
-while (-not $doneFile) {
-    $folder = Get-ChildItem -Path $outputRoot -Filter "${projectName}_*" -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($folder) {
-        $candidate = Join-Path $folder.FullName 'DONE.txt'
-        if (Test-Path $candidate) { $doneFile = $candidate; break }
-    }
-    Start-Sleep -Seconds 30
+$ProjectPathUNC = Join-Path $InputRoot $ProjectFolder
+if (-not (Test-Path $ProjectPathUNC)) { throw "Project folder not found: $ProjectPathUNC" }
+
+# Expect: RealityMeshProcess.ps1 + <ProjectFolder>.txt
+$Ps1Path = Join-Path $ProjectPathUNC 'RealityMeshProcess.ps1'
+$TxtPath = Join-Path $ProjectPathUNC ("{0}.txt" -f $ProjectFolder)
+if (-not (Test-Path $Ps1Path)) { throw "Process script not found: $Ps1Path" }
+if (-not (Test-Path $TxtPath)) { throw "Settings file not found: $TxtPath" }
+
+Log "Target            : $Target"
+Log "Project folder    : $ProjectFolder"
+Log "Process script    : $Ps1Path"
+Log "Settings file     : $TxtPath"
+Log "Share root        : $ShareRoot"
+Log "PsExec            : $PsExecPath"
+
+# ------------------- Credentials -------------------
+if (-not $Credential) {
+    $Credential = Get-Credential -Message "Enter credentials for $Target (local admin or domain account)"
+}
+# Normalize username for workgroup/local if not Domain\User format
+$user = $Credential.UserName
+if ($user -notmatch '^[^\\]+\\[^\\]+$') { $user = ".\${user}" }
+
+# PsExec requires plaintext password; zero it after use
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password)
+try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+
+# ------------------- Preflight: ADMIN$ access -------------------
+Log "Testing ADMIN$ on \\$Target..."
+$netUse = cmd /c "net use \\$Target\ADMIN$ /user:$user $plain"
+if ($LASTEXITCODE -ne 0) {
+    Log "ADMIN$ test failed. Output:"
+    Log $netUse
+    throw "Cannot access \\$Target\ADMIN$ as $user. Enable File & Printer Sharing, ensure local admin + token policy, or fix creds."
+}
+# Clean mapping
+cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
+
+# -------- build the remote command safely --------
+$escapedPs1 = $Ps1Path.Replace("'", "''").Replace('`','``')
+$escapedTxt = $TxtPath.Replace("'", "''").Replace('`','``')
+$banner = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
+$remoteCmd = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
+
+# ---- PsExec args (this was missing) ----
+$psArgs = @(
+    "\\$Target", "-i", "-h",
+    "-u", $user, "-p", $plain,
+    "powershell", "-NoExit", "-ExecutionPolicy", "Bypass",
+    "-Command", $remoteCmd
+)
+
+Log "Starting remote PowerShell window..."
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName               = $PsExecPath
+$psi.Arguments              = ($psArgs | ForEach-Object {
+    if ($_ -match '\s|;|&|\(|\)|\^|\|' ) { '"{0}"' -f $_ } else { $_ }
+}) -join ' '
+$psi.UseShellExecute        = $false
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError  = $true
+
+$proc = [System.Diagnostics.Process]::Start($psi)
+$stdout = $proc.StandardOutput.ReadToEnd()
+$stderr = $proc.StandardError.ReadToEnd()
+$proc.WaitForExit()
+
+if ($stdout) { Log $stdout.Trim() }
+if ($stderr) { Log ("STDERR: " + $stderr.Trim()) }
+
+[System.Array]::Clear([char[]]$plain, 0, $plain.Length) 2>$null
+$plain = $null
+
+if ($proc.ExitCode -ne 0) {
+    throw "PsExec returned exit code $($proc.ExitCode). See log for details."
 }
 
-$elapsed = (Get-Date) - $start
-$finalDir = Split-Path $doneFile
-$destDir = Join-Path $ResultsDir (Split-Path $finalDir -Leaf)
-Write-Host "Copying results to $destDir" -ForegroundColor Cyan
-robocopy $finalDir $destDir /MIR | Out-Null
-
-$log = Join-Path $PSScriptRoot 'RemoteProcess.log'
-"$projectName completed in $($elapsed.TotalMinutes) minutes" | Out-File -FilePath $log -Append
-
-# Cleanup temporary data
-Remove-Item $finalDir -Recurse -Force
+Log "Remote window launched. Operators can watch progress on $Target."
