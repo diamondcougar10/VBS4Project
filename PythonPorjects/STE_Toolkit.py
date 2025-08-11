@@ -2215,7 +2215,9 @@ class VBS4Panel(tk.Frame):
                # Log Window
             # Log Window
         self.log_frame = tk.Frame(self, bg="#222222")
-        self.log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        # Keep the activity log anchored to the bottom so control buttons
+        # remain accessible even in fullscreen mode.
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
         tk.Label(
             self.log_frame, text="Activity Log",
@@ -2266,12 +2268,6 @@ class VBS4Panel(tk.Frame):
             bg="#555", fg="white"
         )
         self.toggle_log_button.pack(side="left")
-
-        tk.Button(
-            button_frame, text="Clear Log",
-            command=self.clear_log,
-            bg="#555", fg="white"
-        ).pack(side="right")
 
         tk.Button(
             button_frame, text="Clear Log",
