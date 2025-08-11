@@ -2950,6 +2950,30 @@ class VBS4Panel(tk.Frame):
 
         run_in_thread(_pipeline)
 
+    def choose_project_build_dir(self, initialdir: str | None = None) -> str | None:
+        """Prompt user to select a PhotoMesh project folder and validate it."""
+        while True:
+            path = filedialog.askdirectory(
+                title="Select PhotoMesh Project Folder",
+                parent=self,
+                initialdir=initialdir or None,
+            )
+            if not path:
+                return None
+            path = clean_path(path)
+            if find_output_json(path):
+                return path
+            messagebox.showerror(
+                "Invalid Folder",
+                (
+                    "That folder doesn\u2019t contain a PhotoMesh build (missing "
+                    "Output-CenterPivotOrigin.json). Please select the project\u2019s "
+                    "Build_1/out parent folder."
+                ),
+                parent=self,
+            )
+            initialdir = path
+
     def post_process_last_build(self):
         # Hide the terrain options if they are currently visible so the
         # progress bar remains unobstructed during processing.
@@ -2957,19 +2981,29 @@ class VBS4Panel(tk.Frame):
             self.toggle_terrain_buttons()
 
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
-        dataset_root = ''
+        dataset_root = None
         try:
             settings = load_system_settings(sys_settings_path)
-            dataset_root = settings.get('dataset_root', '')
+            dataset_root = settings.get('dataset_root') or None
+            if dataset_root:
+                dataset_root = clean_path(dataset_root)
         except Exception:
-            pass
+            dataset_root = None
 
-        if not self.last_build_dir:
-            path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self,
-                                           initialdir=dataset_root or None)
-            if not path:
-                return
-            self.last_build_dir = path
+        recent_dir = config.get('Recent', 'last_postprocess_dir', fallback=None)
+        initialdir = dataset_root or recent_dir
+
+        path = self.choose_project_build_dir(initialdir)
+        if not path:
+            self.log_message("Post-process cancelled: no folder selected")
+            return
+
+        self.last_build_dir = path
+        if 'Recent' not in config:
+            config['Recent'] = {}
+        config['Recent']['last_postprocess_dir'] = path
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
+            config.write(fh)
 
         remote_host = simpledialog.askstring(
             "Remote Host",
@@ -2977,86 +3011,29 @@ class VBS4Panel(tk.Frame):
             parent=self,
         )
 
-        def _run():
-            build_root = self.last_build_dir
-            self.log_message(f"Searching for Output-CenterPivotOrigin.json under {build_root}")
-            json_path = wait_for_output_json(build_root)
-            build_dir = os.path.dirname(json_path)
-            self.log_message(f"Found JSON: {json_path}")
+        def _run() -> None:
+            orig_log = self.log_message
 
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            def thread_log(msg: str) -> None:
+                self.after(0, orig_log, msg)
 
-            # Extract the project name from the build_root path
-            project_name = os.path.basename(build_root)
-            self.log_message(f"Using project name: {project_name}")
-
-            sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
-            settings = load_system_settings(sys_settings_path)
-            update_vbs4_settings(sys_settings_path)
-            dataset_root = settings.get('dataset_root')
-            proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
-            self.log_message(f"Created project folder {proj_folder}")
-
-            copy_tiles(
-                build_dir,
-                data_folder,
-                lambda p: self.after(0, self.set_progress, p),
-            )
-            self.log_message("Copied raw tiles")
-            self.after(0, self.set_progress, 0)
-
-            settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
-            write_project_settings(settings_path, data, data_folder)
-            self.log_message(f"Wrote settings {settings_path}")
-            settings_path = clean_project_settings(settings_path)
-            self.log_message("Cleaned offset values")
-
-            set_oneclick_output_path(proj_folder)
-            self.controller.panels['Settings'].update_oneclick_path_label()
-
-            ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshProcess.ps1')
-            invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
-
+            self.log_message = thread_log
             try:
-                if remote_host:
-                    run_remote_processor(
-                        invoke_script,
-                        remote_host,
-                        settings_path,
-                        self.log_message,
-                        lambda p: self.after(0, self.set_progress, p),
-                    )
-                else:
-                    cmd = [
-                        'powershell',
-                        '-ExecutionPolicy', 'Bypass',
-                        '-File', ps_script,
-                        settings_path,
-                        '1'
-                    ]
-                    self.log_message('Running: ' + ' '.join(cmd))
-                    self.set_progress(0)
-                    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
-                        for line in proc.stdout:
-                            line = line.rstrip()
-                            self.log_message(line)
-                            percent = extract_progress(line)
-                            if percent is not None:
-                                self.set_progress(percent)
-                        proc.wait()
-                        if proc.returncode != 0:
-                            raise subprocess.CalledProcessError(proc.returncode, cmd)
-                self.log_message("Processing complete")
-                distribute_terrain(project_name, self.log_message)
-            except Exception as e:
-                self.log_message(f"Processing failed: {e}")
-                messagebox.showerror("Error", str(e), parent=self)
-                return
-
-            kill_fusers()
-            self.log_message("PhotoMesh fusers closed")
-            messagebox.showinfo("Done", "Processing finished successfully", parent=self)
+                self._process_last_build(self.last_build_dir, remote_host)
+                self.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Done", "Processing finished successfully", parent=self
+                    ),
+                )
+            except Exception as e:  # pragma: no cover - GUI path
+                self.after(0, orig_log, f"Processing failed: {e}")
+                self.after(
+                    0,
+                    lambda: messagebox.showerror("Error", str(e), parent=self),
+                )
+            finally:
+                self.log_message = orig_log
 
         run_in_thread(_run)
 
