@@ -86,59 +86,66 @@ if (-not $Credential) {
 # Normalize username for workgroup/local if not Domain\User format
 $user = $Credential.UserName
 if ($user -notmatch '^[^\\]+\\[^\\]+$') { $user = ".\${user}" }
-
-# PsExec requires plaintext password; zero it after use
+ 
+# PsExec requires plaintext password; zero it in finally
 $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password)
-try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+try {
+    $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
 
-# ------------------- Preflight: ADMIN$ access -------------------
-Log "Testing ADMIN$ on \\$Target..."
-$netUse = cmd /c "net use \\$Target\ADMIN$ /user:$user $plain"
-if ($LASTEXITCODE -ne 0) {
-    Log "ADMIN$ test failed. Output:"
-    Log $netUse
-    throw "Cannot access \\$Target\ADMIN$ as $user. Enable File & Printer Sharing, ensure local admin + token policy, or fix creds."
+    # ------------------- Preflight: ADMIN$ access -------------------
+    Log "Testing ADMIN$ on \\$Target..."
+    $netCmd = "net use \\$Target\ADMIN$ /user:$user `"$plain`""
+    $netUse = cmd /c $netCmd
+    if ($LASTEXITCODE -ne 0) {
+        Log "ADMIN$ test failed. Output:"
+        Log $netUse
+        throw "Cannot access \\$Target\ADMIN$ as $user. Enable File & Printer Sharing, ensure account is in local Administrators group, and set LocalAccountTokenFilterPolicy=1."
+    }
+    # Clean mapping
+    cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
+
+    # -------- build the remote command safely --------
+    $escapedPs1 = $Ps1Path.Replace("'", "''").Replace('`','``')
+    $escapedTxt = $TxtPath.Replace("'", "''").Replace('`','``')
+    $banner = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
+    $remoteCmd = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
+
+    # ---- PsExec args ----
+    $psArgs = @(
+        "\\$Target", "-i", "-h",
+        "-u", $user, "-p", $plain,
+        "powershell", "-NoExit", "-ExecutionPolicy", "Bypass",
+        "-Command", $remoteCmd
+    )
+
+    Log "Starting remote PowerShell window..."
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName               = $PsExecPath
+    $psi.Arguments              = ($psArgs | ForEach-Object {
+        if ($_ -match '\s|;|&|\(|\)|\^|\|' ) { '"{0}"' -f $_ } else { $_ }
+    }) -join ' '
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+
+    if ($stdout) { Log $stdout.Trim() }
+    if ($stderr) { Log ("STDERR: " + $stderr.Trim()) }
+
+    if ($proc.ExitCode -ne 0) {
+        throw "PsExec returned exit code $($proc.ExitCode). See log for details."
+    }
+
+    Log "Remote window launched. Operators can watch progress on $Target."
 }
-# Clean mapping
-cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
-
-# -------- build the remote command safely --------
-$escapedPs1 = $Ps1Path.Replace("'", "''").Replace('`','``')
-$escapedTxt = $TxtPath.Replace("'", "''").Replace('`','``')
-$banner = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
-$remoteCmd = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
-
-# ---- PsExec args (this was missing) ----
-$psArgs = @(
-    "\\$Target", "-i", "-h",
-    "-u", $user, "-p", $plain,
-    "powershell", "-NoExit", "-ExecutionPolicy", "Bypass",
-    "-Command", $remoteCmd
-)
-
-Log "Starting remote PowerShell window..."
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName               = $PsExecPath
-$psi.Arguments              = ($psArgs | ForEach-Object {
-    if ($_ -match '\s|;|&|\(|\)|\^|\|' ) { '"{0}"' -f $_ } else { $_ }
-}) -join ' '
-$psi.UseShellExecute        = $false
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError  = $true
-
-$proc = [System.Diagnostics.Process]::Start($psi)
-$stdout = $proc.StandardOutput.ReadToEnd()
-$stderr = $proc.StandardError.ReadToEnd()
-$proc.WaitForExit()
-
-if ($stdout) { Log $stdout.Trim() }
-if ($stderr) { Log ("STDERR: " + $stderr.Trim()) }
-
-[System.Array]::Clear([char[]]$plain, 0, $plain.Length) 2>$null
-$plain = $null
-
-if ($proc.ExitCode -ne 0) {
-    throw "PsExec returned exit code $($proc.ExitCode). See log for details."
+finally {
+    if ($ptr) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    if ($plain) {
+        [System.Array]::Clear([char[]]$plain, 0, $plain.Length) 2>$null
+        $plain = $null
+    }
 }
-
-Log "Remote window launched. Operators can watch progress on $Target."
