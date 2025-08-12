@@ -133,9 +133,30 @@ try {
     $banner = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
     $remoteCmd = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
 
-    # ---- PsExec args ----
-    $psArgs = @(
-        "\\$Target", "-i", "-h",
+    # --- Resolve the active session ID on the remote so the window is visible ---
+    Log "Querying active session on \\$Target ..."
+    $qs = & $PsExecPath "\\$Target" cmd /c "query session" 2>&1
+    if ($LASTEXITCODE -ne 0 -or -not $qs) {
+        Log "Could not query session with PsExec. Output:`n$qs"
+        $activeId = $null
+    } else {
+        # Parse 'query session' output and pick the line with 'Active'
+        $activeId = ($qs -split "`r?`n" |
+            Where-Object { $_ -match '\sActive\s' } |
+            ForEach-Object {
+                ($_ -split '\s+' | Where-Object { $_ -match '^\d+$' })[0]
+            } |
+            Select-Object -First 1)
+
+        if ($activeId) { Log "Using active session ID: $activeId" }
+        else { Log "No Active session found; falling back to default -i (console)"; }
+    }
+
+    # ---- PsExec args (target the active session if found) ----
+    $psArgs = @("\\$Target")
+    if ($activeId) { $psArgs += @("-i", $activeId) } else { $psArgs += "-i" }
+    $psArgs += @(
+        "-h",
         "-u", $user, "-p", $plain,
         "powershell", "-NoExit", "-ExecutionPolicy", "Bypass",
         "-Command", $remoteCmd
