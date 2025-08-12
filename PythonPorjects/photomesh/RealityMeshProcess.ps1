@@ -100,28 +100,21 @@ $project_name = Sanitize-Name ((Get-Content -LiteralPath $project_settings_File 
 $source_Directory_temp = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^source_Directory=" }) -replace "source_Directory=", ""
 $source_Directory = Normalize-UNCPath $source_Directory_temp
 
-# Preflight models
+# Validate data folder
 if (-not (Test-Path -LiteralPath $source_Directory)) {
     throw "source_Directory not found: $source_Directory"
 }
-$hasObj = Get-ChildItem -Path $source_Directory -Filter *.obj -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-$hasLas = Get-ChildItem -Path $source_Directory -Filter *.las -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $hasObj -and -not $hasLas) {
-    throw "source_Directory must contain at least one .obj or .las file"
+$objFiles = @(Get-ChildItem -Path $source_Directory -Filter *.obj -Recurse -ErrorAction SilentlyContinue)
+$lasFiles = @(Get-ChildItem -Path $source_Directory -Filter *.las -Recurse -ErrorAction SilentlyContinue)
+$objCount = $objFiles.Count
+$lasCount = $lasFiles.Count
+Write-Output "Data folder: $source_Directory — Found $objCount OBJ, $lasCount LAS"
+if ($objCount -eq 0 -and $lasCount -eq 0) {
+    throw "No *.obj/*.las found under: $source_Directory. Make sure your data folder points to the correct location."
 }
 
-# Attempt to derive a better project name from Output-CenterPivotOrigin.json
+# Locate Output-CenterPivotOrigin.json if available
 $ocpo = Get-ChildItem -Path $source_Directory -Filter "Output-CenterPivotOrigin.json" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($ocpo) {
-    $projectRoot = Split-Path $ocpo.DirectoryName -Parent
-    if ((Split-Path $ocpo.DirectoryName -Leaf) -like "Build_*") {
-        $projectRoot = Split-Path $projectRoot -Parent
-    }
-    $derivedName = Split-Path $projectRoot -Leaf
-    if ($derivedName) {
-        $project_name = Sanitize-Name $derivedName
-    }
-}
 
 $sel_Area_Size         = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^sel_Area_Size=" }) -replace "sel_Area_Size=", ""
 $offset_coordsys       = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^offset_coordsys=" }) -replace "offset_coordsys=", ""
@@ -143,6 +136,53 @@ $faceThresh            = (Get-Content -LiteralPath $project_settings_File | Wher
 $lodThresh             = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^lodThresh=" }) -replace "lodThresh=", ""
 $tileSize              = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^tileSize=" }) -replace "tileSize=", ""
 $srfResolution         = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^srfResolution=" }) -replace "srfResolution=", ""
+
+# Override offsets from Output-CenterPivotOrigin.json and derive project name
+if ($ocpo) {
+    $projectRoot = Split-Path $ocpo.DirectoryName -Parent
+    if ((Split-Path $ocpo.DirectoryName -Leaf) -like "Build_*") {
+        $projectRoot = Split-Path $projectRoot -Parent
+    }
+    $derivedName = Split-Path $projectRoot -Leaf
+    if ($derivedName) {
+        $project_name = Sanitize-Name $derivedName
+    }
+    try {
+        $json = Get-Content -LiteralPath $ocpo.FullName -Raw | ConvertFrom-Json
+
+        $tmp = $json.offset_x
+        if ($null -eq $tmp) { $tmp = $json.x }
+        if ($null -eq $tmp -and $json.offset) { $tmp = $json.offset.x }
+        if ($null -ne $tmp) { $offset_x = $tmp }
+
+        $tmp = $json.offset_y
+        if ($null -eq $tmp) { $tmp = $json.y }
+        if ($null -eq $tmp -and $json.offset) { $tmp = $json.offset.y }
+        if ($null -ne $tmp) { $offset_y = $tmp }
+
+        $tmp = $json.offset_z
+        if ($null -eq $tmp) { $tmp = $json.z }
+        if ($null -eq $tmp -and $json.offset) { $tmp = $json.offset.z }
+        if ($null -ne $tmp) { $offset_z = $tmp }
+
+        $tmp = $json.offset_coordsys
+        if ($null -eq $tmp) { $tmp = $json.coordinateSystem }
+        if ($null -eq $tmp) { $tmp = $json.coordSystem }
+        if ($null -ne $tmp) { $offset_coordsys = $tmp }
+
+        $tmp = $json.offset_hdatum
+        if ($null -eq $tmp) { $tmp = $json.horizontalDatum }
+        if ($null -eq $tmp) { $tmp = $json.hdatum }
+        if ($null -ne $tmp) { $offset_hdatum = $tmp }
+
+        $tmp = $json.offset_vdatum
+        if ($null -eq $tmp) { $tmp = $json.verticalDatum }
+        if ($null -eq $tmp) { $tmp = $json.vdatum }
+        if ($null -ne $tmp) { $offset_vdatum = $tmp }
+    } catch {
+        Write-Warning "Failed to parse offsets from $($ocpo.FullName): $_"
+    }
+}
 
 # ---------- System settings ----------
 $blender_path = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^blender_path=" }) -replace "blender_path=", ""
