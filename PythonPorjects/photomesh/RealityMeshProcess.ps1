@@ -49,7 +49,8 @@ function SafeJoin {
 }
 
 # ---------- BAT integration ----------
-$RemoteBatchRoot = "C:\Users\User\Documents\BiSim\Datasets_and_Template\Template"  # folder that contains the BAT
+# Use the script's directory as the root that contains the BAT file.
+$RemoteBatchRoot = $PSScriptRoot
 $RemoteBatchFile = "RealityMeshProcess.bat"                                        # BAT filename
 [bool]$UseTclDirect = $false  # when true, use old TCL path; default is BAT mode
 
