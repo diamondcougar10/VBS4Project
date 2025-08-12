@@ -10,25 +10,22 @@
       - <ProjectFolder>.txt
  ===================================================================== #>
 
-[CmdletBinding(DefaultParameterSetName='ByFolder')]
+[CmdletBinding()]
 param(
     # Remote PC IP or hostname
-    [Parameter(Mandatory, Position=0)]
+    [Parameter(Mandatory=$true, Position=0)]
     [string]$Target,
 
-    # ByFolder: caller gives a project folder name (omit to auto-pick latest)
-    [Parameter(ParameterSetName='ByFolder', Position=1)]
-    [string]$ProjectFolder,
-
-    # BySettings: caller gives a full path to the settings file
-    [Parameter(ParameterSetName='BySettings', Mandatory, Position=1)]
-    [string]$SettingsFile,
+    # EITHER a project folder name under ...\RealityMesh\Input\
+    # OR a local absolute path to a <Project>.txt settings file (current usage)
+    [Parameter(Mandatory=$true, Position=1)]
+    [string]$ProjectOrLocalSettings,
 
     # Root UNC share for RealityMesh
     [Parameter(Position=2)]
     [string]$ShareRoot = "\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh",
 
-    # Optional pre-supplied credentials (Domain\User or .\User)
+    # Optional credentials (Domain\User or .\User)
     [Parameter(Position=3)]
     [PSCredential]$Credential,
 
@@ -39,10 +36,12 @@ param(
 
 # ------------------- Paths & Logging -------------------
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# PsExec is in ..\Tools\PsExec.exe (one level above this photomesh folder)
 $PsExecPath = Join-Path (Split-Path $ScriptDir -Parent) "Tools\PsExec.exe"
 
-$LogFile   = Join-Path $ScriptDir "Invoke-RemoteRealityMesh.log"
+# Your known-good RealityMeshProcess.ps1 source on THIS machine:
+$localRmPs1 = "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh\RealityMeshProcess.ps1"
+
+$LogFile = Join-Path $ScriptDir "Invoke-RemoteRealityMesh.log"
 function Log($msg) {
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
     Write-Host $line
@@ -50,55 +49,85 @@ function Log($msg) {
 }
 
 if (-not (Test-Path $PsExecPath)) { throw "PsExec.exe not found. Expected at: $PsExecPath" }
-# Accept EULA silently (first run on a machine)
 & $PsExecPath -accepteula | Out-Null
 
+# Shared roots
 $InputRoot  = Join-Path $ShareRoot 'Input'
 $OutputRoot = Join-Path $ShareRoot 'Output'
-if (-not (Test-Path $InputRoot))  { throw "Input root not found: $InputRoot" }
+if (-not (Test-Path $InputRoot))  { New-Item -ItemType Directory -Path $InputRoot -Force | Out-Null }
 if (-not (Test-Path $OutputRoot)) { New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null }
 
-if ($PSCmdlet.ParameterSetName -eq 'BySettings') {
-    try {
-        $resolvedSettings = (Resolve-Path -LiteralPath $SettingsFile -ErrorAction Stop).ProviderPath
-    } catch {
-        throw "Settings file not found: $SettingsFile"
-    }
+# ------------------- Resolve project + settings + tiles -------------------
+$usingLocalSettings = $false
+$LocalSettingsPath  = $null
+$ProjectFolder      = $null
+$SourceTilesLocal   = $null
 
-    $ProjectFolder = Split-Path -LeafBase $resolvedSettings
-    $ProjectPathUNC = Join-Path $InputRoot $ProjectFolder
-    $destTxt = Join-Path $ProjectPathUNC ("{0}.txt" -f $ProjectFolder)
-    $srcDir = Split-Path -Parent $resolvedSettings
+# Heuristic: if the arg looks like a rooted path to a .txt, treat as local settings file
+if ([System.IO.Path]::IsPathRooted($ProjectOrLocalSettings) -and
+    $ProjectOrLocalSettings.ToLower().EndsWith(".txt") -and
+    (Test-Path $ProjectOrLocalSettings)) {
 
-    if ($srcDir.TrimEnd('\') -ieq $ProjectPathUNC.TrimEnd('\')) {
-        $TxtPath = $resolvedSettings
-    } else {
-        if (-not (Test-Path $ProjectPathUNC)) { New-Item -ItemType Directory -Path $ProjectPathUNC -Force | Out-Null }
-        Copy-Item -LiteralPath $resolvedSettings -Destination $destTxt -Force
-        $TxtPath = $destTxt
-        Log "Copied settings file to $TxtPath"
-    }
-} else {
-    if (-not $ProjectFolder) {
-        $latest = Get-ChildItem -Path $InputRoot -Directory |
-                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $latest) { throw "No project directories found under $InputRoot" }
-        $ProjectFolder = $latest.Name
-        Log "Auto-selected latest project folder: $ProjectFolder"
-    }
-    $ProjectPathUNC = Join-Path $InputRoot $ProjectFolder
-    $TxtPath = Join-Path $ProjectPathUNC ("{0}.txt" -f $ProjectFolder)
+    $usingLocalSettings = $true
+    $LocalSettingsPath  = $ProjectOrLocalSettings
+
+    Log "Detected local settings file: $LocalSettingsPath"
+    $settingsContent = Get-Content -LiteralPath $LocalSettingsPath
+    $ProjectFolder   = ($settingsContent | Where-Object { $_ -match '^project_name=' }) -replace 'project_name=',''
+    $SourceTilesLocal= ($settingsContent | Where-Object { $_ -match '^source_Directory=' }) -replace 'source_Directory=',''
+
+    if ([string]::IsNullOrWhiteSpace($ProjectFolder)) { throw "project_name not found in settings: $LocalSettingsPath" }
+    if (-not (Test-Path $SourceTilesLocal)) { throw "source_Directory not found on disk: $SourceTilesLocal" }
+}
+else {
+    # Treat as a project folder name already in the share
+    $ProjectFolder = $ProjectOrLocalSettings
+    Log "Using project folder name provided: $ProjectFolder"
 }
 
-if (-not (Test-Path $ProjectPathUNC)) { throw "Project folder not found: $ProjectPathUNC" }
-$Ps1Path = Join-Path $ProjectPathUNC 'RealityMeshProcess.ps1'
-if (-not (Test-Path $Ps1Path)) { throw "Process script not found: $Ps1Path" }
-if (-not (Test-Path $TxtPath)) { throw "Settings file not found: $TxtPath" }
+$ProjectPathUNC = Join-Path $InputRoot $ProjectFolder
+if (-not (Test-Path $ProjectPathUNC)) {
+    Log "Creating project folder on share: $ProjectPathUNC"
+    New-Item -ItemType Directory -Path $ProjectPathUNC -Force | Out-Null
+}
+
+# ------------------- Ensure files exist in project folder on share -------------------
+# 1) Settings file on share
+$ShareSettingsPath = Join-Path $ProjectPathUNC ("{0}.txt" -f $ProjectFolder)
+
+if ($usingLocalSettings) {
+    # Mirror tiles to \\...\Input\<Project>\data
+    $destDataDir = Join-Path $ProjectPathUNC 'data'
+    Log "Mirroring local tiles to $destDataDir ..."
+    $rc = robocopy $SourceTilesLocal $destDataDir /MIR /R:3 /W:5 /NP
+    # robocopy returns weird codes; continue unless > 7 (8+ = failure)
+    if ($LASTEXITCODE -ge 8) { throw "Robocopy failed mirroring tiles. Exit: $LASTEXITCODE" }
+
+    # Copy local settings and rewrite source_Directory to the shared location
+    Copy-Item -LiteralPath $LocalSettingsPath -Destination $ShareSettingsPath -Force
+    (Get-Content -LiteralPath $ShareSettingsPath) | ForEach-Object {
+        if ($_ -match '^source_Directory=') { "source_Directory=$destDataDir" } else { $_ }
+    } | Set-Content -LiteralPath $ShareSettingsPath -Encoding UTF8
+}
+else {
+    # If not using local settings, require it to already be present on share
+    if (-not (Test-Path $ShareSettingsPath)) {
+        throw "Expected settings file not found on share: $ShareSettingsPath (Provide a local settings path or place it on the share)."
+    }
+}
+
+# 2) RealityMeshProcess.ps1 on share (copy your known-good one each run)
+$rmPs1 = Join-Path $ProjectPathUNC 'RealityMeshProcess.ps1'
+if (-not (Test-Path $localRmPs1)) { throw "Local RealityMeshProcess.ps1 not found: $localRmPs1" }
+Copy-Item -LiteralPath $localRmPs1 -Destination $rmPs1 -Force
+if (-not (Test-Path $rmPs1)) {
+    throw "Process script not found after copy: $rmPs1"
+}
 
 Log "Target            : $Target"
 Log "Project folder    : $ProjectFolder"
-Log "Process script    : $Ps1Path"
-Log "Settings file     : $TxtPath"
+Log "Process script    : $rmPs1"
+Log "Settings file     : $ShareSettingsPath"
 Log "Share root        : $ShareRoot"
 Log "PsExec            : $PsExecPath"
 
@@ -106,11 +135,10 @@ Log "PsExec            : $PsExecPath"
 if (-not $Credential) {
     $Credential = Get-Credential -Message "Enter credentials for $Target (local admin or domain account)"
 }
-# Normalize username for workgroup/local if not Domain\User format
 $user = $Credential.UserName
 if ($user -notmatch '^[^\\]+\\[^\\]+$') { $user = ".\${user}" }
- 
-# PsExec requires plaintext password; zero it in finally
+
+# plaintext pw (PsExec requirement)
 $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password)
 try {
     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
@@ -122,16 +150,15 @@ try {
     if ($LASTEXITCODE -ne 0) {
         Log "ADMIN$ test failed. Output:"
         Log $netUse
-        throw "Cannot access \\$Target\ADMIN$ as $user. Enable File & Printer Sharing, ensure account is in local Administrators group, and set LocalAccountTokenFilterPolicy=1."
+        throw "Cannot access \\$Target\ADMIN$ as $user. Enable File & Printer Sharing, ensure local admin + LocalAccountTokenFilterPolicy=1."
     }
-    # Clean mapping
     cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
 
-    # -------- build the remote command safely --------
-    $escapedPs1 = $Ps1Path.Replace("'", "''").Replace('`','``')
-    $escapedTxt = $TxtPath.Replace("'", "''").Replace('`','``')
-    $banner = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
-    $remoteCmd = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
+    # -------- Remote command string --------
+    $escapedPs1 = $rmPs1.Replace("'", "''").Replace('`','``')
+    $escapedTxt = $ShareSettingsPath.Replace("'", "''").Replace('`','``')
+    $banner     = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
+    $remoteCmd  = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
 
     # ---- PsExec args ----
     $psArgs = @(
