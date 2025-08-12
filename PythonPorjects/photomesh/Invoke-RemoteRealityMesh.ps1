@@ -1,242 +1,127 @@
-<# ======================================================================
- Invoke-RemoteRealityMesh.ps1  (PRODUCTION, headless + live log)
- Repo layout expected:
-   PythonPorjects\
-     Tools\PsExec.exe
-     photomesh\Invoke-RemoteRealityMesh.ps1   <-- this file
- Network layout expected:
-   \\HAMMERKIT1-4\SharedMeshDrive\RealityMesh\Input\<ProjectFolder>\ 
-      - RealityMeshProcess.ps1
-      - <ProjectFolder>.txt
- ===================================================================== #>
+#requires -Version 5.1
 
 [CmdletBinding()]
 param(
-    # Remote PC IP or hostname
-    [Parameter(Mandatory=$true, Position=0)]
-    [string]$Target,
-
-    # EITHER a project folder name under ...\RealityMesh\Input\
-    # OR a local absolute path to a <Project>.txt settings file (current usage)
-    [Parameter(Mandatory=$true, Position=1)]
-    [string]$ProjectOrLocalSettings,
-
-    # Root UNC share for RealityMesh
-    [Parameter(Position=2)]
-    [string]$ShareRoot = "\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh",
-
-    # Optional credentials (Domain\User or .\User) used for PsExec connection
-    [Parameter(Position=3)]
-    [PSCredential]$Credential,
-
-    # Not used for headless mode, kept for compatibility
-    [Parameter(Position=4)]
-    [switch]$NoBanner
+  # Deprecated (kept for compatibility)
+  [Parameter(Position=0)][string]$Target,
+  [Parameter(Mandatory,Position=1)][string]$SettingsPath,  # LOCAL absolute path to <project>-settings.txt
+  # Deprecated (kept for compatibility)
+  [Parameter(Position=2)][string]$ShareRoot,
+  [Parameter(Position=3)][PSCredential]$Credential,
+  [switch]$NoBanner
 )
 
-# ------------------- Paths & Logging -------------------
-$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PsExecPath = Join-Path (Split-Path $ScriptDir -Parent) "Tools\PsExec.exe"
+# Where the BAT and template live locally (adjust if needed)
+$RemoteBatchRoot = "C:\Users\User\Documents\BiSim\Datasets_and_Template\Template"
+$RemoteBatchFile = "RealityMeshProcess.bat"
 
-# Your known-good RealityMeshProcess.ps1 source on THIS machine:
-$localRmPs1 = "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh\RealityMeshProcess.ps1"
+# Optional DevSuite/P: semantics for DONE marker (legacy path behavior)
+$override_Installation_DevSuite = 0
+$override_Path_DevSuite        = "D"   # drive letter only, e.g. "D"
 
-$LogFile = Join-Path $ScriptDir "Invoke-RemoteRealityMesh.log"
-function Log($msg) {
-    $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
-    Write-Host $line
-    Add-Content -Path $LogFile -Value $line
+$RunStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$LogDir   = Join-Path $PSScriptRoot 'Logs'
+if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+$RunLog   = Join-Path $LogDir ("RemoteRunner_{0}.log" -f $RunStamp)
+
+function Write-Log {
+  param([Parameter(Mandatory)][string]$Message,[ValidateSet('INFO','WARN','ERROR','STEP')][string]$Level='INFO')
+  $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+  $line = "[{0}] [{1}] {2}" -f $ts,$Level,$Message
+  switch ($Level) {
+    'INFO'  { Write-Host $line }
+    'WARN'  { Write-Host $line -ForegroundColor Yellow }
+    'ERROR' { Write-Host $line -ForegroundColor Red }
+    'STEP'  { Write-Host $line -ForegroundColor Cyan }
+  }
+  Add-Content -LiteralPath $RunLog -Value $line
 }
 
-if (-not (Test-Path $PsExecPath)) { throw "PsExec.exe not found. Expected at: $PsExecPath" }
-& $PsExecPath -accepteula | Out-Null
+function Invoke-LoggedProcess {
+  param(
+    [Parameter(Mandatory)][string]$FilePath,
+    [string]$Arguments = '',
+    [string]$WorkingDirectory = $PSScriptRoot,
+    [int]$ProgressId = 1,
+    [string]$ProgressActivity = "Running external process"
+  )
+  $si = New-Object System.Diagnostics.ProcessStartInfo
+  $si.FileName  = $FilePath
+  $si.Arguments = $Arguments
+  $si.WorkingDirectory = $WorkingDirectory
+  $si.UseShellExecute = $false
+  $si.RedirectStandardOutput = $true
+  $si.RedirectStandardError  = $true
+  $si.CreateNoWindow = $true
 
-# Shared roots
-$InputRoot  = Join-Path $ShareRoot 'Input'
-$OutputRoot = Join-Path $ShareRoot 'Output'
-if (-not (Test-Path $InputRoot))  { New-Item -ItemType Directory -Path $InputRoot -Force | Out-Null }
-if (-not (Test-Path $OutputRoot)) { New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null }
+  $p = New-Object System.Diagnostics.Process
+  $p.StartInfo = $si
+  $p.add_OutputDataReceived({ if ($_.Data) { Write-Log $_.Data 'INFO' } })
+  $p.add_ErrorDataReceived( { if ($_.Data) { Write-Log $_.Data 'ERROR' } })
 
-# ------------------- Resolve project + settings + tiles -------------------
-$usingLocalSettings = $false
-$LocalSettingsPath  = $null
-$ProjectFolder      = $null
-$SourceTilesLocal   = $null
+  [void]$p.Start()
+  $p.BeginOutputReadLine()
+  $p.BeginErrorReadLine()
 
-# If arg is a rooted path to .txt -> local settings file mode
-if ([System.IO.Path]::IsPathRooted($ProjectOrLocalSettings) -and
-    $ProjectOrLocalSettings.ToLower().EndsWith(".txt") -and
-    (Test-Path $ProjectOrLocalSettings)) {
-
-    $usingLocalSettings = $true
-    $LocalSettingsPath  = $ProjectOrLocalSettings
-
-    Log "Detected local settings file: $LocalSettingsPath"
-    $settingsContent = Get-Content -LiteralPath $LocalSettingsPath
-    $ProjectFolder   = ($settingsContent | Where-Object { $_ -match '^project_name=' }) -replace 'project_name=',''
-    $SourceTilesLocal= ($settingsContent | Where-Object { $_ -match '^source_Directory=' }) -replace 'source_Directory=',''
-
-    if ([string]::IsNullOrWhiteSpace($ProjectFolder)) { throw "project_name not found in settings: $LocalSettingsPath" }
-    if (-not (Test-Path $SourceTilesLocal)) { throw "source_Directory not found on disk: $SourceTilesLocal" }
-}
-else {
-    # Treat as a project folder name already in the share
-    $ProjectFolder = $ProjectOrLocalSettings
-    Log "Using project folder name provided: $ProjectFolder"
-}
-
-$ProjectPathUNC = Join-Path $InputRoot $ProjectFolder
-if (-not (Test-Path $ProjectPathUNC)) {
-    Log "Creating project folder on share: $ProjectPathUNC"
-    New-Item -ItemType Directory -Path $ProjectPathUNC -Force | Out-Null
+  $started = Get-Date
+  while (-not $p.HasExited) {
+    $elapsed = (Get-Date) - $started
+    Write-Progress -Id $ProgressId -Activity $ProgressActivity -Status ("Elapsed {0:n0}s" -f $elapsed.TotalSeconds) -PercentComplete 50
+    Start-Sleep -Milliseconds 250
+  }
+  Write-Progress -Id $ProgressId -Completed -Activity $ProgressActivity
+  return $p.ExitCode
 }
 
-# ------------------- Ensure files exist in project folder on share -------------------
-# 1) Settings file on share
-$ShareSettingsPath = Join-Path $ProjectPathUNC ("{0}.txt" -f $ProjectFolder)
-
-if ($usingLocalSettings) {
-    # Mirror tiles to \\...\Input\<Project>\data
-    $destDataDir = Join-Path $ProjectPathUNC 'data'
-    Log "Mirroring local tiles to $destDataDir ..."
-    $rc = robocopy $SourceTilesLocal $destDataDir /MIR /R:3 /W:5 /NP
-    if ($LASTEXITCODE -ge 8) { throw "Robocopy failed mirroring tiles. Exit: $LASTEXITCODE" }
-
-    # Copy local settings and rewrite source_Directory to the shared location
-    Copy-Item -LiteralPath $LocalSettingsPath -Destination $ShareSettingsPath -Force
-    (Get-Content -LiteralPath $ShareSettingsPath) | ForEach-Object {
-        if ($_ -match '^source_Directory=') { "source_Directory=$destDataDir" } else { $_ }
-    } | Set-Content -LiteralPath $ShareSettingsPath -Encoding UTF8
-}
-else {
-    if (-not (Test-Path $ShareSettingsPath)) {
-        throw "Expected settings file not found on share: $ShareSettingsPath (Provide a local settings path or place it on the share)."
-    }
+if ($Target -or $ShareRoot -or $Credential) {
+  Write-Log "Remote params detected (Target/ShareRoot/Credential) are ignored in local one-click mode." 'WARN'
 }
 
-# 2) RealityMeshProcess.ps1 on share (copy your known-good one each run)
-$rmPs1 = Join-Path $ProjectPathUNC 'RealityMeshProcess.ps1'
-if (-not (Test-Path $localRmPs1)) { throw "Local RealityMeshProcess.ps1 not found: $localRmPs1" }
-Copy-Item -LiteralPath $localRmPs1 -Destination $rmPs1 -Force
-if (-not (Test-Path $rmPs1)) { throw "Process script not found after copy: $rmPs1" }
-
-# 3) Define remote log location on the **remote C: drive** (so SYSTEM/network creds aren't needed for share writes)
-$RemoteLogDir    = "C:\ProgramData\RealityMesh\$ProjectFolder"
-$RemoteLogPath   = Join-Path $RemoteLogDir 'runner.log'
-$RemoteLogUNC    = "\\$Target\C$\ProgramData\RealityMesh\$ProjectFolder\runner.log"  # for local tail
-
-Log "Target            : $Target"
-Log "Project folder    : $ProjectFolder"
-Log "Process script    : $rmPs1"
-Log "Settings file     : $ShareSettingsPath"
-Log "Share root        : $ShareRoot"
-Log "PsExec            : $PsExecPath"
-Log "Remote log (UNC)  : $RemoteLogUNC"
-
-# ------------------- Credentials -------------------
-if (-not $Credential) {
-    $Credential = Get-Credential -Message "Enter credentials for $Target (local admin or domain account)"
+function Get-SettingsMap {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { throw "Settings file not found: $Path" }
+  $map = @{}
+  Get-Content -LiteralPath $Path | ForEach-Object {
+    if ($_ -match '^\s*#') { return }
+    if ($_ -notmatch '=') { return }
+    $kv = $_.Split('=',2)
+    $k  = ($kv[0]).Trim()
+    $v  = ($kv[1]).Trim()
+    if ($k) { $map[$k] = $v }
+  }
+  return $map
 }
-$user = $Credential.UserName
-if ($user -notmatch '^[^\\]+\\[^\\]+$') { $user = ".\${user}" }
+$settings = Get-SettingsMap -Path $SettingsPath
 
-# plaintext pw (PsExec requirement)
-$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password)
-try {
-    $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+$ProjectName = $settings['project_name']
+$SourceDir   = $settings['source_Directory']
+if (-not $ProjectName) { throw "Settings missing 'project_name'." }
+if (-not (Test-Path -LiteralPath $SourceDir)) { throw "source_Directory not found: $SourceDir" }
+$hasObj = Get-ChildItem -Path $SourceDir -Recurse -Filter *.obj -ErrorAction SilentlyContinue | Select-Object -First 1
+$hasLas = Get-ChildItem -Path $SourceDir -Recurse -Filter *.las -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $hasObj -and -not $hasLas) { throw "No *.obj or *.las under: $SourceDir" }
+Write-Log "Settings: project_name=$ProjectName" STEP
 
-    # ------------------- Preflight: ADMIN$ access (for log tail & robustness) -------------------
-    Log "Testing ADMIN$ on \\$Target..."
-    $netCmd = "net use \\$Target\ADMIN$ /user:$user `"$plain`""
-    $null = cmd /c $netCmd
-    if ($LASTEXITCODE -ne 0) {
-        Log "ADMIN$ connection failed. You may still launch, but local log tailing will not work."
-    } else {
-        cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
-    }
-
-    # -------- Build the headless remote command (writes transcript to remote C:) --------
-    $escapedPs1 = $rmPs1.Replace("'", "''").Replace('`','``')
-    $escapedTxt = $ShareSettingsPath.Replace("'", "''").Replace('`','``')
-    $escapedDir = $RemoteLogDir.Replace("'", "''").Replace('`','``')
-    $escapedLog = $RemoteLogPath.Replace("'", "''").Replace('`','``')
-
-    $remoteCmd  = "& { " +
-                  "$('New-Item -ItemType Directory -Force -Path ''{0}'' | Out-Null;' -f $escapedDir)" +
-                  "$('Start-Transcript -Path ''{0}'' -Append;' -f $escapedLog)" +
-                  "try { " +
-                  "$(' & ''{0}'' ''{1}''; ' -f $escapedPs1, $escapedTxt)" +
-                  " } finally { Stop-Transcript } }"
-
-    # ---- PsExec args (HEADLESS: no -i, DETACHED: -d, run elevated: -h) ----
-    # Run under the supplied user so it can access the network share if needed.
-    $psArgs = @(
-        "\\$Target",
-        "-h", "-d",
-        "-u", $user, "-p", $plain,
-        "powershell", "-ExecutionPolicy", "Bypass",
-        "-Command", $remoteCmd
-    )
-
-    Log "Starting headless remote RealityMesh run..."
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName               = $PsExecPath
-    $psi.Arguments              = ($psArgs | ForEach-Object {
-        if ($_ -match '\s|;|&|\(|\)|\^|\|' ) { '"{0}"' -f $_ } else { $_ }
-    }) -join ' '
-    $psi.UseShellExecute        = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
-    $proc.WaitForExit()
-
-    if ($stdout) { Log $stdout.Trim() }
-    if ($stderr) { Log ("STDERR: " + $stderr.Trim()) }
-
-    if ($proc.ExitCode -ne 0) {
-        throw "PsExec returned exit code $($proc.ExitCode). See log for details."
-    }
-
-    # ------------------- Live log tail + completion watch -------------------
-    Write-Host ""
-    Write-Host "Streaming remote log: $RemoteLogUNC" -ForegroundColor Cyan
-    Write-Host "(Press CTRL+C to stop viewing; the run continues.)" -ForegroundColor DarkCyan
-
-    # Tail job (starts when the file appears)
-    $tailJob = Start-Job -ScriptBlock {
-        param($p)
-        while (-not (Test-Path $p)) { Start-Sleep 1 }
-        Get-Content -Path $p -Wait -Tail 60
-    } -ArgumentList $RemoteLogUNC
-
-    # Watch for DONE.txt in the Output root like "<ProjectFolder>_<ts>\DONE.txt"
-    $start = Get-Date
-    $donePath = $null
-    do {
-        $latest = Get-ChildItem -Path $OutputRoot -Directory -Filter ("{0}_*" -f $ProjectFolder) -ErrorAction SilentlyContinue |
-                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($latest) {
-            $candidate = Join-Path $latest.FullName 'DONE.txt'
-            if (Test-Path $candidate) { $donePath = $candidate }
-        }
-        Start-Sleep -Seconds 10
-    } until ($donePath)
-
-    try { Stop-Job $tailJob -Force | Out-Null } catch {}
-    Receive-Job $tailJob -Keep | Out-Null
-
-    $elapsed = (Get-Date) - $start
-    Log ("DONE detected at: {0}" -f $donePath)
-    Write-Host ("Complete. Elapsed: {0:n1} min" -f $elapsed.TotalMinutes) -ForegroundColor Green
-
+if ($override_Installation_DevSuite -eq 1) {
+  $OutPath = ("{0}:\temp\RealityMesh\{1}" -f $override_Path_DevSuite, $ProjectName)
+} else {
+  $OutPath = "P:\temp\RealityMesh\$ProjectName"
 }
-finally {
-    if ($ptr) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
-    if ($plain) {
-        [System.Array]::Clear([char[]]$plain, 0, $plain.Length) 2>$null
-        $plain = $null
-    }
-}
+if (-not (Test-Path -LiteralPath $OutPath)) { New-Item -ItemType Directory -Path $OutPath -Force | Out-Null }
+
+if (-not (Test-Path -LiteralPath $RemoteBatchRoot)) { throw "BAT root not found: $RemoteBatchRoot" }
+$BatSettings = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $ProjectName)
+Copy-Item -LiteralPath $SettingsPath -Destination $BatSettings -Force
+Write-Log "Placed settings for BAT: $BatSettings" STEP
+
+$batPath = Join-Path $RemoteBatchRoot $RemoteBatchFile
+if (-not (Test-Path -LiteralPath $batPath)) { throw "BAT not found: $batPath" }
+Write-Log "Starting Reality Mesh BAT..." STEP
+$exit = Invoke-LoggedProcess -FilePath $batPath -Arguments '' -WorkingDirectory $RemoteBatchRoot -ProgressId 2 -ProgressActivity "RealityMesh BAT"
+if ($exit -ne 0) { throw "Reality Mesh BAT returned exit code $exit" }
+
+$doneFile = Join-Path $OutPath 'DONE.txt'
+New-Item -ItemType File -Path $doneFile -Force | Out-Null
+Write-Log "Created $doneFile" STEP
+Write-Log "Full run log: $RunLog"
+
