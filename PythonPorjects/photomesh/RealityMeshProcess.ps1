@@ -317,7 +317,21 @@ if (Test-Path -LiteralPath $ttp) {
 $n33File = Join-Path $destinationPath 'n33.tbr'
 if (-not (Test-Path -LiteralPath $n33File)) {
     Write-Host "n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl..." -ForegroundColor Yellow
-    & tclsh (Join-Path $destinationPath 'TSG_TBR_to_Vertex_Points_Unique.tcl')
+
+    $ttScript  = Join-Path $destinationPath 'TSG_TBR_to_Vertex_Points_Unique.tcl'
+    $inputTbr  = Join-Path $destinationPath 'n32.tbr'
+    $ttShell   = $terratools_ssh_path
+
+    if (Test-Path -LiteralPath $inputTbr) {
+        $ttArgs = "`"$ttScript`" `"$inputTbr`" `"$n33File`""
+        $proc   = Start-Process -FilePath $ttShell -ArgumentList $ttArgs -NoNewWindow -Wait -PassThru
+
+        if ($proc.ExitCode -ne 0) {
+            Write-Host "Failed to generate n33.tbr via TerraTools" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "Required input TBR not found: $inputTbr" -ForegroundColor Red
+    }
 }
 
 if (-not (Test-Path -LiteralPath $n33File)) {
