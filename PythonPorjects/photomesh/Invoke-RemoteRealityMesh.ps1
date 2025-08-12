@@ -1,5 +1,5 @@
 <# ======================================================================
- Invoke-RemoteRealityMesh.ps1  (PRODUCTION)
+ Invoke-RemoteRealityMesh.ps1  (PRODUCTION, headless + live log)
  Repo layout expected:
    PythonPorjects\
      Tools\PsExec.exe
@@ -25,17 +25,17 @@ param(
     [Parameter(Position=2)]
     [string]$ShareRoot = "\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh",
 
-    # Optional credentials (Domain\User or .\User)
+    # Optional credentials (Domain\User or .\User) used for PsExec connection
     [Parameter(Position=3)]
     [PSCredential]$Credential,
 
-    # Hide the yellow “in progress” banner on the remote window
+    # Not used for headless mode, kept for compatibility
     [Parameter(Position=4)]
     [switch]$NoBanner
 )
 
 # ------------------- Paths & Logging -------------------
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PsExecPath = Join-Path (Split-Path $ScriptDir -Parent) "Tools\PsExec.exe"
 
 # Your known-good RealityMeshProcess.ps1 source on THIS machine:
@@ -63,7 +63,7 @@ $LocalSettingsPath  = $null
 $ProjectFolder      = $null
 $SourceTilesLocal   = $null
 
-# Heuristic: if the arg looks like a rooted path to a .txt, treat as local settings file
+# If arg is a rooted path to .txt -> local settings file mode
 if ([System.IO.Path]::IsPathRooted($ProjectOrLocalSettings) -and
     $ProjectOrLocalSettings.ToLower().EndsWith(".txt") -and
     (Test-Path $ProjectOrLocalSettings)) {
@@ -100,7 +100,6 @@ if ($usingLocalSettings) {
     $destDataDir = Join-Path $ProjectPathUNC 'data'
     Log "Mirroring local tiles to $destDataDir ..."
     $rc = robocopy $SourceTilesLocal $destDataDir /MIR /R:3 /W:5 /NP
-    # robocopy returns weird codes; continue unless > 7 (8+ = failure)
     if ($LASTEXITCODE -ge 8) { throw "Robocopy failed mirroring tiles. Exit: $LASTEXITCODE" }
 
     # Copy local settings and rewrite source_Directory to the shared location
@@ -110,7 +109,6 @@ if ($usingLocalSettings) {
     } | Set-Content -LiteralPath $ShareSettingsPath -Encoding UTF8
 }
 else {
-    # If not using local settings, require it to already be present on share
     if (-not (Test-Path $ShareSettingsPath)) {
         throw "Expected settings file not found on share: $ShareSettingsPath (Provide a local settings path or place it on the share)."
     }
@@ -120,9 +118,12 @@ else {
 $rmPs1 = Join-Path $ProjectPathUNC 'RealityMeshProcess.ps1'
 if (-not (Test-Path $localRmPs1)) { throw "Local RealityMeshProcess.ps1 not found: $localRmPs1" }
 Copy-Item -LiteralPath $localRmPs1 -Destination $rmPs1 -Force
-if (-not (Test-Path $rmPs1)) {
-    throw "Process script not found after copy: $rmPs1"
-}
+if (-not (Test-Path $rmPs1)) { throw "Process script not found after copy: $rmPs1" }
+
+# 3) Define remote log location on the **remote C: drive** (so SYSTEM/network creds aren't needed for share writes)
+$RemoteLogDir    = "C:\ProgramData\RealityMesh\$ProjectFolder"
+$RemoteLogPath   = Join-Path $RemoteLogDir 'runner.log'
+$RemoteLogUNC    = "\\$Target\C$\ProgramData\RealityMesh\$ProjectFolder\runner.log"  # for local tail
 
 Log "Target            : $Target"
 Log "Project folder    : $ProjectFolder"
@@ -130,6 +131,7 @@ Log "Process script    : $rmPs1"
 Log "Settings file     : $ShareSettingsPath"
 Log "Share root        : $ShareRoot"
 Log "PsExec            : $PsExecPath"
+Log "Remote log (UNC)  : $RemoteLogUNC"
 
 # ------------------- Credentials -------------------
 if (-not $Credential) {
@@ -143,53 +145,40 @@ $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Passwor
 try {
     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
 
-    # ------------------- Preflight: ADMIN$ access -------------------
+    # ------------------- Preflight: ADMIN$ access (for log tail & robustness) -------------------
     Log "Testing ADMIN$ on \\$Target..."
     $netCmd = "net use \\$Target\ADMIN$ /user:$user `"$plain`""
-    $netUse = cmd /c $netCmd
+    $null = cmd /c $netCmd
     if ($LASTEXITCODE -ne 0) {
-        Log "ADMIN$ test failed. Output:"
-        Log $netUse
-        throw "Cannot access \\$Target\ADMIN$ as $user. Enable File & Printer Sharing, ensure local admin + LocalAccountTokenFilterPolicy=1."
+        Log "ADMIN$ connection failed. You may still launch, but local log tailing will not work."
+    } else {
+        cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
     }
-    cmd /c "net use \\$Target\ADMIN$ /delete" | Out-Null
 
-    # -------- Remote command string --------
+    # -------- Build the headless remote command (writes transcript to remote C:) --------
     $escapedPs1 = $rmPs1.Replace("'", "''").Replace('`','``')
     $escapedTxt = $ShareSettingsPath.Replace("'", "''").Replace('`','``')
-    $banner     = if ($NoBanner) { "" } else { "Write-Host 'RealityMeshProcess in progress - do not turn off PC' -ForegroundColor Yellow; " }
-    $remoteCmd  = ("{0}& '{1}' '{2}' 1" -f $banner, $escapedPs1, $escapedTxt)
+    $escapedDir = $RemoteLogDir.Replace("'", "''").Replace('`','``')
+    $escapedLog = $RemoteLogPath.Replace("'", "''").Replace('`','``')
 
-    # --- Resolve the active session ID on the remote so the window is visible ---
-    Log "Querying active session on \\$Target ..."
-    $qs = & $PsExecPath "\\$Target" cmd /c "query session" 2>&1
-    if ($LASTEXITCODE -ne 0 -or -not $qs) {
-        Log "Could not query session with PsExec. Output:`n$qs"
-        $activeId = $null
-    } else {
-        # Parse 'query session' output and pick the line with 'Active'
-        $activeId = ($qs -split "`r?`n" |
-            Where-Object { $_ -match '\sActive\s' } |
-            ForEach-Object {
-                ($_ -split '\s+' | Where-Object { $_ -match '^\d+$' })[0]
-            } |
-            Select-Object -First 1)
+    $remoteCmd  = "& { " +
+                  "$('New-Item -ItemType Directory -Force -Path ''{0}'' | Out-Null;' -f $escapedDir)" +
+                  "$('Start-Transcript -Path ''{0}'' -Append;' -f $escapedLog)" +
+                  "try { " +
+                  "$(' & ''{0}'' ''{1}'' 1; ' -f $escapedPs1, $escapedTxt)" +
+                  " } finally { Stop-Transcript } }"
 
-        if ($activeId) { Log "Using active session ID: $activeId" }
-        else { Log "No Active session found; falling back to default -i (console)"; }
-    }
-
-    # ---- PsExec args (target the active session if found) ----
-    $psArgs = @("\\$Target")
-    if ($activeId) { $psArgs += @("-i", $activeId) } else { $psArgs += "-i" }
-    $psArgs += @(
-        "-h",
+    # ---- PsExec args (HEADLESS: no -i, DETACHED: -d, run elevated: -h) ----
+    # Run under the supplied user so it can access the network share if needed.
+    $psArgs = @(
+        "\\$Target",
+        "-h", "-d",
         "-u", $user, "-p", $plain,
-        "powershell", "-NoExit", "-ExecutionPolicy", "Bypass",
+        "powershell", "-ExecutionPolicy", "Bypass",
         "-Command", $remoteCmd
     )
 
-    Log "Starting remote PowerShell window..."
+    Log "Starting headless remote RealityMesh run..."
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName               = $PsExecPath
     $psi.Arguments              = ($psArgs | ForEach-Object {
@@ -211,7 +200,38 @@ try {
         throw "PsExec returned exit code $($proc.ExitCode). See log for details."
     }
 
-    Log "Remote window launched. Operators can watch progress on $Target."
+    # ------------------- Live log tail + completion watch -------------------
+    Write-Host ""
+    Write-Host "Streaming remote log: $RemoteLogUNC" -ForegroundColor Cyan
+    Write-Host "(Press CTRL+C to stop viewing; the run continues.)" -ForegroundColor DarkCyan
+
+    # Tail job (starts when the file appears)
+    $tailJob = Start-Job -ScriptBlock {
+        param($p)
+        while (-not (Test-Path $p)) { Start-Sleep 1 }
+        Get-Content -Path $p -Wait -Tail 60
+    } -ArgumentList $RemoteLogUNC
+
+    # Watch for DONE.txt in the Output root like "<ProjectFolder>_<ts>\DONE.txt"
+    $start = Get-Date
+    $donePath = $null
+    do {
+        $latest = Get-ChildItem -Path $OutputRoot -Directory -Filter ("{0}_*" -f $ProjectFolder) -ErrorAction SilentlyContinue |
+                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($latest) {
+            $candidate = Join-Path $latest.FullName 'DONE.txt'
+            if (Test-Path $candidate) { $donePath = $candidate }
+        }
+        Start-Sleep -Seconds 10
+    } until ($donePath)
+
+    try { Stop-Job $tailJob -Force | Out-Null } catch {}
+    Receive-Job $tailJob -Keep | Out-Null
+
+    $elapsed = (Get-Date) - $start
+    Log ("DONE detected at: {0}" -f $donePath)
+    Write-Host ("Complete. Elapsed: {0:n1} min" -f $elapsed.TotalMinutes) -ForegroundColor Green
+
 }
 finally {
     if ($ptr) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
