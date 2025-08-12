@@ -165,7 +165,7 @@ try {
                   "$('New-Item -ItemType Directory -Force -Path ''{0}'' | Out-Null;' -f $escapedDir)" +
                   "$('Start-Transcript -Path ''{0}'' -Append;' -f $escapedLog)" +
                   "try { " +
-                  "$(' & ''{0}'' ''{1}'' 1; ' -f $escapedPs1, $escapedTxt)" +
+                  "$(' & ''{0}'' ''{1}''; ' -f $escapedPs1, $escapedTxt)" +
                   " } finally { Stop-Transcript } }"
 
     # ---- PsExec args (HEADLESS: no -i, DETACHED: -d, run elevated: -h) ----

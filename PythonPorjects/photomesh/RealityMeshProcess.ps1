@@ -48,6 +48,11 @@ function SafeJoin {
     return (Join-Path -Path $Base -ChildPath $Child)
 }
 
+# ---------- BAT integration ----------
+$RemoteBatchRoot = "C:\Users\User\Documents\BiSim\Datasets_and_Template\Template"  # folder that contains the BAT
+$RemoteBatchFile = "RealityMeshProcess.bat"                                        # BAT filename
+[bool]$UseTclDirect = $false  # when true, use old TCL path; default is BAT mode
+
 # ---------- Shared roots (MUST include server name) ----------
 # Base shared drive accessible by both the calling and remote machines
 $sharedRoot = '\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh'
@@ -60,40 +65,32 @@ Ensure-Directory $outputRoot
 
 # ---------- Prompt/defaults ----------
 if ([string]::IsNullOrEmpty($project_settings_File)) {
-    $project_settings_File = Read-Host -Prompt "Enter absolute path to project settings file"
+    throw "Project settings file path is required. Pass it as the first arg."
 }
-if ([string]::IsNullOrEmpty($fully_automate)) {
-    $fully_automate = 0
-}
-
+$fully_automate = 1
 $project_settings_File = Normalize-UNCPath ($project_settings_File.Trim('"'))
 
 # ---------- Settings Parsing ----------
 $system_settings = "$PSScriptRoot/RealityMeshSystemSettings.txt"
 
-if (!(Test-Path -LiteralPath $project_settings_File)) {
-    Write-Output "project settings file does not exist: $project_settings_File"
-    Read-Host -Prompt "Press Enter to exit"
-    return
+if (-not (Test-Path -LiteralPath $project_settings_File)) {
+    throw "project settings file does not exist: $project_settings_File"
 }
 
-if (!(Test-Path -LiteralPath $system_settings)) {
-    Write-Output "System settings file does not exist: $system_settings"
-    Read-Host -Prompt "Press Enter to exit"
-    return
+if (-not (Test-Path -LiteralPath $system_settings)) {
+    throw "System settings file does not exist: $system_settings"
 }
 
-Write-Output "Project and System settings found"
+Write-Host "Project and System settings found" -ForegroundColor Green
 
 # Determine the location of the RealityMesh_tt template folder.
 $RealityMeshTTPath = Join-Path $PSScriptRoot 'RealityMesh_tt'
 $defaultRealityMeshTTPath = "C:\Program Files (x86)\STE Toolkit\RealityMesh_tt"
-if (!(Test-Path -LiteralPath $RealityMeshTTPath)) {
+if (-not (Test-Path -LiteralPath $RealityMeshTTPath)) {
     if (Test-Path -LiteralPath $defaultRealityMeshTTPath) {
         $RealityMeshTTPath = $defaultRealityMeshTTPath
     } else {
-        Write-Error "RealityMesh_tt folder not found at '$RealityMeshTTPath' or '$defaultRealityMeshTTPath'"
-        return
+        throw "RealityMesh_tt folder not found at '$RealityMeshTTPath' or '$defaultRealityMeshTTPath'"
     }
 }
 
@@ -102,11 +99,14 @@ $project_name = Sanitize-Name ((Get-Content -LiteralPath $project_settings_File 
 $source_Directory_temp = (Get-Content -LiteralPath $project_settings_File | Where-Object { $_ -match "^source_Directory=" }) -replace "source_Directory=", ""
 $source_Directory = Normalize-UNCPath $source_Directory_temp
 
-# Validate source directory exists early
+# Preflight models
 if (-not (Test-Path -LiteralPath $source_Directory)) {
-    Write-Error "source_Directory not found: $source_Directory"
-    if ($fully_automate -eq 0) { Read-Host -Prompt "Press Enter to exit" }
-    return
+    throw "source_Directory not found: $source_Directory"
+}
+$hasObj = Get-ChildItem -Path $source_Directory -Filter *.obj -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+$hasLas = Get-ChildItem -Path $source_Directory -Filter *.las -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $hasObj -and -not $hasLas) {
+    throw "source_Directory must contain at least one .obj or .las file"
 }
 
 # Attempt to derive a better project name from Output-CenterPivotOrigin.json
@@ -160,9 +160,7 @@ if (!(Test-Path -LiteralPath $blender_path)) {
             $blender_path = $search
             Write-Output "Using Blender found at $blender_path"
         } else {
-            Write-Output "Blender Path invalid"
-            Read-Host -Prompt "Press Enter to exit"
-            return
+            throw "Blender Path invalid"
         }
     }
 }
@@ -170,9 +168,7 @@ $blender_threads               = (Get-Content -LiteralPath $system_settings | Wh
 $override_Installation_VBS4    = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^override_Installation_VBS4=" }) -replace "override_Installation_VBS4=", ""
 $override_Path_VBS4            = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^override_Path_VBS4=" }) -replace "override_Path_VBS4=", ""
 if (($override_Installation_VBS4 -eq 1) -and !(Test-Path -LiteralPath $override_Path_VBS4)) {
-    Write-Output "VBS4 path invalid"
-    Read-Host -Prompt "Press Enter to exit"
-    return
+    throw "VBS4 path invalid"
 }
 $vbs4_version                  = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^vbs4_version=" }) -replace "vbs4_version=", ""
 $override_Installation_DevSuite= (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^override_Installation_DevSuite=" }) -replace "override_Installation_DevSuite=", ""
@@ -180,66 +176,28 @@ $override_Path_DevSuite        = (Get-Content -LiteralPath $system_settings | Wh
 $terratools_home_path          = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^terratools_home_path=" }) -replace "terratools_home_path=", ""
 $terratools_ssh_path           = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^terratools_ssh_path=" }) -replace "terratools_ssh_path=", ""
 if (!(Test-Path -LiteralPath $terratools_ssh_path)) {
-    Write-Output "Terratools Path invalid: $terratools_ssh_path"
-    Read-Host -Prompt "Press Enter to exit"
-    return
-}
-
-# ---------- Confirm run ----------
-$AREYOUSURE = ""
-if ($fully_automate -eq 0) {
-    $AREYOUSURE = Read-Host -Prompt "This script will execute a reality mesh data import process that will produce a new set of terrain inset files ready to use in VBS4. Processing time varies with the data. Proceed (Y/[N])?"
-} else {
-    $AREYOUSURE = "y"
-}
-
-if ($AREYOUSURE -ne 'y') {
-    Write-Output "You will need to change the project name to avoid overwriting temporary data. Change the project_name and rerun the ps1"
-    if ($fully_automate -eq 0) { Read-Host -Prompt "Press Enter to exit" }
-    return
+    throw "Terratools Path invalid: $terratools_ssh_path"
 }
 
 # ---------- Handle project name conflicts ----------
-if ($fully_automate -eq 0) {
-    if (Test-Path (Join-Path $inputRoot $project_name)) {
-        $newName = Read-Host -Prompt "$project_name already exists in projects folder. Rename the project (a)? Or cancel (b)? (a/b)"
-        if ($newName -eq 'a') {
-            $project_name = Sanitize-Name (Read-Host -Prompt "Enter new name for project")
-        } else {
-            Read-Host -Prompt "Process cancelled. Press Enter to exit"
-            return
-        }
-    }
-} else {
-    if (Test-Path (Join-Path $inputRoot $project_name)) {
-        $timestamp = Get-Date -UFormat "%D_%T" | ForEach-Object { $_ -replace ":", "_" } | ForEach-Object { $_ -replace "/", "-" }
-        $project_name = Sanitize-Name ($project_name + "_" + $timestamp)
-    }
-    Ensure-Directory "$PSScriptRoot\ProjectSettings\GeneratedFiles_DoNotEdit"
-    New-Item -Path "$PSScriptRoot\ProjectSettings\GeneratedFiles_DoNotEdit\AutomationHelper.txt" -ItemType "File" -Value "$project_name" -Force | Out-Null
+if (Test-Path (Join-Path $inputRoot $project_name)) {
+    $project_name = "{0}_{1}" -f $project_name, (Get-Date -Format "yyyyMMdd_HHmmss")
 }
+Ensure-Directory "$PSScriptRoot\ProjectSettings\GeneratedFiles_DoNotEdit"
+New-Item -Path "$PSScriptRoot\ProjectSettings\GeneratedFiles_DoNotEdit\AutomationHelper.txt" -ItemType "File" -Value "$project_name" -Force | Out-Null
 
-# ---------- Optional cleanup of DevSuite temp ----------
-$delete = ""
-if ($fully_automate -eq 0) {
-    $delete = Read-Host -Prompt "This will delete all temporary data on your devsuite drive for this project name. Proceed (y/[n])?"
-} else {
-    $delete = "y"
+# ---------- Cleanup DevSuite temp ----------
+$deletePath  = "${override_Path_DevSuite}:\temp\RealityMesh\$project_name\"
+if (Test-Path -LiteralPath $deletePath) {
+    Write-Output "Deleting $deletePath"
+    Remove-Item -LiteralPath $deletePath -Force -Recurse
 }
-
-if ($delete -eq 'y') {
-    $deletePath  = "${override_Path_DevSuite}:\temp\RealityMesh\$project_name\"
-    if (Test-Path -LiteralPath $deletePath) {
-        Write-Output "Deleting $deletePath"
-        Remove-Item -LiteralPath $deletePath -Force -Recurse
-    }
-    $deletePath2 = "${override_Path_DevSuite}:\vbs2\customer\structures\$project_name\"
-    if (Test-Path -LiteralPath $deletePath2) {
-        Write-Output "Deleting $deletePath2"
-        Remove-Item -LiteralPath $deletePath2 -Force -Recurse
-    }
-    Write-Output "Cleaned files before creating new ones"
+$deletePath2 = "${override_Path_DevSuite}:\vbs2\customer\structures\$project_name\"
+if (Test-Path -LiteralPath $deletePath2) {
+    Write-Output "Deleting $deletePath2"
+    Remove-Item -LiteralPath $deletePath2 -Force -Recurse
 }
+Write-Output "Cleaned files before creating new ones"
 
 # ---------- Build generated settings & output destinations ----------
 $projectFolder = Join-Path $inputRoot $project_name
@@ -294,6 +252,39 @@ Add-Content -LiteralPath $generated_settings_file -Value "set lodThresh {$lodThr
 Add-Content -LiteralPath $generated_settings_file -Value "set tileSize {$tileSize}"
 Add-Content -LiteralPath $generated_settings_file -Value "set srfResolution {$srfResolution}"
 
+# ---------- Build key=value settings for BAT ----------
+$kvSettingsLocal = Join-Path $projectFolder ("{0}-settings.txt" -f $project_name)
+$kvLines = @(
+    "project_name=$project_name",
+    "source_Directory=$source_Directory",
+    "offset_coordsys=$offset_coordsys",
+    "offset_hdatum=$offset_hdatum",
+    "offset_vdatum=$offset_vdatum",
+    "offset_x=$offset_x",
+    "offset_y=$offset_y",
+    "offset_z=$offset_z",
+    "orthocam_Resolution=$orthocam_Resolution",
+    "orthocam_Render_Lowest=$orthocam_Render_Lowest",
+    "tin_to_dem_Resolution=$tin_to_dem_Resolution",
+    "sel_Area_Size=$sel_Area_Size",
+    "tile_scheme=$tile_scheme",
+    "collision=$collision",
+    "visualLODs=$visualLODs",
+    "project_vdatum=$project_vdatum",
+    "offset_models=$offset_models",
+    "csf_options=$csf_options",
+    "faceThresh=$faceThresh",
+    "lodThresh=$lodThresh",
+    "tileSize=$tileSize",
+    "srfResolution=$srfResolution"
+)
+$kvLines | Out-File -LiteralPath $kvSettingsLocal -Encoding UTF8 -Force
+
+# Place settings on top of the BAT folder
+if (-not (Test-Path -LiteralPath $RemoteBatchRoot)) { throw "BAT root not found: $RemoteBatchRoot" }
+$BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $project_name)
+Copy-Item -LiteralPath $kvSettingsLocal -Destination $BatSettingsPath -Force
+
 $command_path = $generated_settings_file
 
 # ---------- Copy project template ----------
@@ -304,8 +295,7 @@ if (Test-Path -LiteralPath $templatePath) {
             '*.*','/E','/DCOPY:DA','/COPY:DAT','/R:3','/W:5') -join ' '
     cmd /c $rc | Out-Host
 } else {
-    Write-Output "Template folder not found at $templatePath"
-    return
+    throw "Template folder not found at $templatePath"
 }
 
 Set-Location -LiteralPath $destinationPath
@@ -331,8 +321,7 @@ if (-not (Test-Path -LiteralPath $n33File)) {
 
 if (-not (Test-Path -LiteralPath $n33File)) {
     Write-Host "ERROR: Required file n33.tbr could not be created." -ForegroundColor Red
-    if ($fully_automate -eq 0) { Read-Host -Prompt "Press Enter to exit" }
-    return
+    throw "Required file n33.tbr could not be created"
 }
 
 # TERRATOOLS_HOME override
@@ -342,32 +331,42 @@ if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path -LiteralPa
 }
 
 # ---------- Run the process ----------
-Write-Host "Launching RealityMeshProcess.tcl with settings from $command_path" -ForegroundColor Cyan
-Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
-Start-Sleep -Seconds 2
+if (-not $UseTclDirect) {
+    $batPath = Join-Path $RemoteBatchRoot $RemoteBatchFile
+    if (-not (Test-Path -LiteralPath $batPath)) { throw "BAT not found: $batPath" }
+    Write-Host "Starting Reality Mesh BAT..." -ForegroundColor Cyan
+    $startTime = Get-Date
+    $p = Start-Process -FilePath $batPath -NoNewWindow -PassThru
+    $p.WaitForExit()
+    if ($LASTEXITCODE -ne 0 -and $p.ExitCode -ne 0) {
+        throw "Reality Mesh BAT returned code $($p.ExitCode)"
+    }
+    $minutes = ((Get-Date) - $startTime).TotalSeconds / 60
+    "Time to run BAT: $minutes minutes" | Out-File -LiteralPath (Join-Path $destinationPath 'TimingLog.txt') -Encoding Default -Append
+} else {
+    Write-Host "Launching RealityMeshProcess.tcl with settings from $command_path" -ForegroundColor Cyan
+    Write-Host "🚧 Processing Reality Mesh... Please wait. Do not close this window." -ForegroundColor Yellow
+    Start-Sleep -Seconds 2
 
-$startTime = Get-Date
-$proc = Start-Process -FilePath "$terratools_ssh_path" -NoNewWindow -PassThru -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
-$spinner = '/-\|'
-$i = 0
-while (-not $proc.HasExited) {
-    $char = $spinner[$i % $spinner.Length]
-    Write-Host -NoNewline "`r$char Processing..."
-    Start-Sleep -Seconds 1
-    $i++
+    $startTime = Get-Date
+    $proc = Start-Process -FilePath "$terratools_ssh_path" -NoNewWindow -PassThru -ArgumentList "RealityMeshProcess.tcl -command_file `"$command_path`""
+    $spinner = '/-\|'
+    $i = 0
+    while (-not $proc.HasExited) {
+        $char = $spinner[$i % $spinner.Length]
+        Write-Host -NoNewline "`r$char Processing..."
+        Start-Sleep -Seconds 1
+        $i++
+    }
+    $proc.WaitForExit()
+    Write-Host "`rProcessing complete.             "
+    $time = (Get-Date) - $startTime
+    $minutes = $time.TotalSeconds / 60
+    Write-Output "`nTime to run TT project: $minutes minutes"
+    "Time to run TT project: $minutes minutes" | Out-File -LiteralPath (Join-Path $destinationPath 'TimingLog.txt') -Encoding Default -Append
 }
-$proc.WaitForExit()
-Write-Host "`rProcessing complete.             "
-$time = (Get-Date) - $startTime
-$minutes = $time.TotalSeconds / 60
-Write-Output "`nTime to run TT project: $minutes minutes"
-"Time to run TT project: $minutes minutes" | Out-File -LiteralPath (Join-Path $destinationPath 'TimingLog.txt') -Encoding Default
 
 # ---------- Signal completion for remote monitors ----------
 $doneFile = Join-Path $out_in_name_with_drive 'DONE.txt'
 New-Item -ItemType File -Path $doneFile -Force | Out-Null
 Write-Output "Created $doneFile"
-
-if ($fully_automate -eq 0) {
-    Read-Host -Prompt "Press Enter to exit"
-}
