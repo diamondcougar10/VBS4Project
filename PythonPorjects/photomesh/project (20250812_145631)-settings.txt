@@ -1,13 +1,11 @@
-project_name=project (20250812_142709)
-source_Directory=C:\BiSim OneClick\Datasets\CACTF_BUILD_20250812_142649\data
+﻿project_name=project (20250812_145631)
+source_Directory=C:\BiSim OneClick\Datasets\CACTF_BUILD_20250812_145611\data
 offset_coordsys=UTM zone:15 hemi:N horiz_units:Meters vert_units:Meters(centerpointoforigin)
 offset_hdatum=WGS84
 offset_vdatum=WGS84_ellipsoid
 offset_x=503588.34416802076
 offset_y=3441140.9762211596
 offset_z=-27.427067501874177
-export_format=OBJ
-center_pivot_to_project=true
 orthocam_Resolution=0.05
 orthocam_Render_Lowest=1
 tin_to_dem_Resolution=0.5
@@ -22,6 +20,3 @@ faceThresh=500
 lodThresh=5
 tileSize=100
 srfResolution=0.5
-
-[BiSimOneClickPath]
-path=C:\BiSim OneClick\Datasets\CACTF_BUILD_20250812_142649\data
