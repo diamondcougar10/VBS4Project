@@ -2,16 +2,10 @@
 
 [CmdletBinding()]
 param(
-  # Deprecated (kept for compatibility)
-  [Parameter(Position=0)][string]$Target,
-  [Parameter(Mandatory,Position=1)][string]$SettingsPath,  # LOCAL absolute path to <project>-settings.txt
-  # Deprecated (kept for compatibility)
-  [Parameter(Position=2)][string]$ShareRoot,
-  [Parameter(Position=3)][PSCredential]$Credential,
-  [switch]$NoBanner
+    [Parameter(Mandatory,Position=0)][string]$SettingsPath
 )
 
-# Where the BAT and template live locally (adjust if needed)
+# Where the BAT and template live locally
 $RemoteBatchRoot = "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh"
 $RemoteBatchFile = "RealityMeshProcess.bat"
 
@@ -23,7 +17,7 @@ $outputRoot = Join-Path $sharedRoot 'Output'
 $RunStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $LogDir   = Join-Path $PSScriptRoot 'Logs'
 if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
-$RunLog   = Join-Path $LogDir ("RemoteRunner_{0}.log" -f $RunStamp)
+$RunLog   = Join-Path $LogDir ("RealityMeshRunner_{0}.log" -f $RunStamp)
 
 function Write-Log {
   param([Parameter(Mandatory)][string]$Message,[ValidateSet('INFO','WARN','ERROR','STEP')][string]$Level='INFO')
@@ -36,10 +30,6 @@ function Write-Log {
     'STEP'  { Write-Host $line -ForegroundColor Cyan }
   }
   Add-Content -LiteralPath $RunLog -Value $line
-}
-
-if ($Target -or $ShareRoot -or $Credential) {
-  Write-Log "Remote params detected (Target/ShareRoot/Credential) are ignored in local one-click mode." 'WARN'
 }
 
 function Get-SettingsMap {
@@ -56,19 +46,19 @@ function Get-SettingsMap {
   }
   return $map
 }
-$settings = Get-SettingsMap -Path $SettingsPath
 
-$ProjectName = $settings['project_name']
-$SourceDir   = $settings['source_Directory']
-if (-not $ProjectName) { throw "Settings missing 'project_name'." }
+$settings     = Get-SettingsMap -Path $SettingsPath
+$project_name = $settings['project_name']
+$SourceDir    = $settings['source_Directory']
+if (-not $project_name) { throw "Settings missing 'project_name'." }
 if (-not (Test-Path -LiteralPath $SourceDir)) { throw "source_Directory not found: $SourceDir" }
 $hasObj = Get-ChildItem -Path $SourceDir -Recurse -Filter *.obj -ErrorAction SilentlyContinue | Select-Object -First 1
 $hasLas = Get-ChildItem -Path $SourceDir -Recurse -Filter *.las -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $hasObj -and -not $hasLas) { throw "No *.obj or *.las under: $SourceDir" }
-Write-Log "Settings: project_name=$ProjectName" STEP
+Write-Log "Settings: project_name=$project_name" STEP
 
 if (-not (Test-Path -LiteralPath $RemoteBatchRoot)) { throw "BAT root not found: $RemoteBatchRoot" }
-$BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $ProjectName)
+$BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $project_name)
 Copy-Item -LiteralPath $SettingsPath -Destination $BatSettingsPath -Force
 Write-Log "Placed settings for BAT: $BatSettingsPath" STEP
 
@@ -84,7 +74,7 @@ if ($LASTEXITCODE -ne 0 -and $p.ExitCode -ne 0) {
 }
 
 $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$out_in_name_with_drive = Join-Path $outputRoot ("{0}_{1}" -f $ProjectName, $timestamp)
+$out_in_name_with_drive = Join-Path $outputRoot ("{0}_{1}" -f $project_name, $timestamp)
 if (-not (Test-Path -LiteralPath $out_in_name_with_drive)) {
     New-Item -ItemType Directory -Path $out_in_name_with_drive -Force | Out-Null
 }
@@ -98,6 +88,7 @@ $timingLog = Join-Path $RemoteBatchRoot 'TimingLog.txt'
 if (Test-Path -LiteralPath $timingLog) {
     Copy-Item -LiteralPath $timingLog -Destination (Join-Path $out_in_name_with_drive 'TimingLog.txt') -Force
 }
+
 Write-Log "Created $doneFile" STEP
 Write-Log "Full run log: $RunLog"
 
