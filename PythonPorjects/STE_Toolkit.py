@@ -3032,8 +3032,7 @@ class VBS4Panel(tk.Frame):
                         'powershell',
                         '-ExecutionPolicy', 'Bypass',
                         '-File', ps_script,
-                        settings_path,
-                        '1'
+                        settings_path 
                     ]
                     self.log_message('Running: ' + ' '.join(cmd))
                     self.set_progress(0)
@@ -3113,8 +3112,7 @@ class VBS4Panel(tk.Frame):
                 'powershell',
                 '-ExecutionPolicy', 'Bypass',
                 '-File', ps_script,
-                settings_path,
-                '1',
+                settings_path
             ]
             self.log_message('Running: ' + ' '.join(cmd))
             self.set_progress(0)

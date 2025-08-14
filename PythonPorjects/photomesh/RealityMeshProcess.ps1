@@ -424,5 +424,5 @@ if (-not $UseTclDirect) {
 # ---------- Signal completion for remote monitors ----------
 $doneFile = Join-Path $out_in_name_with_drive 'DONE.txt'
 New-Item -ItemType File -Path $doneFile -Force | Out-Null
-Write-Output "Created $doneFile"
+Write-Output ("Created {0}" -f $doneFile)
 
