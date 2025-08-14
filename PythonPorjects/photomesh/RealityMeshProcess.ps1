@@ -101,19 +101,51 @@ if (-not (Test-Path -LiteralPath $system_settings)) {
 Write-Output ('Using settings: {0}' -f $SettingsFile)
 Write-Host 'Project and System settings found' -ForegroundColor Green
 
-# Determine the location of the RealityMesh_tt template folder.
-$RealityMeshTTPath = Join-Path $PSScriptRoot 'RealityMesh_tt'
-$defaultRealityMeshTTPath = "C:\Program Files (x86)\STE Toolkit\RealityMesh_tt"
-if (-not (Test-Path -LiteralPath $RealityMeshTTPath)) {
-    if (Test-Path -LiteralPath $defaultRealityMeshTTPath) {
-        Write-Host ("Template not found at {0}; using fallback {1}" -f $RealityMeshTTPath, $defaultRealityMeshTTPath) -ForegroundColor Yellow
-        $RealityMeshTTPath = $defaultRealityMeshTTPath
-    } else {
-        throw ("RealityMesh_tt folder not found at '{0}' or '{1}'" -f $RealityMeshTTPath, $defaultRealityMeshTTPath)
+# ---------- Locate RealityMesh_tt (portable-first, robust fallbacks) ----------
+function Resolve-RealityMeshTTPath {
+    param([Parameter(Mandatory)] [string]$ScriptRoot)
+    $portable1    = Join-Path $ScriptRoot 'RealityMesh_tt'
+    $portable2    = Join-Path (Split-Path $ScriptRoot -Parent) 'RealityMesh_tt'
+    $envHome      = $env:STE_TOOLKIT_HOME
+    $envPath      = if ($envHome) { Join-Path $envHome 'RealityMesh_tt' } else { $null }
+    $installedNew = 'C:\Program Files (x86)\STE Toolkit\_internal\photomesh\RealityMesh_tt'
+    $installedOld = 'C:\Program Files (x86)\STE Toolkit\RealityMesh_tt'
+
+    $candidates = @($portable1, $portable2, $envPath, $installedNew, $installedOld) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($p in $candidates) {
+        if (Test-Path -LiteralPath $p -PathType Container) {
+            $tcl = Join-Path $p 'RealityMeshProcess.tcl'
+            if (Test-Path -LiteralPath $tcl -PathType Leaf) {
+                if ($p -ieq $portable1 -or $p -ieq $portable2) {
+                    Write-Host ("Using template path (portable): {0}" -f $p) -ForegroundColor Green
+                } elseif ($p -ieq $installedNew -or $p -ieq $installedOld) {
+                    Write-Host ("Using template path (installed): {0}" -f $p) -ForegroundColor Yellow
+                } else {
+                    Write-Host ("Using template path: {0}" -f $p) -ForegroundColor Green
+                }
+                return $p
+            } else {
+                Write-Warning ("Found RealityMesh_tt at '{0}' but it is missing RealityMeshProcess.tcl; skipping." -f $p)
+            }
+        }
     }
-} else {
-    Write-Host ("Using template path: {0}" -f $RealityMeshTTPath) -ForegroundColor Green
+
+    $msg = @"
+RealityMesh_tt folder not found with required files.
+Tried:
+ - $portable1
+ - $portable2
+ - $envPath
+ - $installedNew
+ - $installedOld
+"@
+    throw $msg
 }
+
+$RealityMeshTTPath = Resolve-RealityMeshTTPath -ScriptRoot $PSScriptRoot
+
 
 # ---------- Project settings ----------
 $project_name = Sanitize-Name ((Get-Content -LiteralPath $SettingsFile | Where-Object { $_ -match "^project_name=" }) -replace "project_name=", "")
