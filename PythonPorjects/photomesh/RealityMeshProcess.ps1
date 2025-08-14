@@ -106,10 +106,13 @@ $RealityMeshTTPath = Join-Path $PSScriptRoot 'RealityMesh_tt'
 $defaultRealityMeshTTPath = "C:\Program Files (x86)\STE Toolkit\RealityMesh_tt"
 if (-not (Test-Path -LiteralPath $RealityMeshTTPath)) {
     if (Test-Path -LiteralPath $defaultRealityMeshTTPath) {
+        Write-Host ("Template not found at {0}; using fallback {1}" -f $RealityMeshTTPath, $defaultRealityMeshTTPath) -ForegroundColor Yellow
         $RealityMeshTTPath = $defaultRealityMeshTTPath
     } else {
         throw ("RealityMesh_tt folder not found at '{0}' or '{1}'" -f $RealityMeshTTPath, $defaultRealityMeshTTPath)
     }
+} else {
+    Write-Host ("Using template path: {0}" -f $RealityMeshTTPath) -ForegroundColor Green
 }
 
 # ---------- Project settings ----------
@@ -201,6 +204,25 @@ if ($ocpo) {
     }
 }
 
+# ---------- Stable run id & locations ----------
+$RunId = Get-Date -Format 'yyyyMMdd_HHmmss'
+$BaseName = ($project_name -replace '(_\d{8}_\d{6})+$','')
+if ($BaseName.Length -gt 48) { $BaseName = $BaseName.Substring(0,48) }
+if ($IsSecondStage) {
+    $ProjectAlias = $project_name
+} else {
+    $ProjectAlias = '{0}_{1}' -f $BaseName, $RunId
+}
+$project_name  = $ProjectAlias
+$projectFolder = Join-Path $inputRoot $ProjectAlias
+$OutputDir     = Join-Path $outputRoot $ProjectAlias
+Ensure-Directory $projectFolder
+Ensure-Directory $OutputDir
+if ((Join-Path $projectFolder ("{0}.txt" -f $ProjectAlias)).Length -ge 240) {
+    throw "Project path too long. Please shorten project_name (current base: '$BaseName')."
+}
+$generated_settings_file = Join-Path $projectFolder ("{0}.txt" -f $ProjectAlias)
+
 # ---------- System settings ----------
 $blender_path = (Get-Content -LiteralPath $system_settings | Where-Object { $_ -match "^blender_path=" }) -replace "blender_path=", ""
 $default_blender = "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"
@@ -238,11 +260,7 @@ if (!(Test-Path -LiteralPath $terratools_ssh_path)) {
 }
 
 # ---------- Handle project name conflicts ----------
-if (-not $IsSecondStage) {
-    if (Test-Path (Join-Path $inputRoot $project_name)) {
-        $project_name = ('{0}_{1}' -f $project_name, (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    }
-}
+# Uniqueness handled by $ProjectAlias; no further mutation required.
 $genDir = Join-Path $PSScriptRoot 'ProjectSettings'
 $genDir = Join-Path $genDir 'GeneratedFiles_DoNotEdit'
 Ensure-Directory $genDir
@@ -272,29 +290,22 @@ if ($override_Installation_DevSuite -eq 1) {
 
 if (-not $IsSecondStage) {
     # ---------- Build generated settings & output destinations ----------
-    $projectFolder = Join-Path $inputRoot $project_name
-    Ensure-Directory $projectFolder
-
-    $generated_settings_file = Join-Path $projectFolder ('{0}.txt' -f $project_name)
     if (Test-Path -LiteralPath $generated_settings_file) {
         Remove-Item -LiteralPath $generated_settings_file -Force
     }
 
     $override_Installation_VBS4_bool = if ($override_Installation_VBS4 -eq 1) { "true" } else { "false" }
 
-    $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $out_in_name = $project_name
-    $OutputDir = Join-Path $outputRoot ('{0}_{1}' -f $project_name, $timestamp)
-    Ensure-Directory $OutputDir
+    $out_in_name = $ProjectAlias
     $out_in_name_with_drive = $OutputDir
 
-    Write-Output ('ProjectName: {0}' -f $project_name)
+    Write-Output ('ProjectName: {0}' -f $ProjectAlias)
     Write-Output ('DestDir: {0}' -f $OutputDir)
     Write-Output ('GeneratedSettingsFile: {0}' -f $generated_settings_file)
 
     # Create settings file
     New-Item -ItemType File -Path $generated_settings_file -Force | Out-Null
-    Add-Content -LiteralPath $generated_settings_file -Value "set name {$project_name}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set name {$ProjectAlias}"
     Add-Content -LiteralPath $generated_settings_file -Value "set blender_path {$blender_path}"
     Add-Content -LiteralPath $generated_settings_file -Value "set blender_threads {$blender_threads}"
     Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_VBS4_bool {$override_Installation_VBS4_bool}"
@@ -326,9 +337,9 @@ if (-not $IsSecondStage) {
     Add-Content -LiteralPath $generated_settings_file -Value "set srfResolution {$srfResolution}"
 
     # ---------- Build key=value settings for BAT ----------
-    $kvSettingsLocal = Join-Path $projectFolder ("{0}-settings.txt" -f $project_name)
+    $kvSettingsLocal = Join-Path $projectFolder ("{0}-settings.txt" -f $ProjectAlias)
     $kvLines = @(
-        "project_name=$project_name",
+        "project_name=$ProjectAlias",
         "source_Directory=$source_Directory",
         "offset_coordsys=$offset_coordsys",
         "offset_hdatum=$offset_hdatum",
@@ -355,7 +366,7 @@ if (-not $IsSecondStage) {
 
     # Place settings on top of the BAT folder
     if (-not (Test-Path -LiteralPath $RemoteBatchRoot)) { throw ('BAT root not found: {0}' -f $RemoteBatchRoot) }
-    $BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $project_name)
+    $BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $ProjectAlias)
     Copy-Item -LiteralPath $kvSettingsLocal -Destination $BatSettingsPath -Force
 
     $command_path = $generated_settings_file
@@ -421,30 +432,27 @@ if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path -LiteralPa
 
 # ---------- Second stage: run TerraTools directly ----------
 if ($IsSecondStage) {
-    # Parse key=value settings created in stage 1
-    $kv = @{}
-    foreach ($line in Get-Content -LiteralPath $SettingsFile) {
-        if ($line -match '^\s*#' -or [string]::IsNullOrWhiteSpace($line)) { continue }
-        $k,$v = $line -split '=',2
-        if ($null -ne $k -and $null -ne $v) { $kv[$k.Trim()] = $v.Trim() }
-    }
+    Write-Host 'Running TerraTools (second stage)...'
 
-    $project_name = Sanitize-Name $kv['project_name']
-    $projectFolder = Join-Path $inputRoot $project_name
-    $generated_settings_file = Join-Path $projectFolder ("{0}.txt" -f $project_name)
+    $projDir     = $projectFolder
+    $tclPath     = Join-Path $projDir 'RealityMeshProcess.tcl'
+    $cmdFilePath = $generated_settings_file
+    $cmdFileName = Split-Path $cmdFilePath -Leaf
 
-    if (-not (Test-Path -LiteralPath $generated_settings_file)) {
-        throw "Generated command file not found: $generated_settings_file"
-    }
+    if (-not (Test-Path -LiteralPath $tclPath))     { throw "TCL not found: $tclPath" }
+    if (-not (Test-Path -LiteralPath $cmdFilePath)) { throw "Command file not found: $cmdFilePath" }
 
-    Write-Host "Running TerraTools (second stage)..." -ForegroundColor Cyan
     $proc = Start-Process -FilePath $terratools_ssh_path `
-                          -ArgumentList @('RealityMeshProcess.tcl','-command_file',$generated_settings_file) `
-                          -NoNewWindow -Wait -PassThru
-    if ($proc.ExitCode -ne 0) { throw ("TerraTools returned {0}" -f $proc.ExitCode) }
+        -WorkingDirectory $projDir `
+        -ArgumentList @($tclPath, '-cwd', $projDir, '-command_file', $cmdFileName) `
+        -NoNewWindow -Wait -PassThru
+
+    if ($proc.ExitCode -ne 0) {
+        throw ("TerraTools returned {0}. Check license and files in: {1}" -f $proc.ExitCode, $projDir)
+    }
 
     # Optional DONE marker
-    $doneFile = Join-Path (Join-Path $outputRoot $project_name) 'DONE.txt'
+    $doneFile = Join-Path $OutputDir 'DONE.txt'
     New-Item -ItemType File -Path $doneFile -Force | Out-Null
     Write-Output "Created $doneFile"
     return
