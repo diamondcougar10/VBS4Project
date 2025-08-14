@@ -10,6 +10,8 @@ param(
   [switch]$PackageOnly
 )
 $EffectivePackageOnly = $PackageOnly -or ($env:RM_PACKAGE_ONLY -eq '1')
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 # ---- helpers ----
 function Normalize-UNCPath {
