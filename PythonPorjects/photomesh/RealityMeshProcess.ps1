@@ -82,6 +82,11 @@ Ensure-Directory $outputRoot
 # ---------- Prompt/defaults ----------
 $SettingsFile = Normalize-UNCPath ($SettingsFile.Trim('"'))
 
+# We are in second stage if the settings file is the kv file inside the BAT folder
+$settingsLeaf   = Split-Path -Leaf   $SettingsFile
+$settingsParent = Split-Path -Parent $SettingsFile
+$IsSecondStage  = ($settingsParent -ieq $RemoteBatchRoot) -and ($settingsLeaf -match '-settings\.txt$')
+
 # ---------- Settings Parsing ----------
 $system_settings = Join-Path $PSScriptRoot 'RealityMeshSystemSettings.txt'
 
@@ -233,8 +238,10 @@ if (!(Test-Path -LiteralPath $terratools_ssh_path)) {
 }
 
 # ---------- Handle project name conflicts ----------
-if (Test-Path (Join-Path $inputRoot $project_name)) {
-    $project_name = ('{0}_{1}' -f $project_name, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+if (-not $IsSecondStage) {
+    if (Test-Path (Join-Path $inputRoot $project_name)) {
+        $project_name = ('{0}_{1}' -f $project_name, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    }
 }
 $genDir = Join-Path $PSScriptRoot 'ProjectSettings'
 $genDir = Join-Path $genDir 'GeneratedFiles_DoNotEdit'
@@ -263,145 +270,147 @@ if ($override_Installation_DevSuite -eq 1) {
     Write-Host "DevSuite cleanup disabled (override_Installation_DevSuite != 1); skipping." -ForegroundColor Yellow
 }
 
-# ---------- Build generated settings & output destinations ----------
-$projectFolder = Join-Path $inputRoot $project_name
-Ensure-Directory $projectFolder
+if (-not $IsSecondStage) {
+    # ---------- Build generated settings & output destinations ----------
+    $projectFolder = Join-Path $inputRoot $project_name
+    Ensure-Directory $projectFolder
 
-$generated_settings_file = Join-Path $projectFolder ('{0}.txt' -f $project_name)
-if (Test-Path -LiteralPath $generated_settings_file) {
-    Remove-Item -LiteralPath $generated_settings_file -Force
-}
+    $generated_settings_file = Join-Path $projectFolder ('{0}.txt' -f $project_name)
+    if (Test-Path -LiteralPath $generated_settings_file) {
+        Remove-Item -LiteralPath $generated_settings_file -Force
+    }
 
-$override_Installation_VBS4_bool = if ($override_Installation_VBS4 -eq 1) { "true" } else { "false" }
+    $override_Installation_VBS4_bool = if ($override_Installation_VBS4 -eq 1) { "true" } else { "false" }
 
-$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$out_in_name = $project_name
-$OutputDir = Join-Path $outputRoot ('{0}_{1}' -f $project_name, $timestamp)
-Ensure-Directory $OutputDir
-$out_in_name_with_drive = $OutputDir
+    $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $out_in_name = $project_name
+    $OutputDir = Join-Path $outputRoot ('{0}_{1}' -f $project_name, $timestamp)
+    Ensure-Directory $OutputDir
+    $out_in_name_with_drive = $OutputDir
 
-Write-Output ('ProjectName: {0}' -f $project_name)
-Write-Output ('DestDir: {0}' -f $OutputDir)
-Write-Output ('GeneratedSettingsFile: {0}' -f $generated_settings_file)
+    Write-Output ('ProjectName: {0}' -f $project_name)
+    Write-Output ('DestDir: {0}' -f $OutputDir)
+    Write-Output ('GeneratedSettingsFile: {0}' -f $generated_settings_file)
 
-# Create settings file
-New-Item -ItemType File -Path $generated_settings_file -Force | Out-Null
-Add-Content -LiteralPath $generated_settings_file -Value "set name {$project_name}"
-Add-Content -LiteralPath $generated_settings_file -Value "set blender_path {$blender_path}"
-Add-Content -LiteralPath $generated_settings_file -Value "set blender_threads {$blender_threads}"
-Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_VBS4_bool {$override_Installation_VBS4_bool}"
-Add-Content -LiteralPath $generated_settings_file -Value "set override_Path_VBS4 {$override_Path_VBS4}"
-Add-Content -LiteralPath $generated_settings_file -Value "set vbs4_version {$vbs4_version}"
-Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_DevSuite {$override_Installation_DevSuite}"
-Add-Content -LiteralPath $generated_settings_file -Value "set override_Path_DevSuite {$override_Path_DevSuite}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_x {$offset_x}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_y {$offset_y}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_z {$offset_z}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_coordsys {$offset_coordsys}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_hdatum {$offset_hdatum}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_vdatum {$offset_vdatum}"
-Add-Content -LiteralPath $generated_settings_file -Value "set orthocam_Resolution {$orthocam_Resolution}"
-Add-Content -LiteralPath $generated_settings_file -Value "set orthocam_Render_Lowest {$orthocam_Render_Lowest}"
-Add-Content -LiteralPath $generated_settings_file -Value "set tin_to_dem_Resolution {$tin_to_dem_Resolution}"
-Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_VBS4 {$override_Installation_VBS4}"
-Add-Content -LiteralPath $generated_settings_file -Value "set sel_Area_Size {$sel_Area_Size}"
-Add-Content -LiteralPath $generated_settings_file -Value "set out_in_name {$out_in_name}"
-Add-Content -LiteralPath $generated_settings_file -Value "set out_in_name_with_drive {$out_in_name_with_drive}"
-Add-Content -LiteralPath $generated_settings_file -Value "set collision {$collision}"
-Add-Content -LiteralPath $generated_settings_file -Value "set visualLODs {$visualLODs}"
-Add-Content -LiteralPath $generated_settings_file -Value "set project_vdatum {$project_vdatum}"
-Add-Content -LiteralPath $generated_settings_file -Value "set offset_models {$offset_models}"
-Add-Content -LiteralPath $generated_settings_file -Value "set csf_options {$csf_options}"
-Add-Content -LiteralPath $generated_settings_file -Value "set faceThresh {$faceThresh}"
-Add-Content -LiteralPath $generated_settings_file -Value "set lodThresh {$lodThresh}"
-Add-Content -LiteralPath $generated_settings_file -Value "set tileSize {$tileSize}"
-Add-Content -LiteralPath $generated_settings_file -Value "set srfResolution {$srfResolution}"
+    # Create settings file
+    New-Item -ItemType File -Path $generated_settings_file -Force | Out-Null
+    Add-Content -LiteralPath $generated_settings_file -Value "set name {$project_name}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set blender_path {$blender_path}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set blender_threads {$blender_threads}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_VBS4_bool {$override_Installation_VBS4_bool}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set override_Path_VBS4 {$override_Path_VBS4}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set vbs4_version {$vbs4_version}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_DevSuite {$override_Installation_DevSuite}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set override_Path_DevSuite {$override_Path_DevSuite}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_x {$offset_x}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_y {$offset_y}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_z {$offset_z}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_coordsys {$offset_coordsys}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_hdatum {$offset_hdatum}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_vdatum {$offset_vdatum}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set orthocam_Resolution {$orthocam_Resolution}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set orthocam_Render_Lowest {$orthocam_Render_Lowest}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set tin_to_dem_Resolution {$tin_to_dem_Resolution}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set override_Installation_VBS4 {$override_Installation_VBS4}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set sel_Area_Size {$sel_Area_Size}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set out_in_name {$out_in_name}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set out_in_name_with_drive {$out_in_name_with_drive}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set collision {$collision}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set visualLODs {$visualLODs}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set project_vdatum {$project_vdatum}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set offset_models {$offset_models}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set csf_options {$csf_options}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set faceThresh {$faceThresh}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set lodThresh {$lodThresh}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set tileSize {$tileSize}"
+    Add-Content -LiteralPath $generated_settings_file -Value "set srfResolution {$srfResolution}"
 
-# ---------- Build key=value settings for BAT ----------
-$kvSettingsLocal = Join-Path $projectFolder ("{0}-settings.txt" -f $project_name)
-$kvLines = @(
-    "project_name=$project_name",
-    "source_Directory=$source_Directory",
-    "offset_coordsys=$offset_coordsys",
-    "offset_hdatum=$offset_hdatum",
-    "offset_vdatum=$offset_vdatum",
-    "offset_x=$offset_x",
-    "offset_y=$offset_y",
-    "offset_z=$offset_z",
-    "orthocam_Resolution=$orthocam_Resolution",
-    "orthocam_Render_Lowest=$orthocam_Render_Lowest",
-    "tin_to_dem_Resolution=$tin_to_dem_Resolution",
-    "sel_Area_Size=$sel_Area_Size",
-    "tile_scheme=$tile_scheme",
-    "collision=$collision",
-    "visualLODs=$visualLODs",
-    "project_vdatum=$project_vdatum",
-    "offset_models=$offset_models",
-    "csf_options=$csf_options",
-    "faceThresh=$faceThresh",
-    "lodThresh=$lodThresh",
-    "tileSize=$tileSize",
-    "srfResolution=$srfResolution"
-)
-$kvLines | Out-File -LiteralPath $kvSettingsLocal -Encoding UTF8 -Force
+    # ---------- Build key=value settings for BAT ----------
+    $kvSettingsLocal = Join-Path $projectFolder ("{0}-settings.txt" -f $project_name)
+    $kvLines = @(
+        "project_name=$project_name",
+        "source_Directory=$source_Directory",
+        "offset_coordsys=$offset_coordsys",
+        "offset_hdatum=$offset_hdatum",
+        "offset_vdatum=$offset_vdatum",
+        "offset_x=$offset_x",
+        "offset_y=$offset_y",
+        "offset_z=$offset_z",
+        "orthocam_Resolution=$orthocam_Resolution",
+        "orthocam_Render_Lowest=$orthocam_Render_Lowest",
+        "tin_to_dem_Resolution=$tin_to_dem_Resolution",
+        "sel_Area_Size=$sel_Area_Size",
+        "tile_scheme=$tile_scheme",
+        "collision=$collision",
+        "visualLODs=$visualLODs",
+        "project_vdatum=$project_vdatum",
+        "offset_models=$offset_models",
+        "csf_options=$csf_options",
+        "faceThresh=$faceThresh",
+        "lodThresh=$lodThresh",
+        "tileSize=$tileSize",
+        "srfResolution=$srfResolution"
+    )
+    $kvLines | Out-File -LiteralPath $kvSettingsLocal -Encoding UTF8 -Force
 
-# Place settings on top of the BAT folder
-if (-not (Test-Path -LiteralPath $RemoteBatchRoot)) { throw ('BAT root not found: {0}' -f $RemoteBatchRoot) }
-$BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $project_name)
-Copy-Item -LiteralPath $kvSettingsLocal -Destination $BatSettingsPath -Force
+    # Place settings on top of the BAT folder
+    if (-not (Test-Path -LiteralPath $RemoteBatchRoot)) { throw ('BAT root not found: {0}' -f $RemoteBatchRoot) }
+    $BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $project_name)
+    Copy-Item -LiteralPath $kvSettingsLocal -Destination $BatSettingsPath -Force
 
-$command_path = $generated_settings_file
+    $command_path = $generated_settings_file
 
-# ---------- Copy project template ----------
-$templatePath = $RealityMeshTTPath
-$destinationPath = $projectFolder
-if (Test-Path -LiteralPath $templatePath) {
-    & robocopy $templatePath $destinationPath *.* /E /DCOPY:DA /COPY:DAT /R:3 /W:5 | Out-Host
-} else {
-    throw ('Template folder not found at {0}' -f $templatePath)
-}
+    # ---------- Copy project template ----------
+    $templatePath = $RealityMeshTTPath
+    $destinationPath = $projectFolder
+    if (Test-Path -LiteralPath $templatePath) {
+        & robocopy $templatePath $destinationPath *.* /E /DCOPY:DA /COPY:DAT /R:3 /W:5 | Out-Host
+    } else {
+        throw ('Template folder not found at {0}' -f $templatePath)
+    }
 
-Set-Location -LiteralPath $destinationPath
+    Set-Location -LiteralPath $destinationPath
 
-# Rename .ttp safely
-$ttp = Join-Path $destinationPath 'RealityMeshProcess.ttp'
-if (Test-Path -LiteralPath $ttp) {
-    Rename-Item -LiteralPath $ttp -NewName ('{0}.ttp' -f $project_name) -Force
-} else {
-    Write-Warning ('Template .ttp not found at {0}' -f $ttp)
-}
+    # Rename .ttp safely
+    $ttp = Join-Path $destinationPath 'RealityMeshProcess.ttp'
+    if (Test-Path -LiteralPath $ttp) {
+        Rename-Item -LiteralPath $ttp -NewName ('{0}.ttp' -f $project_name) -Force
+    } else {
+        Write-Warning ('Template .ttp not found at {0}' -f $ttp)
+    }
 
-# Write small config files
-"set sourceDir `"$source_Directory`" " | Out-File -LiteralPath (Join-Path $destinationPath 'sourceDir.txt') -Encoding Default
-"set tileScheme `"$tile_scheme`" "   | Out-File -LiteralPath (Join-Path $destinationPath 'tileScheme.txt') -Encoding Default
+    # Write small config files
+    "set sourceDir `"$source_Directory`" " | Out-File -LiteralPath (Join-Path $destinationPath 'sourceDir.txt') -Encoding Default
+    "set tileScheme `"$tile_scheme`" "   | Out-File -LiteralPath (Join-Path $destinationPath 'tileScheme.txt') -Encoding Default
 
-# --- n33.tbr generation is ONLY needed for the legacy TCL path ---
-if ($UseTclDirect) {
-    $n33File = Join-Path $destinationPath 'n33.tbr'
-    if (-not (Test-Path -LiteralPath $n33File)) {
-        Write-Host 'n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl...' -ForegroundColor Yellow
+    # --- n33.tbr generation is ONLY needed for the legacy TCL path ---
+    if ($UseTclDirect) {
+        $n33File = Join-Path $destinationPath 'n33.tbr'
+        if (-not (Test-Path -LiteralPath $n33File)) {
+            Write-Host 'n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl...' -ForegroundColor Yellow
 
-        $ttScript = Join-Path $destinationPath 'TSG_TBR_to_Vertex_Points_Unique.tcl'
-        $inputTbr = Join-Path $destinationPath 'n32.tbr'
+            $ttScript = Join-Path $destinationPath 'TSG_TBR_to_Vertex_Points_Unique.tcl'
+            $inputTbr = Join-Path $destinationPath 'n32.tbr'
 
-        if (Test-Path -LiteralPath $inputTbr) {
-            $proc = Start-Process -FilePath $terratools_ssh_path `
-                                  -ArgumentList @($ttScript, $inputTbr, $n33File) `
-                                  -NoNewWindow -Wait -PassThru
-            if ($proc.ExitCode -ne 0) {
-                Write-Warning "TerraTools returned $($proc.ExitCode) while generating n33.tbr"
+            if (Test-Path -LiteralPath $inputTbr) {
+                $proc = Start-Process -FilePath $terratools_ssh_path `
+                                      -ArgumentList @($ttScript, $inputTbr, $n33File) `
+                                      -NoNewWindow -Wait -PassThru
+                if ($proc.ExitCode -ne 0) {
+                    Write-Warning "TerraTools returned $($proc.ExitCode) while generating n33.tbr"
+                }
+            } else {
+                Write-Warning "Skipping n33.tbr generation: required input not found: $inputTbr"
             }
-        } else {
-            Write-Warning "Skipping n33.tbr generation: required input not found: $inputTbr"
         }
-    }
 
-    if (-not (Test-Path -LiteralPath $n33File)) {
-        Write-Host 'ERROR: Required file n33.tbr could not be created for TCL path.' -ForegroundColor Red
-        throw 'Required file n33.tbr could not be created'
+        if (-not (Test-Path -LiteralPath $n33File)) {
+            Write-Host 'ERROR: Required file n33.tbr could not be created for TCL path.' -ForegroundColor Red
+            throw 'Required file n33.tbr could not be created'
+        }
+    } else {
+        Write-Host 'Skipping n33.tbr generation (BAT mode does not require it).' -ForegroundColor Yellow
     }
-} else {
-    Write-Host 'Skipping n33.tbr generation (BAT mode does not require it).' -ForegroundColor Yellow
 }
 
 # TERRATOOLS_HOME override
@@ -410,21 +419,50 @@ if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path -LiteralPa
     $env:TERRASIM_HOME = $terratools_home_path
 }
 
+# ---------- Second stage: run TerraTools directly ----------
+if ($IsSecondStage) {
+    # Parse key=value settings created in stage 1
+    $kv = @{}
+    foreach ($line in Get-Content -LiteralPath $SettingsFile) {
+        if ($line -match '^\s*#' -or [string]::IsNullOrWhiteSpace($line)) { continue }
+        $k,$v = $line -split '=',2
+        if ($null -ne $k -and $null -ne $v) { $kv[$k.Trim()] = $v.Trim() }
+    }
+
+    $project_name = Sanitize-Name $kv['project_name']
+    $projectFolder = Join-Path $inputRoot $project_name
+    $generated_settings_file = Join-Path $projectFolder ("{0}.txt" -f $project_name)
+
+    if (-not (Test-Path -LiteralPath $generated_settings_file)) {
+        throw "Generated command file not found: $generated_settings_file"
+    }
+
+    Write-Host "Running TerraTools (second stage)..." -ForegroundColor Cyan
+    $proc = Start-Process -FilePath $terratools_ssh_path `
+                          -ArgumentList @('RealityMeshProcess.tcl','-command_file',$generated_settings_file) `
+                          -NoNewWindow -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { throw ("TerraTools returned {0}" -f $proc.ExitCode) }
+
+    # Optional DONE marker
+    $doneFile = Join-Path (Join-Path $outputRoot $project_name) 'DONE.txt'
+    New-Item -ItemType File -Path $doneFile -Force | Out-Null
+    Write-Output "Created $doneFile"
+    return
+}
+
 # ---------- Run the process ----------
 if (-not $UseTclDirect) {
     $batPath = Join-Path $RemoteBatchRoot $RemoteBatchFile
-    if (-not (Test-Path -LiteralPath $batPath)) { throw ('BAT not found: {0}' -f $batPath) }
+    $BatSettingsPath = Join-Path $RemoteBatchRoot ("{0}-settings.txt" -f $project_name)
+
     Write-Host 'Starting Reality Mesh BAT...' -ForegroundColor Cyan
     $startTime = Get-Date
     $p = Start-Process -FilePath $batPath `
-                   -ArgumentList @('"' + $BatSettingsPath + '"') `
-                   -WorkingDirectory $RemoteBatchRoot `
-                   -NoNewWindow -PassThru
-
-   $p.WaitForExit()
-   if ($p.ExitCode -ne 0) {
-       throw ("Reality Mesh BAT returned code {0}" -f $p.ExitCode)
-   }
+                       -ArgumentList @('"' + $BatSettingsPath + '"') `
+                       -WorkingDirectory $RemoteBatchRoot `
+                       -NoNewWindow -PassThru
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) { throw ("Reality Mesh BAT returned code {0}" -f $p.ExitCode) }
     $minutes = ((Get-Date) - $startTime).TotalSeconds / 60
     "Time to run BAT: $minutes minutes" | Out-File -LiteralPath (Join-Path $destinationPath 'TimingLog.txt') -Encoding Default -Append
 } else {
