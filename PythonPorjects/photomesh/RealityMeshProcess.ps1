@@ -120,7 +120,7 @@ $objFiles = @(Get-ChildItem -Path $source_Directory -Filter *.obj -Recurse -Erro
 $lasFiles = @(Get-ChildItem -Path $source_Directory -Filter *.las -Recurse -ErrorAction SilentlyContinue)
 $objCount = $objFiles.Count
 $lasCount = $lasFiles.Count
-Write-Output ('Data folder: {0} — Found {1} OBJ, {2} LAS' -f $source_Directory, $objCount, $lasCount)
+Write-Output ('Data folder: {0} - Found {1} OBJ, {2} LAS' -f $source_Directory, $objCount, $lasCount)
 if ($objCount -eq 0 -and $lasCount -eq 0) {
     throw ('No *.obj/*.las found under: {0}. Make sure your data folder points to the correct location.' -f $source_Directory)
 }
@@ -241,18 +241,27 @@ $genDir = Join-Path $genDir 'GeneratedFiles_DoNotEdit'
 Ensure-Directory $genDir
 New-Item -Path (Join-Path $genDir 'AutomationHelper.txt') -ItemType File -Value $project_name -Force | Out-Null
 
-# ---------- Cleanup DevSuite temp ----------
-$deletePath  = Join-Path ('{0}:\temp\RealityMesh' -f $override_Path_DevSuite) $project_name
-if (Test-Path -LiteralPath $deletePath) {
-    Write-Output ('Deleting {0}' -f $deletePath)
-    Remove-Item -LiteralPath $deletePath -Force -Recurse
+# --- DevSuite cleanup (always P:\) ---
+# We no longer try to infer a drive; DevSuite lives on P:\ in production.
+$devsuiteRoot = 'P:\'
+
+if ($override_Installation_DevSuite -eq 1) {
+    if (-not (Test-Path -LiteralPath $devsuiteRoot)) {
+        Write-Warning "DevSuite root P:\ not found; skipping DevSuite-specific cleanup."
+    } else {
+        $structuresPath = Join-Path $devsuiteRoot 'vbs2\customer\structures'
+        $structuresProj = Join-Path $structuresPath $project_name
+
+        if (Test-Path -LiteralPath $structuresProj) {
+            Write-Output "Deleting $structuresProj"
+            Remove-Item -LiteralPath $structuresProj -Recurse -Force
+        } else {
+            Write-Host "No existing structures dir for $project_name; skipping." -ForegroundColor Yellow
+        }
+    }
+} else {
+    Write-Host "DevSuite cleanup disabled (override_Installation_DevSuite != 1); skipping." -ForegroundColor Yellow
 }
-$deletePath2 = Join-Path ('{0}:\vbs2\customer\structures' -f $override_Path_DevSuite) $project_name
-if (Test-Path -LiteralPath $deletePath2) {
-    Write-Output ('Deleting {0}' -f $deletePath2)
-    Remove-Item -LiteralPath $deletePath2 -Force -Recurse
-}
-Write-Output 'Cleaned files before creating new ones'
 
 # ---------- Build generated settings & output destinations ----------
 $projectFolder = Join-Path $inputRoot $project_name
@@ -366,30 +375,33 @@ if (Test-Path -LiteralPath $ttp) {
 "set sourceDir `"$source_Directory`" " | Out-File -LiteralPath (Join-Path $destinationPath 'sourceDir.txt') -Encoding Default
 "set tileScheme `"$tile_scheme`" "   | Out-File -LiteralPath (Join-Path $destinationPath 'tileScheme.txt') -Encoding Default
 
-# Ensure n33.tbr exists before running the main TCL script
-$n33File = Join-Path $destinationPath 'n33.tbr'
-if (-not (Test-Path -LiteralPath $n33File)) {
-Write-Host 'n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl...' -ForegroundColor Yellow
+# --- n33.tbr generation is ONLY needed for the legacy TCL path ---
+if ($UseTclDirect) {
+    $n33File = Join-Path $destinationPath 'n33.tbr'
+    if (-not (Test-Path -LiteralPath $n33File)) {
+        Write-Host 'n33.tbr not found. Generating with TSG_TBR_to_Vertex_Points_Unique.tcl...' -ForegroundColor Yellow
 
-    $ttScript  = Join-Path $destinationPath 'TSG_TBR_to_Vertex_Points_Unique.tcl'
-    $inputTbr  = Join-Path $destinationPath 'n32.tbr'
-    $ttShell   = $terratools_ssh_path
+        $ttScript = Join-Path $destinationPath 'TSG_TBR_to_Vertex_Points_Unique.tcl'
+        $inputTbr = Join-Path $destinationPath 'n32.tbr'
 
-    if (Test-Path -LiteralPath $inputTbr) {
-        $ttArgs = @($ttScript, $inputTbr, $n33File)
-        $proc   = Start-Process -FilePath $ttShell -ArgumentList $ttArgs -NoNewWindow -Wait -PassThru
-
-        if ($proc.ExitCode -ne 0) {
-            Write-Host 'Failed to generate n33.tbr via TerraTools' -ForegroundColor Red
+        if (Test-Path -LiteralPath $inputTbr) {
+            $proc = Start-Process -FilePath $terratools_ssh_path `
+                                  -ArgumentList @($ttScript, $inputTbr, $n33File) `
+                                  -NoNewWindow -Wait -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Warning "TerraTools returned $($proc.ExitCode) while generating n33.tbr"
+            }
+        } else {
+            Write-Warning "Skipping n33.tbr generation: required input not found: $inputTbr"
         }
-    } else {
-        Write-Host ('Required input TBR not found: {0}' -f $inputTbr) -ForegroundColor Red
     }
-}
 
-if (-not (Test-Path -LiteralPath $n33File)) {
-    Write-Host 'ERROR: Required file n33.tbr could not be created.' -ForegroundColor Red
-    throw 'Required file n33.tbr could not be created'
+    if (-not (Test-Path -LiteralPath $n33File)) {
+        Write-Host 'ERROR: Required file n33.tbr could not be created for TCL path.' -ForegroundColor Red
+        throw 'Required file n33.tbr could not be created'
+    }
+} else {
+    Write-Host 'Skipping n33.tbr generation (BAT mode does not require it).' -ForegroundColor Yellow
 }
 
 # TERRATOOLS_HOME override
@@ -404,16 +416,20 @@ if (-not $UseTclDirect) {
     if (-not (Test-Path -LiteralPath $batPath)) { throw ('BAT not found: {0}' -f $batPath) }
     Write-Host 'Starting Reality Mesh BAT...' -ForegroundColor Cyan
     $startTime = Get-Date
-    $p = Start-Process -FilePath $batPath -NoNewWindow -PassThru
-    $p.WaitForExit()
-    if ($LASTEXITCODE -ne 0 -and $p.ExitCode -ne 0) {
-        throw ('Reality Mesh BAT returned code {0}' -f $p.ExitCode)
-    }
+    $p = Start-Process -FilePath $batPath `
+                   -ArgumentList @('"' + $BatSettingsPath + '"') `
+                   -WorkingDirectory $RemoteBatchRoot `
+                   -NoNewWindow -PassThru
+
+   $p.WaitForExit()
+   if ($p.ExitCode -ne 0) {
+       throw ("Reality Mesh BAT returned code {0}" -f $p.ExitCode)
+   }
     $minutes = ((Get-Date) - $startTime).TotalSeconds / 60
     "Time to run BAT: $minutes minutes" | Out-File -LiteralPath (Join-Path $destinationPath 'TimingLog.txt') -Encoding Default -Append
 } else {
     Write-Host ('Launching RealityMeshProcess.tcl with settings from {0}' -f $command_path) -ForegroundColor Cyan
-    Write-Host '🚧 Processing Reality Mesh... Please wait. Do not close this window.' -ForegroundColor Yellow
+    Write-Host 'Processing Reality Mesh... Please wait. Do not close this window.' -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 
     $startTime = Get-Date
