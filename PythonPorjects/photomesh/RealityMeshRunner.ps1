@@ -2,9 +2,14 @@
 # Reality Mesh Runner (UNC + local BAT/PS1)
 # =========================
 
-# args
-$project_settings_File = $args[0]
-$fully_automate = $args[1]
+
+[CmdletBinding()]
+param(
+  [Parameter(Position=0,Mandatory=$true)][string]$project_settings_File,
+  [string]$fully_automate,
+  [switch]$PackageOnly
+)
+$EffectivePackageOnly = $PackageOnly -or ($env:RM_PACKAGE_ONLY -eq '1')
 
 # ---- helpers ----
 function Normalize-UNCPath {
@@ -80,7 +85,7 @@ $srfResolution         = (Get-Content -LiteralPath $project_settings_File | ? { 
 if (-not (Test-Path -LiteralPath $source_Directory)) { throw "source_Directory not found: $source_Directory" }
 $hasObj = Get-ChildItem -Path $source_Directory -Recurse -Filter *.obj -ErrorAction SilentlyContinue | Select-Object -First 1
 $hasLas = Get-ChildItem -Path $source_Directory -Recurse -Filter *.las -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $hasObj -and -not $hasLas) { throw "source_Directory must contain at least one .obj or .las file" }
+if (-not $hasObj -and -not $hasLas) { throw "No *.obj/*.las found under: $source_Directory. Make sure your data folder points to the correct location." }
 
 # Optional: derive better name from Output-CenterPivotOrigin.json
 $ocpo = Get-ChildItem -Path $source_Directory -Filter 'Output-CenterPivotOrigin.json' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -186,19 +191,35 @@ if (Test-Path -LiteralPath $ttp) { Rename-Item -LiteralPath $ttp -NewName ("{0}.
 "set tileScheme `"$tile_scheme`" "   | Out-File -LiteralPath (Join-Path $projectFolder 'tileScheme.txt') -Encoding Default
 
 # make sure n33.tbr exists (if TCL ever runs)
-$n33File = Join-Path $projectFolder 'n33.tbr'
-if (-not (Test-Path -LiteralPath $n33File)) {
-  if (Test-Path (Join-Path $projectFolder 'TSG_TBR_to_Vertex_Points_Unique.tcl')) {
-    & tclsh (Join-Path $projectFolder 'TSG_TBR_to_Vertex_Points_Unique.tcl')
+if ($UseTclDirect -and -not $EffectivePackageOnly) {
+  $n33File = Join-Path $projectFolder 'n33.tbr'
+  if (-not (Test-Path -LiteralPath $n33File)) {
+    if (Test-Path (Join-Path $projectFolder 'TSG_TBR_to_Vertex_Points_Unique.tcl')) {
+      & tclsh (Join-Path $projectFolder 'TSG_TBR_to_Vertex_Points_Unique.tcl')
+    }
   }
+} elseif ($EffectivePackageOnly) {
+  Write-Host "Skipping any Tcl/TerraTools steps on unlicensed machine." -ForegroundColor Yellow
 }
 
 # ---- run ----
+if ($EffectivePackageOnly) {
+  # always write a READY.txt in the project folder
+  $ready = Join-Path $projectFolder 'READY.txt'
+  New-Item -ItemType File -Path $ready -Force | Out-Null
+  Write-Host "Packaged inputs at: $projectFolder"
+  Write-Host "Settings for build: $kvSettingsLocal"
+  Write-Host "Output target:      $out_in_name_with_drive"
+  Write-Host "Package-only mode: READY.txt created. No BAT/PS1/TerraTools launched on this machine."
+  exit 0
+}
+
 if (-not $UseTclDirect) {
   $batPath = Join-Path $RemoteBatchRoot $RemoteBatchFile
   if (-not (Test-Path -LiteralPath $batPath)) { throw "BAT not found: $batPath" }
-
   Write-Host "Starting Reality Mesh BAT..." -ForegroundColor Cyan
+  Write-Host ("Using settings: {0}" -f $BatSettingsPath)
+
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   $p = Start-Process -FilePath $batPath `
                      -ArgumentList ('"'+$BatSettingsPath+'"') `
@@ -208,8 +229,13 @@ if (-not $UseTclDirect) {
   $sw.Stop()
 
   if ($p.ExitCode -ne 0) { throw "Reality Mesh BAT returned exit code $($p.ExitCode)" }
+
   "Time to run BAT: {0:n1} minutes" -f ($sw.Elapsed.TotalMinutes) |
     Out-File -LiteralPath (Join-Path $projectFolder 'TimingLog.txt') -Encoding Default -Append
+
+  $doneFile = Join-Path $out_in_name_with_drive 'DONE.txt'
+  New-Item -ItemType File -Path $doneFile -Force | Out-Null
+  Write-Host ("Created {0}" -f $doneFile)
 } else {
   # old TCL path if ever needed
   $terratools_ssh_path = $terratools_ssh_path  # already read above
@@ -219,9 +245,8 @@ if (-not $UseTclDirect) {
   $proc.WaitForExit()
   $minutes = ((Get-Date) - $startTime).TotalSeconds / 60
   "Time to run TT project: $minutes minutes" | Out-File -LiteralPath (Join-Path $projectFolder 'TimingLog.txt') -Encoding Default -Append
-}
 
-# ---- done marker for monitors ----
-$doneFile = Join-Path $out_in_name_with_drive 'DONE.txt'
-New-Item -ItemType File -Path $doneFile -Force | Out-Null
-Write-Host "Created $doneFile"
+  $doneFile = Join-Path $out_in_name_with_drive 'DONE.txt'
+  New-Item -ItemType File -Path $doneFile -Force | Out-Null
+  Write-Host ("Created {0}" -f $doneFile)
+}
