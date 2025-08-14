@@ -52,7 +52,7 @@ if (-not (Test-Path -LiteralPath $system_settings))        { throw "System setti
 
 # ---- RealityMesh_tt template path ----
 $RealityMeshTTPath = Join-Path $PSScriptRoot 'RealityMesh_tt'
-$defaultRealityMeshTTPath = 'C:\Program Files (x86)\STE Toolkit\RealityMesh_tt'
+$defaultRealityMeshTTPath = 'C:\Program Files (x86)\STE Toolkit\_internal\photomesh\RealityMesh_tt'
 if (-not (Test-Path -LiteralPath $RealityMeshTTPath)) {
   if (Test-Path -LiteralPath $defaultRealityMeshTTPath) { $RealityMeshTTPath = $defaultRealityMeshTTPath }
   else { throw "RealityMesh_tt folder not found at '$RealityMeshTTPath' or '$defaultRealityMeshTTPath'" }
