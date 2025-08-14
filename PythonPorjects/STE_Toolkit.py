@@ -623,10 +623,19 @@ def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
         settings_path,
     ]
     log_func('Running: ' + ' '.join(cmd))
-    with subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True) as proc:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    ) as proc:
         for line in proc.stdout:
-            line = line.rstrip()
+            line = line.rstrip("\r\n")
             log_func(line)
             percent = extract_progress(line)
             if percent is not None:
@@ -3032,13 +3041,23 @@ class VBS4Panel(tk.Frame):
                         'powershell',
                         '-ExecutionPolicy', 'Bypass',
                         '-File', ps_script,
-                        settings_path 
+                        settings_path
                     ]
                     self.log_message('Running: ' + ' '.join(cmd))
                     self.set_progress(0)
-                    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+                    env = os.environ.copy()
+                    env["PYTHONIOENCODING"] = "utf-8"
+                    with subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        env=env,
+                    ) as proc:
                         for line in proc.stdout:
-                            line = line.rstrip()
+                            line = line.rstrip("\r\n")
                             self.log_message(line)
                             percent = extract_progress(line)
                             if percent is not None:
@@ -3116,9 +3135,19 @@ class VBS4Panel(tk.Frame):
             ]
             self.log_message('Running: ' + ' '.join(cmd))
             self.set_progress(0)
-            with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            with subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            ) as proc:
                 for line in proc.stdout:
-                    line = line.rstrip()
+                    line = line.rstrip("\r\n")
                     self.log_message(line)
                     percent = extract_progress(line)
                     if percent is not None:

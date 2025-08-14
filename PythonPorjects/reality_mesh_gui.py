@@ -238,9 +238,19 @@ def run_processor(ps_script: str, settings_path: str, log_fn, progress_cb):
         '1'
     ]
     log_fn('Running: ' + ' '.join(cmd))
-    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    ) as proc:
         for line in proc.stdout:
-            line = line.rstrip()
+            line = line.rstrip("\r\n")
             log_fn(line)
             percent = extract_progress(line)
             if percent is not None:
@@ -262,9 +272,19 @@ def run_remote_processor(ps_script: str, target_ip: str, settings_path: str, log
         settings_path,
     ]
     log_fn('Running: ' + ' '.join(cmd))
-    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    ) as proc:
         for line in proc.stdout:
-            line = line.rstrip()
+            line = line.rstrip("\r\n")
             log_fn(line)
             percent = extract_progress(line)
             if percent is not None:
