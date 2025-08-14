@@ -41,8 +41,8 @@ function Normalize-UNCPath {
 
 function Sanitize-Name {
     param([Parameter(Mandatory)][string]$Name)
-    # Remove invalid filename chars: \ / : * ? " < > | and trailing dots/spaces
-    $n = $Name -replace '[\/:*?"<>|]', '_'
+    # Remove invalid filename chars: \ / : * ? " < > | ( ) and trailing dots/spaces
+    $n = $Name -replace '[\/:*?"<>|()]', '_'
     $n = $n.Trim().TrimEnd('.')
     if ([string]::IsNullOrWhiteSpace($n)) { $n = 'Project' }
     return $n
@@ -408,6 +408,10 @@ if (-not $IsSecondStage) {
     $destinationPath = $projectFolder
     if (Test-Path -LiteralPath $templatePath) {
         & robocopy $templatePath $destinationPath *.* /E /DCOPY:DA /COPY:DAT /R:3 /W:5 | Out-Host
+        $expectedTcl = Join-Path $destinationPath 'RealityMeshProcess.tcl'
+        if (-not (Test-Path -LiteralPath $expectedTcl)) {
+            throw ("Expected file not copied: {0}" -f $expectedTcl)
+        }
     } else {
         throw ('Template folder not found at {0}' -f $templatePath)
     }
@@ -459,7 +463,8 @@ if (-not $IsSecondStage) {
 # TERRATOOLS_HOME override
 if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path -LiteralPath $terratools_home_path)) {
     Write-Output ('Using custom TERRATOOLS_HOME path at {0}' -f $terratools_home_path)
-    $env:TERRASIM_HOME = $terratools_home_path
+    $env:TERRASIM_HOME   = $terratools_home_path
+    $env:TERRATOOLS_HOME = $terratools_home_path
 }
 
 # ---------- Second stage: run TerraTools directly ----------
@@ -498,7 +503,7 @@ if (-not $UseTclDirect) {
     Write-Host 'Starting Reality Mesh BAT...' -ForegroundColor Cyan
     $startTime = Get-Date
     $p = Start-Process -FilePath $batPath `
-                       -ArgumentList @('"' + $BatSettingsPath + '"') `
+                       -ArgumentList @($BatSettingsPath) `
                        -WorkingDirectory $RemoteBatchRoot `
                        -NoNewWindow -PassThru
     $p.WaitForExit()
