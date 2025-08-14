@@ -3015,7 +3015,7 @@ class VBS4Panel(tk.Frame):
             set_oneclick_output_path(proj_folder)
             self.controller.panels['Settings'].update_oneclick_path_label()
 
-            ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshProcess.ps1')
+            ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshRunner.ps1')
             invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
 
             try:
@@ -3097,7 +3097,7 @@ class VBS4Panel(tk.Frame):
         set_oneclick_output_path(proj_folder)
         self.controller.panels['Settings'].update_oneclick_path_label()
 
-        ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshProcess.ps1')
+        ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshRunner.ps1')
         invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
 
         if remote_host:
@@ -3136,33 +3136,6 @@ class VBS4Panel(tk.Frame):
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
-
-    def open_reality_mesh_gui(self):
-        """Launch the Reality Mesh GUI script from the current directory."""
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        py_path = os.path.join(base_dir,'RealityMeshStandalone.py')
-
-        if os.path.exists(py_path):
-            self.log_message(f"Launching RealityMeshStandalone: {py_path}")
-            logging.info("Launching RealityMeshStandalone: %s", py_path)
-            try:
-                subprocess.Popen(
-                    [sys.executable, py_path],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
-                )
-                return
-            except Exception as e:  # pragma: no cover - GUI path
-                self.log_message(f"Failed to launch RealityMeshStandalone: {e}")
-                logging.exception("Failed to launch RealityMeshStandalone")
-                messagebox.showerror("Error", str(e), parent=self)
-                return
-
-        self.log_message(f"RealityMeshStandalone not found at: {py_path}")
-        logging.error("RealityMeshStandalone not found at %s", py_path)
-        messagebox.showerror(
-            "Error",
-            f"Could not find RealityMeshStandalone at:\n{py_path}"
-        )
 
     def log_message(self, message):
          self.log_text.config(state="normal")
