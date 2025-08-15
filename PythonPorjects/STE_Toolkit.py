@@ -354,6 +354,19 @@ def find_executable(name, additional_paths=[]):
 # Reality Mesh post-processing helpers
 # ---------------------------------------------------------------------------
 
+def find_reality_mesh_to_vbs4_link() -> str:
+    """Return the path to the Reality Mesh to VBS4 shortcut if found."""
+    default = (r"C:\\Bohemia Interactive Simulations\\Reality Mesh to VBS4 25.1\\"
+               r"Reality Mesh to VBS4.lnk")
+    if os.path.isfile(default):
+        return default
+    search_root = r"C:\\Bohemia Interactive Simulations"
+    for dirpath, _dirnames, filenames in os.walk(search_root):
+        for name in filenames:
+            if name.lower() == "reality mesh to vbs4.lnk":
+                return os.path.join(dirpath, name)
+    return ""
+
 def load_system_settings(path: str) -> dict:
     settings = {}
     if os.path.isfile(path):
@@ -2499,9 +2512,9 @@ class VBS4Panel(tk.Frame):
                 "Run the full terrain workflow",
             ),
             (
-                "Post-Process Last Build",
+                "Launch Reality Mesh to VBS4",
                 self.post_process_last_build,
-                "Run Reality Mesh processing on the last build",
+                "Run Reality Mesh to VBS4 on the last build",
             ),
             (
                 "One-Click Terrain Tutorial",
@@ -2945,23 +2958,22 @@ class VBS4Panel(tk.Frame):
                 return
 
             try:
-                self.log_message("Starting post-processing...")
-                self._process_last_build(self.last_build_dir)
+                self.log_message("Launching Reality Mesh to VBS4...")
+                self._launch_reality_mesh_app(self.last_build_dir)
             except Exception as exc:
-                self.log_message(f"Post-processing failed: {exc}")
+                self.log_message(f"Launch failed: {exc}")
                 self.after(0, lambda: messagebox.showerror(
-                    "Post-Process Error", str(exc), parent=self))
+                    "Launch Error", str(exc), parent=self))
                 return
 
-            self.log_message("One-Click Terrain Conversion completed.")
+            self.log_message("Reality Mesh to VBS4 launched.")
             self.after(0, lambda: messagebox.showinfo(
-                "Done", "One-Click Terrain Conversion finished.", parent=self))
+                "Done", "Reality Mesh to VBS4 launched.", parent=self))
 
         run_in_thread(_pipeline)
 
-    def post_process_last_build(self):
-        # Hide the terrain options if they are currently visible so the
-        # progress bar remains unobstructed during processing.
+    def post_process_last_build(self, build_root: str | None = None) -> None:
+        """Launch the external Reality Mesh to VBS4 application."""
         if self.terrain_button.cget("text") == "Hide Terrain Options":
             self.toggle_terrain_buttons()
 
@@ -2973,6 +2985,8 @@ class VBS4Panel(tk.Frame):
         except Exception:
             pass
 
+        if build_root:
+            self.last_build_dir = build_root
         if not self.last_build_dir:
             path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self,
                                            initialdir=dataset_root or None)
@@ -2980,186 +2994,25 @@ class VBS4Panel(tk.Frame):
                 return
             self.last_build_dir = path
 
-        remote_host = simpledialog.askstring(
-            "Remote Host",
-            "Enter IP or hostname for remote processing (leave blank to run locally):",
-            parent=self,
-        )
+        try:
+            self._launch_reality_mesh_app(self.last_build_dir)
+        except Exception as exc:
+            self.log_message(f"Launch failed: {exc}")
+            messagebox.showerror("Error", str(exc), parent=self)
+            return
 
-        def _run():
-            build_root = self.last_build_dir
-            self.log_message(f"Searching for Output-CenterPivotOrigin.json under {build_root}")
-            json_path = wait_for_output_json(build_root)
-            build_dir = os.path.dirname(json_path)
-            self.log_message(f"Found JSON: {json_path}")
+        messagebox.showinfo("Done", "Reality Mesh to VBS4 launched.", parent=self)
 
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Extract the project name from the build_root path
-            project_name = os.path.basename(build_root)
-            self.log_message(f"Using project name: {project_name}")
-
-            sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
-            settings = load_system_settings(sys_settings_path)
-            update_vbs4_settings(sys_settings_path)
-            dataset_root = settings.get('dataset_root')
-            proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
-            self.log_message(f"Created project folder {proj_folder}")
-
-            copy_tiles(
-                build_dir,
-                data_folder,
-                lambda p: self.after(0, self.set_progress, p),
-            )
-            self.log_message("Copied raw tiles")
-            self.after(0, self.set_progress, 0)
-
-            settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
-            write_project_settings(settings_path, data, data_folder)
-            self.log_message(f"Wrote settings {settings_path}")
-            settings_path = clean_project_settings(settings_path)
-            self.log_message("Cleaned offset values")
-
-            set_oneclick_output_path(proj_folder)
-            self.controller.panels['Settings'].update_oneclick_path_label()
-
-            ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshRunner.ps1')
-            invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
-
-            try:
-                if remote_host:
-                    run_remote_processor(
-                        invoke_script,
-                        remote_host,
-                        settings_path,
-                        self.log_message,
-                        lambda p: self.after(0, self.set_progress, p),
-                    )
-                else:
-                    cmd = [
-                        'powershell',
-                        '-ExecutionPolicy', 'Bypass',
-                        '-File', ps_script,
-                        settings_path
-                    ]
-                    self.log_message('Running: ' + ' '.join(cmd))
-                    self.set_progress(0)
-                    env = os.environ.copy()
-                    env["PYTHONIOENCODING"] = "utf-8"
-                    with subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        env=env,
-                    ) as proc:
-                        for line in proc.stdout:
-                            line = line.rstrip("\r\n")
-                            self.log_message(line)
-                            percent = extract_progress(line)
-                            if percent is not None:
-                                self.set_progress(percent)
-                        proc.wait()
-                        if proc.returncode != 0:
-                            raise subprocess.CalledProcessError(proc.returncode, cmd)
-                self.log_message("Processing complete")
-                distribute_terrain(project_name, self.log_message)
-            except Exception as e:
-                self.log_message(f"Processing failed: {e}")
-                messagebox.showerror("Error", str(e), parent=self)
-                return
-
-            kill_fusers()
-            self.log_message("PhotoMesh fusers closed")
-            messagebox.showinfo("Done", "Processing finished successfully", parent=self)
-
-        run_in_thread(_run)
-
-    def _process_last_build(self, build_root: str, remote_host: str | None = None) -> None:
-        """Internal helper to post-process *build_root* without user prompts."""
-        self.log_message(f"Searching for Output-CenterPivotOrigin.json under {build_root}")
-        json_path = wait_for_output_json(build_root)
-        build_dir = os.path.dirname(json_path)
-        self.log_message(f"Found JSON: {json_path}")
-
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        project_name = os.path.basename(build_root)
-        self.log_message(f"Using project name: {project_name}")
-
+    def _launch_reality_mesh_app(self, build_root: str) -> None:
+        """Start the Reality Mesh to VBS4 application."""
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         settings = load_system_settings(sys_settings_path)
-        update_vbs4_settings(sys_settings_path)
-        dataset_root = settings.get('dataset_root')
-        proj_folder, data_folder = create_project_folder(build_dir, project_name, dataset_root)
-        self.log_message(f"Created project folder {proj_folder}")
-
-        copy_tiles(
-            build_dir,
-            data_folder,
-            lambda p: self.after(0, self.set_progress, p),
-        )
-        self.log_message("Copied raw tiles")
-        self.after(0, self.set_progress, 0)
-
-        settings_path = os.path.join(proj_folder, f'{project_name}-settings.txt')
-        write_project_settings(settings_path, data, data_folder)
-        self.log_message(f"Wrote settings {settings_path}")
-        settings_path = clean_project_settings(settings_path)
-        self.log_message("Cleaned offset values")
-
-        set_oneclick_output_path(proj_folder)
-        self.controller.panels['Settings'].update_oneclick_path_label()
-
-        ps_script = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshRunner.ps1')
-        invoke_script = os.path.join(BASE_DIR, 'photomesh', 'Invoke-RemoteRealityMesh.ps1')
-
-        if remote_host:
-            run_remote_processor(
-                invoke_script,
-                remote_host,
-                settings_path,
-                self.log_message,
-                lambda p: self.after(0, self.set_progress, p),
-            )
-        else:
-            cmd = [
-                'powershell',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', ps_script,
-                settings_path
-            ]
-            self.log_message('Running: ' + ' '.join(cmd))
-            self.set_progress(0)
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-            with subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-            ) as proc:
-                for line in proc.stdout:
-                    line = line.rstrip("\r\n")
-                    self.log_message(line)
-                    percent = extract_progress(line)
-                    if percent is not None:
-                        self.set_progress(percent)
-                proc.wait()
-                if proc.returncode != 0:
-                    raise subprocess.CalledProcessError(proc.returncode, cmd)
-
-        self.log_message("Processing complete")
-        distribute_terrain(project_name, self.log_message)
-        kill_fusers()
-        self.log_message("PhotoMesh fusers closed")
+        link = settings.get('reality_mesh_to_vbs4_path') or find_reality_mesh_to_vbs4_link()
+        link = os.path.normpath(link)
+        if not link or not os.path.isfile(link):
+            raise FileNotFoundError("Reality Mesh to VBS4 application not found")
+        self.log_message(f"Launching: {link}")
+        os.startfile(link)
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
