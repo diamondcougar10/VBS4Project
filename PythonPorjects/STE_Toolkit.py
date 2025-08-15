@@ -2989,26 +2989,38 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", str(exc), parent=self)
             return
 
-    def _launch_reality_mesh_app(self, build_root: str | None = None) -> None:
-        """Start the Reality Mesh to VBS4 application."""
+    def _launch_reality_mesh_app(self, build_root: str | None = None, auto_inspect: bool = True) -> None:
+        """
+        Start the Reality Mesh to VBS4 application.
+        - Passes the build folder so the Source Directory is pre-filled.
+        - Optionally auto-clicks 'Inspect Mesh' (then 'Generate on Success' continues the pipeline).
+        """
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         settings = load_system_settings(sys_settings_path)
         link = settings.get('reality_mesh_to_vbs4_path') or find_reality_mesh_to_vbs4_link()
         link = os.path.normpath(link)
+
         if not link or not os.path.isfile(link):
             raise FileNotFoundError("Reality Mesh to VBS4 application not found")
-        args = f'"{build_root}"' if build_root else ""
-        self.log_message(f"Launching: {link} {args}".strip())
+
+        # Build command (pass the folder to pre-fill the Source Directory)
+        cmd = [link]
+        if build_root:
+            cmd.append(build_root)
+
+        # Launch without any "started" popup
+        self.log_message(f"Launching: {link}" + (f' "{build_root}"' if build_root else ""))
         try:
-            if args:
-                os.startfile(link, arguments=args)
-            else:
-                os.startfile(link)
-        except OSError:
-            cmd = [link]
-            if build_root:
-                cmd.append(build_root)
-            subprocess.Popen(cmd)
+            # Prefer subprocess for argument passing; os.startfile(args=...) is Python 3.10+ and not always reliable.
+            subprocess.Popen(cmd, close_fds=True)
+        except Exception:
+            # Last-resort fallback
+            os.startfile(link)
+
+        # Optional: drive the first click so it’s truly hands-free.
+        if auto_inspect:
+            self.after(1500, lambda: self._try_auto_inspect(build_root))
+
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
