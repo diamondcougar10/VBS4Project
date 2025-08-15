@@ -3025,11 +3025,6 @@ class VBS4Panel(tk.Frame):
             # Last-resort fallback
             os.startfile(link)
 
-        # Optional: drive the first click so it’s truly hands-free.
-        if auto_inspect:
-            self.after(1500, lambda: self._try_auto_inspect(build_root))
-
-
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
 
