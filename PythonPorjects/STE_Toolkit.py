@@ -3019,8 +3019,13 @@ class VBS4Panel(tk.Frame):
         # Launch without any "started" popup
         self.log_message(f"Launching: {link}" + (f' "{build_root}"' if build_root else ""))
         try:
-            # Prefer subprocess for argument passing; os.startfile(args=...) is Python 3.10+ and not always reliable.
-            subprocess.Popen(cmd, close_fds=True)
+            # If a Windows shortcut (.lnk) is used, pass the build directory via os.startfile
+            # so it isn't opened separately in Explorer.
+            if build_root and link.lower().endswith(".lnk"):
+                os.startfile(link, arguments=f'"{build_root}"')
+            else:
+                # Prefer subprocess for argument passing to executables.
+                subprocess.Popen(cmd, close_fds=True)
         except Exception:
             # Last-resort fallback
             os.startfile(link)
