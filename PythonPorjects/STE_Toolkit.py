@@ -2979,8 +2979,16 @@ class VBS4Panel(tk.Frame):
         if build_root:
             self.last_build_dir = build_root
         if not self.last_build_dir:
-            self.log_message("No build directory available to launch Reality Mesh.")
-            return
+            shared_drive = r"\\HAMMERKIT1-4\SharedMeshDrive"
+            self.log_message(
+                "No build directory available to launch Reality Mesh. "
+                "Opening shared drive instead."
+            )
+            try:
+                os.startfile(shared_drive)
+            except Exception as exc:
+                self.log_message(f"Failed to open shared drive: {exc}")
+            self.last_build_dir = shared_drive
 
         try:
             self._launch_reality_mesh_app(self.last_build_dir)
