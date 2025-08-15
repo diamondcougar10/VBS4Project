@@ -23,7 +23,8 @@ function Normalize-UNCPath {
 }
 function Sanitize-Name {
   param([Parameter(Mandatory)][string]$Name)
-  $n = $Name -replace '[\/:*?"<>|]', '_' ; $n = $n.Trim().TrimEnd('.')
+  $n = $Name -replace '[\/:*?"<>|()]', '_'
+  $n = $n.Trim().TrimEnd('.')
   if ([string]::IsNullOrWhiteSpace($n)) { $n = 'Project' }
   return $n
 }
