@@ -62,6 +62,14 @@ output folder.
 Adjust these paths if your installers reside elsewhere or you need to reference
 additional tools like ModelExchanger.
 
+## Known Limitations
+
+The following constraints apply to the Reality Mesh to VBS4 25.1 workflow:
+
+- The source data must reside on the same drive as the tool install location or textures may be missing in the VBS4 output.
+- Datasets containing underground geometry artifacts or other underground noise are not supported.
+- Processing time depends on data resolution, point density and the capabilities of the host system.
+
 ### Remote Processing
 
 Enter the destination workstation's IP address in the **Remote Host** field of
