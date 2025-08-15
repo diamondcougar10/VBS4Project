@@ -2967,8 +2967,6 @@ class VBS4Panel(tk.Frame):
                 return
 
             self.log_message("Reality Mesh to VBS4 launched.")
-            self.after(0, lambda: messagebox.showinfo(
-                "Done", "Reality Mesh to VBS4 launched.", parent=self))
 
         run_in_thread(_pipeline)
 
@@ -2978,21 +2976,11 @@ class VBS4Panel(tk.Frame):
             self.toggle_terrain_buttons()
 
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
-        dataset_root = ''
-        try:
-            settings = load_system_settings(sys_settings_path)
-            dataset_root = settings.get('dataset_root', '')
-        except Exception:
-            pass
-
         if build_root:
             self.last_build_dir = build_root
         if not self.last_build_dir:
-            path = filedialog.askdirectory(title="Select PhotoMesh Project Folder", parent=self,
-                                           initialdir=dataset_root or None)
-            if not path:
-                return
-            self.last_build_dir = path
+            self.log_message("No build directory available to launch Reality Mesh.")
+            return
 
         try:
             self._launch_reality_mesh_app(self.last_build_dir)
@@ -3001,9 +2989,7 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", str(exc), parent=self)
             return
 
-        messagebox.showinfo("Done", "Reality Mesh to VBS4 launched.", parent=self)
-
-    def _launch_reality_mesh_app(self, build_root: str) -> None:
+    def _launch_reality_mesh_app(self, build_root: str | None = None) -> None:
         """Start the Reality Mesh to VBS4 application."""
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         settings = load_system_settings(sys_settings_path)
@@ -3011,8 +2997,18 @@ class VBS4Panel(tk.Frame):
         link = os.path.normpath(link)
         if not link or not os.path.isfile(link):
             raise FileNotFoundError("Reality Mesh to VBS4 application not found")
-        self.log_message(f"Launching: {link}")
-        os.startfile(link)
+        args = f'"{build_root}"' if build_root else ""
+        self.log_message(f"Launching: {link} {args}".strip())
+        try:
+            if args:
+                os.startfile(link, arguments=args)
+            else:
+                os.startfile(link)
+        except OSError:
+            cmd = [link]
+            if build_root:
+                cmd.append(build_root)
+            subprocess.Popen(cmd)
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
