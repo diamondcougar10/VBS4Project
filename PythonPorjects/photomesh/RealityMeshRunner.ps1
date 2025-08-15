@@ -23,8 +23,10 @@ function Normalize-UNCPath {
 }
 function Sanitize-Name {
   param([Parameter(Mandatory)][string]$Name)
-  $n = $Name -replace '[\/:*?"<>|()]', '_'
-  $n = $n.Trim().TrimEnd('.')
+  $n = $Name -replace '[\/:*?"<>|()]','_'   # replace invalid + parentheses
+  $n = $n -replace '_{2,}','_'              # collapse multiple underscores
+  $n = $n.Trim(' ._')                       # trim spaces, dots, underscores
+  if ($n -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') { $n = "_$n" } # reserved names
   if ([string]::IsNullOrWhiteSpace($n)) { $n = 'Project' }
   return $n
 }
