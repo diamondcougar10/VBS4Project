@@ -63,6 +63,44 @@ function SafeJoin {
     return (Join-Path -Path $Base -ChildPath $Child)
 }
 
+function Resolve-TerraToolsPaths {
+    param(
+        [string]$SshPath,
+        [string]$HomeHint
+    )
+    # Build ordered candidate TerraTools roots
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($HomeHint) { $candidates.Add($HomeHint) }
+
+    if ($SshPath -and (Test-Path -LiteralPath $SshPath)) {
+        # ...\TerraTools\bin\terratoolssh.exe -> ...\TerraTools
+        $exeRoot = Split-Path -Parent (Split-Path -Parent $SshPath)
+        if ($exeRoot) { $candidates.Add($exeRoot) }
+    }
+
+    $candidates.Add('C:\Program Files\Bohemia Interactive Simulations\TerraTools')
+    $candidates.Add('C:\Program Files (x86)\Bohemia Interactive Simulations\TerraTools')
+
+    # Dedup, keep order
+    $seen=@{}; $ordered=@()
+    foreach ($c in $candidates) { if ($c -and -not $seen.ContainsKey($c)) { $ordered += $c; $seen[$c]=$true } }
+
+    foreach ($root in $ordered | Where-Object { Test-Path -LiteralPath $_ }) {
+        $tcl1 = Join-Path $root 'tcl\tsdcore.tcl'
+        $tcl2 = Join-Path $root 'lib\terratools\tcl\tsdcore.tcl'
+        if (Test-Path -LiteralPath $tcl1) { return [pscustomobject]@{ Root=$root; TclFile=$tcl1; TclDir=(Split-Path -Parent $tcl1) } }
+        if (Test-Path -LiteralPath $tcl2) { return [pscustomobject]@{ Root=$root; TclFile=$tcl2; TclDir=(Split-Path -Parent $tcl2) } }
+    }
+
+    # Last-ditch recursive search under first existing candidate
+    $firstExisting = $ordered | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($firstExisting) {
+        $hit = Get-ChildItem -LiteralPath $firstExisting -Recurse -Filter 'tsdcore.tcl' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($hit) { return [pscustomobject]@{ Root=$firstExisting; TclFile=$hit.FullName; TclDir=(Split-Path -Parent $hit.FullName) } }
+    }
+    return $null
+}
+
 # ---------- BAT integration ----------
 # Use the script's directory as the root that contains the BAT file.
 $RemoteBatchRoot = $PSScriptRoot
@@ -460,12 +498,45 @@ if (-not $IsSecondStage) {
     }
 }
 
-# TERRATOOLS_HOME override
-if (!([string]::IsNullOrEmpty($terratools_home_path)) -and (Test-Path -LiteralPath $terratools_home_path)) {
-    Write-Output ('Using custom TERRATOOLS_HOME path at {0}' -f $terratools_home_path)
-    $env:TERRASIM_HOME   = $terratools_home_path
-    $env:TERRATOOLS_HOME = $terratools_home_path
+# ---------- TerraTools environment resolution (handles both tcl\ and lib\terratools\tcl\ layouts) ----------
+$tt = Resolve-TerraToolsPaths -SshPath $terratools_ssh_path -HomeHint $terratools_home_path
+if (-not $tt) {
+    $tried = @(
+        $terratools_home_path,
+        (if ($terratools_ssh_path) { (Split-Path -Parent (Split-Path -Parent $terratools_ssh_path)) }),
+        'C:\Program Files\Bohemia Interactive Simulations\TerraTools',
+        'C:\Program Files (x86)\Bohemia Interactive Simulations\TerraTools'
+    ) | Where-Object { $_ } | Select-Object -Unique
+    throw ("TerraTools Tcl core (tsdcore.tcl) not found. Tried:`n - " + ($tried -join "`n - "))
 }
+
+# Set env for current process (child processes inherit)
+$env:TERRASIM_HOME   = $tt.Root
+$env:TERRATOOLS_HOME = $tt.Root
+$env:TCLLIBPATH      = $tt.TclDir
+
+# Ensure bin on PATH
+$terraBin = Join-Path $tt.Root 'bin'
+if (Test-Path -LiteralPath $terraBin) {
+    if (-not (($env:PATH -split ';') | Where-Object { $_ -ieq $terraBin })) {
+        $env:PATH = $env:PATH + ';' + $terraBin
+    }
+}
+
+# If configured ssh exe doesn’t exist, repair it from resolved root
+if (-not (Test-Path -LiteralPath $terratools_ssh_path)) {
+    $candidateSsh = Join-Path $terraBin 'terratoolssh.exe'
+    if (Test-Path -LiteralPath $candidateSsh) {
+        $terratools_ssh_path = $candidateSsh
+        Write-Host ("Resolved terratools_ssh_path -> {0}" -f $terratools_ssh_path) -ForegroundColor Yellow
+    } else {
+        throw ("Terratools Path invalid: {0} (also not found at {1})" -f $terratools_ssh_path, $candidateSsh)
+    }
+}
+
+Write-Host ("[TerraTools] Home : {0}" -f $tt.Root)    -ForegroundColor Green
+Write-Host ("[TerraTools] Tcl  : {0}" -f $tt.TclFile) -ForegroundColor Green
+Write-Host ("[TerraTools] Bin  : {0}" -f $terraBin)   -ForegroundColor Green
 
 # ---------- Second stage: run TerraTools directly ----------
 if ($IsSecondStage) {
