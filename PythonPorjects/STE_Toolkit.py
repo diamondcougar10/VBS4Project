@@ -2673,14 +2673,28 @@ class VBS4Panel(tk.Frame):
         folder_listbox.pack(pady=10)
 
         def add_folder():
-            path = simpledialog.askstring(
+            input_path = simpledialog.askstring(
                 "Network Path",
                 "Enter network folder path (leave blank to browse):",
                 parent=folder_window,
             )
-            if path and os.path.exists(path):
-                found = get_image_folders_recursively(clean_path(path))
-                folders.extend(found)
+            if input_path:
+                path = clean_path(input_path)
+                if os.path.isdir(path):
+                    selected = filedialog.askdirectory(
+                        title="Select DCIM or base imagery folder",
+                        initialdir=path,
+                        parent=folder_window,
+                    )
+                    if selected:
+                        found = get_image_folders_recursively(clean_path(selected))
+                        folders.extend(found)
+                else:
+                    messagebox.showerror(
+                        "Invalid Path",
+                        f"The path '{input_path}' does not exist.",
+                        parent=folder_window,
+                    )
             else:
                 selected = filedialog.askdirectory(
                     title="Select DCIM or base imagery folder", parent=folder_window
