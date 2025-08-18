@@ -2957,16 +2957,17 @@ class VBS4Panel(tk.Frame):
                     "Build Error", str(exc), parent=self))
                 return
 
-            try:
-                self.log_message("Launching Reality Mesh to VBS4...")
-                self._launch_reality_mesh_app(self.last_build_dir)
-            except Exception as exc:
-                self.log_message(f"Launch failed: {exc}")
-                self.after(0, lambda: messagebox.showerror(
-                    "Launch Error", str(exc), parent=self))
-                return
+            def launch_rm():
+                try:
+                    self.log_message("Launching Reality Mesh to VBS4...")
+                    self.post_process_last_build(self.last_build_dir)
+                    self.log_message("Reality Mesh to VBS4 launched.")
+                except Exception as exc:
+                    self.log_message(f"Launch failed: {exc}")
+                    messagebox.showerror("Launch Error", str(exc), parent=self)
 
-            self.log_message("Reality Mesh to VBS4 launched.")
+            # Schedule the Reality Mesh launch on the main thread
+            self.after(0, launch_rm)
 
         run_in_thread(_pipeline)
 
