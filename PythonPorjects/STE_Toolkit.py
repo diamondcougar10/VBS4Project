@@ -2978,20 +2978,11 @@ class VBS4Panel(tk.Frame):
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
-        if not self.last_build_dir:
-            shared_drive = r"\\HAMMERKIT1-4\SharedMeshDrive"
-            self.log_message(
-                "No build directory available to launch Reality Mesh. "
-                "Opening shared drive instead."
-            )
-            try:
-                os.startfile(shared_drive)
-            except Exception as exc:
-                self.log_message(f"Failed to open shared drive: {exc}")
-            self.last_build_dir = shared_drive
-
         try:
-            self._launch_reality_mesh_app(self.last_build_dir)
+            # Launch the application directly without opening a file explorer
+            # window first. If no build directory is available, start without
+            # passing a path.
+            self._launch_reality_mesh_app(self.last_build_dir if self.last_build_dir else None)
         except Exception as exc:
             self.log_message(f"Launch failed: {exc}")
             messagebox.showerror("Error", str(exc), parent=self)
