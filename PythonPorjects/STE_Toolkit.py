@@ -1499,10 +1499,44 @@ bvi_help_items = {
 }
 
 # One-Click Terrain Help submenu
+def _find_file(filename, roots):
+    """Search for *filename* inside the provided *roots* directories."""
+    for root in roots:
+        if os.path.isdir(root):
+            for dirpath, _dirs, files in os.walk(root):
+                if filename in files:
+                    return os.path.join(dirpath, filename)
+    return None
+
+
+def open_reality_mesh_docs():
+    """Open the Reality Mesh HTML help documentation."""
+    path = _find_file("Reality_Mesh_EN.htm", [r"C:\\Bohemia Interactive Simulations"])
+    if path:
+        webbrowser.open(f"file://{path}", new=2)
+    else:
+        messagebox.showerror("Error", "Reality Mesh documentation not found.")
+
+
+def open_photomesh_help():
+    """Open the PhotoMesh help PDF, searching development and production paths."""
+    roots = [
+        os.path.join(BASE_DIR, "Help_Tutorials"),
+        r"C:\\Program Files (x86)\\STE Toolkit\\_internal\\Help_Tutorials",
+    ]
+    path = _find_file("PM804_Wizard_141_Training.pdf", roots)
+    if path:
+        try:
+            subprocess.Popen([path], shell=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open PhotoMesh help:\n{e}")
+    else:
+        messagebox.showerror("Error", "PhotoMesh help not found.")
+
+
 oct_help_items = {
-    "How to collect terrain scans w/ Drone":   lambda: messagebox.showinfo("Drone Scans","Coming soon…"),
-    "How to import terrain scans from drone":  lambda: messagebox.showinfo("Import Scans","Coming soon…"),
-    "How to: Simulated Terrain":               lambda: messagebox.showinfo("Simulated Terrain","Coming soon…"),
+    "Reality Mesh Help": open_reality_mesh_docs,
+    "PhotoMesh Help": open_photomesh_help,
 }
 
 # ─── Helper DATA ────────────────────────────────────────────────────
@@ -3447,11 +3481,9 @@ class TutorialsPanel(tk.Frame):
         bvi_frame = self._create_section(content_frame, "BVI Help", 0, 1)
         self._add_buttons(bvi_frame, bvi_help_items)
 
-        # One-Click Terrain Help Section (Coming Soon)
+        # One-Click Terrain Help Section
         oct_frame = self._create_section(content_frame, "One-Click Terrain Help", 1, 0)
-        tk.Label(oct_frame, text="Tool coming soon...",
-                 font=("Helvetica", 16), bg="#333333", fg="white", pady=20)\
-          .pack(expand=True)
+        self._add_buttons(oct_frame, oct_help_items)
 
         # Blue IG Help Section
         blueig_frame = self._create_section(content_frame, "Blue IG Help", 1, 1)
