@@ -2225,6 +2225,7 @@ class MainMenu(tk.Frame):
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        self.config(bg="black")
         set_wallpaper(self)
         set_background(controller, self)
         self.controller = controller
@@ -2337,7 +2338,7 @@ class VBS4Panel(tk.Frame):
             self.log_frame,
             height=3,
             bg=self.log_frame.cget("bg"),
-            fg="lime",
+            fg="white",
             wrap="word",
             bd=0,
             highlightthickness=0,
@@ -2347,16 +2348,29 @@ class VBS4Panel(tk.Frame):
         self.log_text.config(state="disabled")
 
         # Render progress bar
-        progress_frame = tk.Frame(self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0)
+        progress_frame = tk.Frame(
+            self.log_frame,
+            bg=self.log_frame.cget("bg"),
+            bd=0,
+            highlightthickness=0,
+        )
         progress_frame.pack(fill="x", pady=(5, 0))
 
         self.progress_var = tk.IntVar(value=0)
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Green.Horizontal.TProgressbar",
+            troughcolor=self.log_frame.cget("bg"),
+            background="#00aa00",
+        )
         self.progress_bar = ttk.Progressbar(
             progress_frame,
             variable=self.progress_var,
             maximum=100,
             orient="horizontal",
             mode="determinate",
+            style="Green.Horizontal.TProgressbar",
         )
         self.progress_bar.pack(side="left", fill="x", expand=True)
 
@@ -2687,18 +2701,17 @@ class VBS4Panel(tk.Frame):
         folder_window.transient(self)
         folder_window.grab_set()
         folder_window.attributes("-topmost", True)
+        folder_window.configure(bg=self.cget("bg"))
 
-        # Set background or fallback to color
+        # Optional wallpaper
         if os.path.exists(prompt_box_image_path):
             img = Image.open(prompt_box_image_path).resize(
                 (801, 506), Image.Resampling.LANCZOS
             )
             ph = ImageTk.PhotoImage(img)
-            bg_label = tk.Label(folder_window, image=ph)
+            bg_label = tk.Label(folder_window, image=ph, borderwidth=0)
             bg_label.image = ph
             bg_label.place(relwidth=1, relheight=1)
-        else:
-            folder_window.configure(bg=self.cget("bg"))
 
         # Header
         tk.Label(
@@ -2719,6 +2732,8 @@ class VBS4Panel(tk.Frame):
             bg="#1e1e1e",
             fg="white",
             selectbackground="#444",
+            bd=0,
+            highlightthickness=0,
         )
         folder_listbox.pack(pady=10)
 
@@ -3659,6 +3674,7 @@ class CreditsPanel(tk.Frame):
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        self.config(bg="black")
         set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
@@ -3670,17 +3686,6 @@ class ContactSupportPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
         self.menu_col.pack(pady=12)
-
-        center_frame = tk.Frame(
-            self.menu_col,
-            bg=self.menu_col.cget("bg"),
-            padx=20,
-            pady=20,
-            bd=0,
-            highlightthickness=1,
-            highlightbackground="#555555",
-        )
-        center_frame.pack(pady=10)
 
         # Support information
         support_text = """
@@ -3706,10 +3711,10 @@ class ContactSupportPanel(tk.Frame):
         """
 
         tk.Label(
-            center_frame,
+            self.menu_col,
             text=support_text,
             font=("Helvetica", 14),
-            bg=center_frame.cget("bg"),
+            bg=self.menu_col.cget("bg"),
             fg='white',
             justify='left',
             bd=0,

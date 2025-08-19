@@ -439,7 +439,18 @@ class RealityMeshGUI(tk.Tk):
         row += 1
 
         self.progress_var = tk.IntVar(value=0)
-        self.progress_bar = ttk.Progressbar(self, variable=self.progress_var, maximum=100)
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Green.Horizontal.TProgressbar",
+            background="#00aa00",
+        )
+        self.progress_bar = ttk.Progressbar(
+            self,
+            variable=self.progress_var,
+            maximum=100,
+            style="Green.Horizontal.TProgressbar",
+        )
         self.progress_bar.grid(row=row, column=0, columnspan=3, sticky='we', padx=5)
         row += 1
         self.progress_label = tk.Label(self, text='0%')
