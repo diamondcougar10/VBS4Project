@@ -1040,7 +1040,7 @@ def get_image_folders_recursively(base_folder):
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
     """Create a standardized launch button with an optional helper and version label."""
 
-    container = tk.Frame(parent, bg="#000000")
+    container = tk.Frame(parent, bg=parent["bg"])
     container.pack(pady=10)
 
     path = clean_path(get_path_func())
@@ -1084,7 +1084,7 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
         container,
         text="",
         font=("Helvetica", 16),
-        bg="#000000",
+        bg=parent["bg"],
         fg="white",
     )
     version_label.pack(pady=(0, 10))
@@ -2230,7 +2230,7 @@ class VBS4Panel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg="#000000")
         self.menu_col.pack(pady=12)
-        self.menu_col.pack_propagate(False)
+
 
         vbs4_path = get_vbs4_install_path()
         logging.debug("VBS4 path for button creation: %s", vbs4_path)
@@ -3159,7 +3159,6 @@ class BVIPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg="#000000")
         self.menu_col.pack(pady=12)
-        self.menu_col.pack_propagate(False)
 
         self.bvi_button, self.bvi_version_label = create_app_button(
             self.menu_col, "BVI", get_ares_manager_path, launch_bvi,
@@ -3228,7 +3227,6 @@ class SettingsPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg="#000000")
         self.menu_col.pack(pady=12)
-        self.menu_col.pack_propagate(False)
 
         self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
         tk.Checkbutton(self.menu_col,
@@ -3487,7 +3485,6 @@ class TutorialsPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg="#000000")
         self.menu_col.pack(pady=12)
-        self.menu_col.pack_propagate(False)
 
         # Create a frame to hold all button sections
         content_frame = tk.Frame(self.menu_col, bg='black')
@@ -3578,7 +3575,6 @@ class CreditsPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg="#000000")
         self.menu_col.pack(pady=12)
-        self.menu_col.pack_propagate(False)
 
         center_frame = tk.Frame(self.menu_col, bg='#333333', padx=20, pady=20)
         center_frame.pack(pady=10)
@@ -3635,7 +3631,6 @@ class ContactSupportPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg="#000000")
         self.menu_col.pack(pady=12)
-        self.menu_col.pack_propagate(False)
 
         center_frame = tk.Frame(self.menu_col, bg='#333333', padx=20, pady=20)
         center_frame.pack(pady=10)
