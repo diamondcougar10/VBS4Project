@@ -1038,11 +1038,19 @@ def get_image_folders_recursively(base_folder):
     return image_folders
 
 def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
+    """Create a launch button with an optional path setter and version label.
+
+    The button and its version label are stacked vertically inside a frame
+    that fills only the width of *parent*.  All buttons created with this
+    helper therefore share a uniform size.  The caller can hide the returned
+    version label if it is not needed.
+    """
+
     frame = tk.Frame(parent, bg="#333333")
-    frame.pack(pady=8)
+    frame.pack(pady=8, fill="x")
 
     path = clean_path(get_path_func())
-    
+
     if not path or not os.path.exists(path):
         state = "disabled"
         bg_color = "#888888"
@@ -1050,8 +1058,11 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
         state = "normal"
         bg_color = "#444444"
 
+    btn_frame = tk.Frame(frame, bg="#333333")
+    btn_frame.pack(fill="x")
+
     button = tk.Button(
-        frame,
+        btn_frame,
         text=f"Launch {app_name}",
         font=("Helvetica", 20),
         bg=bg_color,
@@ -1059,20 +1070,22 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
         state=state,
         command=launch_func
     )
-    button.pack(side=tk.LEFT, ipadx=10, ipady=5)
+    button.grid(row=0, column=0, sticky="ew", ipadx=10, ipady=5)
 
     if state == "disabled":
         question_button = tk.Button(
-            frame,
+            btn_frame,
             text="?",
             font=("Helvetica", 16, "bold"),
             bg="orange",
             fg="black",
             command=set_path_func
         )
-        question_button.pack(side=tk.LEFT, padx=(5, 0))
+        question_button.grid(row=0, column=1, padx=(5, 0))
 
-    # Version label
+    btn_frame.columnconfigure(0, weight=1)
+
+    # Version label placed beneath the button
     version_label = tk.Label(
         frame,
         text="",
@@ -1080,7 +1093,7 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
         bg="#333333",
         fg="white"
     )
-    version_label.pack(side=tk.LEFT, padx=10)
+    version_label.pack(fill="x")
 
     return button, version_label
 
@@ -2222,54 +2235,46 @@ class VBS4Panel(tk.Frame):
             bg="black", fg="white", pady=20
         ).pack(fill="x")
 
-         # VBS4 Launch frame
-        vbs4_frame = tk.Frame(self, bg="#333333")
-        vbs4_frame.pack(pady=8)
+        # Centered menu column for uniform-width buttons
+        self.menu_col = tk.Frame(self, bg="#000000", width=520)
+        self.menu_col.pack(pady=12)
+        self.menu_col.pack_propagate(False)
 
-        vbs4_path = get_vbs4_install_path()
-        logging.debug("VBS4 path for button creation: %s", vbs4_path)
-
+        # VBS4 button + version
         self.vbs4_button, self.vbs4_version_label = create_app_button(
-            self, "VBS4", get_vbs4_install_path, launch_vbs4,
+            self.menu_col, "VBS4", get_vbs4_install_path, launch_vbs4,
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
         self.update_vbs4_version()
         self.update_vbs4_button_state()
 
-        # VBS4 version label
-        self.vbs4_version_label = tk.Label(
-            vbs4_frame,
-            text="",
-            font=("Helvetica", 16),
-            bg="#333333", fg="white"
-        )
-        self.vbs4_version_label.pack(side=tk.LEFT, padx=10)
-        self.update_vbs4_version()
-
-        self.vbs4_launcher_button, _ = create_app_button(
-            self, "VBS4 Launcher", 
+        # VBS4 launcher (no version label displayed)
+        self.vbs4_launcher_button, launcher_label = create_app_button(
+            self.menu_col, "VBS4 Launcher",
             lambda: config['General'].get('vbs4_setup_path', ''),
             launch_vbs4_setup,
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
         )
+        launcher_label.pack_forget()
         self.update_vbs4_launcher_button_state()
 
-        # BlueIG frame for dynamic buttons + version label handled below
-        self.blueig_frame = tk.Frame(self, bg="#333333")
-        self.blueig_frame.pack(pady=8)
+        # BlueIG frame for dynamic buttons and version label
+        self.blueig_frame = tk.Frame(self.menu_col, bg="#333333")
+        self.blueig_frame.pack(pady=8, fill="x")
         self.create_blueig_button()
 
-        # VBS License Manager button
-        self.vbs_license_button, _ = create_app_button(
-            self, "VBS License Manager", 
+        # VBS License Manager button (no version label)
+        self.vbs_license_button, license_label = create_app_button(
+            self.menu_col, "VBS License Manager",
             lambda: config['General'].get('vbs_license_manager_path', ''),
             self.launch_vbs_license_manager,
             lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
+        license_label.pack_forget()
 
         # Terrain Converter Section
-        self.terrain_frame = tk.Frame(self, bg="#333333")
-        self.terrain_frame.pack(pady=8)
+        self.terrain_frame = tk.Frame(self.menu_col, bg="#333333")
+        self.terrain_frame.pack(pady=8, fill="x")
         self.terrain_button = tk.Button(
             self.terrain_frame,
             text="One-Click Terrain Converter",
@@ -2277,7 +2282,7 @@ class VBS4Panel(tk.Frame):
             bg="#444", fg="white",
             command=self.toggle_terrain_buttons
         )
-        self.terrain_button.pack(pady=8, ipadx=10, ipady=5)
+        self.terrain_button.pack(pady=8, fill="x", ipadx=10, ipady=5)
         # Tooltip for expanding the terrain tools
         self.terrain_button.bind(
             "<Enter>",
@@ -2289,12 +2294,12 @@ class VBS4Panel(tk.Frame):
 
         # External Map button
         tk.Button(
-            self,
+            self.menu_col,
             text="External Map",
             font=("Helvetica", 20),
             bg="#444", fg="white",
             command=open_external_map
-        ).pack(pady=8, ipadx=10, ipady=5)
+        ).pack(pady=8, fill="x", ipadx=10, ipady=5)
 
         # Back to main menu
         tk.Button(
@@ -2374,23 +2379,14 @@ class VBS4Panel(tk.Frame):
             widget.destroy()
 
         is_srv = config['General'].getboolean('is_server', fallback=False)
-        state = 'disabled' if is_srv else 'normal'
 
         # Launch BlueIG button
         self.blueig_button, self.blueig_version_label = create_app_button(
-            self, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
+            self.blueig_frame, "BlueIG", get_blueig_install_path, self.show_scenario_buttons,
             lambda: self.set_file_location("BlueIG", "blueig_path", self.blueig_button)
         )
-        self.update_blueig_version()
-
-        # BlueIG version label (now here, after the button)
-        self.blueig_version_label = tk.Label(
-            self.blueig_frame,
-            text="",
-            font=('Helvetica', 16),
-            bg='#333333', fg='white'
-        )
-        self.blueig_version_label.pack(side=tk.LEFT, padx=10)
+        if is_srv:
+            self.blueig_button.config(state="disabled", bg="#888888")
         self.update_blueig_version()
 
     def update_vbs4_version(self):
@@ -3154,25 +3150,10 @@ class BVIPanel(tk.Frame):
                  bg='black', fg='white', pady=20) \
           .pack(fill='x')
 
-        bvi_frame = tk.Frame(self, bg="#333333")
-        bvi_frame.pack(pady=8)
-
         self.bvi_button, self.bvi_version_label = create_app_button(
             self, "BVI", get_ares_manager_path, launch_bvi,
             lambda: self.set_file_location("BVI", "bvi_manager_path", self.bvi_button)
         )
-        self.update_bvi_version()
-
-        # BVI Version label
-        self.bvi_version_label = tk.Label(
-            bvi_frame,
-            text="",
-            font=("Helvetica", 16),
-            bg="#333333", fg="white"
-        )
-        self.bvi_version_label.pack(side=tk.LEFT, padx=10)
-
-        # Update BVI version label
         self.update_bvi_version()
 
         tk.Button(self, text="Open Terrain",
