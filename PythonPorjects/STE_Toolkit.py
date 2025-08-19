@@ -1079,13 +1079,14 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
 
     version_label = tk.Label(
         parent,
-        text="",
+        text="Version: …",
         font=("Helvetica", 16),
-        bg=parent_bg,
-        fg="white",
+        bg="black",        # force black background
+        fg="white",        # white text
         bd=0,
         highlightthickness=0,
     )
+
     version_label.pack(pady=(0, 6))
 
     return button, version_label
