@@ -134,6 +134,197 @@ def clean_path(path: str) -> str:
     return path
 
 
+def shorten_path_middle(path: str, max_chars: int = 80) -> str:
+    """Shorten *path* inserting `` … `` if it exceeds *max_chars*.
+
+    The drive or UNC prefix is preserved; roughly 60% of the remaining
+    characters are kept from the start and 40% from the end."""
+
+    if len(path) <= max_chars:
+        return path
+
+    prefix = ""
+    rest = path
+    if path.startswith('\\'):
+        parts = path.split('\\')
+        if len(parts) > 3:
+            prefix = f"\\\\{parts[2]}\\{parts[3]}\\"
+            rest = '\\'.join(parts[4:])
+    elif len(path) >= 3 and path[1:3] == ':\\':
+        prefix = path[:3]
+        rest = path[3:]
+
+    keep = max_chars - len(prefix) - 3  # for separator
+    if keep <= 0:
+        return path[:max_chars - 1] + '…'
+    lead = int(keep * 0.6)
+    trail = keep - lead
+    return prefix + rest[:lead] + ' … ' + rest[-trail:]
+
+
+def open_containing(path: str) -> None:
+    """Open *path* or its containing folder via ``os.startfile``."""
+    if not path:
+        messagebox.showerror("Open", "Path not set")
+        return
+    path = clean_path(path)
+    try:
+        target = path if os.path.isdir(path) else os.path.dirname(path)
+        os.startfile(target)
+    except FileNotFoundError:
+        messagebox.showerror("Open", f"Path does not exist:\n{path}")
+    except Exception as e:
+        messagebox.showerror("Open", f"Failed to open path:\n{e}")
+
+
+class Tooltip:
+    """A tiny tooltip widget using a transparent ``Toplevel``."""
+
+    def __init__(self, widget: tk.Widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.tip: tk.Toplevel | None = None
+        widget.bind('<Enter>', self._show)
+        widget.bind('<Leave>', self._hide)
+
+    def update(self, text: str) -> None:
+        self.text = text
+
+    def _show(self, _event=None) -> None:
+        if self.tip or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 10
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.overrideredirect(True)
+        self.tip.attributes('-topmost', True)
+        try:
+            self.tip.attributes('-alpha', 0.9)
+        except Exception:
+            pass
+        tk.Label(self.tip, text=self.text, bg="#000000", fg="white",
+                 padx=8, pady=4).pack()
+        self.tip.geometry(f"+{x}+{y}")
+
+    def _hide(self, _event=None) -> None:
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
+def pill_button(parent, text, command, disabled: bool = False):
+    btn = tk.Button(parent, text=text, command=command,
+                    bg="#444444", fg="white",
+                    activebackground="#555555", activeforeground="white",
+                    font=("Helvetica", 16, "bold"), bd=0, highlightthickness=0,
+                    padx=18, pady=6, takefocus=1)
+
+    def _enter(_):
+        if btn['state'] != tk.DISABLED:
+            btn.configure(bg="#555555")
+
+    def _leave(_):
+        if btn['state'] != tk.DISABLED:
+            btn.configure(bg="#444444")
+
+    btn.bind('<Enter>', _enter)
+    btn.bind('<Leave>', _leave)
+    if disabled:
+        btn.configure(bg="#888888", state='disabled')
+    return btn
+
+
+def small_icon_button(parent, text, tip, command):
+    btn = tk.Button(parent, text=text, command=command,
+                    bg="#444444", fg="white",
+                    activebackground="#555555", activeforeground="white",
+                    font=("Helvetica", 12, "bold"), width=3,
+                    bd=0, highlightthickness=0, takefocus=1)
+
+    def _enter(_):
+        btn.configure(bg="#555555")
+
+    def _leave(_):
+        btn.configure(bg="#444444")
+
+    btn.bind('<Enter>', _enter)
+    btn.bind('<Leave>', _leave)
+    Tooltip(btn, tip)
+    return btn
+
+
+def label_chip(parent):
+    return tk.Label(parent, bg="#111111", fg="white",
+                    font=("Consolas", 12), anchor="w",
+                    padx=12, pady=6, bd=0, highlightthickness=0,
+                    takefocus=1)
+
+
+class PathRow(tk.Frame):
+    """Reusable row widget to display and edit a filesystem path."""
+
+    def __init__(self, parent, label: str, get_path, set_path, on_changed=None):
+        super().__init__(parent, bg=parent.cget('bg'))
+        self.get_path = get_path
+        self.set_path = set_path
+        self.on_changed = on_changed
+        self.full_path = ""
+
+        self.action_btn = pill_button(self, label, self._on_set)
+        self.action_btn.grid(row=0, column=0, padx=(0, 6))
+
+        self.chip = label_chip(self)
+        self.chip.grid(row=0, column=1, sticky="ew")
+        self.chip.bind('<Control-c>', lambda _e: self._copy())
+        self.chip_tip = Tooltip(self.chip, "")
+
+        self.copy_btn = small_icon_button(self, "⧉", "Copy path", self._copy)
+        self.copy_btn.grid(row=0, column=2, padx=4)
+
+        self.open_btn = small_icon_button(self, "📂", "Open", self._open)
+        self.open_btn.grid(row=0, column=3, padx=4)
+
+        self.bottom_bar = tk.Frame(self, bg="#a33", height=1)
+        self.bottom_bar.grid(row=1, column=1, columnspan=3, sticky="ew")
+        self.bottom_bar.grid_remove()
+
+        self.grid_columnconfigure(1, weight=1)
+        self.refresh()
+
+    # ------------------------------------------------------------------
+    def _on_set(self):
+        self.set_path()
+        self.refresh()
+
+    def _copy(self):
+        if self.full_path:
+            self.clipboard_clear()
+            self.clipboard_append(self.full_path)
+
+    def _open(self):
+        if self.full_path:
+            open_containing(self.full_path)
+
+    # ------------------------------------------------------------------
+    def refresh(self):
+        path = clean_path(self.get_path() or "")
+        self.full_path = path
+        exists = bool(path) and os.path.exists(path)
+
+        if exists:
+            display = shorten_path_middle(path)
+            self.chip.configure(text=display, bg="#111111", fg="white")
+            self.bottom_bar.grid_remove()
+        else:
+            display = "[not set]" if not path else shorten_path_middle(path)
+            self.chip.configure(text=display, bg="#1a0000", fg="#ffdddd")
+            self.bottom_bar.grid()
+
+        self.chip_tip.update(path)
+        if self.on_changed:
+            self.on_changed(path)
+
+
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
@@ -1596,6 +1787,15 @@ def set_oneclick_output_path(path: str) -> None:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
+
+def choose_oneclick_output_folder():
+    """Prompt the user to select the One-Click output folder."""
+    path = filedialog.askdirectory(title="Select One-Click Output Folder")
+    if path:
+        set_oneclick_output_path(path)
+    else:
+        messagebox.showerror("Settings", "Invalid folder selected.")
+
 # ======================== SETUP & CONFIGURATION ========================= #
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1615,6 +1815,21 @@ def set_vbs4_install_path():
     else:
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
 
+
+def set_vbs4_launcher_path():
+    """Open a file dialog to choose VBSLauncher.exe and save it."""
+    path = filedialog.askopenfilename(
+        title="Select VBS4 Setup Launcher", filetypes=[("Executable Files", "*.exe")]
+    )
+    if path and os.path.exists(path):
+        path = os.path.normpath(path)
+        config['General']['vbs4_setup_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        messagebox.showinfo("Settings", f"VBS4 Launcher path set to:\n{path}")
+    else:
+        messagebox.showerror("Settings", "Invalid VBS4 Launcher path selected.")
+
 def get_ares_manager_path() -> str:
     """Return saved ARES Manager path if it exists, else empty string."""
     path = config['General'].get('bvi_manager_path', '')
@@ -1628,6 +1843,26 @@ def set_ares_manager_path():
         config['General']['bvi_manager_path'] = path
         with open(CONFIG_PATH, 'w') as f: config.write(f)
         messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
+
+
+def get_vbs_license_manager_path() -> str:
+    """Return saved VBS License Manager path if it exists."""
+    path = config['General'].get('vbs_license_manager_path', '')
+    return path if path and os.path.exists(path) else ''
+
+
+def set_vbs_license_manager_path():
+    """Prompt for VBSLicenseManager.exe and save it."""
+    path = filedialog.askopenfilename(
+        title="Select VBSLicenseManager.exe", filetypes=[("Executable Files", "*.exe")]
+    )
+    if path and os.path.exists(path):
+        config['General']['vbs_license_manager_path'] = path
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        messagebox.showinfo("Settings", f"VBS License Manager path set to:\n{path}")
+    else:
+        messagebox.showerror("Settings", "Invalid VBS License Manager path selected.")
 
 # ─── One Click Terrain SETUP ──────────────────────────────────────────────────────
 def find_terra_explorer() -> str:
@@ -3284,58 +3519,35 @@ class SettingsPanel(tk.Frame):
         self.controller = controller
 
         tk.Label(self, text="Settings",
-                 font=("Helvetica",36,"bold"),
-                 bg='black', fg='white', pady=20) \
-          .pack(fill='x')
+                 font=("Helvetica", 36, "bold"),
+                 bg='black', fg='white', pady=20).pack(fill='x')
 
+        self.col = tk.Frame(self, bg=self.cget('bg'))
+        self.col.pack(fill='both', expand=True, padx=40, pady=20)
+        self.col.grid_columnconfigure(1, weight=1)
+
+        # Toggle Checkbuttons
         self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
-        tk.Checkbutton(self,
-                       text="Fullscreen Mode",
-                       variable=self.fullscreen_var,
-                       command=self._on_fullscreen_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        self._add_checkbox("Fullscreen Mode", self.fullscreen_var,
+                            self._on_fullscreen_toggle, 0)
 
-        # Launch on Startup
         self.startup_var = tk.BooleanVar(value=is_startup_enabled())
+
         def _on_startup_toggle():
             toggle_startup()
             self.startup_var.set(is_startup_enabled())
 
-        tk.Checkbutton(self,
-                       text="Launch on Startup",
-                       variable=self.startup_var,
-                       command=_on_startup_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        self._add_checkbox("Launch on Startup", self.startup_var,
+                            _on_startup_toggle, 1)
 
-        # Close on Launch
         self.close_var = tk.BooleanVar(value=is_close_on_launch_enabled())
+
         def _on_close_toggle():
             toggle_close_on_launch()
             self.close_var.set(is_close_on_launch_enabled())
 
-        tk.Checkbutton(self,
-                       text="Close on Software Launch?",
-                       variable=self.close_var,
-                       command=_on_close_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        self._add_checkbox("Close on Software Launch?", self.close_var,
+                            _on_close_toggle, 2)
 
         self.fuser_var = tk.BooleanVar(value=config['Fusers'].getboolean('fuser_computer', False))
 
@@ -3354,196 +3566,69 @@ class SettingsPanel(tk.Frame):
                 run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
             self.controller.panels['VBS4'].update_fuser_state()
 
-        tk.Checkbutton(self,
-                       text="Fuser Computer",
-                       variable=self.fuser_var,
-                       command=_on_fuser_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        self._add_checkbox("Fuser Computer", self.fuser_var,
+                            _on_fuser_toggle, 3)
 
-        # VBS4 Install Location
-        tk.Button(self, text="Set VBS4 Install Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_vbs4) \
-          .pack(pady=10)
-        self.lbl_vbs4 = tk.Label(
-            self,
-            text=get_vbs4_install_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_vbs4.pack(fill="x", padx=10)
+        # Separator
+        tk.Frame(self.col, bg="#555555", height=1).grid(row=4, column=0, columnspan=4, sticky="ew", pady=(10, 0))
 
-        tk.Button(self, text="Set VBS4 Setup Launcher Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_vbs4_setup) \
-          .pack(pady=10)
-        self.lbl_vbs4_setup = tk.Label(
-            self,
-            text=config['General'].get('vbs4_setup_path', '') or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_vbs4_setup.pack(fill="x", padx=10)
+        row = 5
+        self.vbs4_row = PathRow(self.col, "Set VBS4 Install Location",
+                                get_vbs4_install_path, set_vbs4_install_path,
+                                on_changed=lambda p: self.controller.panels['VBS4'].update_vbs4_button_state())
+        self.vbs4_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
+        row += 1
 
-        # BlueIG Install Location
-        tk.Button(self, text="Set BlueIG Install Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_blueig) \
-          .pack(pady=10)
-        self.lbl_blueig = tk.Label(
-            self,
-            text=get_blueig_install_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_blueig.pack(fill="x", padx=10)
+        self.vbs4_setup_row = PathRow(self.col, "Set VBS4 Setup Launcher Location",
+                                      get_vbs4_launcher_path, set_vbs4_launcher_path,
+                                      on_changed=lambda p: self.controller.panels['VBS4'].update_vbs4_launcher_button_state())
+        self.vbs4_setup_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
+        row += 1
 
-        # ARES Manager Install Location
-        tk.Button(self, text="Set ARES Manager Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_ares) \
-          .pack(pady=10)
-        self.lbl_ares = tk.Label(
-            self,
-            text=get_ares_manager_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_ares.pack(fill="x", padx=10)
+        self.blueig_row = PathRow(self.col, "Set BlueIG Install Location",
+                                  get_blueig_install_path, set_blueig_install_path,
+                                  on_changed=lambda p: self.controller.panels['VBS4'].update_blueig_state())
+        self.blueig_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
+        row += 1
 
-        # Default Browser
-        tk.Button(self, text="Pick Default Browser",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_browser) \
-          .pack(pady=10)
-        self.lbl_browser = tk.Label(
-            self,
-            text=get_default_browser() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_browser.pack(fill="x", padx=10)
+        self.ares_row = PathRow(self.col, "Set ARES Manager Location",
+                                get_ares_manager_path, set_ares_manager_path)
+        self.ares_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
+        row += 1
 
-        # VBS License Manager Location
-        tk.Button(self, text="Set VBS License Manager Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_vbs_license_manager) \
-          .pack(pady=10)
-        self.lbl_vbs_license = tk.Label(
-            self,
-            text=config['General'].get('vbs_license_manager_path', '') or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_vbs_license.pack(fill="x", padx=10)
+        self.browser_row = PathRow(self.col, "Pick Default Browser",
+                                   get_default_browser, set_default_browser)
+        self.browser_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
+        row += 1
 
-        # One-Click Dataset Location
-        tk.Button(self, text="Set One-Click Output Folder",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_oneclick) \
-          .pack(pady=10)
-        self.lbl_oneclick = tk.Label(
-            self,
-            text=get_oneclick_output_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
-        )
-        self.lbl_oneclick.pack(fill="x", padx=10)
+        self.license_row = PathRow(self.col, "Set VBS License Manager Location",
+                                   get_vbs_license_manager_path, set_vbs_license_manager_path)
+        self.license_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
+        row += 1
 
-        # Back
-        tk.Button(self, text="Back",
-                  font=("Helvetica",24), bg="#444444", fg="white",
-                  width=30, height=1,
-                  command=lambda: controller.show('Main'),
-                  bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        self.oneclick_row = PathRow(self.col, "Set One-Click Output Folder",
+                                    get_oneclick_output_path, choose_oneclick_output_folder)
+        self.oneclick_row.grid(row=row, column=0, columnspan=4, sticky="ew", pady=10)
 
-    def _on_set_vbs4(self):
-     path = filedialog.askopenfilename(
-        title="Select VBS4 Executable",
-        filetypes=[("Executable Files", "*.exe")]
-     )
-     if path and os.path.exists(path):
-        path = os.path.normpath(path)
-        config['General']['vbs4_path'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
-        self.lbl_vbs4.config(text=path)
-        self.controller.panels['VBS4'].update_vbs4_button_state()
+        pill_button(self, "Back", lambda: controller.show('Main')).pack(pady=10)
 
-    def _on_set_vbs4_setup(self):
-     path = filedialog.askopenfilename(
-        title="Select VBS4 Setup Launcher",
-        filetypes=[("Executable Files", "*.exe")]
-     )
-     if path and os.path.exists(path):
-        path = os.path.normpath(path)
-        config['General']['vbs4_setup_path'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
-        self.lbl_vbs4_setup.config(text=path)
-        self.controller.panels['VBS4'].update_vbs4_launcher_button_state()
-
-    def _on_set_blueig(self):
-        set_blueig_install_path()
-        self.lbl_blueig.config(text=get_blueig_install_path() or "[not set]")
-
-    def _on_set_ares(self):
-        set_ares_manager_path()
-        self.lbl_ares.config(text=get_ares_manager_path() or "[not set]")
-
-    def _on_set_browser(self):
-        set_default_browser()
-        self.lbl_browser.config(text=get_default_browser() or "[not set]")
-
-    def _on_set_vbs_license_manager(self):
-        path = filedialog.askopenfilename(
-            title="Select VBSLicenseManager.exe",
-            filetypes=[("Executable Files", "*.exe")]
-        )
-        if path and os.path.exists(path):
-            config['General']['vbs_license_manager_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            self.lbl_vbs_license.config(text=path)
-            messagebox.showinfo("Settings", f"VBS License Manager path set to:\n{path}")
-        else:
-            messagebox.showerror("Settings", "Invalid VBS License Manager path selected.")
-
-    def _on_set_oneclick(self):
-        path = filedialog.askdirectory(title="Select One-Click Output Folder")
-        if path:
-            set_oneclick_output_path(path)
-            self.lbl_oneclick.config(text=path)
-        else:
-            messagebox.showerror("Settings", "Invalid folder selected.")
+    def _add_checkbox(self, text, var, cmd, row):
+        cb = tk.Checkbutton(self.col, text=text, variable=var, command=cmd,
+                            font=("Helvetica", 16), bg="#444444", fg="white",
+                            selectcolor="#444444", activebackground="#555555",
+                            activeforeground="white", bd=0, highlightthickness=0,
+                            padx=18, pady=0, anchor="w", takefocus=1)
+        cb.grid(row=row, column=0, columnspan=4, sticky="w", pady=8, ipady=6)
+        cb.bind('<Enter>', lambda e, w=cb: w.config(bg="#555555"))
+        cb.bind('<Leave>', lambda e, w=cb: w.config(bg="#444444"))
+        return cb
 
     def update_oneclick_path_label(self):
-        self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
+        self.oneclick_row.refresh()
 
     def _on_fullscreen_toggle(self):
-     self.controller.toggle_fullscreen()
-     self.fullscreen_var.set(self.controller.fullscreen)
+        self.controller.toggle_fullscreen()
+        self.fullscreen_var.set(self.controller.fullscreen)
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
