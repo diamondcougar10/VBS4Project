@@ -3367,108 +3367,53 @@ class SettingsPanel(tk.Frame):
           .pack(pady=10)
 
         # VBS4 Install Location
-        tk.Button(self, text="Set VBS4 Install Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_vbs4) \
-          .pack(pady=10)
-        self.lbl_vbs4 = tk.Label(
-            self,
-            text=get_vbs4_install_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        self.lbl_vbs4 = self._create_path_row(
+            "Set VBS4 Install Location",
+            self._on_set_vbs4,
+            get_vbs4_install_path(),
         )
-        self.lbl_vbs4.pack(fill="x", padx=10)
 
-        tk.Button(self, text="Set VBS4 Setup Launcher Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_vbs4_setup) \
-          .pack(pady=10)
-        self.lbl_vbs4_setup = tk.Label(
-            self,
-            text=config['General'].get('vbs4_setup_path', '') or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        # VBS4 Setup Launcher Location
+        self.lbl_vbs4_setup = self._create_path_row(
+            "Set VBS4 Setup Launcher Location",
+            self._on_set_vbs4_setup,
+            config['General'].get('vbs4_setup_path', ''),
         )
-        self.lbl_vbs4_setup.pack(fill="x", padx=10)
 
         # BlueIG Install Location
-        tk.Button(self, text="Set BlueIG Install Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_blueig) \
-          .pack(pady=10)
-        self.lbl_blueig = tk.Label(
-            self,
-            text=get_blueig_install_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        self.lbl_blueig = self._create_path_row(
+            "Set BlueIG Install Location",
+            self._on_set_blueig,
+            get_blueig_install_path(),
         )
-        self.lbl_blueig.pack(fill="x", padx=10)
 
         # ARES Manager Install Location
-        tk.Button(self, text="Set ARES Manager Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_ares) \
-          .pack(pady=10)
-        self.lbl_ares = tk.Label(
-            self,
-            text=get_ares_manager_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        self.lbl_ares = self._create_path_row(
+            "Set ARES Manager Location",
+            self._on_set_ares,
+            get_ares_manager_path(),
         )
-        self.lbl_ares.pack(fill="x", padx=10)
 
         # Default Browser
-        tk.Button(self, text="Pick Default Browser",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_browser) \
-          .pack(pady=10)
-        self.lbl_browser = tk.Label(
-            self,
-            text=get_default_browser() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        self.lbl_browser = self._create_path_row(
+            "Pick Default Browser",
+            self._on_set_browser,
+            get_default_browser(),
         )
-        self.lbl_browser.pack(fill="x", padx=10)
 
         # VBS License Manager Location
-        tk.Button(self, text="Set VBS License Manager Location",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_vbs_license_manager) \
-          .pack(pady=10)
-        self.lbl_vbs_license = tk.Label(
-            self,
-            text=config['General'].get('vbs_license_manager_path', '') or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        self.lbl_vbs_license = self._create_path_row(
+            "Set VBS License Manager Location",
+            self._on_set_vbs_license_manager,
+            config['General'].get('vbs_license_manager_path', ''),
         )
-        self.lbl_vbs_license.pack(fill="x", padx=10)
 
         # One-Click Dataset Location
-        tk.Button(self, text="Set One-Click Output Folder",
-                  font=("Helvetica",20), bg="#444444", fg="white",
-                  command=self._on_set_oneclick) \
-          .pack(pady=10)
-        self.lbl_oneclick = tk.Label(
-            self,
-            text=get_oneclick_output_path() or "[not set]",
-            font=("Helvetica",14),
-            bg="black",
-            fg="white",
-            anchor="w",
+        self.lbl_oneclick = self._create_path_row(
+            "Set One-Click Output Folder",
+            self._on_set_oneclick,
+            get_oneclick_output_path(),
         )
-        self.lbl_oneclick.pack(fill="x", padx=10)
 
         # Back
         tk.Button(self, text="Back",
@@ -3477,6 +3422,31 @@ class SettingsPanel(tk.Frame):
                   command=lambda: controller.show('Main'),
                   bd=0, highlightthickness=0) \
           .pack(pady=10)
+
+    def _create_path_row(self, text, command, initial_path):
+        """Create a consistent button/label row for file path settings."""
+        frame = tk.Frame(self, bg="black")
+        tk.Button(
+            frame,
+            text=text,
+            font=("Helvetica", 20),
+            bg="#444444",
+            fg="white",
+            command=command,
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="left", padx=(0, 10))
+        lbl = tk.Label(
+            frame,
+            text=initial_path or "[not set]",
+            font=("Helvetica", 14),
+            bg="black",
+            fg="white",
+            anchor="w",
+        )
+        lbl.pack(side="left", fill="x", expand=True)
+        frame.pack(fill="x", padx=10, pady=5)
+        return lbl
 
     def _on_set_vbs4(self):
      path = filedialog.askopenfilename(
