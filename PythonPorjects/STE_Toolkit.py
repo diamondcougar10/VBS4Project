@@ -3249,11 +3249,8 @@ class SettingsPanel(tk.Frame):
                  bg='black', fg='white', pady=20) \
           .pack(fill='x')
 
-        self.menu_col = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.menu_col.pack(pady=12)
-
         self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
-        tk.Checkbutton(self.menu_col,
+        tk.Checkbutton(self,
                        text="Fullscreen Mode",
                        variable=self.fullscreen_var,
                        command=self._on_fullscreen_toggle,
@@ -3271,7 +3268,7 @@ class SettingsPanel(tk.Frame):
             toggle_startup()
             self.startup_var.set(is_startup_enabled())
 
-        tk.Checkbutton(self.menu_col,
+        tk.Checkbutton(self,
                        text="Launch on Startup",
                        variable=self.startup_var,
                        command=_on_startup_toggle,
@@ -3289,7 +3286,7 @@ class SettingsPanel(tk.Frame):
             toggle_close_on_launch()
             self.close_var.set(is_close_on_launch_enabled())
 
-        tk.Checkbutton(self.menu_col,
+        tk.Checkbutton(self,
                        text="Close on Software Launch?",
                        variable=self.close_var,
                        command=_on_close_toggle,
@@ -3318,7 +3315,7 @@ class SettingsPanel(tk.Frame):
                 run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
             self.controller.panels['VBS4'].update_fuser_state()
 
-        tk.Checkbutton(self.menu_col,
+        tk.Checkbutton(self,
                        text="Fuser Computer",
                        variable=self.fuser_var,
                        command=_on_fuser_toggle,
@@ -3331,146 +3328,111 @@ class SettingsPanel(tk.Frame):
           .pack(pady=10)
 
         # VBS4 Install Location
-        frame_vbs4 = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_vbs4.pack(pady=10)
-        tk.Button(frame_vbs4, text="Set VBS4 Install Location",
+        tk.Button(self, text="Set VBS4 Install Location",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_vbs4) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_vbs4 = tk.Label(
-            frame_vbs4,
+            self,
             text=get_vbs4_install_path() or "[not set]",
             font=("Helvetica",14),
-            bg=frame_vbs4.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_vbs4.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_vbs4.pack(fill="x", padx=10)
 
-        frame_vbs4_setup = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_vbs4_setup.pack(pady=10)
-        tk.Button(frame_vbs4_setup, text="Set VBS4 Setup Launcher Location",
+        tk.Button(self, text="Set VBS4 Setup Launcher Location",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_vbs4_setup) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_vbs4_setup = tk.Label(
-            frame_vbs4_setup,
+            self,
             text=config['General'].get('vbs4_setup_path', '') or "[not set]",
             font=("Helvetica",14),
-            bg=frame_vbs4_setup.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_vbs4_setup.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_vbs4_setup.pack(fill="x", padx=10)
 
         # BlueIG Install Location
-        frame_blueig = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_blueig.pack(pady=10)
-        tk.Button(frame_blueig, text="Set BlueIG Install Location",
+        tk.Button(self, text="Set BlueIG Install Location",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_blueig) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_blueig = tk.Label(
-            frame_blueig,
+            self,
             text=get_blueig_install_path() or "[not set]",
             font=("Helvetica",14),
-            bg=frame_blueig.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_blueig.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_blueig.pack(fill="x", padx=10)
 
         # ARES Manager Install Location
-        frame_ares = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_ares.pack(pady=10)
-        tk.Button(frame_ares, text="Set ARES Manager Location",
+        tk.Button(self, text="Set ARES Manager Location",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_ares) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_ares = tk.Label(
-            frame_ares,
+            self,
             text=get_ares_manager_path() or "[not set]",
             font=("Helvetica",14),
-            bg=frame_ares.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_ares.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_ares.pack(fill="x", padx=10)
 
         # Default Browser
-        frame_browser = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_browser.pack(pady=10)
-        tk.Button(frame_browser, text="Pick Default Browser",
+        tk.Button(self, text="Pick Default Browser",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_browser) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_browser = tk.Label(
-            frame_browser,
+            self,
             text=get_default_browser() or "[not set]",
             font=("Helvetica",14),
-            bg=frame_browser.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_browser.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_browser.pack(fill="x", padx=10)
 
         # VBS License Manager Location
-        frame_vbs_license = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_vbs_license.pack(pady=10)
-        tk.Button(frame_vbs_license, text="Set VBS License Manager Location",
+        tk.Button(self, text="Set VBS License Manager Location",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_vbs_license_manager) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_vbs_license = tk.Label(
-            frame_vbs_license,
+            self,
             text=config['General'].get('vbs_license_manager_path', '') or "[not set]",
             font=("Helvetica",14),
-            bg=frame_vbs_license.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_vbs_license.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_vbs_license.pack(fill="x", padx=10)
 
         # One-Click Dataset Location
-        frame_ds = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        frame_ds.pack(pady=10)
-        tk.Button(frame_ds, text="Set One-Click Output Folder",
+        tk.Button(self, text="Set One-Click Output Folder",
                   font=("Helvetica",20), bg="#444444", fg="white",
                   command=self._on_set_oneclick) \
-          .pack(side="left", ipadx=10, ipady=5)
+          .pack(pady=10)
         self.lbl_oneclick = tk.Label(
-            frame_ds,
+            self,
             text=get_oneclick_output_path() or "[not set]",
             font=("Helvetica",14),
-            bg=frame_ds.cget("bg"),
+            bg="black",
             fg="white",
             anchor="w",
-            width=50,
-            bd=0,
-            highlightthickness=0,
         )
-        self.lbl_oneclick.pack(side="left", padx=10, fill="x", expand=True)
+        self.lbl_oneclick.pack(fill="x", padx=10)
 
         # Back
-        tk.Button(self.menu_col, text="Back",
+        tk.Button(self, text="Back",
                   font=("Helvetica",24), bg="#444444", fg="white",
                   width=30, height=1,
                   command=lambda: controller.show('Main'),
@@ -3554,78 +3516,34 @@ class TutorialsPanel(tk.Frame):
                  bg='black', fg='white', pady=20)\
           .pack(fill='x')
 
-        self.menu_col = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.menu_col.pack(pady=12)
-
-        # Create a frame to hold all button sections
-        content_frame = tk.Frame(self.menu_col, bg=self.menu_col.cget("bg"), bd=0, highlightthickness=0)
-        content_frame.pack()
-
-        # Configure grid
-        content_frame.columnconfigure(0, weight=1)
-        content_frame.columnconfigure(1, weight=1)
-        content_frame.rowconfigure(0, weight=1)
-        content_frame.rowconfigure(1, weight=1)
-
-        # VBS4 Help Section
-        vbs4_frame = self._create_section(content_frame, "VBS4 Help", 0, 0)
-        self._add_buttons(vbs4_frame, vbs4_help_items)
-
-        # BVI Help Section
-        bvi_frame = self._create_section(content_frame, "BVI Help", 0, 1)
-        self._add_buttons(bvi_frame, bvi_help_items)
-
-        # One-Click Terrain Help Section
-        oct_frame = self._create_section(content_frame, "One-Click Terrain Help", 1, 0)
-        self._add_buttons(oct_frame, oct_help_items)
-
-        # Blue IG Help Section
-        blueig_frame = self._create_section(content_frame, "Blue IG Help", 1, 1)
-        self._add_buttons(blueig_frame, blueig_help_items)
+        self._create_section("VBS4 Help", vbs4_help_items)
+        self._create_section("BVI Help", bvi_help_items)
+        self._create_section("One-Click Terrain Help", oct_help_items)
+        self._create_section("Blue IG Help", blueig_help_items)
 
         # Back button
-        tk.Button(self.menu_col, text="Back",
+        tk.Button(self, text="Back",
                   font=("Helvetica", 24), bg="#444444", fg="white",
                   width=30, height=1,
                   command=lambda: controller.show('Main'),
                   bd=0, highlightthickness=0)\
           .pack(pady=10)
 
-    def _create_section(self, parent, title, row, column):
-        frame = tk.Frame(
-            parent,
-            bg=parent.cget("bg"),
-            bd=0,
-            relief=tk.FLAT,
-            highlightthickness=1,
-            highlightbackground="#555555",
-        )
-        frame.grid(row=row, column=column, sticky='nsew', padx=10, pady=10)
-
+    def _create_section(self, title, items):
         tk.Label(
-            frame,
+            self,
             text=title,
             font=("Helvetica", 24, "bold"),
-            bg=frame.cget("bg"),
+            bg="black",
             fg='white',
             pady=10,
             bd=0,
             highlightthickness=0,
         ).pack(fill='x')
-        
-        return frame
 
-    def _add_buttons(self, parent, items):
-        button_frame = tk.Frame(parent, bg=parent.cget("bg"), bd=0, highlightthickness=0)
-        button_frame.pack(fill='both', expand=True, padx=5, pady=5)
-        
-        rows = 3
-        cols = 2
-        for i, (txt, cmd) in enumerate(items.items()):
-            row = i // cols
-            col = i % cols
+        for txt, cmd in items.items():
             tk.Button(
-                button_frame,
+                self,
                 text=txt,
                 font=("Helvetica", 12),
                 bg="#444444",
@@ -3634,13 +3552,7 @@ class TutorialsPanel(tk.Frame):
                 wraplength=150,
                 bd=0,
                 highlightthickness=0,
-            ).grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
-        
-        # Configure grid
-        for i in range(cols):
-            button_frame.columnconfigure(i, weight=1)
-        for i in range(rows):
-            button_frame.rowconfigure(i, weight=1)
+            ).pack(padx=5, pady=5)
 
     def open_blueig_docs(self):
         blueig_path = config['General'].get('blueig_path', '')
@@ -3665,33 +3577,18 @@ class CreditsPanel(tk.Frame):
                  bg='black', fg='white', pady=20)\
           .pack(fill='x')
 
-        self.menu_col = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.menu_col.pack(pady=12)
-
-        center_frame = tk.Frame(
-            self.menu_col,
-            bg=self.menu_col.cget("bg"),
-            padx=20,
-            pady=20,
-            bd=0,
-            highlightthickness=1,
-            highlightbackground="#555555",
-        )
-        center_frame.pack(pady=10)
-
         # Add STE logo
         if os.path.exists(logo_STE_path):
             img = Image.open(logo_STE_path).resize((90, 90), Image.Resampling.LANCZOS)
             ph = ImageTk.PhotoImage(img)
-            logo_label = tk.Label(
-                center_frame,
+            tk.Label(
+                self,
                 image=ph,
-                bg=center_frame.cget("bg"),
+                bg='black',
                 borderwidth=0,
                 highlightthickness=0,
-            )
-            logo_label.image = ph
-            logo_label.pack(pady=(0, 20))
+            ).pack(pady=10)
+            self.logo_image = ph
 
         # Credits text
         credits_text = """
@@ -3703,7 +3600,7 @@ class CreditsPanel(tk.Frame):
 
         Yovany Tietze-torres - Designer
 
-   
+
         Version: 1.0
 
         Special thanks to:
@@ -3712,19 +3609,18 @@ class CreditsPanel(tk.Frame):
         """
 
         tk.Label(
-            center_frame,
+            self,
             text=credits_text,
             font=("Helvetica", 14),
-            bg=center_frame.cget("bg"),
+            bg="black",
             fg='white',
             justify='center',
             bd=0,
             highlightthickness=0,
         ).pack(pady=20)
 
-        # Back button
         tk.Button(
-            self.menu_col,
+            self,
             text="Back",
             font=("Helvetica", 24),
             bg="#444444",
