@@ -2225,6 +2225,7 @@ class MainMenu(tk.Frame):
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        self.config(bg="black")
         set_wallpaper(self)
         set_background(controller, self)
         self.controller = controller
@@ -2337,7 +2338,7 @@ class VBS4Panel(tk.Frame):
             self.log_frame,
             height=3,
             bg=self.log_frame.cget("bg"),
-            fg="lime",
+            fg="white",
             wrap="word",
             bd=0,
             highlightthickness=0,
@@ -3659,6 +3660,7 @@ class CreditsPanel(tk.Frame):
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        self.config(bg="black")
         set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
@@ -3670,17 +3672,6 @@ class ContactSupportPanel(tk.Frame):
 
         self.menu_col = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
         self.menu_col.pack(pady=12)
-
-        center_frame = tk.Frame(
-            self.menu_col,
-            bg=self.menu_col.cget("bg"),
-            padx=20,
-            pady=20,
-            bd=0,
-            highlightthickness=1,
-            highlightbackground="#555555",
-        )
-        center_frame.pack(pady=10)
 
         # Support information
         support_text = """
@@ -3706,10 +3697,10 @@ class ContactSupportPanel(tk.Frame):
         """
 
         tk.Label(
-            center_frame,
+            self.menu_col,
             text=support_text,
             font=("Helvetica", 14),
-            bg=center_frame.cget("bg"),
+            bg=self.menu_col.cget("bg"),
             fg='white',
             justify='left',
             bd=0,
