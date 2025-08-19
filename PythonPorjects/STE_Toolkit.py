@@ -2081,7 +2081,14 @@ class MainMenu(tk.Frame):
         ).pack(fill="x")
 
         # BlueIG Frame (dynamic)
-        self.blueig_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        # Use a darker gray background so the surrounding area of the
+        # collapsible buttons is not the default light/white color.
+        self.blueig_frame = tk.Frame(
+            self,
+            bg="#333333",
+            bd=0,
+            highlightthickness=0,
+        )
         self.blueig_frame.pack(pady=10)
         self.create_blueig_button()
 
@@ -2162,8 +2169,12 @@ class MainMenu(tk.Frame):
                 self.blueig_frame,
                 text=f"Launch BlueIG HammerKit 1-{i}",
                 font=("Helvetica", 20),
-                bg="#444444", fg="white",
-                width=30, height=1,
+                bg="#444444",
+                fg="white",
+                width=30,
+                height=1,
+                bd=0,
+                highlightthickness=0,
                 command=lambda n=i: self.launch_blueig_scenario(n)
             ).pack(pady=5)
 
@@ -2171,8 +2182,11 @@ class MainMenu(tk.Frame):
             self.blueig_frame,
             text="Back",
             font=("Helvetica", 18),
-            bg="#666666", fg="white",
+            bg="#666666",
+            fg="white",
             width=10,
+            bd=0,
+            highlightthickness=0,
             command=self.create_blueig_button
         ).pack(pady=10)
 
@@ -2246,7 +2260,12 @@ class VBS4Panel(tk.Frame):
         )
         self.update_vbs4_launcher_button_state()
 
-        self.blueig_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.blueig_frame = tk.Frame(
+            self,
+            bg="#333333",
+            bd=0,
+            highlightthickness=0,
+        )
         self.blueig_frame.pack(pady=10)
         self.create_blueig_button()
 
@@ -2446,6 +2465,8 @@ class VBS4Panel(tk.Frame):
                 fg="white",
                 width=30,
                 height=1,
+                bd=0,
+                highlightthickness=0,
                 command=lambda n=i: self.launch_blueig_scenario(n),
             ).pack(pady=10)
 
@@ -2457,6 +2478,8 @@ class VBS4Panel(tk.Frame):
             fg="white",
             width=30,
             height=1,
+            bd=0,
+            highlightthickness=0,
             command=self.create_blueig_button,
         ).pack(pady=10)
 
