@@ -34,6 +34,7 @@ import win32netcon
 import ctypes.wintypes
 import logging
 from pathlib import Path
+from typing import Callable
 
 try:  # Optional atomic write helper
     from steup.utils import write_config_atomic  # type: ignore
@@ -3524,59 +3525,106 @@ class TutorialsPanel(tk.Frame):
         super().__init__(parent)
         set_wallpaper(self)
         set_background(controller, self)
-        tk.Label(self, text="Tutorials ❓",
+
+        tk.Label(self, text="Tutorials  ❓",
                  font=("Helvetica", 36, "bold"),
-                 bg='black', fg='white', pady=20)\
-          .pack(fill='x')
+                 bg="black", fg="white", pady=20).pack(fill="x")
 
-        self._create_section("VBS4 Help", vbs4_help_items)
-        self._create_section("BVI Help", bvi_help_items)
-        self._create_section("One-Click Terrain Help", oct_help_items)
-        self._create_section("Blue IG Help", blueig_help_items)
+        # Grid container for 4 cards (2 x 2)
+        grid = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        grid.pack(fill="both", expand=True, padx=24, pady=(0, 12))
+        for c in range(2):
+            grid.grid_columnconfigure(c, weight=1, uniform="cards")
+        for r in range(2):
+            grid.grid_rowconfigure(r, weight=1, uniform="cards")
 
-        # Back button
-        tk.Button(self, text="Back",
-                  font=("Helvetica", 24), bg="#444444", fg="white",
-                  width=30, height=1,
-                  command=lambda: controller.show('Main'),
-                  bd=0, highlightthickness=0)\
-          .pack(pady=10)
+        # Helper to create a card and place it
+        def create_card(row, col, title, items):
+            card = TutorialCard(grid, title, items)
+            card.grid(row=row, column=col, sticky="nsew", padx=10, pady=10)
+            return card
 
-    def _create_section(self, title, items):
-        tk.Label(
-            self,
-            text=title,
-            font=("Helvetica", 24, "bold"),
-            bg="black",
-            fg='white',
-            pady=10,
-            bd=0,
-            highlightthickness=0,
-        ).pack(fill='x')
+        # Build 4 cards
+        create_card(0, 0, "VBS4 Help", vbs4_help_items)
+        create_card(0, 1, "BVI Help", bvi_help_items)
+        create_card(1, 0, "One-Click Terrain Help", oct_help_items)
+        create_card(1, 1, "Blue IG Help", blueig_help_items)
 
-        for txt, cmd in items.items():
-            tk.Button(
-                self,
-                text=txt,
-                font=("Helvetica", 12),
-                bg="#444444",
-                fg="white",
-                command=cmd,
-                wraplength=150,
-                bd=0,
-                highlightthickness=0,
-            ).pack(padx=5, pady=5)
+        # Back button (centered)
+        footer = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        footer.pack(pady=12)
+        try:
+            pill_button(footer, "Back", lambda: controller.show('Main')).pack()
+        except Exception:
+            DarkButtons.link(footer, "Back", lambda: controller.show('Main')).pack()
 
-    def open_blueig_docs(self):
-        blueig_path = config['General'].get('blueig_path', '')
-        if blueig_path:
-            docs_path = os.path.join(os.path.dirname(blueig_path), "docs", "Blue_IG_EN.htm")
-            if os.path.exists(docs_path):
-                webbrowser.open(f"file://{docs_path}", new=2)
-            else:
-                messagebox.showerror("Error", "Blue IG documentation not found.")
+
+class TutorialCard(tk.Frame):
+    def __init__(self, parent, title: str, items: dict[str, Callable]):
+        super().__init__(parent,
+                         bg="#1f1f1f",
+                         highlightthickness=2,
+                         highlightbackground="#333333",
+                         highlightcolor="#333333",
+                         bd=0)
+        # Title
+        tk.Label(self, text=title,
+                 font=("Helvetica", 24, "bold"),
+                 bg="#1f1f1f", fg="white", pady=10).pack(fill="x", padx=16, pady=(8, 0))
+
+        # Divider
+        tk.Frame(self, bg="#2b2b2b", height=1, bd=0, highlightthickness=0)\
+            .pack(fill="x", padx=16, pady=(6, 10))
+
+        # Button column
+        body = tk.Frame(self, bg="#1f1f1f", bd=0, highlightthickness=0)
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+
+        for text, cmd in (items or {}).items():
+            btn = make_link_btn(body, text, cmd)
+            btn.pack(fill="x", pady=6)
+
+    def add_item(self, text: str, command: Callable):
+        btn = make_link_btn(self, text, command)  # parent replaced below
+        # reparent into the last packed frame (body)
+        body = self.winfo_children()[-1]
+        btn.master = body
+        btn.pack(fill="x", pady=6)
+
+
+def make_link_btn(parent, text, command):
+    btn = tk.Button(parent, text=text, command=command,
+                    bg="#3a3a3a", fg="white",
+                    activebackground="#4a4a4a", activeforeground="white",
+                    font=("Helvetica", 14, "bold"),
+                    bd=0, highlightthickness=0,
+                    padx=16, pady=10, wraplength=340, justify="center")
+
+    def _enter(_):
+        if btn["state"] != tk.DISABLED:
+            btn.configure(bg="#4a4a4a")
+    def _leave(_):
+        if btn["state"] != tk.DISABLED:
+            btn.configure(bg="#3a3a3a")
+    btn.bind("<Enter>", _enter)
+    btn.bind("<Leave>", _leave)
+    return btn
+
+# Optional fallback button helper if pill_button is unavailable in scope
+class DarkButtons:
+    @staticmethod
+    def link(parent, text, command, disabled=False):
+        b = tk.Button(parent, text=text, command=command,
+                      bg="#3a3a3a", fg="white",
+                      activebackground="#4a4a4a", activeforeground="white",
+                      font=("Helvetica", 16, "bold"),
+                      bd=0, highlightthickness=0, padx=18, pady=8)
+        if disabled:
+            b.configure(state=tk.DISABLED, bg="#777777")
         else:
-            messagebox.showerror("Error", "Blue IG path not set. Please set it in the settings.")
+            b.bind("<Enter>", lambda e: b.config(bg="#4a4a4a"))
+            b.bind("<Leave>", lambda e: b.config(bg="#3a3a3a"))
+        return b
 
 
 def _round_rectangle(canvas, x1, y1, x2, y2, radius=20, **kwargs):
