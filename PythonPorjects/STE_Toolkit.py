@@ -3071,8 +3071,8 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Mesh build finished: {json_path}")
             except Exception as exc:
                 self.log_message(f"Failed while waiting for build: {exc}")
-                self.after(0, lambda: messagebox.showerror(
-                    "Build Error", str(exc), parent=self))
+                self.after(0, lambda e=exc: messagebox.showerror(
+                    "Build Error", str(e), parent=self))
                 return
 
             def launch_rm():
@@ -3553,9 +3553,10 @@ class TutorialsPanel(tk.Frame):
         # Back button (centered)
         footer = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
         footer.pack(pady=12)
-        try:
-            pill_button(footer, "Back", lambda: controller.show('Main')).pack()
-        except Exception:
+        pb = globals().get("pill_button")
+        if pb:
+            pb(footer, "Back", lambda: controller.show('Main')).pack()
+        else:
             DarkButtons.link(footer, "Back", lambda: controller.show('Main')).pack()
 
 
