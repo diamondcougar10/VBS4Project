@@ -1835,10 +1835,13 @@ class MainApp(tk.Tk):
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
 
-        # default centered geometry for windowed mode
-        x = (sw - self.base_width)//2
-        y = (sh - self.base_height)//2
-        self.windowed_geometry = f"{self.base_width}x{self.base_height}+{x}+{y}"
+        # scale and geometry for windowed mode so it always fits on screen
+        self.window_scale = min(sw / self.base_width, sh / self.base_height, 1.0)
+        win_w = int(self.base_width * self.window_scale)
+        win_h = int(self.base_height * self.window_scale)
+        x = (sw - win_w) // 2
+        y = (sh - win_h) // 2
+        self.windowed_geometry = f"{win_w}x{win_h}+{x}+{y}"
 
         if self.fullscreen:
             scale = min(sw / self.base_width, sh / self.base_height)
@@ -1846,6 +1849,7 @@ class MainApp(tk.Tk):
             self.geometry(f"{sw}x{sh}+0+0")
             self.attributes('-fullscreen', True)
         else:
+            self.apply_scale(self.window_scale)
             self.geometry(self.windowed_geometry)
 
         set_background(self)
@@ -1928,10 +1932,9 @@ class MainApp(tk.Tk):
 
     def toggle_fullscreen(self):
         """Toggle fullscreen while maintaining aspect ratio."""
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
         if not self.fullscreen:
-            self.windowed_geometry = self.geometry()
-            screen_w = self.winfo_screenwidth()
-            screen_h = self.winfo_screenheight()
             scale = min(screen_w / self.base_width, screen_h / self.base_height)
             self.apply_scale(scale)
             self.geometry(f"{screen_w}x{screen_h}+0+0")
@@ -1939,7 +1942,13 @@ class MainApp(tk.Tk):
             self.fullscreen = True
         else:
             self.attributes('-fullscreen', False)
-            self.apply_scale(1.0)
+            self.window_scale = min(screen_w / self.base_width, screen_h / self.base_height, 1.0)
+            win_w = int(self.base_width * self.window_scale)
+            win_h = int(self.base_height * self.window_scale)
+            x = (screen_w - win_w) // 2
+            y = (screen_h - win_h) // 2
+            self.apply_scale(self.window_scale)
+            self.windowed_geometry = f"{win_w}x{win_h}+{x}+{y}"
             self.geometry(self.windowed_geometry)
             self.fullscreen = False
 
