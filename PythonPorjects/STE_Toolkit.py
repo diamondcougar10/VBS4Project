@@ -3573,149 +3573,149 @@ class TutorialsPanel(tk.Frame):
                 messagebox.showerror("Error", "Blue IG documentation not found.")
         else:
             messagebox.showerror("Error", "Blue IG path not set. Please set it in the settings.")
-            
+
+
+def _round_rectangle(canvas, x1, y1, x2, y2, radius=20, **kwargs):
+    """Draw a rounded rectangle on *canvas* from (x1,y1) to (x2,y2)."""
+    points = [
+        x1 + radius, y1,
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+
+def create_card(parent, max_width=600, padding=20, radius=20, bg="#222222"):
+    """Return a canvas and inner frame styled as a centered card."""
+    canvas = tk.Canvas(parent, highlightthickness=0, bd=0)
+    inner = tk.Frame(canvas, bg=bg)
+    window = canvas.create_window(padding, padding, anchor="nw", window=inner)
+
+    def _resize(event=None):
+        inner.update_idletasks()
+        width = min(max_width, inner.winfo_reqwidth() + 2 * padding)
+        height = inner.winfo_reqheight() + 2 * padding
+        canvas.config(width=width, height=height, bg=parent.cget("bg"))
+        canvas.delete("card")
+        _round_rectangle(canvas, 0, 0, width, height, radius, fill=bg, outline=bg, tags="card")
+        canvas.coords(window, padding, padding)
+
+    inner.bind("<Configure>", _resize)
+    _resize()
+    return canvas, inner
+
 class CreditsPanel(tk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent)
+        super().__init__(parent, bg="#222222")
         set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
-        tk.Label(self, text="CREDITS",
-                 font=("Helvetica", 36, "bold"),
-                 bg='black', fg='white', pady=20)\
-          .pack(fill='x')
+        card_canvas, card = create_card(self)
+        card_canvas.pack(pady=40)
 
-        # Add STE logo
+        tk.Label(card, text="CREDITS", font=("Helvetica", 32, "bold"), bg="#222222", fg="white")\
+            .pack(pady=(0, 20))
+
         if os.path.exists(logo_STE_path):
             img = Image.open(logo_STE_path).resize((90, 90), Image.Resampling.LANCZOS)
             ph = ImageTk.PhotoImage(img)
-            tk.Label(
-                self,
-                image=ph,
-                bg='black',
-                borderwidth=0,
-                highlightthickness=0,
-            ).pack(pady=10)
+            tk.Label(card, image=ph, bg="#222222", borderwidth=0, highlightthickness=0)\
+                .pack(pady=(0, 20))
             self.logo_image = ph
 
-        # Credits text
-        credits_text = """
-        STE Mission Planning Toolkit
+        tk.Label(card, text="STE Mission Planning Toolkit", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
 
-        Designed and developed by:
+        tk.Label(card, text="Designed and developed by:", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
+        tk.Label(card, text="Ryan Curphey - Developer", font=("Helvetica", 14),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
+        tk.Label(card, text="Yovany Tietze-torres - Designer", font=("Helvetica", 14),
+                 bg="#222222", fg="white", anchor="w")\
+            .pack(fill="x", pady=(0, 20))
 
-        Ryan Curphey - Developer
+        tk.Label(card, text="Version: 1.0", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(0, 20))
 
-        Yovany Tietze-torres - Designer
+        tk.Label(card, text="Special thanks to:", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
+        tk.Label(card, text="- The STE CFT team\n- All contributors and testers",
+                 font=("Helvetica", 14), bg="#222222", fg="white", anchor="w",
+                 justify="left").pack(fill="x", pady=(0, 20))
 
-
-        Version: 1.0
-
-        Special thanks to:
-        - The STE CFT team
-        - All contributors and testers
-        """
-
-        tk.Label(
-            self,
-            text=credits_text,
-            font=("Helvetica", 14),
-            bg="black",
-            fg='white',
-            justify='center',
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=20)
-
-        tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 24),
-            bg="#444444",
-            fg="white",
-            width=30,
-            height=1,
-            command=lambda: controller.show('Main'),
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=10)
+        tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444", fg="white",
+                  width=30, height=1, command=lambda: controller.show('Main'),
+                  bd=0, highlightthickness=0).pack(pady=(10, 0))
 
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.config(bg="black")
+        super().__init__(parent, bg="#222222")
         set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
-        tk.Label(self, text="Contact Support",
-                 font=("Helvetica", 36, "bold"),
-                 bg='black', fg='white', pady=20)\
-          .pack(fill='x')
+        card_canvas, card = create_card(self)
+        card_canvas.pack(pady=40)
 
-        self.menu_col = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.menu_col.pack(pady=12)
+        tk.Label(card, text="Contact Support", font=("Helvetica", 32, "bold"),
+                 bg="#222222", fg="white").pack(pady=(0, 20))
 
-        # Support information
-        support_text = """
-        For technical support or assistance, please contact:
+        tk.Label(card,
+                 text="For technical support or assistance, please contact:",
+                 font=("Helvetica", 14), bg="#222222", fg="white",
+                 anchor="w", justify="left", wraplength=560).pack(fill="x")
 
+        tk.Label(card, text="Michael Enloe", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
+        tk.Label(card, text="Cheif Technology Officer", font=("Helvetica", 14),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
+        tk.Label(card, text="Email: michael.r.enloe.civ@army.mil", font=("Helvetica", 14),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
 
-        Michael Enloe
-        Cheif Technology Officer
-        Email: michael.r.enloe.civ@army.mil
-        
-        
-        Yovany Tietze-torres
-        Senior Syetems Architect
-        Email: yovany.e.tietze-torres.ctr@army.mil
-       
+        tk.Label(card, text="Yovany Tietze-torres", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
+        tk.Label(card, text="Senior Syetems Architect", font=("Helvetica", 14),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
+        tk.Label(card, text="Email: yovany.e.tietze-torres.ctr@army.mil", font=("Helvetica", 14),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x")
 
-        US Army Futures Command, Synthetic Training Environment (STE)   Cross Functional Team (CFT)
+        tk.Label(card,
+                 text="US Army Futures Command, Synthetic Training Environment (STE)   Cross Functional Team (CFT)\n12809 Science Dr, Orlando, FL 32836",
+                 font=("Helvetica", 14), bg="#222222", fg="white", anchor="w",
+                 justify="left", wraplength=560).pack(fill="x", pady=(20, 0))
 
-        12809 Science Dr, Orlando, FL 32836
+        tk.Label(card, text="Hours of Operation:", font=("Helvetica", 18, "bold"),
+                 bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
+        tk.Label(card, text="Monday - Friday: 9:00 AM - 5:00 PM EST",
+                 font=("Helvetica", 14), bg="#222222", fg="white", anchor="w")\
+            .pack(fill="x")
 
-        Hours of Operation:
-        Monday - Friday: 9:00 AM - 5:00 PM EST
-        """
-
-        tk.Label(
-            self.menu_col,
-            text=support_text,
-            font=("Helvetica", 14),
-            bg=self.menu_col.cget("bg"),
-            fg='white',
-            justify='left',
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=20)
-
-        tk.Button(
-            self.menu_col,
-            text="Contact Support via Email",
-            font=("Helvetica", 24),
-            bg="#444444",
-            fg="white",
-            width=30,
-            height=1,
-            command=self.contact_support,
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=10)
-
-        tk.Button(
-            self.menu_col,
-            text="Back",
-            font=("Helvetica", 24),
-            bg="#444444",
-            fg="white",
-            width=30,
-            height=1,
-            command=lambda: controller.show('Main'),
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=10)
+        tk.Button(card, text="Contact Support via Email", font=("Helvetica", 24),
+                  bg="#444444", fg="white", width=30, height=1,
+                  command=self.contact_support, bd=0, highlightthickness=0)\
+            .pack(pady=(30, 10))
+        tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444",
+                  fg="white", width=30, height=1,
+                  command=lambda: controller.show('Main'), bd=0,
+                  highlightthickness=0).pack(pady=(0, 10))
 
     def contact_support(self):
         # This function will open the default email client with the new email address
