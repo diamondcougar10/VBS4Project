@@ -91,46 +91,6 @@ def run_in_thread(target, *args, **kwargs):
                              kwargs=kwargs, daemon=True)
     thread.start()
 
-
-class ScrollableFrame(tk.Frame):
-    """A vertical scroll area that keeps a fixed footer outside the scroll."""
-
-    def __init__(self, parent, *, bg=None):
-        super().__init__(
-            parent,
-            bg=bg or (parent.cget("bg") if hasattr(parent, "cget") else None),
-        )
-        self.canvas = tk.Canvas(
-            self, highlightthickness=0, bd=0, bg=self.cget("bg")
-        )
-        self.vscroll = ttk.Scrollbar(
-            self, orient="vertical", command=self.canvas.yview
-        )
-        self.inner = tk.Frame(self.canvas, bg=self.cget("bg"))
-
-        self.inner.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
-        self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.vscroll.set)
-
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        self.vscroll.grid(row=0, column=1, sticky="ns")
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        # Mouse wheel support
-        self.inner.bind_all("<MouseWheel>", self._on_mousewheel)  # Windows
-        self.inner.bind_all("<Button-4>", self._on_mousewheel_linux)  # Linux up
-        self.inner.bind_all("<Button-5>", self._on_mousewheel_linux)  # Linux down
-
-    def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(-1 * int(event.delta / 120), "units")
-
-    def _on_mousewheel_linux(self, event):
-        self.canvas.yview_scroll(-1 if event.num == 4 else 1, "units")
-
 # ---------------------------------------------------------------------------
 # PhotoMesh progress helpers
 # ---------------------------------------------------------------------------
@@ -1859,7 +1819,8 @@ class MainApp(tk.Tk):
         super().__init__()
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
-        self.resizable(True, True)
+         # Prevent window resizing
+        self.resizable(False, False)
 
         # List of buttons that can receive keyboard focus
         self.focusable_buttons = []
@@ -1892,8 +1853,6 @@ class MainApp(tk.Tk):
             self.geometry(f"{w}x{h}+{x}+{y}")
 
         set_background(self)
-
-        self.minsize(960, 600)
 
         close_btn = tk.Button(self, text="✕",
                               font=("Helvetica",12,"bold"),
@@ -1977,6 +1936,7 @@ class MainApp(tk.Tk):
             wr   = win32api.GetMonitorInfo(mon)['Work']
             x1,y1,x2,y2 = wr
             self.geometry(f"{x2-x1}x{y2-y1}+{x1}+{y1}")
+            self.update_idletasks()
             hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
             make_borderless(hwnd)
         else:
@@ -1996,7 +1956,6 @@ class MainApp(tk.Tk):
                 SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED
             )
             self.geometry(f"{w}x{h}+{x}+{y}")
-        self.update_idletasks()
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -2277,14 +2236,9 @@ class VBS4Panel(tk.Frame):
         self.tooltip = Tooltip(self)
         enable_obj_in_photomesh_config()
         set_active_wizard_preset()
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        self.scroll = ScrollableFrame(self, bg=self.cget("bg"))
-        self.scroll.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 0))
 
         tk.Label(
-            self.scroll.inner,
+            self,
             text="VBS4 / BlueIG",
             font=("Helvetica", 36, "bold"),
             bg="black", fg="white", pady=20
@@ -2294,12 +2248,12 @@ class VBS4Panel(tk.Frame):
         logging.debug("VBS4 path for button creation: %s", vbs4_path)
 
         self.vbs4_button, self.vbs4_version_label = create_app_button(
-            self.scroll.inner, "VBS4", get_vbs4_install_path, launch_vbs4,
+            self, "VBS4", get_vbs4_install_path, launch_vbs4,
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
 
         self.vbs4_launcher_button, self.vbs4_launcher_version_label = create_app_button(
-            self.scroll.inner, "VBS4 Launcher",
+            self, "VBS4 Launcher",
             lambda: config['General'].get('vbs4_setup_path', ''),
             launch_vbs4_setup,
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
@@ -2310,8 +2264,8 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_launcher_button_state()
 
         self.blueig_frame = tk.Frame(
-            self.scroll.inner,
-            bg=self.cget("bg"),
+            self,
+            bg="#333333",
             bd=0,
             highlightthickness=0,
         )
@@ -2319,14 +2273,14 @@ class VBS4Panel(tk.Frame):
         self.create_blueig_button()
 
         self.vbs_license_button, _ = create_app_button(
-            self.scroll.inner, "VBS License Manager",
+            self, "VBS License Manager",
             lambda: config['General'].get('vbs_license_manager_path', ''),
             self.launch_vbs_license_manager,
             lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
 
         self.terrain_button = tk.Button(
-            self.scroll.inner,
+            self,
             text="One-Click Terrain Converter",
             font=("Helvetica", 24),
             bg="#444444", fg="white",
@@ -2342,13 +2296,12 @@ class VBS4Panel(tk.Frame):
         )
         self.terrain_button.bind("<Leave>", self.hide_tooltip)
 
-        self.terrain_frame = tk.Frame(self.scroll.inner, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.terrain_frame.pack()
+        self.terrain_frame = tk.Frame(self, bg="#333333", bd=0, highlightthickness=0)
         self.create_hidden_terrain_buttons()
         self.update_fuser_state()
 
         tk.Button(
-            self.scroll.inner,
+            self,
             text="External Map",
             font=("Helvetica", 24),
             bg="#444444", fg="white",
@@ -2359,7 +2312,7 @@ class VBS4Panel(tk.Frame):
         ).pack(pady=10)
 
         tk.Button(
-            self.scroll.inner,
+            self,
             text="Back",
             font=("Helvetica", 24),
             bg="#444444", fg="white",
@@ -2369,18 +2322,19 @@ class VBS4Panel(tk.Frame):
             highlightthickness=0,
         ).pack(pady=10)
 
-        # FOOTER (not scrollable)
+               # Log Window
+            # Log Window
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 0))
-        self.log_frame.grid_rowconfigure(1, weight=1)
-        self.log_frame.grid_columnconfigure(0, weight=1)
+        # Keep the activity log anchored to the bottom so control buttons
+        # remain accessible even in fullscreen mode.
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
         tk.Label(
             self.log_frame, text="Activity Log",
             font=("Helvetica", 16, "bold"),
             bg=self.log_frame.cget("bg"), fg="white",
             bd=0, highlightthickness=0,
-        ).grid(row=0, column=0, sticky="w")
+        ).pack(anchor="w")
 
         self.log_text = tk.Text(
             self.log_frame,
@@ -2391,7 +2345,7 @@ class VBS4Panel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        self.log_text.grid(row=1, column=0, sticky="nsew")
+        self.log_text.pack(fill="both", expand=True)
         self.log_expanded = False
         self.log_text.config(state="disabled")
 
@@ -2402,8 +2356,7 @@ class VBS4Panel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        progress_frame.grid(row=2, column=0, sticky="ew", pady=(5, 0))
-        progress_frame.grid_columnconfigure(0, weight=1)
+        progress_frame.pack(fill="x", pady=(5, 0))
 
         self.progress_var = tk.IntVar(value=0)
         style = ttk.Style()
@@ -2421,7 +2374,7 @@ class VBS4Panel(tk.Frame):
             mode="determinate",
             style="Green.Horizontal.TProgressbar",
         )
-        self.progress_bar.grid(row=0, column=0, sticky="ew")
+        self.progress_bar.pack(side="left", fill="x", expand=True)
 
         self.progress_label = tk.Label(
             progress_frame,
@@ -2433,7 +2386,7 @@ class VBS4Panel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        self.progress_label.grid(row=0, column=1, sticky="e", padx=(5, 0))
+        self.progress_label.pack(side="right", padx=(5, 0))
 
         self.progress_job = None
         self.project_log_folder = None
@@ -2441,8 +2394,7 @@ class VBS4Panel(tk.Frame):
         self.last_build_dir = None
 
         button_frame = tk.Frame(self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0)
-        button_frame.grid(row=3, column=0, sticky="ew", pady=5)
-        button_frame.grid_columnconfigure(0, weight=1)
+        button_frame.pack(fill="x", pady=5)
 
         self.toggle_log_button = tk.Button(
             button_frame,
@@ -2453,7 +2405,7 @@ class VBS4Panel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        self.toggle_log_button.grid(row=0, column=0, sticky="w")
+        self.toggle_log_button.pack(side="left")
 
         tk.Button(
             button_frame,
@@ -2463,7 +2415,7 @@ class VBS4Panel(tk.Frame):
             fg="white",
             bd=0,
             highlightthickness=0,
-        ).grid(row=0, column=1, sticky="e")
+        ).pack(side="right")
 
     def create_blueig_button(self):
         # Clear out any existing widgets
