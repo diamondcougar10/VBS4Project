@@ -1827,30 +1827,26 @@ class MainApp(tk.Tk):
 
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
 
+        # base windowed size and scaling
+        self.base_width, self.base_height = 1660, 800
+        self.base_scaling = float(self.tk.call('tk', 'scaling'))
+
         # screen dims
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
 
-        # monitor work area (excludes taskbar)
-        mon  = win32api.MonitorFromPoint((0,0))
-        wr   = win32api.GetMonitorInfo(mon)['Work']  # (l,t,r,b)
-        wx1, wy1, wx2, wy2 = wr
-        ww, wh = wx2-wx1, wy2-wy1
+        # default centered geometry for windowed mode
+        x = (sw - self.base_width)//2
+        y = (sh - self.base_height)//2
+        self.windowed_geometry = f"{self.base_width}x{self.base_height}+{x}+{y}"
 
-        # decide initial geometry & style
         if self.fullscreen:
-            # size to work-area, strip only border/title
-            self.geometry(f"{ww}x{wh}+{wx1}+{wy1}")
-            self.update_idletasks()
-            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
-            make_borderless(hwnd)
-
+            scale = min(sw / self.base_width, sh / self.base_height)
+            self.apply_scale(scale)
+            self.geometry(f"{sw}x{sh}+0+0")
+            self.attributes('-fullscreen', True)
         else:
-            # normal windowed
-            w, h = 1660, 800
-            x = (sw - w)//2
-            y = (sh - h)//2
-            self.geometry(f"{w}x{h}+{x}+{y}")
+            self.geometry(self.windowed_geometry)
 
         set_background(self)
 
@@ -1863,7 +1859,7 @@ class MainApp(tk.Tk):
         self.content = tk.Frame(self)
         self.content.pack(expand=True, fill="both")
 
-        nav = tk.Frame(self.content, width=200, bg='#333333')
+        nav = tk.Frame(self.content, bg='#333333')
         nav.pack(side='left', fill='y')
 
         self.panels_container = tk.Frame(self.content)
@@ -1926,36 +1922,26 @@ class MainApp(tk.Tk):
         self.bind("<Return>", self.activate_current)
         self.update_navigation()
 
+    def apply_scale(self, scale: float) -> None:
+        """Scale fonts and widgets proportionally using Tk scaling."""
+        self.tk.call('tk', 'scaling', self.base_scaling * scale)
+
     def toggle_fullscreen(self):
-        """Call this (e.g. on F11) to go borderless-workarea ↔ windowed."""
-        self.fullscreen = not self.fullscreen
-        # save back to config if you like...
-        if self.fullscreen:
-            # apply borderless workarea
-            mon  = win32api.MonitorFromPoint((0,0))
-            wr   = win32api.GetMonitorInfo(mon)['Work']
-            x1,y1,x2,y2 = wr
-            self.geometry(f"{x2-x1}x{y2-y1}+{x1}+{y1}")
-            self.update_idletasks()
-            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
-            make_borderless(hwnd)
+        """Toggle fullscreen while maintaining aspect ratio."""
+        if not self.fullscreen:
+            self.windowed_geometry = self.geometry()
+            screen_w = self.winfo_screenwidth()
+            screen_h = self.winfo_screenheight()
+            scale = min(screen_w / self.base_width, screen_h / self.base_height)
+            self.apply_scale(scale)
+            self.geometry(f"{screen_w}x{screen_h}+0+0")
+            self.attributes('-fullscreen', True)
+            self.fullscreen = True
         else:
-            # restore windowed
-            sw = self.winfo_screenwidth()
-            sh = self.winfo_screenheight()
-            w, h = 1660, 800
-            x = (sw - w)//2
-            y = (sh - h)//2
-            # re-add standard frame by resetting style bits:
-            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
-            style |= (WS_BORDER | WS_DLGFRAME)
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
-            ctypes.windll.user32.SetWindowPos(
-                hwnd, None, 0,0,0,0,
-                SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED
-            )
-            self.geometry(f"{w}x{h}+{x}+{y}")
+            self.attributes('-fullscreen', False)
+            self.apply_scale(1.0)
+            self.geometry(self.windowed_geometry)
+            self.fullscreen = False
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
