@@ -1852,32 +1852,6 @@ class MainApp(tk.Tk):
             self.apply_scale(self.window_scale)
             self.geometry(self.windowed_geometry)
 
-        # track live scale & throttle id
-        self._live_scale = None
-        self._cfg_job = None
-
-        def _on_configure(event=None):
-            # throttle rapid resize events
-            if self._cfg_job is not None:
-                self.after_cancel(self._cfg_job)
-            self._cfg_job = self.after(25, self._recompute_scale)
-
-        def _recompute_scale():
-            self._cfg_job = None
-            w = max(1, self.winfo_width())
-            h = max(1, self.winfo_height())
-            # compute scale vs. base design
-            s = min(w / self.base_width, h / self.base_height)
-            s = max(0.70, min(1.50, s))
-            if self._live_scale is None or abs(self._live_scale - s) > 0.02:
-                self._live_scale = s
-                self.apply_scale(s)
-                self.update_idletasks()
-
-        self._recompute_scale = _recompute_scale
-        # bind after initial geometry is set
-        self.bind("<Configure>", _on_configure)
-
         set_background(self)
 
         close_btn = tk.Button(self, text="✕",
@@ -1977,9 +1951,6 @@ class MainApp(tk.Tk):
             self.windowed_geometry = f"{win_w}x{win_h}+{x}+{y}"
             self.geometry(self.windowed_geometry)
             self.fullscreen = False
-
-        # trigger a recompute after the window actually resizes
-        self.after(10, lambda: self.event_generate("<Configure>"))
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
