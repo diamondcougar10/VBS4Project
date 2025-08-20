@@ -2250,15 +2250,16 @@ class VBS4Panel(tk.Frame):
             self, "VBS4", get_vbs4_install_path, launch_vbs4,
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
         )
-        self.update_vbs4_version()
-        self.update_vbs4_button_state()
 
-        self.vbs4_launcher_button, _ = create_app_button(
+        self.vbs4_launcher_button, self.vbs4_launcher_version_label = create_app_button(
             self, "VBS4 Launcher",
             lambda: config['General'].get('vbs4_setup_path', ''),
             launch_vbs4_setup,
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
         )
+
+        self.update_vbs4_version()
+        self.update_vbs4_button_state()
         self.update_vbs4_launcher_button_state()
 
         self.blueig_frame = tk.Frame(
@@ -2438,6 +2439,9 @@ class VBS4Panel(tk.Frame):
         path = get_vbs4_install_path()
         ver = get_vbs4_version(path)
         self.vbs4_version_label.config(text=f"Version: {ver}")
+        # The VBS4 Launcher shares the same version as VBS4 itself
+        if hasattr(self, 'vbs4_launcher_version_label'):
+            self.vbs4_launcher_version_label.config(text=f"Version: {ver}")
 
     def update_blueig_version(self):
         path = get_blueig_install_path()
