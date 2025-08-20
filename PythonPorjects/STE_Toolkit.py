@@ -1852,6 +1852,37 @@ class MainApp(tk.Tk):
             self.apply_scale(self.window_scale)
             self.geometry(self.windowed_geometry)
 
+        # track live scale & throttle id
+        self._live_scale = None
+        self._cfg_job = None
+
+        def _on_configure(event=None):
+            # throttle rapid resize events
+            if self._cfg_job is not None:
+                self.after_cancel(self._cfg_job)
+            self._cfg_job = self.after(25, self._recompute_scale)
+
+        def _recompute_scale():
+            self._cfg_job = None
+            # ensure geometry info is up to date
+            self.update_idletasks()
+            w = max(1, self.winfo_width())
+            h = max(1, self.winfo_height())
+            # derive base content height from its requested size
+            current_scale = self._live_scale if self._live_scale is not None else self.window_scale
+            base_h = self.content.winfo_reqheight() / max(current_scale, 1e-6)
+            # compute scale vs. design width and dynamic content height
+            s = min(w / self.base_width, h / base_h)
+            s = max(0.70, min(1.50, s))
+            if self._live_scale is None or abs(self._live_scale - s) > 0.02:
+                self._live_scale = s
+                self.apply_scale(s)
+                self.update_idletasks()
+
+        self._recompute_scale = _recompute_scale
+        # bind after initial geometry is set
+        self.bind("<Configure>", _on_configure)
+
         set_background(self)
 
         close_btn = tk.Button(self, text="✕",
@@ -1952,6 +1983,9 @@ class MainApp(tk.Tk):
             self.geometry(self.windowed_geometry)
             self.fullscreen = False
 
+        # trigger a recompute after the window actually resizes
+        self.after(10, lambda: self.event_generate("<Configure>"))
+
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
         path = config['General'].get(path_key, '')
@@ -1975,6 +2009,8 @@ class MainApp(tk.Tk):
 
         # Refresh navigation list whenever a new panel is shown
         self.update_navigation()
+        # allow layout to settle then recompute scale for new content
+        self.after(0, self._recompute_scale)
 
     def collect_buttons(self, widget):
         """Recursively collect all enabled Button widgets."""
