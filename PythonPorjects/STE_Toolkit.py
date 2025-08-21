@@ -354,24 +354,51 @@ def find_executable(name, additional_paths=[]):
 # ---------------------------------------------------------------------------
 # Reality Mesh post-processing helpers
 # ---------------------------------------------------------------------------
-# put this near your other constants
-DEFAULT_RM_LNK = r"\\HAMMERKIT1-4\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk"
 
-def find_reality_mesh_to_vbs4_link() -> str:
-    """Return the path to the Reality Mesh to VBS4 shortcut if found."""
-    default = DEFAULT_RM_LNK
-    if os.path.isfile(default):
-        return default
+RM_TEMPLATE = r"\\{host}\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk"
+RM_SEARCH_ROOT_TPL = r"\\{host}\SharedMeshDrive\RealityMeshInstall"
 
-    search_root = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk"
-    if not os.path.isdir(search_root):
-        return ""  # folder not found at all
 
-    for dirpath, _dirnames, filenames in os.walk(search_root):
-        for name in filenames:
-            if name.lower() == "reality mesh to vbs4.lnk":
-                return os.path.join(dirpath, name)
+def _find_reality_mesh_shortcut_under(root: str) -> str:
+    target = "reality mesh to vbs4.lnk"
+    if not os.path.isdir(root):
+        return ""
+    for dp, _ds, fs in os.walk(root):
+        for f in fs:
+            if f.lower() == target:
+                return os.path.join(dp, f)
     return ""
+
+
+def _diagnose_missing_unc(path: str) -> str:
+    parts = path.split("\\")
+    current = ""
+    skip_check = path.startswith("\\\\")  # UNC host root often lacks exists()
+    for part in parts:
+        if not part:
+            current += "\\"
+            continue
+        if current.endswith("\\") or not current:
+            current = current + part
+        else:
+            current = current + "\\" + part
+        if skip_check:
+            skip_check = False
+            continue
+        if not os.path.exists(current):
+            return f"Missing segment: {current}"
+    return ""
+
+
+def _list_dir_safe(root: str) -> str:
+    try:
+        entries = os.listdir(root)
+    except Exception as e:
+        return f"Cannot list '{root}': {e}"
+    if not entries:
+        return f"No entries in {root}"
+    sample = "\n".join(sorted(entries)[:20])
+    return f"Contents of {root}:\n{sample}"
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -941,6 +968,43 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
         config['Fusers']['working_folder_host'] = host
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
+
+# ----- Host/UNC helpers -----
+HOST_KEY = ("Fusers", "working_folder_host")
+
+
+def get_host() -> str:
+    sect, key = HOST_KEY
+    return config.get(sect, key, fallback="HAMMERKIT1-4").strip()
+
+
+def set_host(host: str) -> None:
+    sect, key = HOST_KEY
+    if sect not in config:
+        config[sect] = {}
+    config[sect][key] = host.strip()
+    with open(CONFIG_PATH, "w") as f:
+        config.write(f)
+
+
+def resolve_unc(template: str) -> str:
+    """Replace {host} token with current host and normalize slashes."""
+    host = get_host()
+    path = template.replace("{host}", host)
+    return os.path.normpath(path)
+
+
+def get_rm_template_from_config() -> str:
+    raw = config.get('General', 'reality_mesh_to_vbs4', fallback=RM_TEMPLATE).strip()
+    if "{host}" not in raw and raw.startswith("\\\\"):
+        parts = raw.split("\\")
+        if len(parts) >= 4:
+            raw = "\\\\{host}\\" + "\\".join(parts[3:])
+            config['General']['reality_mesh_to_vbs4'] = raw
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+    return raw
+
 
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
@@ -2679,6 +2743,18 @@ class VBS4Panel(tk.Frame):
         panel = tk.Frame(self.oneclick_group, bg="#333333")
         panel.pack(fill='x', padx=0, pady=0)
 
+        self.rm_path_label = tk.Label(
+            panel,
+            text="",
+            font=("Consolas", 10),
+            bg="#333333",
+            fg="#ddd",
+            anchor="w",
+            justify="left",
+        )
+        self.rm_path_label.pack(fill="x", padx=6)
+        self._update_rm_label()
+
         pb = globals().get("pill_button")
         if pb:
             pb(panel, "One-Click Conversion", self.on_oneclick_convert)\
@@ -3195,34 +3271,36 @@ class VBS4Panel(tk.Frame):
 
     def launch_reality_mesh_to_vbs4(self):
         """Launch the Reality Mesh to VBS4 tool (via .lnk on the shared drive)."""
-        # allow overriding from config, else use default
-        path = config.get('General', 'reality_mesh_to_vbs4', fallback=DEFAULT_RM_LNK)
+        tpl = get_rm_template_from_config()
+        link = resolve_unc(tpl)
+        search_root = resolve_unc(RM_SEARCH_ROOT_TPL)
 
-        if not path:
-            messagebox.showerror("Reality Mesh", "No path configured for 'Reality Mesh to VBS4'.")
-            return
+        if not os.path.isfile(link):
+            found = _find_reality_mesh_shortcut_under(search_root)
+            if found:
+                link = found
 
-        # normalize UNC and verify existence
-        path = os.path.normpath(path)
-        if not os.path.exists(path):
+        if not os.path.isfile(link):
+            diag = _diagnose_missing_unc(link)
+            listing = _list_dir_safe(search_root)
             messagebox.showerror(
                 "Reality Mesh",
-                f"Shortcut not found:\n{path}\n\n"
-                "Make sure the shared drive is reachable and the path is correct."
+                "Shortcut not found:\n"
+                f"{link}\n\n{diag}\n\n"
+                "Make sure the shared drive is reachable and the path is correct.\n\n"
+                f"{listing}"
             )
             return
 
         try:
-            os.startfile(path)  # this works with .lnk on Windows
-            # optional: log to your activity log, if you have one
-            # self.log("Launched Reality Mesh to VBS4")
-        except PermissionError:
-            messagebox.showerror(
-                "Reality Mesh",
-                "Access denied launching the shortcut. Check permissions to the shared drive."
-            )
+            os.startfile(link)
         except Exception as e:
             messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+
+    def _update_rm_label(self):
+        tpl = get_rm_template_from_config()
+        if hasattr(self, 'rm_path_label') and self.rm_path_label:
+            self.rm_path_label.config(text=f"RM link: {resolve_unc(tpl)}")
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
@@ -3433,12 +3511,10 @@ class SettingsPanel(tk.Frame):
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             if self.fuser_var.get():
-                host = config['Fusers'].get('working_folder_host', '')
+                host = get_host()
                 host = prompt_hostname(self, host)
                 if host:
-                    config['Fusers']['working_folder_host'] = host.strip()
-                    with open(CONFIG_PATH, 'w') as f:
-                        config.write(f)
+                    set_host(host)
                 update_fuser_shared_path()
                 run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
             self.controller.panels['VBS4'].update_fuser_state()
@@ -3454,6 +3530,37 @@ class SettingsPanel(tk.Frame):
                        width=30, pady=5,
                        bd=0, highlightthickness=0) \
           .pack(pady=10)
+
+        tk.Label(
+            self,
+            text="Network Host (for shared UNC paths)",
+            font=("Helvetica", 16),
+            bg="black",
+            fg="white",
+        ).pack(pady=(20, 4), anchor="w", padx=10)
+
+        self.host_var = tk.StringVar(value=get_host())
+        host_row = tk.Frame(self, bg="black")
+        host_row.pack(fill="x", padx=10, pady=(0, 10))
+        tk.Entry(
+            host_row,
+            textvariable=self.host_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=40,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True)
+        tk.Button(
+            host_row,
+            text="Save",
+            command=self._save_host,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
 
         # VBS4 Install Location
         self.lbl_vbs4 = self._create_path_row(
@@ -3596,6 +3703,20 @@ class SettingsPanel(tk.Frame):
             self.lbl_oneclick.config(text=path)
         else:
             messagebox.showerror("Settings", "Invalid folder selected.")
+
+    def _save_host(self):
+        h = self.host_var.get().strip()
+        if not h:
+            messagebox.showerror("Settings", "Host name cannot be empty.")
+            return
+        set_host(h)
+        update_fuser_shared_path()
+        pnl = self.controller.panels.get('VBS4')
+        if pnl and hasattr(pnl, "_update_rm_label"):
+            pnl._update_rm_label()
+        if pnl and hasattr(pnl, "log_message"):
+            pnl.log_message(f"Host set to: {h}")
+        messagebox.showinfo("Settings", f"Host set to '{h}'.")
 
     def update_oneclick_path_label(self):
         self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
