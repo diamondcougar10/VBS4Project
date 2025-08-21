@@ -41,7 +41,7 @@ $RemoteBatchFile = "RealityMeshProcess.bat"
 [bool]$UseTclDirect = $false   # set $true only if you want the old TCL path
 
 # ---- Shared roots (UNC) ----
-$sharedRoot = '\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh'
+$sharedRoot = '\\{host}\SharedMeshDrive\RealityMesh'
 $inputRoot  = Join-Path $sharedRoot 'Input'
 $outputRoot = Join-Path $sharedRoot 'Output'
 Ensure-Directory $sharedRoot; Ensure-Directory $inputRoot; Ensure-Directory $outputRoot
