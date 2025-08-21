@@ -2251,6 +2251,22 @@ class MainMenu(tk.Frame):
 
         self.create_blueig_button()
 
+    def run_oneclick_conversion(self) -> None:
+        """Kick off the full One-Click Terrain pipeline."""
+        panel = self.panels.get('VBS4')
+        if panel:
+            panel.one_click_conversion()
+
+    def launch_reality_mesh_to_vbs4(self) -> None:
+        """Open the Reality Mesh to VBS4 application."""
+        panel = self.panels.get('VBS4')
+        if panel:
+            panel.post_process_last_build()
+
+    def open_url(self, url: str) -> None:
+        """Open a web URL in the default browser."""
+        webbrowser.open(url, new=2)
+
     def update_blueig_state(self):
         self.create_blueig_button()
   
