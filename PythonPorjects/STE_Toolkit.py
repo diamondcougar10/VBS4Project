@@ -1366,6 +1366,7 @@ SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help
 SUPPORT_SITE = "https://bisimulations.com/support/"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STE_SMTP_KIT_GUIDE = os.path.join(BASE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
+OCT_TUTORIAL_URL = "https://bisimulations.com/support/"
 
 # ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
 def open_vbs4_manuals():
@@ -2309,25 +2310,33 @@ class VBS4Panel(tk.Frame):
             lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
 
-        self.terrain_button = tk.Button(
-            self,
-            text="One-Click Terrain Converter",
-            font=("Helvetica", 24),
-            bg="#444444", fg="white",
-            width=30, height=1,
-            command=self.toggle_terrain_buttons,
-            bd=0,
-            highlightthickness=0,
-        )
-        self.terrain_button.pack(pady=10)
-        self.terrain_button.bind(
+        self.oneclick_open = False
+        pb = globals().get("pill_button")
+        if pb:
+            self.btn_oneclick_toggle = pb(
+                self, "One-Click Terrain Options", self.toggle_oneclick
+            )
+        else:
+            self.btn_oneclick_toggle = tk.Button(
+                self,
+                text="One-Click Terrain Options",
+                font=("Helvetica", 24),
+                bg="#444444", fg="white",
+                width=30, height=1,
+                command=self.toggle_oneclick,
+                bd=0,
+                highlightthickness=0,
+            )
+        self.btn_oneclick_toggle.pack(pady=10, ipadx=10, ipady=5)
+        self.btn_oneclick_toggle.bind(
             "<Enter>",
             lambda e: self.show_tooltip(e, "Show or hide terrain tools")
         )
-        self.terrain_button.bind("<Leave>", self.hide_tooltip)
+        self.btn_oneclick_toggle.bind("<Leave>", self.hide_tooltip)
 
-        self.terrain_frame = tk.Frame(self, bg="#333333", bd=0, highlightthickness=0)
-        self.create_hidden_terrain_buttons()
+        self.oneclick_slot = tk.Frame(self, bg=self.cget("bg"))
+        self.oneclick_slot.pack(fill="x")
+        self.oneclick_group = None
         self.update_fuser_state()
 
         tk.Button(
@@ -2629,52 +2638,78 @@ class VBS4Panel(tk.Frame):
     def hide_tooltip(self, event):
         self.tooltip.hide()
 
-    def create_hidden_terrain_buttons(self):
-        self.hidden_buttons = []
-
-        buttons = [
-            (
-                "One-Click Conversion",
-                self.one_click_conversion,
-                "Run the full terrain workflow",
-            ),
-            (
-                "Launch Reality Mesh to VBS4",
-                self.post_process_last_build,
-                "Run Reality Mesh to VBS4 on the last build",
-            ),
-            (
-                "One-Click Terrain Tutorial",
-                self.show_terrain_tutorial,
-                "Open help for the terrain tools",
-            ),
-        ]
-
-        for text, command, tip in buttons:
-            button = tk.Button(
-                self.terrain_frame,
-                text=text,
-                font=("Helvetica", 20),
-                bg="#444444", fg="white",
-                width=30,
-                height=1,
-                command=command,
-            )
-            button.bind("<Enter>", lambda e, t=tip: self.show_tooltip(e, t))
-            button.bind("<Leave>", self.hide_tooltip)
-            self.hidden_buttons.append(button)
-
-    def toggle_terrain_buttons(self):
-        if self.terrain_button.cget("text") == "One-Click Terrain Converter":
-            self.terrain_button.config(text="Hide Terrain Options")
-            self.terrain_frame.pack()
-            for button in self.hidden_buttons:
-                button.pack(pady=10)
+    def toggle_oneclick(self):
+        if self.oneclick_open:
+            self._collapse_oneclick()
         else:
-            self.terrain_button.config(text="One-Click Terrain Converter")
-            for button in self.hidden_buttons:
-                button.pack_forget()
-            self.terrain_frame.pack_forget()
+            self._expand_oneclick()
+
+    def _expand_oneclick(self):
+        if self.oneclick_group:
+            return
+        self.oneclick_open = True
+        self.btn_oneclick_toggle.config(text="Hide Terrain Options")
+
+        self.oneclick_group = tk.Frame(
+            self.oneclick_slot, bg=self.oneclick_slot.cget('bg')
+        )
+        self.oneclick_group.pack(fill='x', pady=(4, 10))
+
+        panel = tk.Frame(self.oneclick_group, bg="#333333")
+        panel.pack(fill='x', padx=0, pady=0)
+
+        pb = globals().get("pill_button")
+        if pb:
+            pb(panel, "One-Click Conversion", self.on_oneclick_convert)\
+                .pack(pady=8, ipadx=10, ipady=5)
+            pb(panel, "Launch Reality Mesh to VBS4", self.on_launch_reality_mesh)\
+                .pack(pady=8, ipadx=10, ipady=5)
+            pb(panel, "One-Click Terrain Tutorial", self.on_open_oct_tutorial)\
+                .pack(pady=8, ipadx=10, ipady=5)
+        else:
+            tk.Button(panel, text="One-Click Conversion", command=self.on_oneclick_convert,
+                      font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
+                      highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
+            tk.Button(panel, text="Launch Reality Mesh to VBS4",
+                      command=self.on_launch_reality_mesh,
+                      font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
+                      highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
+            tk.Button(panel, text="One-Click Terrain Tutorial",
+                      command=self.on_open_oct_tutorial,
+                      font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
+                      highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
+
+        try:
+            panel.winfo_children()[0].focus_set()
+        except Exception:
+            pass
+
+        if hasattr(self.controller, "update_navigation"):
+            self.controller.update_navigation()
+
+    def _collapse_oneclick(self):
+        if not self.oneclick_group:
+            return
+        self.oneclick_open = False
+        self.btn_oneclick_toggle.config(text="One-Click Terrain Options")
+        self.oneclick_group.pack_forget()
+        self.oneclick_group.destroy()
+        self.oneclick_group = None
+        try:
+            self.btn_oneclick_toggle.focus_set()
+        except Exception:
+            pass
+        if hasattr(self.controller, "update_navigation"):
+            self.controller.update_navigation()
+
+    def on_oneclick_convert(self):
+        self.controller.run_oneclick_conversion()
+
+    def on_launch_reality_mesh(self):
+        self.controller.launch_reality_mesh_to_vbs4()
+
+    def on_open_oct_tutorial(self):
+        self.controller.open_url(OCT_TUTORIAL_URL)
 
     def update_vbs4_button_state(self):
         path = get_vbs4_install_path()
@@ -2695,15 +2730,14 @@ class VBS4Panel(tk.Frame):
         is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
         tip = "This pc is being used as a fuser" if is_fuser else "Show or hide terrain tools"
         state = "disabled" if is_fuser else "normal"
-        bg = "#888888" if is_fuser else "#444"
+        bg = "#888888" if is_fuser else "#444444"
 
-        self.terrain_button.config(state=state, bg=bg, text="One-Click Terrain Converter")
-        self.terrain_button.bind("<Enter>", lambda e: self.show_tooltip(e, tip))
-        self.terrain_button.bind("<Leave>", self.hide_tooltip)
+        self.btn_oneclick_toggle.config(state=state, bg=bg, text="One-Click Terrain Options")
+        self.btn_oneclick_toggle.bind("<Enter>", lambda e: self.show_tooltip(e, tip))
+        self.btn_oneclick_toggle.bind("<Leave>", self.hide_tooltip)
 
-        for btn in self.hidden_buttons:
-            btn.pack_forget()
-            btn.config(state=state)
+        if is_fuser and self.oneclick_open:
+            self._collapse_oneclick()
 
     def set_file_location(self, app_name, config_key, button):
         path = filedialog.askopenfilename(
@@ -3121,8 +3155,8 @@ class VBS4Panel(tk.Frame):
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
         """Launch the external Reality Mesh to VBS4 application."""
-        if self.terrain_button.cget("text") == "Hide Terrain Options":
-            self.toggle_terrain_buttons()
+        if self.oneclick_open:
+            self._collapse_oneclick()
 
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
