@@ -16,7 +16,7 @@ $RemoteBatchRoot = "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\p
 $RemoteBatchFile = "RealityMeshProcess.bat"
 
 # Shared roots for inputs and outputs
-$sharedRoot = '\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh'
+$sharedRoot = '\\{host}\SharedMeshDrive\RealityMesh'
 $inputRoot  = Join-Path $sharedRoot 'Input'
 $outputRoot = Join-Path $sharedRoot 'Output'
 
