@@ -1372,7 +1372,6 @@ SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help
 SUPPORT_SITE = "https://bisimulations.com/support/"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STE_SMTP_KIT_GUIDE = os.path.join(BASE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
-OCT_TUTORIAL_URL = "https://bisimulations.com/support/"
 
 # ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
 def open_vbs4_manuals():
@@ -2731,7 +2730,7 @@ class VBS4Panel(tk.Frame):
      self.launch_reality_mesh_to_vbs4()
 
     def on_open_oct_tutorial(self):
-        self.controller.open_url(OCT_TUTORIAL_URL)
+        self.show_terrain_tutorial()
 
     def update_vbs4_button_state(self):
         path = get_vbs4_install_path()
@@ -3226,7 +3225,7 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
 
     def show_terrain_tutorial(self):
-        messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
+        messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
 
     def log_message(self, message):
          self.log_text.config(state="normal")
