@@ -357,11 +357,10 @@ def find_executable(name, additional_paths=[]):
 
 def find_reality_mesh_to_vbs4_link() -> str:
     """Return the path to the Reality Mesh to VBS4 shortcut if found."""
-    default = (r"C:\\Bohemia Interactive Simulations\\Reality Mesh to VBS4 25.1\\"
-               r"Reality Mesh to VBS4.lnk")
+    default = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk"
     if os.path.isfile(default):
         return default
-    search_root = r"C:\\Bohemia Interactive Simulations"
+    search_root = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall"
     for dirpath, _dirnames, filenames in os.walk(search_root):
         for name in filenames:
             if name.lower() == "reality mesh to vbs4.lnk":
