@@ -31,7 +31,6 @@ import win32con
 import win32gui
 import win32net
 import win32netcon
-import win32wnet
 import ctypes.wintypes
 import logging
 from pathlib import Path
@@ -136,37 +135,6 @@ def clean_path(path: str) -> str:
     return path
 
 
-def resolve_unc(path: str) -> str:
-    """Return the UNC equivalent of *path* if it is a mapped drive.
-
-    When a user supplies a mapped drive letter (e.g. ``P:\\``) this helper
-    attempts to resolve it to its network path using ``WNetGetUniversalName`` or
-    by parsing the output of ``net use``.  If resolution fails the original
-    *path* is returned unchanged.
-    """
-    drive, _ = os.path.splitdrive(path)
-    if drive and os.name == "nt":
-        try:
-            unc = win32wnet.WNetGetUniversalName(
-                path, win32netcon.UNIVERSAL_NAME_INFO_LEVEL
-            )
-            if unc:
-                return unc
-        except Exception:
-            try:
-                output = subprocess.check_output(
-                    ["net", "use", drive], stderr=subprocess.STDOUT, text=True
-                )
-                match = re.search(r"Remote name\s+(\\\\[^\s]+)", output, re.IGNORECASE)
-                if match:
-                    unc_root = match.group(1)
-                    tail = path[len(drive):].lstrip("\\/")
-                    return os.path.join(unc_root, tail)
-            except Exception:
-                pass
-    return path
-
-
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
 #==============================================================================
@@ -224,7 +192,7 @@ def get_vbs4_install_path() -> str:
                     best_path = exe_path
 
     if best_path:
-        config['General']['vbs4_path'] = clean_path(resolve_unc(best_path))
+        config['General']['vbs4_path'] = best_path
         try:
             if write_config_atomic:
                 write_config_atomic(Path(CONFIG_PATH), config)
@@ -269,7 +237,7 @@ def get_vbs4_launcher_path():
                 if os.path.isfile(full_path):
                     logging.info("VBS4 Launcher path found: %s", full_path)
                     # Save the found path to config
-                    config['General']['vbs4_setup_path'] = clean_path(resolve_unc(full_path))
+                    config['General']['vbs4_setup_path'] = full_path
                     with open(CONFIG_PATH, 'w') as f:
                         config.write(f)
                     return full_path
@@ -281,7 +249,7 @@ def get_vbs4_launcher_path():
         launcher_path = os.path.join(base, 'VBSLauncher.exe')
         if os.path.isfile(launcher_path):
             logging.info("VBS4 Launcher path found relative to VBS4.exe: %s", launcher_path)
-            config['General']['vbs4_setup_path'] = clean_path(resolve_unc(launcher_path))
+            config['General']['vbs4_setup_path'] = launcher_path
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             return launcher_path
@@ -1147,7 +1115,7 @@ def prompt_for_exe(app_name, config_key):
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
-        config['General'][config_key] = clean_path(resolve_unc(path))
+        config['General'][config_key] = clean_path(path)
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
         messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -1183,7 +1151,7 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
     if path and os.path.isfile(path):
         # store it for next time unless it's the VBS4 path
         if config_key != 'vbs4_path':
-            config['General'][config_key] = clean_path(resolve_unc(path))
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
         return path
@@ -1212,7 +1180,7 @@ def get_blueig_install_path() -> str:
     if not path or not os.path.isfile(path):
         path = find_executable('BlueIG.exe')
         if path:
-            config['General']['blueig_path'] = clean_path(resolve_unc(path))
+            config['General']['blueig_path'] = path
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
     return path or ''
@@ -1263,7 +1231,7 @@ def launch_blueig():
             return
 
         # Save the new path in config.ini
-        config['General']['blueig_path'] = clean_path(resolve_unc(exe))
+        config['General']['blueig_path'] = exe
         with open(CONFIG_PATH, 'w') as cfg:
             config.write(cfg)
 
@@ -1484,7 +1452,7 @@ def open_bvi_quickstart():
     
     if user_path:
         # Save the path for future use
-        config['General']['bvi_quickstart_path'] = clean_path(resolve_unc(user_path))
+        config['General']['bvi_quickstart_path'] = user_path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
         
@@ -1524,7 +1492,7 @@ def open_bvi_documentation():
     
     if user_path:
         # Save the path for future use
-        config['General']['bvi_documentation_path'] = clean_path(resolve_unc(user_path))
+        config['General']['bvi_documentation_path'] = user_path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
         
@@ -1593,7 +1561,7 @@ def set_blueig_install_path():
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
-        config['General']['blueig_path'] = clean_path(resolve_unc(path))
+        config['General']['blueig_path'] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
         messagebox.showinfo("Settings", f"BlueIG path set to:\n{path}")
@@ -1613,7 +1581,7 @@ def set_default_browser():
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
-        config['General']['default_browser'] = clean_path(resolve_unc(path))
+        config['General']['default_browser'] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
         messagebox.showinfo("Settings", f"Default browser set to:\n{path}")
@@ -1645,7 +1613,7 @@ def set_vbs4_install_path():
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
-        path = clean_path(resolve_unc(path))
+        path = os.path.normpath(path)
         config['General']['vbs4_path'] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
@@ -1663,7 +1631,7 @@ def get_ares_manager_path() -> str:
 def set_ares_manager_path():
     path = filedialog.askopenfilename(title="Select ARES Manager.exe", filetypes=[("Executable", "*.exe")])
     if path:
-        config['General']['bvi_manager_path'] = clean_path(resolve_unc(path))
+        config['General']['bvi_manager_path'] = path
         with open(CONFIG_PATH, 'w') as f: config.write(f)
         messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
 
@@ -2119,7 +2087,7 @@ class MainApp(tk.Tk):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General'][config_key] = clean_path(resolve_unc(path))
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -2798,7 +2766,7 @@ class VBS4Panel(tk.Frame):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General'][config_key] = clean_path(resolve_unc(path))
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -3383,7 +3351,7 @@ class BVIPanel(tk.Frame):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General'][config_key] = clean_path(resolve_unc(path))
+            config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
@@ -3575,7 +3543,7 @@ class SettingsPanel(tk.Frame):
         filetypes=[("Executable Files", "*.exe")]
      )
      if path and os.path.exists(path):
-        path = clean_path(resolve_unc(path))
+        path = os.path.normpath(path)
         config['General']['vbs4_path'] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
@@ -3588,7 +3556,7 @@ class SettingsPanel(tk.Frame):
         filetypes=[("Executable Files", "*.exe")]
      )
      if path and os.path.exists(path):
-        path = clean_path(resolve_unc(path))
+        path = os.path.normpath(path)
         config['General']['vbs4_setup_path'] = path
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
@@ -3613,7 +3581,7 @@ class SettingsPanel(tk.Frame):
             filetypes=[("Executable Files", "*.exe")]
         )
         if path and os.path.exists(path):
-            config['General']['vbs_license_manager_path'] = clean_path(resolve_unc(path))
+            config['General']['vbs_license_manager_path'] = path
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
             self.lbl_vbs_license.config(text=path)
