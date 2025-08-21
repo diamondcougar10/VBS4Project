@@ -12,4 +12,4 @@ terratools_home_path=C:\Program Files\Bohemia Interactive Simulations\TerraTools
 dataset_root=C:\BiSim OneClick\Datasets
 export_format=OBJ
 center_pivot_to_project=true
-reality_mesh_to_vbs4_path=\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk
+reality_mesh_to_vbs4_path=\\{host}\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk
