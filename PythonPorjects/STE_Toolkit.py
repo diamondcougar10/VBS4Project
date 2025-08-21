@@ -354,13 +354,19 @@ def find_executable(name, additional_paths=[]):
 # ---------------------------------------------------------------------------
 # Reality Mesh post-processing helpers
 # ---------------------------------------------------------------------------
+# put this near your other constants
+DEFAULT_RM_LNK = r"\\HAMMERKIT1-4\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk"
 
 def find_reality_mesh_to_vbs4_link() -> str:
     """Return the path to the Reality Mesh to VBS4 shortcut if found."""
-    default = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk"
+    default = DEFAULT_RM_LNK
     if os.path.isfile(default):
         return default
-    search_root = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall"
+
+    search_root = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk"
+    if not os.path.isdir(search_root):
+        return ""  # folder not found at all
+
     for dirpath, _dirnames, filenames in os.walk(search_root):
         for name in filenames:
             if name.lower() == "reality mesh to vbs4.lnk":
@@ -2722,7 +2728,7 @@ class VBS4Panel(tk.Frame):
         self.controller.run_oneclick_conversion()
 
     def on_launch_reality_mesh(self):
-        self.controller.launch_reality_mesh_to_vbs4()
+     self.launch_reality_mesh_to_vbs4()
 
     def on_open_oct_tutorial(self):
         self.controller.open_url(OCT_TUTORIAL_URL)
@@ -3169,6 +3175,7 @@ class VBS4Panel(tk.Frame):
 
         run_in_thread(_pipeline)
 
+   
     def post_process_last_build(self, build_root: str | None = None) -> None:
         """Launch the external Reality Mesh to VBS4 application."""
         if self.oneclick_open:
@@ -3187,38 +3194,36 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", str(exc), parent=self)
             return
 
-    def _launch_reality_mesh_app(self, build_root: str | None = None, auto_inspect: bool = True) -> None:
-        """
-        Start the Reality Mesh to VBS4 application.
-        - Passes the build folder so the Source Directory is pre-filled.
-        - Optionally auto-clicks 'Inspect Mesh' (then 'Generate on Success' continues the pipeline).
-        """
-        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
-        settings = load_system_settings(sys_settings_path)
-        link = settings.get('reality_mesh_to_vbs4_path') or find_reality_mesh_to_vbs4_link()
-        link = os.path.normpath(link)
+    def launch_reality_mesh_to_vbs4(self):
+        """Launch the Reality Mesh to VBS4 tool (via .lnk on the shared drive)."""
+        # allow overriding from config, else use default
+        path = config.get('General', 'reality_mesh_to_vbs4', fallback=DEFAULT_RM_LNK)
 
-        if not link or not os.path.isfile(link):
-            raise FileNotFoundError("Reality Mesh to VBS4 application not found")
+        if not path:
+            messagebox.showerror("Reality Mesh", "No path configured for 'Reality Mesh to VBS4'.")
+            return
 
-        # Build command (pass the folder to pre-fill the Source Directory)
-        cmd = [link]
-        if build_root:
-            cmd.append(build_root)
+        # normalize UNC and verify existence
+        path = os.path.normpath(path)
+        if not os.path.exists(path):
+            messagebox.showerror(
+                "Reality Mesh",
+                f"Shortcut not found:\n{path}\n\n"
+                "Make sure the shared drive is reachable and the path is correct."
+            )
+            return
 
-        # Launch without any "started" popup
-        self.log_message(f"Launching: {link}" + (f' "{build_root}"' if build_root else ""))
         try:
-            # If a Windows shortcut (.lnk) is used, pass the build directory via os.startfile
-            # so it isn't opened separately in Explorer.
-            if build_root and link.lower().endswith(".lnk"):
-                os.startfile(link, arguments=f'"{build_root}"')
-            else:
-                # Prefer subprocess for argument passing to executables.
-                subprocess.Popen(cmd, close_fds=True)
-        except Exception:
-            # Last-resort fallback
-            os.startfile(link)
+            os.startfile(path)  # this works with .lnk on Windows
+            # optional: log to your activity log, if you have one
+            # self.log("Launched Reality Mesh to VBS4")
+        except PermissionError:
+            messagebox.showerror(
+                "Reality Mesh",
+                "Access denied launching the shortcut. Check permissions to the shared drive."
+            )
+        except Exception as e:
+            messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "One-Click Terrain Tutorial to be implemented.", parent=self)
