@@ -355,18 +355,14 @@ def find_executable(name, additional_paths=[]):
 # Reality Mesh post-processing helpers
 # ---------------------------------------------------------------------------
 
+def get_reality_mesh_path() -> str:
+    """Return the UNC path to the Reality Mesh to VBS4 shortcut."""
+    return r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk"
+
+
 def find_reality_mesh_to_vbs4_link() -> str:
-    """Return the path to the Reality Mesh to VBS4 shortcut if found."""
-    default = (r"C:\\Bohemia Interactive Simulations\\Reality Mesh to VBS4 25.1\\"
-               r"Reality Mesh to VBS4.lnk")
-    if os.path.isfile(default):
-        return default
-    search_root = r"C:\\Bohemia Interactive Simulations"
-    for dirpath, _dirnames, filenames in os.walk(search_root):
-        for name in filenames:
-            if name.lower() == "reality mesh to vbs4.lnk":
-                return os.path.join(dirpath, name)
-    return ""
+    """Return the path to the Reality Mesh to VBS4 shortcut."""
+    return get_reality_mesh_path()
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -3144,9 +3140,7 @@ class VBS4Panel(tk.Frame):
         - Passes the build folder so the Source Directory is pre-filled.
         - Optionally auto-clicks 'Inspect Mesh' (then 'Generate on Success' continues the pipeline).
         """
-        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
-        settings = load_system_settings(sys_settings_path)
-        link = settings.get('reality_mesh_to_vbs4_path') or find_reality_mesh_to_vbs4_link()
+        link = get_reality_mesh_path()
         link = os.path.normpath(link)
 
         if not link or not os.path.isfile(link):
