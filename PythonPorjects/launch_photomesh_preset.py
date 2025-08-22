@@ -2,12 +2,38 @@ from pathlib import Path
 import os
 import json
 import subprocess
-from typing import Iterable
+import configparser
+from typing import Iterable, List
 
-# Constants
-PRESET_NAME = "CPP&OBJ"
+# ---------------------------------------------------------------------------
+# PhotoMesh Wizard configuration
+# ---------------------------------------------------------------------------
+
+# User-level config written under %APPDATA%
+WIZARD_USER_CFG = os.path.join(
+    os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Wizard", "config.json"
+)
+
+# Installed Wizard config (official path per manual)
+WIZARD_INSTALL_CFG = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+
+# PhotoMesh Wizard executable
 WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
-PHOTOMESH_CONFIG = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\config.json"
+
+# Load shared configuration for network fuser settings
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+_cfg = configparser.ConfigParser()
+_cfg.read(CONFIG_PATH)
+
+WORKING_FOLDER_HOST = _cfg.get("Fusers", "working_folder_host", fallback="HAMMERKIT1-4")
+NETWORK_WORKING_FOLDER = fr"\\{WORKING_FOLDER_HOST}\SharedMeshDrive\FuserWorking"
+
+# Default preset name used by Wizard
+DEFAULT_WIZARD_PRESET = "CPP&OBJ"
+
+# Legacy constant kept for compatibility with existing helpers
+PRESET_NAME = DEFAULT_WIZARD_PRESET
 
 PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 <BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
@@ -54,6 +80,79 @@ PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
   <PresetName>CPP&amp;OBJ</PresetName>
 </BuildParametersPreset>
 """
+
+
+def ensure_wizard_user_defaults(
+    preset: str = DEFAULT_WIZARD_PRESET, autostart: bool = True
+) -> None:
+    """Ensure the PhotoMesh Wizard user config selects *preset* and auto-builds."""
+
+    os.makedirs(os.path.dirname(WIZARD_USER_CFG), exist_ok=True)
+    cfg = {
+        "SelectedPreset": preset,
+        "OverrideSettings": True,
+        "AutoBuild": bool(autostart),
+    }
+    with open(WIZARD_USER_CFG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def ensure_wizard_install_defaults() -> None:
+    """Patch the installed Wizard config for OBJ export and network settings."""
+
+    path = WIZARD_INSTALL_CFG
+    if not os.path.isfile(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        try:
+            cfg = json.load(f)
+        except Exception:
+            cfg = {}
+
+    cfg.setdefault("UseMinimize", True)
+    cfg.setdefault("ClosePMWhenDone", False)
+    cfg.setdefault("OutputWaitTimerSeconds", 10)
+
+    cfg["NetworkWorkingFolder"] = NETWORK_WORKING_FOLDER
+
+    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+    formats = ui.setdefault("Model3DFormats", {})
+    formats["OBJ"] = True
+    formats["3DML"] = False
+
+    ui.setdefault("ProcessingLevel", "Standard")
+    ui.setdefault("StopOnError", True)
+    ui.setdefault("MaxProcessing", False)
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
+    """Launch the PhotoMesh Wizard with prepared sources via CLI."""
+
+    if not os.path.isfile(WIZARD_EXE):
+        from tkinter import messagebox
+
+        messagebox.showerror(
+            "PhotoMesh Wizard", "PhotoMeshWizard.exe not found.\nCheck installation path."
+        )
+        return
+
+    args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path]
+    for fld in folders:
+        args += ["--folder", fld]
+
+    ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
+    ensure_wizard_install_defaults()
+
+    try:
+        subprocess.Popen(args, cwd=os.path.dirname(WIZARD_EXE))
+    except Exception as e:
+        from tkinter import messagebox
+
+        messagebox.showerror("PhotoMesh Wizard", f"Failed to launch Wizard:\n{e}")
 
 def ensure_preset_exists() -> str:
     """Write the CPP&OBJ preset file and return its path."""
