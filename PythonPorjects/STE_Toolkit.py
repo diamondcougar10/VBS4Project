@@ -19,7 +19,12 @@ import socket
 import threading
 import shlex
 from post_process_utils import clean_project_settings
-from launch_photomesh_preset import launch_photomesh_with_preset
+from launch_photomesh_preset import (
+    ensure_wizard_user_defaults,
+    ensure_wizard_install_defaults,
+    launch_wizard_cli,
+    DEFAULT_WIZARD_PRESET,
+)
 from collections import OrderedDict
 import time
 import glob
@@ -3063,8 +3068,13 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
+        # Ensure OBJ export is enabled even if install config fails to update
         enable_obj_in_photomesh_config()
-        set_active_wizard_preset()
+
+        # Apply Wizard defaults so the correct preset is auto-loaded and
+        # the build runs using the shared network working folder.
+        ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
+        ensure_wizard_install_defaults()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -3086,7 +3096,7 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            launch_photomesh_with_preset(project_name, project_path, self.image_folder_paths)
+            launch_wizard_cli(project_name, project_path, self.image_folder_paths)
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
                 "PhotoMesh Wizard Launched",
