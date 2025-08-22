@@ -2724,7 +2724,7 @@ class VBS4Panel(tk.Frame):
             self.controller.update_navigation()
 
     def on_oneclick_convert(self):
-        self.controller.run_oneclick_conversion()
+        self.one_click_conversion()
 
     def on_launch_reality_mesh(self):
      self.launch_reality_mesh_to_vbs4()
