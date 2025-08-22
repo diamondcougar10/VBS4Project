@@ -357,26 +357,97 @@ def find_executable(name, additional_paths=[]):
     return best_path
 
 # ---------------------------------------------------------------------------
-# Reality Mesh post-processing helpers
+# Reality Mesh UNC template + tolerant lookup
 # ---------------------------------------------------------------------------
-# put this near your other constants
-DEFAULT_RM_LNK = r"\\HAMMERKIT1-4\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk"
+
+RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
+# Accept either folder spelling (some machines have a typo in the share name)
+RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]  # in preferred order
+
+
+def get_rm_template_from_config() -> str:
+    """Read the template from config; keep {host} token if present, normalize slashes."""
+    raw = config.get(
+        "General",
+        "reality_mesh_to_vbs4",
+        fallback=r"\\{host}\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk",
+    ).strip()
+    # If user hard-coded a concrete \\HOST\... path, convert to {host} template so host entry can work
+    if "{host}" not in raw and raw.startswith("\\\\"):
+        parts = raw.split("\\")
+        if len(parts) >= 4:
+            # parts: ["", "", "HOST", "SharedMeshDrive", ...]
+            raw = "\\\\{host}\\" + "\\".join(parts[3:])
+            config["General"]["reality_mesh_to_vbs4"] = raw
+            with open(CONFIG_PATH, "w") as f:
+                config.write(f)
+    return raw
+
+
+def _subst_host(template: str) -> str:
+    """Replace the {host} token with the configured host without altering UNC prefix."""
+    return template.replace("{host}", get_host())
+
+
+def _first_missing_segment(path: str) -> str:
+    """Return the first non-existent segment in a path, skipping the UNC host itself."""
+    p = os.path.normpath(path)
+    if p.startswith("\\\\"):
+        parts = p.split("\\")
+        if len(parts) < 4:
+            return p
+        current = f"\\\\{parts[2]}\\{parts[3]}"
+        idx = 4
+    else:
+        parts = p.split(os.sep)
+        current = parts[0]
+        idx = 1
+    for seg in parts[idx:]:
+        current = os.path.join(current, seg)
+        if not os.path.exists(current):
+            return current
+    return ""
+
+
+def _try_link_under(base_dir: str) -> str:
+    """Search for the RM link directly in base_dir or recursively beneath it."""
+    if not base_dir or not os.path.isdir(base_dir):
+        return ""
+    direct = os.path.join(base_dir, RM_LNK_NAME)
+    if os.path.isfile(direct):
+        return direct
+    target_lower = RM_LNK_NAME.lower()
+    for dp, _ds, fs in os.walk(base_dir):
+        for f in fs:
+            if f.lower() == target_lower:
+                return os.path.join(dp, f)
+    return ""
+
+
+def _candidate_install_roots() -> list[str]:
+    """Return possible install roots for both spellings under \\{host}\\SharedMeshDrive\\…"""
+    host = get_host()
+    roots = []
+    for subdir in RM_INSTALL_SUBDIRS:
+        roots.append(f"\\\\{host}\\SharedMeshDrive\\{subdir}")
+    return roots
+
 
 def find_reality_mesh_to_vbs4_link() -> str:
-    """Return the path to the Reality Mesh to VBS4 shortcut if found."""
-    default = DEFAULT_RM_LNK
-    if os.path.isfile(default):
-        return default
+    """
+    Prefer the exact path from config (with {host} substituted).
+    If not found, try both spelling variants under \\{host}\\SharedMeshDrive\\...
+    """
+    cfg_tpl = get_rm_template_from_config()
+    cfg_path = _subst_host(cfg_tpl)
+    if os.path.isfile(cfg_path):
+        return cfg_path
 
-    search_root = r"\\HAMMERKIT1-4\SharedMeshDrive\ReailityMeshInstall\Reality Mesh to VBS4.lnk"
-    if not os.path.isdir(search_root):
-        return ""  # folder not found at all
-
-    for dirpath, _dirnames, filenames in os.walk(search_root):
-        for name in filenames:
-            if name.lower() == "reality mesh to vbs4.lnk":
-                return os.path.join(dirpath, name)
-    return ""
+    for root in _candidate_install_roots():
+        link = _try_link_under(root)
+        if link:
+            return link
+    return ""  # not found
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -810,6 +881,38 @@ ICON_NAME   = 'icon.ico'
 
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
+
+# ----- Host/UNC helpers -----
+# Prefer reusing the existing Fusers working-folder host key if present; otherwise
+# fall back to a general ``host`` entry under the ``General`` section.
+HOST_KEY = ("Fusers", "working_folder_host")
+
+
+def _host_key() -> tuple[str, str]:
+    if HOST_KEY[0] in config and HOST_KEY[1] in config[HOST_KEY[0]]:
+        return HOST_KEY
+    return ("General", "host")
+
+
+def get_host() -> str:
+    sect, key = _host_key()
+    return config.get(sect, key, fallback="HAMMERKIT1-4").strip()
+
+
+def set_host(host: str) -> None:
+    sect, key = _host_key()
+    if sect not in config:
+        config[sect] = {}
+    config[sect][key] = host.strip()
+    with open(CONFIG_PATH, "w") as f:
+        config.write(f)
+
+
+def resolve_unc(template: str) -> str:
+    """Replace {host} token with current host and normalize slashes."""
+    host = get_host()
+    path = template.replace("{host}", host)
+    return os.path.normpath(path)
 
 def apply_app_icon(widget):
     """Apply the application icon to a Tk widget if the icon file exists."""
@@ -2684,6 +2787,18 @@ class VBS4Panel(tk.Frame):
         panel = tk.Frame(self.oneclick_group, bg="#333333")
         panel.pack(fill='x', padx=0, pady=0)
 
+        self.rm_path_label = tk.Label(
+            panel,
+            text="",
+            font=("Consolas", 10),
+            bg="#333333",
+            fg="#ddd",
+            anchor="w",
+            justify="left",
+        )
+        self.rm_path_label.pack(fill="x", padx=6)
+        self._update_rm_label()
+
         pb = globals().get("pill_button")
         if pb:
             pb(panel, "One-Click Conversion", self.on_oneclick_convert)\
@@ -3204,35 +3319,29 @@ class VBS4Panel(tk.Frame):
             return
 
     def launch_reality_mesh_to_vbs4(self):
-        """Launch the Reality Mesh to VBS4 tool (via .lnk on the shared drive)."""
-        # allow overriding from config, else use default
-        path = config.get('General', 'reality_mesh_to_vbs4', fallback=DEFAULT_RM_LNK)
-
-        if not path:
-            messagebox.showerror("Reality Mesh", "No path configured for 'Reality Mesh to VBS4'.")
-            return
-
-        # normalize UNC and verify existence
-        path = os.path.normpath(path)
-        if not os.path.exists(path):
-            messagebox.showerror(
-                "Reality Mesh",
-                f"Shortcut not found:\n{path}\n\n"
-                "Make sure the shared drive is reachable and the path is correct."
-            )
+        """Launch the Reality Mesh to VBS4 tool using host-aware UNC path, tolerant to folder spelling."""
+        link = find_reality_mesh_to_vbs4_link()
+        if not link:
+            tried = [_subst_host(get_rm_template_from_config()), *_candidate_install_roots()]
+            missing = [_first_missing_segment(p) for p in tried]
+            first_missing = next((m for m in missing if m), "")
+            details = "Paths tried:\n  " + "\n  ".join(tried)
+            msg = "Shortcut not found.\n\n"
+            if first_missing:
+                msg += f"Missing segment:\n  {first_missing}\n\n"
+            msg += details + "\n\nMake sure the host is correct and the share/folder exists."
+            messagebox.showerror("Reality Mesh", msg)
             return
 
         try:
-            os.startfile(path)  # this works with .lnk on Windows
-            # optional: log to your activity log, if you have one
-            # self.log("Launched Reality Mesh to VBS4")
-        except PermissionError:
-            messagebox.showerror(
-                "Reality Mesh",
-                "Access denied launching the shortcut. Check permissions to the shared drive."
-            )
+            os.startfile(link)  # open the .lnk
         except Exception as e:
             messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+
+    def _update_rm_label(self):
+        if hasattr(self, "rm_path_label"):
+            tpl = get_rm_template_from_config()
+            self.rm_path_label.config(text=f"RM link: {_subst_host(tpl)}")
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
@@ -3465,6 +3574,36 @@ class SettingsPanel(tk.Frame):
                        bd=0, highlightthickness=0) \
           .pack(pady=10)
 
+        tk.Label(
+            self,
+            text="Network Host (for shared UNC paths)",
+            font=("Helvetica", 16),
+            bg="black",
+            fg="white",
+        ).pack(anchor="w", padx=10, pady=(12, 4))
+        host_row = tk.Frame(self, bg="black")
+        host_row.pack(fill="x", padx=10, pady=(0, 10))
+        self.host_var = tk.StringVar(value=get_host())
+        tk.Entry(
+            host_row,
+            textvariable=self.host_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=40,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True)
+        tk.Button(
+            host_row,
+            text="Save",
+            command=self._save_host,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
+
         # VBS4 Install Location
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
@@ -3521,6 +3660,19 @@ class SettingsPanel(tk.Frame):
                   command=lambda: controller.show('Main'),
                   bd=0, highlightthickness=0) \
           .pack(pady=10)
+
+    def _save_host(self):
+        h = self.host_var.get().strip()
+        if not h:
+            messagebox.showerror("Settings", "Host name cannot be empty.")
+            return
+        set_host(h)
+        pnl = self.controller.panels.get('VBS4')
+        if pnl and hasattr(pnl, "log_message"):
+            pnl.log_message(f"Host set to: {h}")
+        if pnl and hasattr(pnl, "_update_rm_label"):
+            pnl._update_rm_label()
+        messagebox.showinfo("Settings", f"Host set to '{h}'.")
 
     def _create_path_row(self, text, command, initial_path):
         """Create a consistent button/label row for file path settings."""
