@@ -109,7 +109,7 @@ $RemoteBatchFile = "RealityMeshProcess.bat"                                     
 
 # ---------- Shared roots (MUST include server name) ----------
 # Base shared drive accessible by both the calling and remote machines
-$sharedRoot = '\\HAMMERKIT1-4\SharedMeshDrive\RealityMesh'
+$sharedRoot = '\\{host}\SharedMeshDrive\RealityMesh'
 $inputRoot  = Join-Path $sharedRoot 'Input'
 $outputRoot = Join-Path $sharedRoot 'Output'
 
