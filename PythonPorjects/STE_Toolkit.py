@@ -18,10 +18,6 @@ import re
 import socket
 import threading
 import shlex
-try:
-    import psutil
-except Exception:  # pragma: no cover - psutil may not be installed
-    psutil = None
 from post_process_utils import clean_project_settings
 from launch_photomesh_preset import (
     ensure_wizard_user_defaults,
@@ -788,6 +784,12 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
             log_func(f'Failed to copy to {dest}: {e}')
 
 
+def kill_fusers() -> None:
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/IM', 'Fuser.exe', '/F'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
                                origin_json_path: str, datasets_base: str,
                                config_path: str) -> str:
@@ -998,137 +1000,6 @@ if 'working_folder_host' not in config['Fusers']:
     config['Fusers']['working_folder_host'] = ''
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
-
-
-# ---------------------------------------------------------------------------
-# Fuser helpers
-# ---------------------------------------------------------------------------
-
-def get_machine_name() -> str:
-    return socket.gethostname().split('.')[0].upper()
-
-
-def get_working_folder_host() -> str:
-    return config['Fusers'].get('working_folder_host', '').split('.')[0].upper()
-
-
-def is_host_machine() -> bool:
-    return get_machine_name() == get_working_folder_host()
-
-
-def find_fuser_exe() -> str:
-    """
-    Try common install paths; fall back to walking PhotoMesh install folder.
-    Adjust paths if your install differs.
-    """
-    candidates = [
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe",
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\Fuser\\Fuser.exe",
-        r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Fuser\\Fuser.exe",
-    ]
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
-
-    root = r"C:\\Program Files\\Skyline\\PhotoMesh"
-    for dp, dn, fn in os.walk(root):
-        if "Fuser.exe" in fn:
-            return os.path.join(dp, "Fuser.exe")
-    return ""
-
-
-def list_local_fusers() -> list:
-    """Return list of psutil.Process for local Fuser.exe."""
-    procs = []
-    if psutil:
-        try:
-            for p in psutil.process_iter(['name', 'exe']):
-                nm = (p.info.get('name') or '').lower()
-                if nm == 'fuser.exe':
-                    procs.append(p)
-        except Exception:
-            pass
-    else:  # fallback to tasklist parsing
-        try:
-            out = subprocess.check_output(
-                ['tasklist', '/FI', 'IMAGENAME eq Fuser.exe'],
-                text=True, stderr=subprocess.DEVNULL
-            )
-            for line in out.splitlines():
-                if 'Fuser.exe' in line:
-                    procs.append(line)
-        except Exception:
-            pass
-    return procs
-
-
-def count_local_fusers() -> int:
-    return len(list_local_fusers())
-
-
-def start_fuser_instance():
-    exe = find_fuser_exe()
-    if not exe:
-        messagebox.showerror("Fuser", "Fuser.exe not found. Check PhotoMesh installation.")
-        return False
-    try:
-        creationflags = 0x00000008  # CREATE_NEW_CONSOLE
-        subprocess.Popen([exe], cwd=os.path.dirname(exe), creationflags=creationflags)
-        return True
-    except Exception as e:
-        messagebox.showerror("Fuser", f"Failed to start Fuser:\n{e}")
-        return False
-
-
-def kill_fusers() -> None:
-    """Kill ALL local Fuser.exe instances (safer + faster)."""
-    try:
-        subprocess.run(['taskkill', '/IM', 'Fuser.exe', '/F'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        for p in list_local_fusers():
-            try:
-                if psutil and isinstance(p, psutil.Process):
-                    p.terminate()
-            except Exception:
-                pass
-
-
-def ensure_fuser_instances(desired: int):
-    """
-    Scale local Fuser.exe processes to exactly 'desired'.
-    If too few → spawn more; if too many → kill extras.
-    """
-    current = count_local_fusers()
-    if current == desired:
-        return
-
-    if current > desired:
-        kill_fusers()
-        current = 0
-
-    to_start = max(0, desired - current)
-    for _ in range(to_start):
-        start_fuser_instance()
-
-
-def enforce_local_fuser_policy():
-    """
-    Host machine: always 1 fuser.
-    Non-host:
-      - if 'fuser_computer' checked: 3 fusers
-      - else: 0 fusers (kill all)
-    """
-    try:
-        if is_host_machine():
-            ensure_fuser_instances(1)
-            return
-
-        is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
-        desired = 3 if is_fuser else 0
-        ensure_fuser_instances(desired)
-    except Exception as e:
-        print(f"[fuser-policy] {e}")
 
 # Update the shared fuser path in the JSON config. If *project_path* is a UNC
 # path, derive the host from it; otherwise fall back to the local machine name.
@@ -2185,8 +2056,6 @@ class MainApp(tk.Tk):
                  bg="#333333", fg="white",
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
-        enforce_local_fuser_policy()
-
         # Start by showing "Main"
         self.current = None
         self.show('Main')
@@ -3011,8 +2880,6 @@ class VBS4Panel(tk.Frame):
         if is_fuser and self.oneclick_open:
             self._collapse_oneclick()
 
-        enforce_local_fuser_policy()
-
     def set_file_location(self, app_name, config_key, button):
         path = filedialog.askopenfilename(
             title=f"Select {app_name} Executable",
@@ -3665,7 +3532,6 @@ class SettingsPanel(tk.Frame):
         def _on_close_toggle():
             toggle_close_on_launch()
             self.close_var.set(is_close_on_launch_enabled())
-            enforce_local_fuser_policy()
 
         tk.Checkbutton(self,
                        text="Close on Software Launch?",
@@ -3685,8 +3551,6 @@ class SettingsPanel(tk.Frame):
             config['Fusers']['fuser_computer'] = str(self.fuser_var.get())
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
-            enforce_local_fuser_policy()
-
             if self.fuser_var.get():
                 host = config['Fusers'].get('working_folder_host', '')
                 host = prompt_hostname(self, host)
@@ -3695,7 +3559,7 @@ class SettingsPanel(tk.Frame):
                     with open(CONFIG_PATH, 'w') as f:
                         config.write(f)
                 update_fuser_shared_path()
-
+                run_in_thread(self.controller.panels['VBS4'].launch_local_fuser)
             self.controller.panels['VBS4'].update_fuser_state()
 
         tk.Checkbutton(self,
@@ -3809,7 +3673,6 @@ class SettingsPanel(tk.Frame):
         if pnl and hasattr(pnl, "_update_rm_label"):
             pnl._update_rm_label()
         messagebox.showinfo("Settings", f"Host set to '{h}'.")
-        enforce_local_fuser_policy()
 
     def _create_path_row(self, text, command, initial_path):
         """Create a consistent button/label row for file path settings."""
@@ -4229,5 +4092,6 @@ if __name__ == "__main__":
     app = MainApp()
     if config['Fusers'].getboolean('fuser_computer', False):
         update_fuser_shared_path()
-    app.panels['VBS4'].update_fuser_state()
+        run_in_thread(app.panels['VBS4'].launch_local_fuser)
+        app.panels['VBS4'].update_fuser_state()
     app.mainloop()
