@@ -413,6 +413,26 @@ def _first_missing_segment(path: str) -> str:
     return ""
 
 
+def _list_dir_safe(path: str, max_items: int = 8) -> str:
+    """Return a short newline-separated listing of *path* or an error message."""
+    try:
+        entries = os.listdir(path)
+    except Exception as exc:  # pragma: no cover - best effort only
+        return f"[cannot list '{path}': {exc}]"
+    entries = entries[:max_items]
+    return "\n".join(entries)
+
+
+def _diagnose_missing_unc(path: str) -> str:
+    """Return diagnostic text for an unresolved UNC *path*."""
+    missing = _first_missing_segment(path)
+    if not missing:
+        return ""
+    parent = os.path.dirname(missing)
+    listing = _list_dir_safe(parent)
+    return f"Missing path: {missing}\nParent listing ({parent}):\n{listing}"
+
+
 def _try_link_under(base_dir: str) -> str:
     """Search for the RM link directly in base_dir or recursively beneath it."""
     if not base_dir or not os.path.isdir(base_dir):
@@ -481,61 +501,118 @@ def set_rm_local_root(path: str) -> None:
         config.write(f)
 
 
-def same_drive(a: str, b: str) -> bool:
-    """Return ``True`` if *a* and *b* share the same drive letter."""
-    if not a or not b:
-        return True
-    if a.startswith('\\\\') or b.startswith('\\\\'):
+def is_valid_rm_local_root(root: str) -> bool:
+    """Return ``True`` if *root* exists and contains ``Datatarget.txt``."""
+    if not root:
         return False
-    da = os.path.splitdrive(os.path.abspath(a))[0].upper()
-    db = os.path.splitdrive(os.path.abspath(b))[0].upper()
-    return da == db and da != ''
+    root = os.path.abspath(root)
+    return os.path.isdir(root) and os.path.isfile(os.path.join(root, 'Datatarget.txt'))
 
-def find_local_rm_link() -> str:
-    """Search the local root for the Reality Mesh shortcut."""
-    root = get_rm_local_root()
-    if not root or not os.path.isdir(root):
+
+def find_local_rm_shortcut(root: str) -> str:
+    """Locate the Reality Mesh shortcut under *root* if present."""
+    if not is_valid_rm_local_root(root):
         return ''
-    direct = os.path.join(root, RM_LNK_NAME)
-    if os.path.isfile(direct):
-        return direct
+    root = os.path.abspath(root)
     target = RM_LNK_NAME.lower()
-    for dp, _ds, fs in os.walk(root):
-        for f in fs:
-            if f.lower() == target:
-                return os.path.join(dp, f)
+    for sub in RM_INSTALL_SUBDIRS:
+        direct = os.path.normpath(os.path.join(root, sub, RM_LNK_NAME))
+        if os.path.isfile(direct):
+            return direct
+        base = os.path.join(root, sub)
+        if os.path.isdir(base):
+            for dp, _ds, fs in os.walk(base):
+                for f in fs:
+                    if f.lower() == target:
+                        return os.path.normpath(os.path.join(dp, f))
     return ''
 
-def is_valid_rm_root(local_root: str, data_marker: str = "Datatarget.txt") -> bool:
+
+def get_drive_letter(path: str) -> str:
+    """Return the drive letter for *path* (e.g., ``'C:'``)."""
+    if not path:
+        return ''
+    drive, _ = os.path.splitdrive(os.path.abspath(path))
+    return drive.upper()
+
+
+# --- Helpers (place near other path utilities) ------------------------------
+
+def _volume_id(path: str) -> str:
     """
-    Return True if the local_root is under a folder containing Datatarget.txt.
+    Return a 'volume id' for a path:
+      - For local paths -> 'D:' (after realpath)
+      - For UNC paths  -> '\\host\\share'
+    Empty string if path is falsy.
     """
-    local_root = os.path.abspath(local_root)
-    drive, path = os.path.splitdrive(local_root)
-    # Walk up the directory tree to look for Datatarget.txt
-    while True:
-        marker = os.path.join(local_root, data_marker)
-        if os.path.isfile(marker):
-            return True
-        parent = os.path.dirname(local_root)
-        if parent == local_root:
-            break
-        local_root = parent
-    return False
+    if not path:
+        return ""
+    p = os.path.realpath(os.path.expandvars(os.path.expanduser(path)))
+    # UNC: \\host\share\...
+    if p.startswith("\\\\"):
+        parts = p.split("\\")
+        # ['','',host,share,...]
+        if len(parts) >= 4 and parts[2] and parts[3]:
+            return f"\\\\{parts[2]}\\{parts[3]}".upper()
+        return p.upper()
+    drive, _ = os.path.splitdrive(p)
+    return drive.upper()
+
+
+def _resolve_dataset_root(panel_self) -> str:
+    """
+    Pick the most reliable dataset root:
+      1) panel_self.last_build_dir (if set)
+      2) 'dataset_root' from RealityMeshSystemSettings.txt (if you load it)
+      3) One-Click output path from config (your existing getter)
+    Returns normalized absolute path or "".
+    """
+    # 1) last build
+    if getattr(panel_self, "last_build_dir", None):
+        return os.path.realpath(panel_self.last_build_dir)
+
+    # 2) from system settings file (if you already load it somewhere)
+    try:
+        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        s = load_system_settings(sys_settings_path)  # your existing helper
+        ds = s.get("dataset_root", "").strip()
+        if ds:
+            return os.path.realpath(os.path.expandvars(os.path.expanduser(ds)))
+    except Exception:
+        pass
+
+    # 3) One-Click output folder (existing getter)
+    try:
+        oc = get_oneclick_output_path()
+        if oc:
+            return os.path.realpath(os.path.expandvars(os.path.expanduser(oc)))
+    except Exception:
+        pass
+
+    return ""
+
 
 def resolve_active_rm_link(dataset_root: str) -> tuple[str, str]:
-    local_root = get_rm_local_root()
-    if local_root:
-        # Check for Datatarget.txt marker in the ancestry of local_root
-        if not is_valid_rm_root(local_root):
+    root = get_rm_local_root()
+    if root:
+        if not is_valid_rm_local_root(root):
             return ('', 'INVALID_LOCAL_ROOT')
-        if dataset_root and not same_drive(local_root, dataset_root):
-            return ('', 'DIFFERENT_DRIVE')
-        link = find_local_rm_link()
+        link = find_local_rm_shortcut(root)
         if link:
+            if dataset_root and get_drive_letter(root) != get_drive_letter(dataset_root):
+                return ('', 'DIFFERENT_DRIVE')
             return (link, 'LOCAL')
     link = find_unc_rm_link()
     return (link, 'UNC')
+
+
+# Backwards compatibility helpers
+def find_local_rm_link() -> str:  # pragma: no cover - legacy alias
+    return find_local_rm_shortcut(get_rm_local_root())
+
+
+def is_valid_rm_root(local_root: str, data_marker: str = 'Datatarget.txt') -> bool:  # pragma: no cover
+    return is_valid_rm_local_root(local_root)
 
 
 def load_system_settings(path: str) -> dict:
@@ -3536,7 +3613,7 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", str(exc), parent=self)
             return
 
-    def launch_reality_mesh_to_vbs4(self):
+    def _old_launch_reality_mesh_to_vbs4(self):
         dataset_root = load_system_settings(
             os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         ).get('dataset_root', '')
@@ -3564,6 +3641,99 @@ class VBS4Panel(tk.Frame):
         finally:
             self._update_rm_status()
 
+    def launch_reality_mesh_to_vbs4(self):
+        local_root = get_rm_local_root().strip()
+        attempted: list[str] = []
+        datatarget = False
+        local = ''
+        if local_root:
+            datatarget = is_valid_rm_local_root(local_root)
+            if not datatarget:
+                messagebox.showerror(
+                    "Reality Mesh",
+                    (
+                        f"Reality Mesh local root '{local_root}' is invalid. Expected sentinel file 'Datatarget.txt' "
+                        "in the root (e.g., D:\\SharedMeshDrive\\Datatarget.txt)."
+                    ),
+                )
+                self.controller.show('Settings')
+                return
+            attempted = [
+                os.path.normpath(os.path.join(local_root, sub, RM_LNK_NAME))
+                for sub in RM_INSTALL_SUBDIRS
+            ]
+            local = find_local_rm_shortcut(local_root)
+
+        # --- In VBS4Panel.launch_reality_mesh_to_vbs4 (local branch) ----------------
+        if local:
+            # Compare the *actual* mounted volumes, not raw strings.
+            tool_vol = _volume_id(local) or _volume_id(local_root)
+            data_root = _resolve_dataset_root(self)
+            data_vol = _volume_id(data_root)
+
+            # Log for visibility (optional)
+            try:
+                self.log_message(f"RM tool path: {local}")
+                self.log_message(f"Dataset root: {data_root or '[unknown]'}")
+                self.log_message(f"Volumes -> tool: {tool_vol or '[?]'}, data: {data_vol or '[?]'}")
+            except Exception:
+                pass
+
+            # Only enforce when we actually know both volumes
+            if tool_vol and data_vol and tool_vol != data_vol:
+                messagebox.showerror(
+                    "Reality Mesh",
+                    (
+                        "Reality Mesh and data must be on the same drive.\n"
+                        f"Current tool volume: {tool_vol}, data volume: {data_vol}."
+                    ),
+                )
+                return
+
+            # OK to launch locally
+            self.log_message(f"Launching Reality Mesh via LOCAL: {local}")
+            try:
+                os.startfile(local)
+            except Exception as e:
+                messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+            return
+
+        tpl = get_rm_template_from_config()
+        link = resolve_unc(tpl)
+        if not os.path.isfile(link):
+            diag = _diagnose_missing_unc(link)
+            listing = ''
+            install_dir = ''
+            if local_root:
+                install_dir = os.path.join(local_root, 'RealityMeshInstall')
+                if os.path.isdir(install_dir):
+                    listing = _list_dir_safe(install_dir)
+            msg_parts = ["Could not locate 'Reality Mesh to VBS4.lnk'."]
+            if attempted:
+                msg_parts.append("\nLocal attempts:")
+                msg_parts.extend(attempted)
+            if local_root:
+                msg_parts.append(
+                    f"\nSentinel: {'found' if datatarget else 'missing'} at {os.path.normpath(local_root)}"
+                )
+            msg_parts.append(f"\nUNC path: {link}")
+            if diag:
+                msg_parts.append(f"\n{diag}")
+            if listing:
+                msg_parts.append(
+                    f"\nContents of {os.path.normpath(install_dir)}:\n{listing}"
+                )
+            messagebox.showerror("Reality Mesh", "\n".join(msg_parts))
+            self._update_rm_status()
+            return
+
+        self.log_message(f"Launching Reality Mesh via UNC: {link}")
+        try:
+            os.startfile(link)
+        except Exception as e:
+            messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+        finally:
+            self._update_rm_status()
     def _update_rm_status(self):
         # Only update if the label exists (i.e., one-click panel is expanded)
         if not hasattr(self, "rm_path_label"):
@@ -3578,13 +3748,19 @@ class VBS4Panel(tk.Frame):
         self.rm_source = source
         if source == 'DIFFERENT_DRIVE':
             self.rm_path_label.config(
-                text="⚠ Tool and data must be on the same drive. Update Settings → Reality Mesh Local Root.",
+                text="⚠ Reality Mesh and data must be on the same drive. Update Settings → Reality Mesh Local Root.",
+                fg="#ffb3b3",
+            )
+            return
+        if source == 'INVALID_LOCAL_ROOT':
+            self.rm_path_label.config(
+                text="⚠ Reality Mesh local root invalid or missing Datatarget.txt.",
                 fg="#ffb3b3",
             )
             return
         if link:
             self.rm_path_label.config(
-                text=f"RM link (active: {source}): {link}",
+                text=f"RM link ({source}): {link}",
                 fg="#ddd",
             )
         else:
@@ -3973,16 +4149,23 @@ class SettingsPanel(tk.Frame):
         if path.startswith('\\\\'):
             messagebox.showerror("Settings", "UNC paths are not supported for the local root.")
             return
-        if path and not os.path.isdir(path):
-            if not messagebox.askyesno(
-                "Settings", "Folder does not exist. Save anyway?"
-            ):
-                return
+        if path and not is_valid_rm_local_root(path):
+            messagebox.showerror(
+                "Settings",
+                (
+                    f"Reality Mesh local root '{path}' is invalid. Expected sentinel file 'Datatarget.txt' "
+                    "in the root (e.g., D:\\SharedMeshDrive\\Datatarget.txt)."
+                ),
+            )
+            return
         set_rm_local_root(path)
         pnl = self.controller.panels.get('VBS4')
         if pnl and hasattr(pnl, '_update_rm_status'):
             pnl._update_rm_status()
-        messagebox.showinfo("Settings", f"Reality Mesh Local Root set to:\n{path}" if path else "Reality Mesh Local Root cleared.")
+        messagebox.showinfo(
+            "Settings",
+            f"Reality Mesh Local Root set to:\n{path}" if path else "Reality Mesh Local Root cleared.",
+        )
 
     def _create_path_row(self, text, command, initial_path):
         """Create a consistent button/label row for file path settings."""
