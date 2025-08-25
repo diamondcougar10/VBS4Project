@@ -491,7 +491,6 @@ def same_drive(a: str, b: str) -> bool:
     db = os.path.splitdrive(os.path.abspath(b))[0].upper()
     return da == db and da != ''
 
-
 def find_local_rm_link() -> str:
     """Search the local root for the Reality Mesh shortcut."""
     root = get_rm_local_root()
@@ -507,24 +506,37 @@ def find_local_rm_link() -> str:
                 return os.path.join(dp, f)
     return ''
 
+def is_valid_rm_root(local_root: str, data_marker: str = "Datatarget.txt") -> bool:
+    """
+    Return True if the local_root is under a folder containing Datatarget.txt.
+    """
+    local_root = os.path.abspath(local_root)
+    drive, path = os.path.splitdrive(local_root)
+    # Walk up the directory tree to look for Datatarget.txt
+    while True:
+        marker = os.path.join(local_root, data_marker)
+        if os.path.isfile(marker):
+            return True
+        parent = os.path.dirname(local_root)
+        if parent == local_root:
+            break
+        local_root = parent
+    return False
 
 def resolve_active_rm_link(dataset_root: str) -> tuple[str, str]:
-    """Decide whether to use a local or UNC shortcut.
-
-    Returns ``(link, source)`` where ``source`` is one of ``LOCAL``, ``UNC`` or
-    ``DIFFERENT_DRIVE`` when the local root and dataset are on different
-    drives.
-    """
     local_root = get_rm_local_root()
     if local_root:
+        # Check for Datatarget.txt marker in the ancestry of local_root
+        if not is_valid_rm_root(local_root):
+            return ('', 'INVALID_LOCAL_ROOT')
         if dataset_root and not same_drive(local_root, dataset_root):
             return ('', 'DIFFERENT_DRIVE')
         link = find_local_rm_link()
         if link:
             return (link, 'LOCAL')
-
     link = find_unc_rm_link()
     return (link, 'UNC')
+
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -3529,14 +3541,15 @@ class VBS4Panel(tk.Frame):
             os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         ).get('dataset_root', '')
         link, source = resolve_active_rm_link(dataset_root)
-        if source == 'DIFFERENT_DRIVE':
+        if source == 'INVALID_LOCAL_ROOT':
             messagebox.showerror(
                 "Reality Mesh",
-                "Reality Mesh and data must be on the same drive (known texture issue). "
-                "Please set 'Reality Mesh Local Root' to the same drive as your data.",
+                "Reality Mesh Local Root is not under a valid data root (missing Datatarget.txt). "
+                "Please set 'Reality Mesh Local Root' to a folder under your data root."
             )
             self.controller.show('Settings')
             return
+
         if not link:
             messagebox.showerror(
                 "Reality Mesh",
@@ -3552,6 +3565,9 @@ class VBS4Panel(tk.Frame):
             self._update_rm_status()
 
     def _update_rm_status(self):
+        # Only update if the label exists (i.e., one-click panel is expanded)
+        if not hasattr(self, "rm_path_label"):
+            return
         dataset_root = load_system_settings(
             os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         ).get('dataset_root', '')
@@ -3576,7 +3592,6 @@ class VBS4Panel(tk.Frame):
                 text="⚠ Reality Mesh link not found (LOCAL/UNC). Check Settings.",
                 fg="#ffb3b3",
             )
-
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
 
