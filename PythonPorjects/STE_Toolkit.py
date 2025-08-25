@@ -437,21 +437,94 @@ def _candidate_install_roots() -> list[str]:
     return roots
 
 
-def find_reality_mesh_to_vbs4_link() -> str:
-    """
-    Prefer the exact path from config (with {host} substituted).
-    If not found, try both spelling variants under \\{host}\\SharedMeshDrive\\...
+def find_unc_rm_link() -> str:
+    """Resolve the UNC shortcut for "Reality Mesh to VBS4".
+
+    Resolve the configured template (substituting ``{host}``).  If the
+    shortcut does not exist at that path, walk the ``RealityMeshInstall``
+    share looking for it.  Returns an empty string when not found.
     """
     cfg_tpl = get_rm_template_from_config()
-    cfg_path = _subst_host(cfg_tpl)
+    cfg_path = resolve_unc(cfg_tpl)
     if os.path.isfile(cfg_path):
         return cfg_path
+
+    base = os.path.dirname(cfg_path)
+    link = _try_link_under(base)
+    if link:
+        return link
 
     for root in _candidate_install_roots():
         link = _try_link_under(root)
         if link:
             return link
-    return ""  # not found
+    return ""
+
+
+# Backwards compatibility helper
+def find_reality_mesh_to_vbs4_link() -> str:  # pragma: no cover - legacy name
+    return find_unc_rm_link()
+
+
+def get_rm_local_root() -> str:
+    """Return the configured local Reality Mesh install root, if any."""
+    return config.get('General', 'reality_mesh_local_root', fallback='').strip()
+
+
+def set_rm_local_root(path: str) -> None:
+    """Store the local Reality Mesh install root in ``config.ini``."""
+    if 'General' not in config:
+        config['General'] = {}
+    norm = os.path.abspath(path) if path else ''
+    config['General']['reality_mesh_local_root'] = norm
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+
+
+def same_drive(a: str, b: str) -> bool:
+    """Return ``True`` if *a* and *b* share the same drive letter."""
+    if not a or not b:
+        return True
+    if a.startswith('\\\\') or b.startswith('\\\\'):
+        return False
+    da = os.path.splitdrive(os.path.abspath(a))[0].upper()
+    db = os.path.splitdrive(os.path.abspath(b))[0].upper()
+    return da == db and da != ''
+
+
+def find_local_rm_link() -> str:
+    """Search the local root for the Reality Mesh shortcut."""
+    root = get_rm_local_root()
+    if not root or not os.path.isdir(root):
+        return ''
+    direct = os.path.join(root, RM_LNK_NAME)
+    if os.path.isfile(direct):
+        return direct
+    target = RM_LNK_NAME.lower()
+    for dp, _ds, fs in os.walk(root):
+        for f in fs:
+            if f.lower() == target:
+                return os.path.join(dp, f)
+    return ''
+
+
+def resolve_active_rm_link(dataset_root: str) -> tuple[str, str]:
+    """Decide whether to use a local or UNC shortcut.
+
+    Returns ``(link, source)`` where ``source`` is one of ``LOCAL``, ``UNC`` or
+    ``DIFFERENT_DRIVE`` when the local root and dataset are on different
+    drives.
+    """
+    local_root = get_rm_local_root()
+    if local_root:
+        if dataset_root and not same_drive(local_root, dataset_root):
+            return ('', 'DIFFERENT_DRIVE')
+        link = find_local_rm_link()
+        if link:
+            return (link, 'LOCAL')
+
+    link = find_unc_rm_link()
+    return (link, 'UNC')
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -2505,7 +2578,7 @@ class MainMenu(tk.Frame):
         """Open the Reality Mesh to VBS4 application."""
         panel = self.panels.get('VBS4')
         if panel:
-            panel.post_process_last_build()
+            panel.launch_reality_mesh_to_vbs4()
 
     def open_url(self, url: str) -> None:
         """Open a web URL in the default browser."""
@@ -2928,7 +3001,7 @@ class VBS4Panel(tk.Frame):
             justify="left",
         )
         self.rm_path_label.pack(fill="x", padx=6)
-        self._update_rm_label()
+        self._update_rm_status()
 
         pb = globals().get("pill_button")
         if pb:
@@ -3452,29 +3525,57 @@ class VBS4Panel(tk.Frame):
             return
 
     def launch_reality_mesh_to_vbs4(self):
-        """Launch the Reality Mesh to VBS4 tool using host-aware UNC path, tolerant to folder spelling."""
-        link = find_reality_mesh_to_vbs4_link()
-        if not link:
-            tried = [_subst_host(get_rm_template_from_config()), *_candidate_install_roots()]
-            missing = [_first_missing_segment(p) for p in tried]
-            first_missing = next((m for m in missing if m), "")
-            details = "Paths tried:\n  " + "\n  ".join(tried)
-            msg = "Shortcut not found.\n\n"
-            if first_missing:
-                msg += f"Missing segment:\n  {first_missing}\n\n"
-            msg += details + "\n\nMake sure the host is correct and the share/folder exists."
-            messagebox.showerror("Reality Mesh", msg)
+        dataset_root = load_system_settings(
+            os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        ).get('dataset_root', '')
+        link, source = resolve_active_rm_link(dataset_root)
+        if source == 'DIFFERENT_DRIVE':
+            messagebox.showerror(
+                "Reality Mesh",
+                "Reality Mesh and data must be on the same drive (known texture issue). "
+                "Please set 'Reality Mesh Local Root' to the same drive as your data.",
+            )
+            self.controller.show('Settings')
             return
-
+        if not link:
+            messagebox.showerror(
+                "Reality Mesh",
+                "Could not locate 'Reality Mesh to VBS4.lnk' in local or UNC paths.",
+            )
+            return
+        self.log_message(f"Launching Reality Mesh via {source}: {link}")
         try:
-            os.startfile(link)  # open the .lnk
+            os.startfile(link)
         except Exception as e:
             messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+        finally:
+            self._update_rm_status()
 
-    def _update_rm_label(self):
-        if hasattr(self, "rm_path_label"):
-            tpl = get_rm_template_from_config()
-            self.rm_path_label.config(text=f"RM link: {_subst_host(tpl)}")
+    def _update_rm_status(self):
+        dataset_root = load_system_settings(
+            os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        ).get('dataset_root', '')
+        link, source = resolve_active_rm_link(dataset_root)
+        prev = getattr(self, 'rm_source', None)
+        if source != prev and source in ('LOCAL', 'UNC'):
+            self.log_message(f"Reality Mesh link source: {source}")
+        self.rm_source = source
+        if source == 'DIFFERENT_DRIVE':
+            self.rm_path_label.config(
+                text="⚠ Tool and data must be on the same drive. Update Settings → Reality Mesh Local Root.",
+                fg="#ffb3b3",
+            )
+            return
+        if link:
+            self.rm_path_label.config(
+                text=f"RM link (active: {source}): {link}",
+                fg="#ddd",
+            )
+        else:
+            self.rm_path_label.config(
+                text="⚠ Reality Mesh link not found (LOCAL/UNC). Check Settings.",
+                fg="#ffb3b3",
+            )
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
@@ -3740,6 +3841,42 @@ class SettingsPanel(tk.Frame):
             bd=0,
         ).pack(side="left", padx=8)
 
+        # Reality Mesh Local Root
+        rm_row = tk.Frame(self, bg="black")
+        tk.Label(
+            rm_row,
+            text="Reality Mesh Local Root",
+            font=("Helvetica", 20),
+            bg="black",
+            fg="white",
+        ).pack(side="left")
+        self.rm_local_var = tk.StringVar(value=get_rm_local_root())
+        tk.Entry(
+            rm_row,
+            textvariable=self.rm_local_var,
+            width=40,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True)
+        tk.Button(
+            rm_row,
+            text="Browse...",
+            command=self._browse_rm_local_root,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
+        tk.Button(
+            rm_row,
+            text="Save",
+            command=self._save_rm_local_root,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
+        rm_row.pack(fill="x", padx=10, pady=5)
+
         # VBS4 Install Location
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
@@ -3806,10 +3943,31 @@ class SettingsPanel(tk.Frame):
         pnl = self.controller.panels.get('VBS4')
         if pnl and hasattr(pnl, "log_message"):
             pnl.log_message(f"Host set to: {h}")
-        if pnl and hasattr(pnl, "_update_rm_label"):
-            pnl._update_rm_label()
+        if pnl and hasattr(pnl, "_update_rm_status"):
+            pnl._update_rm_status()
         messagebox.showinfo("Settings", f"Host set to '{h}'.")
         enforce_local_fuser_policy()
+
+    def _browse_rm_local_root(self):
+        path = filedialog.askdirectory()
+        if path:
+            self.rm_local_var.set(os.path.normpath(path))
+
+    def _save_rm_local_root(self):
+        path = self.rm_local_var.get().strip()
+        if path.startswith('\\\\'):
+            messagebox.showerror("Settings", "UNC paths are not supported for the local root.")
+            return
+        if path and not os.path.isdir(path):
+            if not messagebox.askyesno(
+                "Settings", "Folder does not exist. Save anyway?"
+            ):
+                return
+        set_rm_local_root(path)
+        pnl = self.controller.panels.get('VBS4')
+        if pnl and hasattr(pnl, '_update_rm_status'):
+            pnl._update_rm_status()
+        messagebox.showinfo("Settings", f"Reality Mesh Local Root set to:\n{path}" if path else "Reality Mesh Local Root cleared.")
 
     def _create_path_row(self, text, command, initial_path):
         """Create a consistent button/label row for file path settings."""
