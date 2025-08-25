@@ -1,4 +1,0 @@
-#0 is the convex hull for the features -> 202 is the color of S202_Sat_barren, our chosen 
-0,S202_Sat_barren,,@202
-#1 is the background color
-1,S255_Unknown,,@255
