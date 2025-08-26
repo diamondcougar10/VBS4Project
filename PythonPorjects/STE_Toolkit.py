@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, simpledialog, messagebox
 from PIL import Image, ImageTk
 import os
 import subprocess
@@ -13,7 +13,6 @@ import winreg
 import sys
 import functools
 import json
-from tkinter import simpledialog
 import re
 import socket
 import threading
@@ -2444,6 +2443,7 @@ class MainMenu(tk.Frame):
         set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)   # <— keeps the “?” button
+        self.controller = controller
 
         tk.Label(
             self,
@@ -2526,70 +2526,13 @@ class MainMenu(tk.Frame):
             bg=bg, fg="white",
             width=30, height=1,
             state=state,
-            command=self.show_scenario_buttons
+            command=self.launch_blueig_with_exercise_id if state == "normal" else None
         ).pack()
 
-    def show_scenario_buttons(self):
-        if config["General"].getboolean("is_server", fallback=False):
-            return
-
-        for widget in self.blueig_frame.winfo_children():
-            widget.destroy()
-
-        for i in range(1, 5):
-            tk.Button(
-                self.blueig_frame,
-                text=f"Launch BlueIG HammerKit 1-{i}",
-                font=("Helvetica", 20),
-                bg="#444444",
-                fg="white",
-                width=30,
-                height=1,
-                bd=0,
-                highlightthickness=0,
-                command=lambda n=i: self.launch_blueig_scenario(n)
-            ).pack(pady=5)
-
-        tk.Button(
-            self.blueig_frame,
-            text="Back",
-            font=("Helvetica", 18),
-            bg="#666666",
-            fg="white",
-            width=10,
-            bd=0,
-            highlightthickness=0,
-            command=self.create_blueig_button
-        ).pack(pady=10)
-
-    def launch_blueig_scenario(self, scenario_num):
-        exe = config["General"].get("blueig_path", "").strip()
-        if not exe or not os.path.isfile(exe):
-            messagebox.showerror(
-                "Error",
-                "BlueIG executable not found. Please set it in the settings."
-            )
-            return
-
-        blueig_dir = os.path.dirname(exe)
-        scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
-        args = [
-            exe,
-            "-hmd=openxr_ctr:oculus",
-            f"-vbsHostExerciseID={scenario}",
-            "-splitCPU",
-            "-DJobThreads=8",
-            "-DJobPool=8",
-        ]
-
-        try:
-            subprocess.Popen(args, cwd=blueig_dir)
-            if is_close_on_launch_enabled():
-                sys.exit(0)
-        except Exception as e:
-            messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
-
-        self.create_blueig_button()
+    def launch_blueig_with_exercise_id(self):
+        panel = self.controller.panels.get("VBS4") if hasattr(self.controller, "panels") else None
+        if panel and hasattr(panel, "launch_blueig_with_exercise_id"):
+            panel.launch_blueig_with_exercise_id()
 
     def run_oneclick_conversion(self) -> None:
         """Kick off the full One-Click Terrain pipeline."""
@@ -2817,19 +2760,21 @@ class VBS4Panel(tk.Frame):
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
-        is_srv = config['General'].getboolean('is_server', fallback=False)
-        state = 'disabled' if is_srv else 'normal'
+        is_srv  = config["General"].getboolean("is_server", fallback=False)
+        path_ok = bool(get_blueig_install_path())
+        state   = "normal" if (not is_srv and path_ok) else "disabled"
+        bg      = "#444444" if state == "normal" else "#888888"
 
-        self.blueig_button, self.blueig_version_label = create_app_button(
+        self.blueig_button = tk.Button(
             self.blueig_frame,
-            "BlueIG",
-            get_blueig_install_path,
-            self.show_scenario_buttons,
-            lambda: self.set_file_location("BlueIG", "blueig_path", self.blueig_button),
+            text="Launch BlueIG",
+            font=("Helvetica", 24),
+            bg=bg, fg="white",
+            width=30, height=1,
+            state=state,
+            command=self.launch_blueig_with_exercise_id if state == "normal" else None
         )
-        if state == 'disabled':
-            self.blueig_button.config(state='disabled', bg="#888888")
-        self.update_blueig_version()
+        self.blueig_button.pack()
 
     def update_vbs4_version(self):
         path = get_vbs4_install_path()
@@ -2842,7 +2787,67 @@ class VBS4Panel(tk.Frame):
     def update_blueig_version(self):
         path = get_blueig_install_path()
         ver = get_blueig_version(path)
-        self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
+        if hasattr(self, "blueig_version_label"):
+            self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
+
+    def _sanitize_exercise_id(self, s: str) -> str:
+        """Lowercase, trim, and allow letters/numbers/dash only."""
+        import re
+        s = (s or "").strip().lower()
+        return re.sub(r"[^a-z0-9\-]+", "-", s)
+
+    def launch_blueig_with_exercise_id(self):
+        exe = config["General"].get("blueig_path", "").strip()
+        if not exe or not os.path.isfile(exe):
+            messagebox.showerror(
+                "Error",
+                "BlueIG executable not found. Please set it in the Settings panel."
+            )
+            return
+
+        # Ask user for Exercise ID
+        raw_id = simpledialog.askstring(
+            "Exercise ID",
+            "Enter Exercise ID (e.g., destroyer):",
+            parent=self
+        )
+        if not raw_id:
+            return
+        exercise_id = self._sanitize_exercise_id(raw_id)
+        if not exercise_id:
+            messagebox.showerror("Invalid ID", "Exercise ID cannot be empty.")
+            return
+
+        # Persist host as exercise-<id>
+        host_name = f"exercise-{exercise_id}"
+        try:
+            set_host(host_name)  # uses your existing config helpers
+        except Exception:
+            # don't block launch if saving fails; just continue
+            pass
+
+        if hasattr(self.controller, "panels") and "VBS4" in self.controller.panels:
+            pnl = self.controller.panels["VBS4"]
+            if hasattr(pnl, "log_message"):
+                pnl.log_message(f"Host set to: {host_name}")
+
+        # Build CLI args
+        scenario = f"Exercise-{exercise_id}"
+        args = [
+            exe,
+            "-hmd=openxr_ctr:oculus",
+            f"-vbsHostExerciseID={scenario}",
+            "-splitCPU",
+            "-DJobThreads=8",
+            "-DJobPool=8",
+        ]
+
+        try:
+            subprocess.Popen(args, cwd=os.path.dirname(exe))
+            if is_close_on_launch_enabled():
+                sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
 
     def launch_vbs_license_manager(self):
         vbs_license_manager_path = config['General'].get('vbs_license_manager_path', '')
@@ -2860,72 +2865,6 @@ class VBS4Panel(tk.Frame):
         except OSError as e:
             logging.exception("Failed to launch VBS License Manager")
             messagebox.showerror("Launch Failed", f"Couldn't launch VBS License Manager:\n{e}")
-
-    def show_scenario_buttons(self):
-        # If “Is Server”, do nothing
-        if config["General"].getboolean("is_server", fallback=False):
-            return
-
-        for widget in self.blueig_frame.winfo_children():
-            widget.destroy()
-
-        for i in range(1, 5):
-            tk.Button(
-                self.blueig_frame,
-                text=f"HammerKit 1-{i}",
-                font=("Helvetica", 24),
-                bg="#444444",
-                fg="white",
-                width=30,
-                height=1,
-                bd=0,
-                highlightthickness=0,
-                command=lambda n=i: self.launch_blueig_scenario(n),
-            ).pack(pady=10)
-
-        tk.Button(
-            self.blueig_frame,
-            text="Back",
-            font=("Helvetica", 24),
-            bg="#666666",
-            fg="white",
-            width=30,
-            height=1,
-            bd=0,
-            highlightthickness=0,
-            command=self.create_blueig_button,
-        ).pack(pady=10)
-
-    def launch_blueig_scenario(self, scenario_num):
-        exe = config["General"].get("blueig_path", "").strip()
-        if not exe or not os.path.isfile(exe):
-            messagebox.showerror(
-                "Error",
-                "BlueIG executable not found. Please set it in the settings."
-            )
-            return
-
-        blueig_dir = os.path.dirname(exe)
-        scenario = f"Exercise-HAMMERKIT1-{scenario_num}"
-
-        args = [
-            exe,
-            "-hmd=openxr_ctr:oculus",
-            f"-vbsHostExerciseID={scenario}",
-            "-splitCPU",
-            "-DJobThreads=8",
-            "-DJobPool=8",
-        ]
-
-        try:
-            subprocess.Popen(args, cwd=blueig_dir)
-            if is_close_on_launch_enabled():
-                sys.exit(0)
-        except Exception as e:
-            messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
-
-        # Re‐draw the single “Launch BlueIG” button again
-        self.create_blueig_button()
 
     def update_blueig_state(self):
         """Re‐draw the single BlueIG button if 'is_server' toggles."""
