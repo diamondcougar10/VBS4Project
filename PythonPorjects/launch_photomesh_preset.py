@@ -3,7 +3,6 @@ import os
 import json
 import subprocess
 import configparser
-import shutil
 from typing import Iterable, List
 
 # ---------------------------------------------------------------------------
@@ -83,120 +82,6 @@ PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
-def _safe_read_json(path: str) -> dict:
-    try:
-        if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
-
-
-def _safe_backup(path: str) -> None:
-    if os.path.isfile(path) and not os.path.isfile(path + ".bak"):
-        try:
-            shutil.copy2(path, path + ".bak")
-        except Exception:
-            pass
-
-
-def _ensure(d: dict, *keys, default: dict | list | bool | int | str):
-    cur = d
-    for k in keys[:-1]:
-        if k not in cur or not isinstance(cur[k], dict):
-            cur[k] = {}
-        cur = cur[k]
-    if keys[-1] not in cur:
-        cur[keys[-1]] = default
-    return cur[keys[-1]]
-
-
-def _set_first_key(d: dict, keys: list[str], value):
-    """Set the first existing key; if none exist create the first key name."""
-    for k in keys:
-        if k in d:
-            d[k] = value
-            return k
-    d[keys[0]] = value
-    return keys[0]
-
-
-def configure_photomesh_wizard(preset_name: str = "CPP&OBJ") -> None:
-    # 1) Resolve config file candidates
-    install_candidates = [
-        r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotoMeshWizard\\config.json",
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\PhotoMeshWizard\\config.json",
-    ]
-    appdata_cfg = os.path.join(
-        os.environ.get("APPDATA", ""),
-        "Skyline",
-        "PhotoMesh",
-        "Wizard",
-        "config.json",
-    )
-
-    updated: list[str] = []
-
-    # 2/3) Patch INSTALL config if we can find one
-    install_cfg_path = next((p for p in install_candidates if os.path.isfile(p)), None)
-    if install_cfg_path:
-        cfg = _safe_read_json(install_cfg_path)
-
-        ui = _ensure(cfg, "DefaultPhotoMeshWizardUI", default={})
-        m3d = _ensure(cfg, "DefaultPhotoMeshWizardUI", "Model3DFormats", default={})
-        # 3D model formats: force OBJ on, 3DML off
-        m3d["OBJ"] = True
-        m3d["3DML"] = False
-
-        # Force 3D Model ON, Orthophoto OFF (tolerate different key names)
-        _set_first_key(ui, ["3DModel", "Model3D", "Output3DModel"], True)
-        _set_first_key(ui, ["Orthophoto", "OrthoPhoto", "OutputOrthophoto"], False)
-
-        # Enable the two checkboxes (different casings/spellings supported)
-        _set_first_key(ui, ["CenterPivotToProject", "Center pivot to project"], True)
-        _set_first_key(ui, ["ReprojectToEllipsoid", "Reproject to ellipsoid"], True)
-
-        # Minimize and close when done (present either top-level or UI level)
-        cfg["UseMinimize"] = True
-        cfg["ClosePMWhenDone"] = True
-        ui["UseMinimize"] = True
-        ui["ClosePMWhenDone"] = True
-
-        # Write back with backup
-        try:
-            _safe_backup(install_cfg_path)
-            with open(install_cfg_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
-            updated.append(install_cfg_path)
-        except Exception:
-            pass
-
-    # 4) Patch PER-USER (AppData) config
-    try:
-        os.makedirs(os.path.dirname(appdata_cfg), exist_ok=True)
-        user_cfg = _safe_read_json(appdata_cfg)
-
-        user_cfg["SelectedPreset"] = preset_name
-        user_cfg["OverrideSettings"] = True
-        user_cfg["AutoBuild"] = True
-        user_cfg["UseMinimize"] = True
-        user_cfg["ClosePMWhenDone"] = True
-
-        _safe_backup(appdata_cfg)
-        with open(appdata_cfg, "w", encoding="utf-8") as f:
-            json.dump(user_cfg, f, indent=2)
-        updated.append(appdata_cfg)
-    except Exception:
-        pass
-
-    if updated:
-        print("PhotoMesh Wizard config updated:", " | ".join(updated))
-    else:
-        print("PhotoMesh Wizard config: no files updated (missing/locked).")
-
-
 def ensure_wizard_user_defaults(
     preset: str = DEFAULT_WIZARD_PRESET, autostart: bool = True
 ) -> None:
@@ -259,7 +144,8 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
     for fld in folders:
         args += ["--folder", fld]
 
-    configure_photomesh_wizard(DEFAULT_WIZARD_PRESET)
+    ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
+    ensure_wizard_install_defaults()
 
     try:
         subprocess.Popen(args, cwd=os.path.dirname(WIZARD_EXE))
@@ -342,7 +228,6 @@ def launch_photomesh_with_preset(project_name: str, project_path: str, image_fol
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
     ensure_preset_exists()
-    configure_photomesh_wizard(DEFAULT_WIZARD_PRESET)
 
     parts = [
         f'"{WIZARD_EXE}"',
