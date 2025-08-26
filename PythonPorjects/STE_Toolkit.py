@@ -662,6 +662,44 @@ def set_active_wizard_preset(preset_name="CPP&OBJ"):
 
     print(f"✅ Set {preset_name} as active preset in Wizard config")
 
+def enforce_photomesh_settings(config_path: str):
+    """Ensure PhotoMesh Wizard config has 3D model OBJ enabled,
+    Orthophoto disabled, and pivot/ellipsoid options checked."""
+    if not os.path.isfile(config_path):
+        print(f"Config file not found: {config_path}")
+        return
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        try:
+            cfg = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Invalid JSON in {config_path}")
+            return
+
+    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+
+    # --- Disable Ortho ---
+    outputs = ui.setdefault("OutputProducts", {})
+    outputs["Ortho"] = False
+    ui["Orthophoto"] = False
+
+    # --- Force OBJ in Model3DFormats ---
+    model3d = ui.setdefault("Model3DFormats", {})
+    model3d["OBJ"] = True
+    model3d["3DML"] = False  # disable 3DML if present
+
+    # --- Enable Center Pivot and Reproject ---
+    ui["CenterPivotToProject"] = True
+    ui["ReprojectToEllipsoid"] = True
+
+    # --- Also force 3D Model outputs ---
+    ui["3DModel"] = True
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+    print(f"✅ PhotoMesh settings enforced in {config_path}")
+
 
 def enable_obj_in_photomesh_config():
  config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
@@ -2155,6 +2193,7 @@ class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
         apply_app_icon(self)
+        enforce_photomesh_settings(r"C:\Program Files\Skyline\PhotoMeshWizard\config.json")
         self.title("STE Mission Planning Toolkit")
          # Prevent window resizing
         self.resizable(False, False)
