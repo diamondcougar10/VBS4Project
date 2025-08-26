@@ -105,19 +105,11 @@ def run_in_thread(target, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 def extract_progress(line: str) -> int | None:
-    """Return progress percent from a log line if present.
-
-    Returns ``1000`` as a sentinel when a completion marker is detected.
-    """
-    if "Build completed" in line or "OBJ export done" in line:
-        return 1000
+    """Return progress percent from a log line if present."""
     if "Progress:" in line:
         m = re.search(r"Progress:\s*(\d+)%", line)
         if m:
             return int(m.group(1))
-    m = re.search(r"(\d{1,3})\s?%", line)
-    if m:
-        return int(m.group(1))
     m = re.search(r"Tile\s+(\d+)\s+of\s+(\d+)", line)
     if m:
         done, total = map(int, m.groups())
@@ -375,18 +367,6 @@ def find_executable(name, additional_paths=[]):
 RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
 # Accept either folder spelling (some machines have a typo in the share name)
 RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]  # in preferred order
-
-# Default path to the local Reality Mesh shortcut.  This path can be
-# overridden in ``config.ini`` under ``[General]`` via the
-# ``reality_mesh_to_vbs4`` key.
-RM_LOCAL_LINK_DEFAULT = r"D:\\SharedMeshDrive\\RealityMeshInstall\\Reality Mesh to VBS4.lnk"
-
-
-def get_rm_local_link() -> str:
-    """Return the configured path to the Reality Mesh shortcut."""
-    return os.path.normpath(
-        config.get("General", "reality_mesh_to_vbs4", fallback=RM_LOCAL_LINK_DEFAULT).strip()
-    )
 
 
 def get_rm_template_from_config() -> str:
@@ -685,26 +665,34 @@ def set_active_wizard_preset(preset_name="CPP&OBJ"):
 
 
 def enable_obj_in_photomesh_config():
-    import json
+ config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
 
-    cfg = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json"
-    try:
-        with open(cfg, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        data = {}
+ config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
 
-    ui = data.setdefault("DefaultPhotoMeshWizardUI", {})
-    formats = ui.setdefault("Model3DFormats", {})
-    formats["OBJ"] = True            # ✅ OBJ on
-    formats["3DML"] = False          # ❌ 3DML off
+ try:
+    with open(config_path, 'r') as f:
+        config = json.load(f)
 
-    ui["CenterPivotToProject"] = True        # ✅ center pivot to project
-    ui["ReprojectToEllipsoid"] = True        # ✅ reproject to ellipsoid
-    ui["Enable3DModel"] = True               # ✅ 3D Model section enabled
+    # Ensure the structure exists before editing
+    if "DefaultPhotoMeshWizardUI" not in config:
+        config["DefaultPhotoMeshWizardUI"] = {}
+    if "Model3DFormats" not in config["DefaultPhotoMeshWizardUI"]:
+        config["DefaultPhotoMeshWizardUI"]["Model3DFormats"] = {}
 
-    with open(cfg, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    # ✅ Enable OBJ
+    config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["OBJ"] = True
+
+    # ❌ Disable 3DML
+    config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["3DML"] = False
+
+    # Save changes
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=4)
+
+    print("✅ OBJ enabled and 3DML disabled in config.json")
+
+ except Exception as e:
+        print(f"❌ Failed to update config.json: {e}")
 
 def _copytree_progress(src: str, dst: str, progress_cb=None) -> None:
     """Recursively copy *src* to *dst* reporting progress."""
@@ -814,8 +802,7 @@ def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None)
 
 def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
                          log_func=lambda msg: None,
-                         progress_cb=lambda p: None,
-                         done_cb=lambda: None) -> None:
+                         progress_cb=lambda p: None) -> None:
     """Execute *ps_script* on *target_ip* passing it *settings_path*.
 
     Output from the PowerShell process is streamed back and parsed for
@@ -846,38 +833,11 @@ def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
             line = line.rstrip("\r\n")
             log_func(line)
             percent = extract_progress(line)
-            if percent == 1000:
-                done_cb()
-            elif percent is not None:
+            if percent is not None:
                 progress_cb(percent)
         proc.wait()
         if proc.returncode != 0:
             raise subprocess.CalledProcessError(proc.returncode, cmd)
-
-
-def get_ps_script_path() -> str:
-    """Return the default Invoke-RemoteRealityMesh PowerShell script path."""
-    return os.path.join(BASE_DIR, "photomesh", "Invoke-RemoteRealityMesh.ps1")
-
-
-def get_target_ip_or_local() -> str:
-    """Return the target IP for processing or localhost by default."""
-    return get_host() or "localhost"
-
-
-def get_settings_path_for_current() -> str:
-    """Return the settings.txt path for the current project."""
-    root = config.get("BiSimOneClickPath", "path", fallback="").strip()
-    if not root:
-        return ""
-    name = os.path.basename(root)
-    return os.path.join(root, f"{name}-settings.txt")
-
-
-def get_current_build_root() -> str | None:
-    """Return the build output folder for the current project if known."""
-    root = config.get("BiSimOneClickPath", "path", fallback="").strip()
-    return os.path.join(root, "Build_1", "out") if root else None
 
 
 def get_distribution_paths() -> list[str]:
@@ -3524,39 +3484,49 @@ class VBS4Panel(tk.Frame):
 
     def one_click_conversion(self):
         """Run the entire mesh build and post-process pipeline."""
-        self.log_message(
-            "Applying Wizard preset (OBJ, Center Pivot, Reproject to Ellipsoid)…"
-        )
-        enable_obj_in_photomesh_config()
-        set_active_wizard_preset("CPP&OBJ")
+        self.log_message("Starting One-Click Terrain Conversion...")
 
-        def worker():
-            completed = {"flag": False}
+        self.log_message("Prompting user to select imagery folders...")
+        self.select_imagery()
 
-            def _done():
-                completed["flag"] = True
-                self.after(0, self._on_photomesh_complete, get_current_build_root())
+        if not getattr(self, 'image_folder_paths', None):
+            self.log_message("Imagery folder selection failed or cancelled.")
+            return
 
-            def _progress(p):
-                if p != 1000:
-                    self.after(0, self.set_progress, p)
+        self.log_message("Launching PhotoMesh Wizard...")
+        self.create_mesh()
 
+        if not getattr(self, 'last_build_dir', None):
+            self.log_message("Mesh creation did not start properly.")
+            messagebox.showerror(
+                "Error", "Unable to determine build directory.", parent=self
+            )
+            return
+
+        def _pipeline():
             try:
-                self.log_message("Starting PhotoMesh Wizard (auto-build)…")
-                run_remote_processor(
-                    ps_script=get_ps_script_path(),
-                    target_ip=get_target_ip_or_local(),
-                    settings_path=get_settings_path_for_current(),
-                    log_func=lambda m: self.after(0, self.log_message, m),
-                    progress_cb=_progress,
-                    done_cb=_done,
-                )
-                if not completed["flag"]:
-                    self.after(0, self._on_photomesh_complete, get_current_build_root())
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("One-Click", f"Build failed:\n{e}"))
+                self.log_message("Waiting for mesh build to complete...")
+                json_path = wait_for_output_json(self.last_build_dir)
+                self.log_message(f"Mesh build finished: {json_path}")
+            except Exception as exc:
+                self.log_message(f"Failed while waiting for build: {exc}")
+                self.after(0, lambda e=exc: messagebox.showerror(
+                    "Build Error", str(e), parent=self))
+                return
 
-        run_in_thread(worker)
+            def launch_rm():
+                try:
+                    self.log_message("Launching Reality Mesh to VBS4...")
+                    self.post_process_last_build(self.last_build_dir)
+                    self.log_message("Reality Mesh to VBS4 launched.")
+                except Exception as exc:
+                    self.log_message(f"Launch failed: {exc}")
+                    messagebox.showerror("Launch Error", str(exc), parent=self)
+
+            # Schedule the Reality Mesh launch on the main thread
+            self.after(0, launch_rm)
+
+        run_in_thread(_pipeline)
 
    
     def post_process_last_build(self, build_root: str | None = None) -> None:
@@ -3577,38 +3547,123 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", str(exc), parent=self)
             return
 
-    def _on_photomesh_complete(self, build_root: str | None) -> None:
-        """Handle PhotoMesh completion and trigger Reality Mesh launch."""
-        self.last_build_dir = build_root
-        self.log_message(
-            "PhotoMesh build completed. Launching Reality Mesh to VBS4…"
-        )
-        self.after(0, self.launch_reality_mesh_to_vbs4)
-
-    def launch_reality_mesh_to_vbs4(self):
-        """Launch the Reality Mesh to VBS4 tool from a local shortcut."""
-        link = get_rm_local_link()
-        if not os.path.isfile(link):
-            self.log_message(f"Reality Mesh shortcut not found: {link}")
-            messagebox.showerror("Reality Mesh", f"Shortcut not found:\n{link}")
+    def _old_launch_reality_mesh_to_vbs4(self):
+        link, source = resolve_active_rm_link()
+        if source == 'INVALID_LOCAL_ROOT':
+            messagebox.showerror(
+                "Reality Mesh",
+                "Reality Mesh Local Root is not under a valid data root (missing Datatarget.txt). "
+                "Please set 'Reality Mesh Local Root' to a folder under your data root."
+            )
+            self.controller.show('Settings')
             return
+
+        if not link:
+            messagebox.showerror(
+                "Reality Mesh",
+                "Could not locate 'Reality Mesh to VBS4.lnk' in local or UNC paths.",
+            )
+            return
+        self.log_message(f"Launching Reality Mesh via {source}: {link}")
         try:
             os.startfile(link)
         except Exception as e:
             messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+        finally:
+            self._update_rm_status()
 
+    def launch_reality_mesh_to_vbs4(self):
+        local_root = get_rm_local_root().strip()
+        attempted: list[str] = []
+        datatarget = False
+        local = ''
+        if local_root:
+            datatarget = is_valid_rm_local_root(local_root)
+            if not datatarget:
+                messagebox.showerror(
+                    "Reality Mesh",
+                    (
+                        f"Reality Mesh local root '{local_root}' is invalid. Expected sentinel file 'Datatarget.txt' "
+                        "in the root (e.g., D:\\SharedMeshDrive\\Datatarget.txt)."
+                    ),
+                )
+                self.controller.show('Settings')
+                return
+            attempted = [
+                os.path.normpath(os.path.join(local_root, sub, RM_LNK_NAME))
+                for sub in RM_INSTALL_SUBDIRS
+            ]
+            local = find_local_rm_shortcut(local_root)
+
+        if local:
+            self.log_message(f"Launching Reality Mesh via LOCAL: {local}")
+            try:
+                os.startfile(local)
+            except Exception as e:
+                messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+            return
+
+        tpl = get_rm_template_from_config()
+        link = resolve_unc(tpl)
+        if not os.path.isfile(link):
+            diag = _diagnose_missing_unc(link)
+            listing = ''
+            install_dir = ''
+            if local_root:
+                install_dir = os.path.join(local_root, 'RealityMeshInstall')
+                if os.path.isdir(install_dir):
+                    listing = _list_dir_safe(install_dir)
+            msg_parts = ["Could not locate 'Reality Mesh to VBS4.lnk'."]
+            if attempted:
+                msg_parts.append("\nLocal attempts:")
+                msg_parts.extend(attempted)
+            if local_root:
+                msg_parts.append(
+                    f"\nSentinel: {'found' if datatarget else 'missing'} at {os.path.normpath(local_root)}"
+                )
+            msg_parts.append(f"\nUNC path: {link}")
+            if diag:
+                msg_parts.append(f"\n{diag}")
+            if listing:
+                msg_parts.append(
+                    f"\nContents of {os.path.normpath(install_dir)}:\n{listing}"
+                )
+            messagebox.showerror("Reality Mesh", "\n".join(msg_parts))
+            self._update_rm_status()
+            return
+
+        self.log_message(f"Launching Reality Mesh via UNC: {link}")
+        try:
+            os.startfile(link)
+        except Exception as e:
+            messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+        finally:
+            self._update_rm_status()
     def _update_rm_status(self):
-        """Update the Reality Mesh link status label."""
+        # Only update if the label exists (i.e., one-click panel is expanded)
         if not hasattr(self, "rm_path_label"):
             return
-        link = get_rm_local_link()
-        if os.path.isfile(link):
-            self.rm_path_label.config(text=f"RM link: {link}", fg="#ddd")
+        link, source = resolve_active_rm_link()
+        prev = getattr(self, 'rm_source', None)
+        if source != prev and source in ('LOCAL', 'UNC'):
+            self.log_message(f"Reality Mesh link source: {source}")
+        self.rm_source = source
+        if source == 'INVALID_LOCAL_ROOT':
+            self.rm_path_label.config(
+                text="⚠ Reality Mesh local root invalid or missing Datatarget.txt.",
+                fg="#ffb3b3",
+            )
+            return
+        if link:
+            self.rm_path_label.config(
+                text=f"RM link ({source}): {link}",
+                fg="#ddd",
+            )
         else:
             self.rm_path_label.config(
-                text=f"⚠ Reality Mesh link not found: {link}", fg="#ffb3b3"
+                text="⚠ Reality Mesh link not found (LOCAL/UNC). Check Settings.",
+                fg="#ffb3b3",
             )
-
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
 
@@ -3672,13 +3727,7 @@ class VBS4Panel(tk.Frame):
             except Exception:
                 pass
 
-        if percent == 1000:
-            self.progress_var.set(100)
-            self.progress_label.config(text="100%")
-            self.progress_job = None
-            self.after(0, self._on_photomesh_complete, self.last_build_dir)
-            return
-        elif percent is not None:
+        if percent is not None:
             self.progress_var.set(percent)
             self.progress_label.config(text=f"{percent}%")
             if percent >= 100:
