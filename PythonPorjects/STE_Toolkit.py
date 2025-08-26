@@ -990,7 +990,7 @@ def _host_key() -> tuple[str, str]:
 
 def get_host() -> str:
     sect, key = _host_key()
-    return config.get(sect, key, fallback="HAMMERKIT1-4").strip()
+    return config.get(sect, key, fallback="KIT1-1").strip()
 
 
 def set_host(host: str) -> None:
