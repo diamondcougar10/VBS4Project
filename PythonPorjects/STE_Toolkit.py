@@ -24,8 +24,6 @@ except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from post_process_utils import clean_project_settings
 from launch_photomesh_preset import (
-    ensure_wizard_user_defaults,
-    ensure_wizard_install_defaults,
     launch_wizard_cli,
     DEFAULT_WIZARD_PRESET,
 )
@@ -3415,10 +3413,7 @@ class VBS4Panel(tk.Frame):
         # Ensure OBJ export is enabled even if install config fails to update
         enable_obj_in_photomesh_config()
 
-        # Apply Wizard defaults so the correct preset is auto-loaded and
-        # the build runs using the shared network working folder.
-        ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
-        ensure_wizard_install_defaults()
+        # The PhotoMesh Wizard configuration is adjusted on launch.
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
