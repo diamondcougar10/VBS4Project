@@ -27,7 +27,7 @@ _cfg = configparser.ConfigParser()
 _cfg.read(CONFIG_PATH)
 
 WORKING_FOLDER_HOST = _cfg.get("Fusers", "working_folder_host", fallback="HAMMERKIT1-4")
-NETWORK_WORKING_FOLDER = fr"\\{WORKING_FOLDER_HOST}\SharedMeshDrive\FuserWorking"
+NETWORK_WORKING_FOLDER = fr"\\{WORKING_FOLDER_HOST}\SharedMeshDrive\WorkingFuser"
 
 # Default preset name used by Wizard
 DEFAULT_WIZARD_PRESET = "CPP&OBJ"
