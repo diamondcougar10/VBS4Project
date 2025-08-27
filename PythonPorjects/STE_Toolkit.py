@@ -28,11 +28,16 @@ from launch_photomesh_preset import (
     DEFAULT_WIZARD_PRESET,
     get_offline_cfg,
     working_fuser_unc,
-    resolve_network_working_folder,
     ensure_offline_share_exists,
     can_access_unc,
     OFFLINE_ACCESS_HINT,
     enforce_photomesh_settings,
+    _is_offline_enabled,
+    _load_json_safe,
+    _save_json_safe,
+    _update_wizard_network_mode,
+    WIZARD_INSTALL_CFG,
+    resolve_network_working_folder_from_cfg,
 )
 from collections import OrderedDict
 import time
@@ -1169,9 +1174,11 @@ def count_local_fusers() -> int:
 
 def start_fuser_instance():
     o = get_offline_cfg()
-    if o["enabled"] and not can_access_unc(resolve_network_working_folder()):
-        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-        return False
+    if o["enabled"]:
+        unc = resolve_network_working_folder_from_cfg(o)
+        if not can_access_unc(unc):
+            messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+            return False
 
     exe = find_fuser_exe()
     if not exe:
@@ -1226,8 +1233,7 @@ def enforce_local_fuser_policy():
       - else: 0 fusers (kill all)
     """
     try:
-        o = get_offline_cfg()
-        if not o["enabled"]:
+        if not _is_offline_enabled():
             kill_fusers()
             return
 
@@ -1246,6 +1252,8 @@ def enforce_local_fuser_policy():
 def update_fuser_shared_path(project_path: str | None = None) -> None:
     # If no project path is supplied only update when this machine is marked as
     # a fuser computer
+    if not _is_offline_enabled():
+        return
     if project_path is None and not config['Fusers'].getboolean('fuser_computer', False):
         return
 
@@ -1254,7 +1262,7 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
 
     stored_host = config['Fusers'].get('working_folder_host', '').strip()
 
-    path = resolve_network_working_folder()
+    path = resolve_network_working_folder_from_cfg(get_offline_cfg())
     if project_path and project_path.startswith('\\'):
         path = project_path
 
@@ -1291,10 +1299,11 @@ def apply_offline_settings() -> None:
     enforce_photomesh_settings()
     update_fuser_shared_path()
 
-    o = get_offline_cfg()
-    local_name = get_machine_name()
-    if o["enabled"] and local_name.upper() == o["host_name"].split('.')[0].upper():
-        ensure_offline_share_exists()
+    if _is_offline_enabled():
+        o = get_offline_cfg()
+        local_name = get_machine_name()
+        if local_name.upper() == o["host_name"].split('.')[0].upper():
+            ensure_offline_share_exists()
 
     enforce_local_fuser_policy()
 
@@ -3289,7 +3298,7 @@ class VBS4Panel(tk.Frame):
         fuser_settings, default_path = load_fuser_config(config_file)
         o = get_offline_cfg()
         if o["enabled"]:
-            default_path = resolve_network_working_folder()
+            default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
                 messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
                 return
@@ -3362,7 +3371,7 @@ class VBS4Panel(tk.Frame):
 
         o = get_offline_cfg()
         if o["enabled"]:
-            default_path = resolve_network_working_folder()
+            default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
                 messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
                 return
@@ -3901,16 +3910,16 @@ class SettingsPanel(tk.Frame):
         )
         offline.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
 
-        self.offline_enabled_var = tk.BooleanVar(value=off_cfg["enabled"])
+        self.offline_var = tk.BooleanVar(value=_is_offline_enabled())
         tk.Checkbutton(
             offline,
             text="Enable Offline Mode",
-            variable=self.offline_enabled_var,
+            variable=self.offline_var,
             font=("Helvetica", 16),
             bg="#444444",
             fg="white",
             selectcolor="#444444",
-            command=self._refresh_offline_resolved,
+            command=self._on_offline_toggle,
         ).pack(anchor="w", pady=2)
 
         row = tk.Frame(offline, bg="black")
@@ -4047,7 +4056,7 @@ class SettingsPanel(tk.Frame):
         btn_row.pack(anchor="w", pady=(4, 0))
 
         for var in [
-            self.offline_enabled_var,
+            self.offline_var,
             self.offline_host_name_var,
             self.offline_host_ip_var,
             self.offline_share_var,
@@ -4182,7 +4191,7 @@ class SettingsPanel(tk.Frame):
 
     def _collect_offline_inputs(self) -> dict:
         return {
-            "enabled": self.offline_enabled_var.get(),
+            "enabled": self.offline_var.get(),
             "host_name": self.offline_host_name_var.get().strip(),
             "host_ip": self.offline_host_ip_var.get().strip(),
             "share_name": self.offline_share_var.get().strip(),
@@ -4194,6 +4203,19 @@ class SettingsPanel(tk.Frame):
     def _refresh_offline_resolved(self, *args):
         path = working_fuser_unc(self._collect_offline_inputs())
         self.offline_resolved_var.set(f"Resolved Working Folder: {path}")
+
+    def _on_offline_toggle(self):
+        val = bool(self.offline_var.get())
+        if "Offline" not in config:
+            config["Offline"] = {}
+        config["Offline"]["enabled"] = "True" if val else "False"
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
+
+        cfg = _load_json_safe(WIZARD_INSTALL_CFG)
+        _update_wizard_network_mode(cfg)
+        _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+        self._refresh_offline_resolved()
 
     def _save_offline_settings(self):
         o = self._collect_offline_inputs()
