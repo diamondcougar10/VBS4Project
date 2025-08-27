@@ -1172,9 +1172,11 @@ def count_local_fusers() -> int:
 
 def start_fuser_instance():
     o = get_offline_cfg()
-    if o["enabled"] and not can_access_unc(resolve_network_working_folder()):
-        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-        return False
+    if o["enabled"]:
+        unc = resolve_network_working_folder_from_cfg(o)
+        if not can_access_unc(unc):
+            messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+            return False
 
     exe = find_fuser_exe()
     if not exe:
@@ -3292,7 +3294,7 @@ class VBS4Panel(tk.Frame):
         fuser_settings, default_path = load_fuser_config(config_file)
         o = get_offline_cfg()
         if o["enabled"]:
-            default_path = resolve_network_working_folder()
+            default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
                 messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
                 return
@@ -3365,7 +3367,7 @@ class VBS4Panel(tk.Frame):
 
         o = get_offline_cfg()
         if o["enabled"]:
-            default_path = resolve_network_working_folder()
+            default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
                 messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
                 return
@@ -4088,6 +4090,12 @@ class SettingsPanel(tk.Frame):
 
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
+
+        # Immediately reload so any following actions see the fresh state
+        try:
+            config.read(CONFIG_PATH)
+        except Exception:
+            pass
 
         new_share = o["share_name"]
         if new_share and new_share.lower() != old_share.lower():
