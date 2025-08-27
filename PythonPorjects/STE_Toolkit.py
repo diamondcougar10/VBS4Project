@@ -3786,104 +3786,95 @@ class SettingsPanel(tk.Frame):
         super().__init__(parent)
         set_wallpaper(self)
         set_background(controller, self)
-        controller.create_tutorial_button(self)
         self.controller = controller
 
-        tk.Label(self, text="Settings",
-                 font=("Helvetica",36,"bold"),
-                 bg='black', fg='white', pady=20) \
-          .pack(fill='x')
+        self.configure(bg="black")
+        self.grid_rowconfigure(5, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        tk.Label(
+            self,
+            text="Settings",
+            font=("Helvetica", 36, "bold"),
+            bg="black",
+            fg="white",
+            pady=20,
+        ).grid(row=0, column=0, sticky="ew")
+
+        # --- Top toggles -------------------------------------------------
+        toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0)
+        toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 6))
+        toggles.grid_columnconfigure(0, weight=1)
+        toggles.grid_columnconfigure(1, weight=1)
 
         self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
-        tk.Checkbutton(self,
-                       text="Fullscreen Mode",
-                       variable=self.fullscreen_var,
-                       command=self._on_fullscreen_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
-
-        # Launch on Startup
         self.startup_var = tk.BooleanVar(value=is_startup_enabled())
-        def _on_startup_toggle():
-            toggle_startup()
-            self.startup_var.set(is_startup_enabled())
-
-        tk.Checkbutton(self,
-                       text="Launch on Startup",
-                       variable=self.startup_var,
-                       command=_on_startup_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
-
-        # Close on Launch
-        self.close_var = tk.BooleanVar(value=is_close_on_launch_enabled())
-        def _on_close_toggle():
-            toggle_close_on_launch()
-            self.close_var.set(is_close_on_launch_enabled())
-            enforce_local_fuser_policy()
-
-        tk.Checkbutton(self,
-                       text="Close on Software Launch?",
-                       variable=self.close_var,
-                       command=_on_close_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
-
-        self.fuser_var = tk.BooleanVar(value=config['Fusers'].getboolean('fuser_computer', False))
+        self.close_on_launch_var = tk.BooleanVar(value=is_close_on_launch_enabled())
+        self.fuser_var = tk.BooleanVar(
+            value=config["Fusers"].getboolean("fuser_computer", False)
+        )
 
         def _on_fuser_toggle():
-            config['Fusers']['fuser_computer'] = str(self.fuser_var.get())
-            with open(CONFIG_PATH, 'w') as f:
+            config["Fusers"]["fuser_computer"] = str(self.fuser_var.get())
+            with open(CONFIG_PATH, "w") as f:
                 config.write(f)
             enforce_local_fuser_policy()
 
             if self.fuser_var.get():
-                host = config['Fusers'].get('working_folder_host', '')
+                host = config["Fusers"].get("working_folder_host", "")
                 host = prompt_hostname(self, host)
                 if host:
-                    config['Fusers']['working_folder_host'] = host.strip()
-                    with open(CONFIG_PATH, 'w') as f:
+                    config["Fusers"]["working_folder_host"] = host.strip()
+                    with open(CONFIG_PATH, "w") as f:
                         config.write(f)
                 update_fuser_shared_path()
 
-            self.controller.panels['VBS4'].update_fuser_state()
+            self.controller.panels["VBS4"].update_fuser_state()
 
-        tk.Checkbutton(self,
-                       text="Fuser Computer",
-                       variable=self.fuser_var,
-                       command=_on_fuser_toggle,
-                       font=("Helvetica",20),
-                       bg="#444444", fg="white",
-                       selectcolor="#444444",
-                       indicatoron=True,
-                       width=30, pady=5,
-                       bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        toggle_specs = [
+            ("Fullscreen Mode", self.fullscreen_var, self._on_fullscreen_toggle),
+            ("Launch on Startup", self.startup_var, self._on_launch_on_startup),
+            (
+                "Close on Software Launch?",
+                self.close_on_launch_var,
+                self._on_close_on_launch,
+            ),
+            ("Fuser Computer", self.fuser_var, _on_fuser_toggle),
+        ]
+
+        for i, (text, var, cmd) in enumerate(toggle_specs):
+            r, c = divmod(i, 2)
+            chk = tk.Checkbutton(
+                toggles,
+                text=text,
+                variable=var,
+                command=cmd,
+                font=("Helvetica", 20),
+                bg="#444444",
+                fg="white",
+                selectcolor="#444444",
+                indicatoron=True,
+                width=30,
+                pady=5,
+                bd=0,
+                highlightthickness=0,
+            )
+            chk.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
+
+        # --- Network Host -----------------------------------------------
+        net_frame = tk.Frame(self, bg="black")
+        net_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+        net_frame.grid_columnconfigure(1, weight=1)
 
         tk.Label(
-            self,
+            net_frame,
             text="Network Host (for shared UNC paths)",
-            font=("Helvetica", 16),
+            font=("Helvetica", 14),
             bg="black",
             fg="white",
-        ).pack(anchor="w", padx=10, pady=(12, 4))
-        host_row = tk.Frame(self, bg="black")
-        host_row.pack(fill="x", padx=10, pady=(0, 10))
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        host_row = tk.Frame(net_frame, bg="black")
+        host_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 10))
         self.host_var = tk.StringVar(value=get_host())
         tk.Entry(
             host_row,
@@ -3892,7 +3883,6 @@ class SettingsPanel(tk.Frame):
             bg="#111111",
             fg="white",
             insertbackground="white",
-            width=40,
             bd=0,
         ).pack(side="left", fill="x", expand=True)
         tk.Button(
@@ -3904,20 +3894,17 @@ class SettingsPanel(tk.Frame):
             fg="white",
             bd=0,
         ).pack(side="left", padx=8)
+
+        # --- Offline Mode -----------------------------------------------
         off_cfg = get_offline_cfg()
-        offline_frame = tk.LabelFrame(
-            self,
-            text="Offline Mode",
-            font=("Helvetica", 20),
-            bg="black",
-            fg="white",
-            labelanchor="n",
+        offline = tk.LabelFrame(
+            self, text="Offline Mode", bg="black", fg="white", font=("Helvetica", 16)
         )
-        offline_frame.pack(fill="x", padx=10, pady=10)
+        offline.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
 
         self.offline_enabled_var = tk.BooleanVar(value=off_cfg["enabled"])
         tk.Checkbutton(
-            offline_frame,
+            offline,
             text="Enable Offline Mode",
             variable=self.offline_enabled_var,
             font=("Helvetica", 16),
@@ -3927,39 +3914,100 @@ class SettingsPanel(tk.Frame):
             command=self._refresh_offline_resolved,
         ).pack(anchor="w", pady=2)
 
-        row = tk.Frame(offline_frame, bg="black")
-        tk.Label(row, text="Host Name:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        row = tk.Frame(offline, bg="black")
+        tk.Label(row, text="Host Name:", font=("Helvetica", 14), bg="black", fg="white").pack(
+            side="left"
+        )
         self.offline_host_name_var = tk.StringVar(value=off_cfg["host_name"])
-        tk.Entry(row, textvariable=self.offline_host_name_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        tk.Entry(
+            row,
+            textvariable=self.offline_host_name_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=30,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True, padx=5)
         row.pack(fill="x", pady=2)
 
-        row = tk.Frame(offline_frame, bg="black")
-        tk.Label(row, text="Host IP:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        row = tk.Frame(offline, bg="black")
+        tk.Label(row, text="Host IP:", font=("Helvetica", 14), bg="black", fg="white").pack(
+            side="left"
+        )
         self.offline_host_ip_var = tk.StringVar(value=off_cfg["host_ip"])
-        tk.Entry(row, textvariable=self.offline_host_ip_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        tk.Entry(
+            row,
+            textvariable=self.offline_host_ip_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=30,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True, padx=5)
         row.pack(fill="x", pady=2)
 
-        row = tk.Frame(offline_frame, bg="black")
-        tk.Label(row, text="Share Name:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        row = tk.Frame(offline, bg="black")
+        tk.Label(row, text="Share Name:", font=("Helvetica", 14), bg="black", fg="white").pack(
+            side="left"
+        )
         self.offline_share_var = tk.StringVar(value=off_cfg["share_name"])
-        tk.Entry(row, textvariable=self.offline_share_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        tk.Entry(
+            row,
+            textvariable=self.offline_share_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=30,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True, padx=5)
         row.pack(fill="x", pady=2)
 
-        row = tk.Frame(offline_frame, bg="black")
-        tk.Label(row, text="Local Data Root:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        row = tk.Frame(offline, bg="black")
+        tk.Label(
+            row, text="Local Data Root:", font=("Helvetica", 14), bg="black", fg="white"
+        ).pack(side="left")
         self.offline_local_root_var = tk.StringVar(value=off_cfg["local_data_root"])
-        tk.Entry(row, textvariable=self.offline_local_root_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        tk.Entry(
+            row,
+            textvariable=self.offline_local_root_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=30,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True, padx=5)
         row.pack(fill="x", pady=2)
 
-        row = tk.Frame(offline_frame, bg="black")
-        tk.Label(row, text="Working Fuser Subdir:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
-        self.offline_working_var = tk.StringVar(value=off_cfg["working_fuser_subdir"])
-        tk.Entry(row, textvariable=self.offline_working_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        row = tk.Frame(offline, bg="black")
+        tk.Label(
+            row,
+            text="Working Fuser Subdir:",
+            font=("Helvetica", 14),
+            bg="black",
+            fg="white",
+        ).pack(side="left")
+        self.offline_working_var = tk.StringVar(
+            value=off_cfg["working_fuser_subdir"]
+        )
+        tk.Entry(
+            row,
+            textvariable=self.offline_working_var,
+            font=("Consolas", 12),
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
+            width=30,
+            bd=0,
+        ).pack(side="left", fill="x", expand=True, padx=5)
         row.pack(fill="x", pady=2)
 
         self.offline_use_ip_var = tk.BooleanVar(value=off_cfg["use_ip_unc"])
         tk.Checkbutton(
-            offline_frame,
+            offline,
             text="Use IP in UNC",
             variable=self.offline_use_ip_var,
             font=("Helvetica", 16),
@@ -3971,14 +4019,14 @@ class SettingsPanel(tk.Frame):
 
         self.offline_resolved_var = tk.StringVar()
         tk.Label(
-            offline_frame,
+            offline,
             textvariable=self.offline_resolved_var,
             font=("Helvetica", 12),
             bg="black",
             fg="white",
         ).pack(anchor="w", pady=(4, 2))
 
-        btn_row = tk.Frame(offline_frame, bg="black")
+        btn_row = tk.Frame(offline, bg="black")
         tk.Button(
             btn_row,
             text="Save + Apply",
@@ -4013,6 +4061,7 @@ class SettingsPanel(tk.Frame):
 
         # Reality Mesh Local Root
         rm_row = tk.Frame(self, bg="black")
+        rm_row.grid(row=4, column=0, sticky="ew", padx=10, pady=5)
         tk.Label(
             rm_row,
             text="Reality Mesh Local Root",
@@ -4045,114 +4094,97 @@ class SettingsPanel(tk.Frame):
             fg="white",
             bd=0,
         ).pack(side="left", padx=8)
-        rm_row.pack(fill="x", padx=10, pady=5)
 
-        # --- Scrollable section for app locations ---
-        scroll_container = tk.LabelFrame(
+        # --- Scrollable Application Locations ---------------------------
+        locs_box = tk.LabelFrame(
             self,
             text="Application Locations",
             bg="black",
             fg="white",
             font=("Helvetica", 16),
-            padx=5,
-            pady=5,
         )
-        scroll_container.pack(fill="both", expand=True, padx=10, pady=10)
+        locs_box.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.grid_rowconfigure(5, weight=1)
 
-        canvas = tk.Canvas(scroll_container, bg="black", highlightthickness=0)
-        scrollbar = tk.Scrollbar(
-            scroll_container, orient="vertical", command=canvas.yview
-        )
-        scroll_frame = tk.Frame(canvas, bg="black")
+        canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0)
+        vbar = tk.Scrollbar(locs_box, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg="black")
 
-        def _on_frame_configure(event):
-            bbox = canvas.bbox("all")
-            if bbox:
-                canvas.configure(scrollregion=bbox)
-                if bbox[3] <= canvas.winfo_height():
-                    scrollbar.pack_forget()
-                else:
-                    scrollbar.pack(side="right", fill="y")
-            else:
-                scrollbar.pack_forget()
-
-        scroll_frame.bind("<Configure>", _on_frame_configure)
-
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set)
 
         canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        vbar.pack(side="right", fill="y")
 
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        locs_box.update_idletasks()
+        locs_box.minsize(locs_box.winfo_width(), 420)
 
-        scroll_frame.bind("<Enter>", lambda e: scroll_frame.bind_all("<MouseWheel>", _on_mousewheel))
-        scroll_frame.bind("<Leave>", lambda e: scroll_frame.unbind_all("<MouseWheel>"))
+        def _wheel(evt):
+            canvas.yview_scroll(int(-1 * (evt.delta / 120)), "units")
 
-        # VBS4 Install Location
+        inner.bind("<Enter>", lambda e: inner.bind_all("<MouseWheel>", _wheel))
+        inner.bind("<Leave>", lambda e: inner.unbind_all("<MouseWheel>"))
+
+        # Add path rows into `inner`
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
             self._on_set_vbs4,
             get_vbs4_install_path(),
-            parent=scroll_frame,
+            parent=inner,
         )
-
-        # VBS4 Setup Launcher Location
         self.lbl_vbs4_setup = self._create_path_row(
             "Set VBS4 Setup Launcher Location",
             self._on_set_vbs4_setup,
-            config['General'].get('vbs4_setup_path', ''),
-            parent=scroll_frame,
+            config["General"].get("vbs4_setup_path", ""),
+            parent=inner,
         )
-
-        # BlueIG Install Location
         self.lbl_blueig = self._create_path_row(
             "Set BlueIG Install Location",
             self._on_set_blueig,
             get_blueig_install_path(),
-            parent=scroll_frame,
+            parent=inner,
         )
-
-        # ARES Manager Install Location
         self.lbl_ares = self._create_path_row(
             "Set ARES Manager Location",
             self._on_set_ares,
             get_ares_manager_path(),
-            parent=scroll_frame,
+            parent=inner,
         )
-
-        # Default Browser
         self.lbl_browser = self._create_path_row(
             "Pick Default Browser",
             self._on_set_browser,
             get_default_browser(),
-            parent=scroll_frame,
+            parent=inner,
         )
-
-        # VBS License Manager Location
         self.lbl_vbs_license = self._create_path_row(
             "Set VBS License Manager Location",
             self._on_set_vbs_license_manager,
-            config['General'].get('vbs_license_manager_path', ''),
-            parent=scroll_frame,
+            config["General"].get("vbs_license_manager_path", ""),
+            parent=inner,
         )
-
-        # One-Click Dataset Location
         self.lbl_oneclick = self._create_path_row(
             "Set One-Click Output Folder",
             self._on_set_oneclick,
             get_oneclick_output_path(),
-            parent=scroll_frame,
+            parent=inner,
         )
 
-        # Back
-        tk.Button(self, text="Back",
-                  font=("Helvetica",24), bg="#444444", fg="white",
-                  width=30, height=1,
-                  command=lambda: controller.show('Main'),
-                  bd=0, highlightthickness=0) \
-          .pack(pady=10)
+        # Back button and tutorial
+        tk.Button(
+            self,
+            text="Back",
+            font=("Helvetica", 24),
+            bg="#444444",
+            fg="white",
+            width=30,
+            height=1,
+            command=lambda: controller.show("Main"),
+            bd=0,
+            highlightthickness=0,
+        ).grid(row=6, column=0, pady=10)
+
+        controller.create_tutorial_button(self)
 
     def _collect_offline_inputs(self) -> dict:
         return {
@@ -4319,9 +4351,18 @@ class SettingsPanel(tk.Frame):
     def update_oneclick_path_label(self):
         self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
 
+    def _on_launch_on_startup(self):
+        toggle_startup()
+        self.startup_var.set(is_startup_enabled())
+
+    def _on_close_on_launch(self):
+        toggle_close_on_launch()
+        self.close_on_launch_var.set(is_close_on_launch_enabled())
+        enforce_local_fuser_policy()
+
     def _on_fullscreen_toggle(self):
-     self.controller.toggle_fullscreen()
-     self.fullscreen_var.set(self.controller.fullscreen)
+        self.controller.toggle_fullscreen()
+        self.fullscreen_var.set(self.controller.fullscreen)
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
