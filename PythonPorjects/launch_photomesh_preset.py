@@ -23,11 +23,104 @@ WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
-_cfg = configparser.ConfigParser()
-_cfg.read(CONFIG_PATH)
+config = configparser.ConfigParser()
+config.read(CONFIG_PATH)
 
-WORKING_FOLDER_HOST = _cfg.get("Fusers", "working_folder_host", fallback="KIT1-1")
-NETWORK_WORKING_FOLDER = fr"\\{WORKING_FOLDER_HOST}\SharedMeshDrive\WorkingFuser"
+OFFLINE_ACCESS_HINT = (
+    "Cannot access the shared working folder.\n\n"
+    "Connect all PCs to the same switch, assign static IPs (e.g., host 192.168.50.10, "
+    "clients 192.168.50.11-13, mask 255.255.255.0), ensure the same Workgroup "
+    "(e.g., WORKGROUP), share the local_data_root on the host as share_name with "
+    "read/write permissions, and if name resolution fails, enable use_ip_unc or add "
+    "host_name to C:\\Windows\\System32\\drivers\\etc\\hosts."
+)
+
+
+def get_offline_cfg():
+    o = config["Offline"]
+    return {
+        "enabled": o.getboolean("enabled", False),
+        "host_name": o.get("host_name", "KIT-HOST").strip(),
+        "host_ip": o.get("host_ip", "192.168.50.10").strip(),
+        "share_name": o.get("share_name", "SharedMeshDrive").strip(),
+        "local_data_root": os.path.normpath(
+            o.get("local_data_root", r"D:\\SharedMeshDrive")
+        ),
+        "working_fuser_subdir": o.get("working_fuser_subdir", "WorkingFuser").strip(),
+        "use_ip_unc": o.getboolean("use_ip_unc", False),
+    }
+
+
+def build_unc(o: dict) -> str:
+    host = o["host_ip"] if o["use_ip_unc"] else o["host_name"]
+    return rf"\\{host}\{o['share_name']}"
+
+
+def working_fuser_unc(o: dict) -> str:
+    return os.path.join(build_unc(o), o["working_fuser_subdir"])
+
+
+def _legacy_host() -> str:
+    return config.get(
+        "Fusers",
+        "working_folder_host",
+        fallback=config.get("General", "host", fallback="KIT-HOST"),
+    ).strip()
+
+
+def resolve_network_working_folder() -> str:
+    o = get_offline_cfg()
+    if not o["enabled"]:
+        return config.get(
+            "PhotoMesh",
+            "NetworkWorkingFolder",
+            fallback=rf"\\{_legacy_host()}\\SharedMeshDrive\\WorkingFuser",
+        )
+    return working_fuser_unc(o)
+
+
+def ensure_offline_share_exists(log=print):
+    o = get_offline_cfg()
+    root = o["local_data_root"]
+    share = o["share_name"]
+    try:
+        os.makedirs(root, exist_ok=True)
+    except Exception as e:
+        log(f"Failed to create {root}: {e}")
+        return
+
+    ps = fr"""
+$ErrorActionPreference='SilentlyContinue'
+$share='{share}'
+$path='{root}'
+if (-not (Get-SmbShare -Name $share)) {{
+  New-SmbShare -Name $share -Path $path -FullAccess 'Everyone' | Out-Null
+}}
+# Enable file & printer sharing rules on Private profile
+Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' | Where-Object {{$_.Profile -like '*Private*'}} | Enable-NetFirewallRule | Out-Null
+"""
+    try:
+        subprocess.run([
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            ps,
+        ], check=False)
+        log(f"Offline share ensured: \\{o['host_name']}\{share}  ({root})")
+    except Exception as e:
+        log(
+            f"Could not run PowerShell to ensure share: {e}\nPlease share {root} as '{share}' manually."
+        )
+
+
+def can_access_unc(path: str) -> bool:
+    try:
+        return os.path.isdir(path) and os.listdir(path) is not None
+    except Exception:
+        return False
+
 
 # Default preset name used by Wizard
 DEFAULT_WIZARD_PRESET = "CPP&OBJ"
@@ -132,7 +225,7 @@ def enforce_photomesh_settings() -> None:
     cfg.setdefault("UseMinimize", True)
     cfg.setdefault("ClosePMWhenDone", False)
     cfg.setdefault("OutputWaitTimerSeconds", 10)
-    cfg["NetworkWorkingFolder"] = NETWORK_WORKING_FOLDER
+    cfg["NetworkWorkingFolder"] = resolve_network_working_folder()
 
     try:
         _save_json(WIZARD_INSTALL_CFG, cfg)
@@ -179,7 +272,7 @@ def ensure_wizard_install_defaults() -> None:
     cfg.setdefault("ClosePMWhenDone", False)
     cfg.setdefault("OutputWaitTimerSeconds", 10)
 
-    cfg["NetworkWorkingFolder"] = NETWORK_WORKING_FOLDER
+    cfg["NetworkWorkingFolder"] = resolve_network_working_folder()
 
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
     ui.setdefault("ProcessingLevel", "Standard")
@@ -192,6 +285,12 @@ def ensure_wizard_install_defaults() -> None:
 
 def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
     """Launch the PhotoMesh Wizard with prepared sources via CLI."""
+    o = get_offline_cfg()
+    if o["enabled"] and not can_access_unc(resolve_network_working_folder()):
+        from tkinter import messagebox
+
+        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+        return
 
     if not os.path.isfile(WIZARD_EXE):
         from tkinter import messagebox
