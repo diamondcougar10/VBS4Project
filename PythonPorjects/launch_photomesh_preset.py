@@ -81,7 +81,6 @@ PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 </BuildParametersPreset>
 """
 
-
 def ensure_wizard_user_defaults(
     preset: str = DEFAULT_WIZARD_PRESET, autostart: bool = True
 ) -> None:
