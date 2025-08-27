@@ -129,7 +129,7 @@ Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' | Where-Object {{$_
             "-Command",
             ps,
         ], check=False)
-        log(f"Offline share ensured: \\{o['host_name']}\{share}  ({root})")
+        log(f"Offline share ensured: \\\\{o['host_name']}\\{share}  ({root})")
     except Exception as e:
         log(
             f"Could not run PowerShell to ensure share: {e}\nPlease share {root} as '{share}' manually."
