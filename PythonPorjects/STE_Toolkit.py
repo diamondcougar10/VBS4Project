@@ -21,7 +21,6 @@ try:
     import psutil
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
-from post_process_utils import clean_project_settings
 from launch_photomesh_preset import (
     ensure_wizard_user_defaults,
     ensure_wizard_install_defaults,
