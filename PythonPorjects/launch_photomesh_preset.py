@@ -1,11 +1,9 @@
 from pathlib import Path
 import os
-import re
 import json
 import subprocess
 import configparser
 from typing import Iterable, List
-from tkinter import messagebox, filedialog
 
 # ---------------------------------------------------------------------------
 # PhotoMesh Wizard configuration
@@ -132,78 +130,6 @@ def can_access_unc(path: str) -> bool:
     except Exception:
         return False
 
-
-def _load_json_safe(path: str) -> dict:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def _save_json_safe(path: str, data: dict) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-
-def resolve_network_working_folder_from_cfg(o: dict) -> str:
-    """Return UNC to working fuser folder using current Offline settings."""
-    base = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
-    return rf"\\{base}\{o['share_name']}\{o['working_fuser_subdir']}"
-
-
-def open_in_explorer(path: str) -> None:
-    try:
-        os.startfile(path)
-    except Exception as e:
-        messagebox.showerror("Open Folder", f"Failed to open:\n{path}\n\n{e}")
-
-
-def replace_share_in_unc_path(p: str, old_share: str, new_share: str) -> str:
-    r"""
-    Replace the share segment in a UNC path:
-      \\HOST\OldShare\...  ->  \\HOST\NewShare\...
-    Keep host and trailing subpaths intact.
-    """
-    if not p or not p.startswith("\\\\"):
-        return p
-    parts = p.split("\\")
-    if len(parts) >= 4 and parts[3].lower() == old_share.lower():
-        parts[3] = new_share
-        return "\\".join(parts)
-    return p
-
-
-def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
-    """
-    Scan every key in config.ini and swap \\HOST\old_share -> \\HOST\new_share.
-    Save config if changes were made.
-    Also update PhotoMesh wizard install JSON (WIZARD_INSTALL_CFG) for NetworkWorkingFolder.
-    """
-    changed = False
-
-    for sect in config.sections():
-        for key, val in list(config[sect].items()):
-            if isinstance(val, str) and val.startswith("\\\\"):
-                new_val = replace_share_in_unc_path(val, old_share, new_share)
-                if new_val != val:
-                    config[sect][key] = new_val
-                    changed = True
-
-    if changed:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
-
-    wiz = _load_json_safe(WIZARD_INSTALL_CFG)
-    if wiz:
-        nwf = wiz.get("NetworkWorkingFolder", "")
-        if isinstance(nwf, str) and nwf.startswith("\\\\"):
-            new_nwf = replace_share_in_unc_path(nwf, old_share, new_share)
-            if new_nwf != nwf:
-                wiz["NetworkWorkingFolder"] = new_nwf
-                _save_json_safe(WIZARD_INSTALL_CFG, wiz)
-
 PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 <BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
   <SerializableVersion>8.0.4.50513</SerializableVersion>
@@ -251,45 +177,23 @@ PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
-
-def ensure_wizard_user_defaults(
-    preset: str = PRESET_NAME, autostart: bool = True
-) -> None:
-    """Ensure the PhotoMesh Wizard user config selects *preset* and auto-builds."""
-
-    os.makedirs(os.path.dirname(WIZARD_USER_CFG), exist_ok=True)
-    cfg = {
-        "SelectedPreset": preset,
-        "OverrideSettings": True,
-        "AutoBuild": bool(autostart),
-    }
-    with open(WIZARD_USER_CFG, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
+def _load_json(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
-def ensure_wizard_install_defaults() -> None:
-    """Patch the installed Wizard config with network and basic defaults."""
-
-    cfg = _load_json_safe(WIZARD_INSTALL_CFG)
-
-    cfg.setdefault("UseMinimize", True)
-    cfg.setdefault("ClosePMWhenDone", False)
-    cfg.setdefault("OutputWaitTimerSeconds", 10)
-
-    o = get_offline_cfg()
-    cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
-
-    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-    ui.setdefault("ProcessingLevel", "Standard")
-    ui.setdefault("StopOnError", True)
-    ui.setdefault("MaxProcessing", False)
-
-    _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+def _save_json(path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
 
-def enforce_photomesh_settings() -> None:
-    """Force required options in the install and user Wizard configs."""
-    cfg = _load_json_safe(WIZARD_INSTALL_CFG)
+def enforce_install_cfg() -> None:
+    """Force required options in the installation-level Wizard config."""
+    cfg = _load_json(WIZARD_INSTALL_CFG)
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
 
     outputs = ui.setdefault("OutputProducts", {})
@@ -311,21 +215,73 @@ def enforce_photomesh_settings() -> None:
     cfg.setdefault("UseMinimize", True)
     cfg.setdefault("ClosePMWhenDone", False)
     cfg.setdefault("OutputWaitTimerSeconds", 10)
-
-    o = get_offline_cfg()
-    cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
+    cfg["NetworkWorkingFolder"] = resolve_network_working_folder()
 
     try:
-        _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+        _save_json(WIZARD_INSTALL_CFG, cfg)
     except PermissionError:
-        print("⚠️ Unable to write install config (permission). Continuing.")
+        print(
+            "⚠️ Unable to write install config (permission). Continuing with user config."
+        )
 
-    user_cfg = {
+
+def enforce_user_cfg() -> None:
+    """Write user-level config selecting the preset and enabling auto-build."""
+    cfg = {
         "SelectedPreset": PRESET_NAME,
         "OverrideSettings": True,
         "AutoBuild": True,
     }
-    _save_json_safe(WIZARD_USER_CFG, user_cfg)
+    _save_json(WIZARD_USER_CFG, cfg)
+
+
+def enforce_photomesh_settings() -> None:
+    """Legacy wrapper to maintain backwards compatibility."""
+    enforce_install_cfg()
+    enforce_user_cfg()
+
+
+def ensure_wizard_user_defaults(
+    preset: str = PRESET_NAME, autostart: bool = True
+) -> None:
+    """Ensure the PhotoMesh Wizard user config selects *preset* and auto-builds."""
+
+    os.makedirs(os.path.dirname(WIZARD_USER_CFG), exist_ok=True)
+    cfg = {
+        "SelectedPreset": preset,
+        "OverrideSettings": True,
+        "AutoBuild": bool(autostart),
+    }
+    with open(WIZARD_USER_CFG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def ensure_wizard_install_defaults() -> None:
+    """Patch the installed Wizard config with network and basic defaults."""
+
+    path = WIZARD_INSTALL_CFG
+    if not os.path.isfile(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        try:
+            cfg = json.load(f)
+        except Exception:
+            cfg = {}
+
+    cfg.setdefault("UseMinimize", True)
+    cfg.setdefault("ClosePMWhenDone", False)
+    cfg.setdefault("OutputWaitTimerSeconds", 10)
+
+    cfg["NetworkWorkingFolder"] = resolve_network_working_folder()
+
+    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+    ui.setdefault("ProcessingLevel", "Standard")
+    ui.setdefault("StopOnError", True)
+    ui.setdefault("MaxProcessing", False)
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
 
 
 def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
@@ -346,7 +302,8 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
         return
 
     ensure_preset_exists()
-    enforce_photomesh_settings()
+    enforce_install_cfg()
+    enforce_user_cfg()
     verify_effective_settings()
 
     args = [
@@ -386,8 +343,8 @@ def ensure_preset_exists() -> str:
 
 def verify_effective_settings() -> None:
     """Print a checklist of critical Wizard settings from both configs."""
-    install = _load_json_safe(WIZARD_INSTALL_CFG)
-    user = _load_json_safe(WIZARD_USER_CFG)
+    install = _load_json(WIZARD_INSTALL_CFG)
+    user = _load_json(WIZARD_USER_CFG)
 
     ui = install.get("DefaultPhotoMeshWizardUI", {})
     outputs = ui.get("OutputProducts", {})
@@ -436,7 +393,8 @@ def launch_photomesh_with_preset(project_name: str, project_path: str, image_fol
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
     ensure_preset_exists()
-    enforce_photomesh_settings()
+    enforce_install_cfg()
+    enforce_user_cfg()
     verify_effective_settings()
 
     args = [
