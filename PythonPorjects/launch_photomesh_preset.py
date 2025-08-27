@@ -277,7 +277,9 @@ def ensure_wizard_install_defaults() -> None:
     cfg.setdefault("OutputWaitTimerSeconds", 10)
 
     o = get_offline_cfg()
-    cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
+    if o.get("enabled"):
+        # ✅ Only write UNC when Offline is enabled; otherwise leave existing path
+        cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
 
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
     ui.setdefault("ProcessingLevel", "Standard")
@@ -313,7 +315,9 @@ def enforce_photomesh_settings() -> None:
     cfg.setdefault("OutputWaitTimerSeconds", 10)
 
     o = get_offline_cfg()
-    cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
+    if o.get("enabled"):
+        # ✅ Only write UNC when Offline is enabled; otherwise leave existing path
+        cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
 
     try:
         _save_json_safe(WIZARD_INSTALL_CFG, cfg)
@@ -330,12 +334,21 @@ def enforce_photomesh_settings() -> None:
 
 def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
     """Launch the PhotoMesh Wizard with prepared sources via CLI."""
-    o = get_offline_cfg()
-    if o["enabled"] and not can_access_unc(resolve_network_working_folder()):
-        from tkinter import messagebox
+    # Always refresh config first so the latest checkbox state is used
+    try:
+        config.read(CONFIG_PATH)
+    except Exception:
+        pass
 
-        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-        return
+    o = get_offline_cfg()
+
+    # ✅ Only enforce UNC access if Offline mode is ON
+    if o["enabled"]:
+        unc = resolve_network_working_folder_from_cfg(o)
+        if not can_access_unc(unc):
+            from tkinter import messagebox
+            messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+            return
 
     if not os.path.isfile(WIZARD_EXE):
         from tkinter import messagebox
@@ -345,9 +358,8 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
         )
         return
 
-    ensure_preset_exists()
+    ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
     enforce_photomesh_settings()
-    verify_effective_settings()
 
     args = [
         WIZARD_EXE,
