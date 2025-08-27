@@ -3868,7 +3868,7 @@ class SettingsPanel(tk.Frame):
 
         tk.Label(
             net_frame,
-            text="Network Host Name",
+            text="Network Host (for shared UNC paths)",
             font=("Helvetica", 14),
             bg="black",
             fg="white",
@@ -4008,7 +4008,7 @@ class SettingsPanel(tk.Frame):
         self.offline_use_ip_var = tk.BooleanVar(value=off_cfg["use_ip_unc"])
         tk.Checkbutton(
             offline,
-            text="Use IP instead",
+            text="Use IP in UNC",
             variable=self.offline_use_ip_var,
             font=("Helvetica", 16),
             bg="#444444",
@@ -4180,6 +4180,8 @@ class SettingsPanel(tk.Frame):
             bd=0,
             highlightthickness=0,
         ).grid(row=6, column=0, pady=10)
+
+        controller.create_tutorial_button(self)
 
     def _collect_offline_inputs(self) -> dict:
         return {
