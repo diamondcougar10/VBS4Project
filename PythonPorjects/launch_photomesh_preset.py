@@ -17,10 +17,20 @@ WIZARD_USER_CFG = os.path.join(
 )
 
 # Installed Wizard config (official path per manual)
-WIZARD_INSTALL_CFG = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+WIZARD_DIR = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard"
+WIZARD_INSTALL_CFG = rf"{WIZARD_DIR}\config.json"
+
+
+def _find_wizard_exe():
+    for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
+        p = os.path.join(WIZARD_DIR, exe)
+        if os.path.isfile(p):
+            return p
+    raise FileNotFoundError("PhotoMesh Wizard executable not found.")
+
 
 # PhotoMesh Wizard executable
-WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
+WIZARD_EXE = _find_wizard_exe()
 
 # Preset configuration
 PRESET_NAME = "CPP&OBJ"
@@ -223,12 +233,12 @@ def enforce_install_cfg() -> None:
 
     outputs = ui.setdefault("OutputProducts", {})
     outputs["3DModel"] = True
-    outputs["Ortho"] = True
-    outputs["Orthophoto"] = False
+    outputs["Ortho"] = False
+    outputs.pop("Orthophoto", None)
 
     m3d = ui.setdefault("Model3DFormats", {})
-    for k, v in list(m3d.items()):
-        if isinstance(v, bool):
+    for k in list(m3d.keys()):
+        if isinstance(m3d[k], bool):
             m3d[k] = False
     m3d["OBJ"] = True
     m3d["3DML"] = False
@@ -242,12 +252,7 @@ def enforce_install_cfg() -> None:
     cfg.setdefault("OutputWaitTimerSeconds", 10)
     _update_wizard_network_mode(cfg)
 
-    try:
-        _save_json_safe(WIZARD_INSTALL_CFG, cfg)
-    except PermissionError:
-        print(
-            "⚠️ Unable to write install config (permission). Continuing with user config."
-        )
+    _save_json_safe(WIZARD_INSTALL_CFG, cfg)
 
 
 def enforce_user_cfg() -> None:
@@ -399,7 +404,7 @@ def verify_effective_settings() -> None:
 def set_photomesh_preset(preset_xml: str) -> None:
     """Write the preset and update all PhotoMesh configuration files."""
 
-    pm_config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+    pm_config_path = rf"{WIZARD_DIR}\config.json"
     data = {}
     if os.path.isfile(pm_config_path):
         try:
