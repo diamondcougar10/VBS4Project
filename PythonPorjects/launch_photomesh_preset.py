@@ -223,7 +223,7 @@ def enforce_install_cfg() -> None:
 
     outputs = ui.setdefault("OutputProducts", {})
     outputs["3DModel"] = True
-    outputs["Ortho"] = False
+    outputs["Ortho"] = True
     outputs["Orthophoto"] = False
 
     m3d = ui.setdefault("Model3DFormats", {})
