@@ -4,10 +4,8 @@ import re
 import json
 import subprocess
 import configparser
-import time
 from typing import Iterable, List
 from tkinter import messagebox, filedialog
-from pm_config_guard import patch_photomesh_config
 
 # ---------------------------------------------------------------------------
 # PhotoMesh Wizard configuration
@@ -25,9 +23,6 @@ WIZARD_INSTALL_CFG = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
 
 # PhotoMesh Wizard executable
 WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
-
-# PhotoMesh main executable for debugging
-PHOTOMESH_EXE = r"C:\Program Files\Skyline\PhotoMesh\PhotoMesh.exe"
 
 # Preset configuration
 PRESET_NAME = "CPP&OBJ"
@@ -337,27 +332,6 @@ def enforce_photomesh_settings() -> None:
     _save_json_safe(WIZARD_USER_CFG, user_cfg)
 
 
-def _debug_photomesh_process(delay: float = 5.0) -> None:
-    """Verify that PhotoMesh.exe launches after the Wizard."""
-    if not os.path.isfile(PHOTOMESH_EXE):
-        print(f"[DEBUG] PhotoMesh executable not found at {PHOTOMESH_EXE}")
-        return
-    time.sleep(delay)
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq PhotoMesh.exe"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if "PhotoMesh.exe" in result.stdout:
-            print("[DEBUG] PhotoMesh.exe process detected")
-        else:
-            print("[DEBUG] PhotoMesh.exe not running after Wizard launch")
-    except Exception as e:
-        print(f"[DEBUG] Could not verify PhotoMesh.exe: {e}")
-
-
 def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
     """Launch the PhotoMesh Wizard with prepared sources via CLI."""
     # Always refresh config first so the latest checkbox state is used
@@ -384,11 +358,6 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
         )
         return
 
-    try:
-        patch_photomesh_config()
-    except Exception as e:
-        print(f"[WARN] PhotoMesh config not patched: {e}")
-
     ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
     enforce_photomesh_settings()
 
@@ -411,8 +380,6 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
         from tkinter import messagebox
 
         messagebox.showerror("PhotoMesh Wizard", f"Failed to launch Wizard:\n{e}")
-
-    _debug_photomesh_process()
 
 def ensure_preset_exists() -> str:
     """Ensure the CPP&OBJ preset file exists with the expected content."""
