@@ -64,6 +64,7 @@ logging.basicConfig(
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
 _lock_file = None
 #------------SINGLETON DEF------------------------------------------------------
 def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
@@ -80,6 +81,7 @@ def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
         return False
     atexit.register(release_singleton)
     return True
+
 
 def release_singleton() -> None:
     global _lock_file
@@ -114,6 +116,7 @@ def extract_progress(line: str) -> int | None:
             return int(done / total * 100)
     return None
 
+
 #==============================================================================
 # NETWORK HELPERS
 #==============================================================================
@@ -130,6 +133,7 @@ def get_local_ip():
     except Exception:
         return "127.0.0.1"
 
+
 def clean_path(path: str) -> str:
     """Return *path* normalized with UNC style backslashes."""
     path = os.path.normpath(path.strip())
@@ -137,6 +141,7 @@ def clean_path(path: str) -> str:
     if path.startswith('\\') and not path.startswith('\\\\'):
         path = '\\' + path
     return path
+
 
 #==============================================================================
 # VBS4 INSTALL PATH FINDER
@@ -151,6 +156,7 @@ def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
         return ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF
     except Exception:
         return None
+
 
 def get_vbs4_install_path() -> str:
     """Return the best VBS4.exe path found on the system.
@@ -361,6 +367,7 @@ RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
 # Accept either folder spelling (some machines have a typo in the share name)
 RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]  # in preferred order
 
+
 def get_rm_template_from_config() -> str:
     """Read the template from config; keep {host} token if present, normalize slashes."""
     raw = config.get(
@@ -379,9 +386,11 @@ def get_rm_template_from_config() -> str:
                 config.write(f)
     return raw
 
+
 def _subst_host(template: str) -> str:
     """Replace the {host} token with the configured host without altering UNC prefix."""
     return template.replace("{host}", get_host())
+
 
 def _first_missing_segment(path: str) -> str:
     """Return the first non-existent segment in a path, skipping the UNC host itself."""
@@ -402,6 +411,7 @@ def _first_missing_segment(path: str) -> str:
             return current
     return ""
 
+
 def _list_dir_safe(path: str, max_items: int = 8) -> str:
     """Return a short newline-separated listing of *path* or an error message."""
     try:
@@ -411,6 +421,7 @@ def _list_dir_safe(path: str, max_items: int = 8) -> str:
     entries = entries[:max_items]
     return "\n".join(entries)
 
+
 def _diagnose_missing_unc(path: str) -> str:
     """Return diagnostic text for an unresolved UNC *path*."""
     missing = _first_missing_segment(path)
@@ -419,6 +430,7 @@ def _diagnose_missing_unc(path: str) -> str:
     parent = os.path.dirname(missing)
     listing = _list_dir_safe(parent)
     return f"Missing path: {missing}\nParent listing ({parent}):\n{listing}"
+
 
 def _try_link_under(base_dir: str) -> str:
     """Search for the RM link directly in base_dir or recursively beneath it."""
@@ -434,6 +446,7 @@ def _try_link_under(base_dir: str) -> str:
                 return os.path.join(dp, f)
     return ""
 
+
 def _candidate_install_roots() -> list[str]:
     """Return possible install roots for both spellings under \\{host}\\SharedMeshDrive\\…"""
     host = get_host()
@@ -441,6 +454,7 @@ def _candidate_install_roots() -> list[str]:
     for subdir in RM_INSTALL_SUBDIRS:
         roots.append(f"\\\\{host}\\SharedMeshDrive\\{subdir}")
     return roots
+
 
 def find_unc_rm_link() -> str:
     """Resolve the UNC shortcut for "Reality Mesh to VBS4".
@@ -465,13 +479,16 @@ def find_unc_rm_link() -> str:
             return link
     return ""
 
+
 # Backwards compatibility helper
 def find_reality_mesh_to_vbs4_link() -> str:  # pragma: no cover - legacy name
     return find_unc_rm_link()
 
+
 def get_rm_local_root() -> str:
     """Return the configured local Reality Mesh install root, if any."""
     return config.get('General', 'reality_mesh_local_root', fallback='').strip()
+
 
 def set_rm_local_root(path: str) -> None:
     """Store the local Reality Mesh install root in ``config.ini``."""
@@ -482,12 +499,14 @@ def set_rm_local_root(path: str) -> None:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
+
 def is_valid_rm_local_root(root: str) -> bool:
     """Return ``True`` if *root* exists and contains ``Datatarget.txt``."""
     if not root:
         return False
     root = os.path.abspath(root)
     return os.path.isdir(root) and os.path.isfile(os.path.join(root, 'Datatarget.txt'))
+
 
 def find_local_rm_shortcut(root: str) -> str:
     """Locate the Reality Mesh shortcut under *root* if present."""
@@ -507,6 +526,7 @@ def find_local_rm_shortcut(root: str) -> str:
                         return os.path.normpath(os.path.join(dp, f))
     return ''
 
+
 def resolve_active_rm_link() -> tuple[str, str]:
     root = get_rm_local_root()
     if root:
@@ -518,12 +538,15 @@ def resolve_active_rm_link() -> tuple[str, str]:
     link = find_unc_rm_link()
     return (link, 'UNC')
 
+
 # Backwards compatibility helpers
 def find_local_rm_link() -> str:  # pragma: no cover - legacy alias
     return find_local_rm_shortcut(get_rm_local_root())
 
+
 def is_valid_rm_root(local_root: str, data_marker: str = 'Datatarget.txt') -> bool:  # pragma: no cover
     return is_valid_rm_local_root(local_root)
+
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -539,6 +562,7 @@ def load_system_settings(path: str) -> dict:
                     value = os.path.normpath(value)
                 settings[key.strip()] = value
     return settings
+
 
 def update_vbs4_settings(path: str) -> None:
     """Ensure ``override_Path_VBS4`` and ``vbs4_version`` reflect the
@@ -573,9 +597,11 @@ def update_vbs4_settings(path: str) -> None:
     with open(path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
 
+
 def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
     while not os.path.exists(path):
         time.sleep(poll_interval)
+
 
 def find_output_json(start_dir: str) -> str | None:
     """Return path to Output-CenterPivotOrigin.json under *start_dir* if found."""
@@ -584,6 +610,7 @@ def find_output_json(start_dir: str) -> str | None:
             return os.path.join(root, 'Output-CenterPivotOrigin.json')
     return None
 
+
 def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
     """Search *start_dir* repeatedly until the output JSON exists."""
     json_path = find_output_json(start_dir)
@@ -591,6 +618,7 @@ def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
         time.sleep(poll_interval)
         json_path = find_output_json(start_dir)
     return json_path
+
 
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
     """Create the project directory structure used by Reality Mesh.
@@ -610,6 +638,7 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     data_folder = os.path.join(proj_folder, 'data')
     os.makedirs(data_folder, exist_ok=True)
     return proj_folder, data_folder
+
 
 def set_active_wizard_preset(preset_name="CPP&OBJ"):
     import os
@@ -632,46 +661,6 @@ def set_active_wizard_preset(preset_name="CPP&OBJ"):
         json.dump(config, f, indent=2)
 
     print(f"✅ Set {preset_name} as active preset in Wizard config")
-
-def enforce_photomesh_settings(config_path: str):
-    """Ensure PhotoMesh Wizard config has 3D model OBJ enabled,
-    Orthophoto disabled, and pivot/ellipsoid options checked."""
-    if not os.path.isfile(config_path):
-        print(f"Config file not found: {config_path}")
-        return
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        try:
-            cfg = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Invalid JSON in {config_path}")
-            return
-
-    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-
-    # --- Disable Ortho ---
-    outputs = ui.setdefault("OutputProducts", {})
-    outputs["Ortho"] = False
-    ui["Orthophoto"] = False
-
-    # --- Force OBJ in Model3DFormats ---
-    model3d = ui.setdefault("Model3DFormats", {})
-    model3d["OBJ"] = True
-    model3d["3DML"] = False  # disable 3DML if present
-
-    # --- Enable Center Pivot and Reproject ---
-    ui["CenterPivotToProject"] = True
-    ui["ReprojectToEllipsoid"] = True
-
-    # --- Also force 3D Model outputs ---
-    ui["3DModel"] = True
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
-
-    print(f"✅ PhotoMesh settings enforced in {config_path}")
-
-enforce_photomesh_settings(r"C:\Program Files\Skyline\PhotoMeshWizard\config.json")
 
 
 def enable_obj_in_photomesh_config():
