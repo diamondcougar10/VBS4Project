@@ -1290,45 +1290,6 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
             config.write(f)
 
 
-def patch_fuser_config() -> None:
-    """Force fuser JSON shared_path to WorkingFuser UNC."""
-    cfg_path = config.get("Fusers", "config_path", fallback="fuser_config.json")
-    host = config.get("Fusers", "working_folder_host", fallback="KIT1-1")
-    target_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-    cfg_path = os.path.normpath(cfg_path)
-
-    if not os.path.isfile(cfg_path):
-        print(f"[FUSER] Config file not found: {cfg_path}")
-        return
-
-    try:
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"[FUSER] Failed to read {cfg_path}: {e}")
-        return
-
-    if data.get("shared_path") != target_unc:
-        data["shared_path"] = target_unc
-        try:
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            print(f"[FUSER] Patched shared_path -> {target_unc} in {cfg_path}")
-        except Exception as e:
-            print(f"[FUSER] Failed to save {cfg_path}: {e}")
-
-
-def patch_fuser_config_deferred(delays=(0, 5, 15)) -> None:
-    """Reapply fuser patch after delays to defeat PhotoMesh rewrites."""
-
-    def _worker():
-        for d in delays:
-            time.sleep(d)
-            patch_fuser_config()
-
-    threading.Thread(target=_worker, daemon=True).start()
-
-
 def apply_offline_settings() -> None:
     """Apply offline configuration changes and refresh dependent systems."""
     ensure_wizard_install_defaults()
@@ -3461,8 +3422,6 @@ class VBS4Panel(tk.Frame):
 
         try:
             launch_wizard_cli(project_name, project_path, self.image_folder_paths)
-            patch_fuser_config()
-            patch_fuser_config_deferred()
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
                 "PhotoMesh Wizard Launched",
@@ -4639,7 +4598,6 @@ if __name__ == "__main__":
         print("STE Toolkit is already running.")
         sys.exit(0)
     start_command_server()
-    patch_fuser_config()
     app = MainApp()
     if config['Fusers'].getboolean('fuser_computer', False):
         update_fuser_shared_path()
