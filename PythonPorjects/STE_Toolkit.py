@@ -4047,11 +4047,55 @@ class SettingsPanel(tk.Frame):
         ).pack(side="left", padx=8)
         rm_row.pack(fill="x", padx=10, pady=5)
 
+        # --- Scrollable section for app locations ---
+        scroll_container = tk.LabelFrame(
+            self,
+            text="Application Locations",
+            bg="black",
+            fg="white",
+            font=("Helvetica", 16),
+            padx=5,
+            pady=5,
+        )
+        scroll_container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        canvas = tk.Canvas(scroll_container, bg="black", highlightthickness=0)
+        scrollbar = tk.Scrollbar(
+            scroll_container, orient="vertical", command=canvas.yview
+        )
+        scroll_frame = tk.Frame(canvas, bg="black")
+
+        def _on_frame_configure(event):
+            bbox = canvas.bbox("all")
+            if bbox:
+                canvas.configure(scrollregion=bbox)
+                if bbox[3] <= canvas.winfo_height():
+                    scrollbar.pack_forget()
+                else:
+                    scrollbar.pack(side="right", fill="y")
+            else:
+                scrollbar.pack_forget()
+
+        scroll_frame.bind("<Configure>", _on_frame_configure)
+
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        scroll_frame.bind("<Enter>", lambda e: scroll_frame.bind_all("<MouseWheel>", _on_mousewheel))
+        scroll_frame.bind("<Leave>", lambda e: scroll_frame.unbind_all("<MouseWheel>"))
+
         # VBS4 Install Location
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
             self._on_set_vbs4,
             get_vbs4_install_path(),
+            parent=scroll_frame,
         )
 
         # VBS4 Setup Launcher Location
@@ -4059,6 +4103,7 @@ class SettingsPanel(tk.Frame):
             "Set VBS4 Setup Launcher Location",
             self._on_set_vbs4_setup,
             config['General'].get('vbs4_setup_path', ''),
+            parent=scroll_frame,
         )
 
         # BlueIG Install Location
@@ -4066,6 +4111,7 @@ class SettingsPanel(tk.Frame):
             "Set BlueIG Install Location",
             self._on_set_blueig,
             get_blueig_install_path(),
+            parent=scroll_frame,
         )
 
         # ARES Manager Install Location
@@ -4073,6 +4119,7 @@ class SettingsPanel(tk.Frame):
             "Set ARES Manager Location",
             self._on_set_ares,
             get_ares_manager_path(),
+            parent=scroll_frame,
         )
 
         # Default Browser
@@ -4080,6 +4127,7 @@ class SettingsPanel(tk.Frame):
             "Pick Default Browser",
             self._on_set_browser,
             get_default_browser(),
+            parent=scroll_frame,
         )
 
         # VBS License Manager Location
@@ -4087,6 +4135,7 @@ class SettingsPanel(tk.Frame):
             "Set VBS License Manager Location",
             self._on_set_vbs_license_manager,
             config['General'].get('vbs_license_manager_path', ''),
+            parent=scroll_frame,
         )
 
         # One-Click Dataset Location
@@ -4094,6 +4143,7 @@ class SettingsPanel(tk.Frame):
             "Set One-Click Output Folder",
             self._on_set_oneclick,
             get_oneclick_output_path(),
+            parent=scroll_frame,
         )
 
         # Back
@@ -4180,9 +4230,10 @@ class SettingsPanel(tk.Frame):
             f"Reality Mesh Local Root set to:\n{path}" if path else "Reality Mesh Local Root cleared.",
         )
 
-    def _create_path_row(self, text, command, initial_path):
+    def _create_path_row(self, text, command, initial_path, parent=None):
         """Create a consistent button/label row for file path settings."""
-        frame = tk.Frame(self, bg="black")
+        parent = parent or self
+        frame = tk.Frame(parent, bg="black")
         tk.Button(
             frame,
             text=text,
