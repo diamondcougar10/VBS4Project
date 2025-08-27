@@ -45,16 +45,23 @@ OFFLINE_ACCESS_HINT = (
 )
 
 
+def _is_offline_enabled() -> bool:
+    try:
+        config.read(CONFIG_PATH)
+        return config.getboolean("Offline", "enabled", fallback=False)
+    except Exception:
+        return False
+
 def get_offline_cfg():
+    if "Offline" not in config:
+        config["Offline"] = {}
     o = config["Offline"]
     return {
         "enabled": o.getboolean("enabled", False),
         "host_name": o.get("host_name", "KIT-HOST").strip(),
         "host_ip": o.get("host_ip", "192.168.50.10").strip(),
         "share_name": o.get("share_name", "SharedMeshDrive").strip(),
-        "local_data_root": os.path.normpath(
-            o.get("local_data_root", r"D:\\SharedMeshDrive")
-        ),
+        "local_data_root": os.path.normpath(o.get("local_data_root", r"D:\\SharedMeshDrive")),
         "working_fuser_subdir": o.get("working_fuser_subdir", "WorkingFuser").strip(),
         "use_ip_unc": o.getboolean("use_ip_unc", False),
     }
@@ -67,6 +74,11 @@ def build_unc(o: dict) -> str:
 
 def working_fuser_unc(o: dict) -> str:
     return os.path.join(build_unc(o), o["working_fuser_subdir"])
+
+
+def resolve_network_working_folder_from_cfg(o: dict) -> str:
+    base = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
+    return rf"\\{base}\{o['share_name']}\{o['working_fuser_subdir']}"
 
 
 def _legacy_host() -> str:
@@ -177,7 +189,7 @@ PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
-def _load_json(path: str) -> dict:
+def _load_json_safe(path: str) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -185,15 +197,28 @@ def _load_json(path: str) -> dict:
         return {}
 
 
-def _save_json(path: str, data: dict) -> None:
+def _save_json_safe(path: str, data: dict) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
+def _update_wizard_network_mode(cfg: dict) -> None:
+    """
+    Always write NetworkWorkingFolder so the Wizard UI shows Network fusers,
+    but we only ENFORCE reachability when Offline Mode is ON.
+    """
+    try:
+        config.read(CONFIG_PATH)
+    except Exception:
+        pass
+    o = get_offline_cfg()
+    cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
+
+
 def enforce_install_cfg() -> None:
     """Force required options in the installation-level Wizard config."""
-    cfg = _load_json(WIZARD_INSTALL_CFG)
+    cfg = _load_json_safe(WIZARD_INSTALL_CFG)
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
 
     outputs = ui.setdefault("OutputProducts", {})
@@ -215,10 +240,10 @@ def enforce_install_cfg() -> None:
     cfg.setdefault("UseMinimize", True)
     cfg.setdefault("ClosePMWhenDone", False)
     cfg.setdefault("OutputWaitTimerSeconds", 10)
-    cfg["NetworkWorkingFolder"] = resolve_network_working_folder()
+    _update_wizard_network_mode(cfg)
 
     try:
-        _save_json(WIZARD_INSTALL_CFG, cfg)
+        _save_json_safe(WIZARD_INSTALL_CFG, cfg)
     except PermissionError:
         print(
             "⚠️ Unable to write install config (permission). Continuing with user config."
@@ -232,7 +257,7 @@ def enforce_user_cfg() -> None:
         "OverrideSettings": True,
         "AutoBuild": True,
     }
-    _save_json(WIZARD_USER_CFG, cfg)
+    _save_json_safe(WIZARD_USER_CFG, cfg)
 
 
 def enforce_photomesh_settings() -> None:
@@ -273,7 +298,7 @@ def ensure_wizard_install_defaults() -> None:
     cfg.setdefault("ClosePMWhenDone", False)
     cfg.setdefault("OutputWaitTimerSeconds", 10)
 
-    cfg["NetworkWorkingFolder"] = resolve_network_working_folder()
+    _update_wizard_network_mode(cfg)
 
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
     ui.setdefault("ProcessingLevel", "Standard")
@@ -286,8 +311,12 @@ def ensure_wizard_install_defaults() -> None:
 
 def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
     """Launch the PhotoMesh Wizard with prepared sources via CLI."""
+    config.read(CONFIG_PATH)
+    enforce_photomesh_settings()
+
     o = get_offline_cfg()
-    if o["enabled"] and not can_access_unc(resolve_network_working_folder()):
+    unc = resolve_network_working_folder_from_cfg(o)
+    if o["enabled"] and not can_access_unc(unc):
         from tkinter import messagebox
 
         messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
@@ -302,8 +331,6 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
         return
 
     ensure_preset_exists()
-    enforce_install_cfg()
-    enforce_user_cfg()
     verify_effective_settings()
 
     args = [
@@ -343,8 +370,11 @@ def ensure_preset_exists() -> str:
 
 def verify_effective_settings() -> None:
     """Print a checklist of critical Wizard settings from both configs."""
-    install = _load_json(WIZARD_INSTALL_CFG)
-    user = _load_json(WIZARD_USER_CFG)
+    o = get_offline_cfg()
+    print("Offline enabled:", o["enabled"])
+    install = _load_json_safe(WIZARD_INSTALL_CFG)
+    print("Wizard NetworkWorkingFolder:", install.get("NetworkWorkingFolder", "(none)"))
+    user = _load_json_safe(WIZARD_USER_CFG)
 
     ui = install.get("DefaultPhotoMeshWizardUI", {})
     outputs = ui.get("OutputProducts", {})
@@ -389,12 +419,20 @@ def set_photomesh_preset(preset_xml: str) -> None:
 
 def launch_photomesh_with_preset(project_name: str, project_path: str, image_folders: Iterable[str]) -> subprocess.Popen:
     """Launch PhotoMeshWizard.exe with the CPP&OBJ preset."""
+    config.read(CONFIG_PATH)
+    enforce_photomesh_settings()
+    o = get_offline_cfg()
+    unc = resolve_network_working_folder_from_cfg(o)
+    if o["enabled"] and not can_access_unc(unc):
+        from tkinter import messagebox
+
+        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+        raise FileNotFoundError("Offline working folder not accessible")
+
     if not os.path.isfile(WIZARD_EXE):
         raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
 
     ensure_preset_exists()
-    enforce_install_cfg()
-    enforce_user_cfg()
     verify_effective_settings()
 
     args = [
