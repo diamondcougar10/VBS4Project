@@ -27,6 +27,13 @@ from launch_photomesh_preset import (
     ensure_wizard_install_defaults,
     launch_wizard_cli,
     DEFAULT_WIZARD_PRESET,
+    get_offline_cfg,
+    working_fuser_unc,
+    resolve_network_working_folder,
+    ensure_offline_share_exists,
+    can_access_unc,
+    OFFLINE_ACCESS_HINT,
+    enforce_photomesh_settings,
 )
 from collections import OrderedDict
 import time
@@ -1162,6 +1169,11 @@ def count_local_fusers() -> int:
 
 
 def start_fuser_instance():
+    o = get_offline_cfg()
+    if o["enabled"] and not can_access_unc(resolve_network_working_folder()):
+        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+        return False
+
     exe = find_fuser_exe()
     if not exe:
         messagebox.showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
@@ -1215,6 +1227,11 @@ def enforce_local_fuser_policy():
       - else: 0 fusers (kill all)
     """
     try:
+        o = get_offline_cfg()
+        if not o["enabled"]:
+            kill_fusers()
+            return
+
         if is_host_machine():
             ensure_fuser_instances(1)
             return
@@ -1237,21 +1254,10 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
 
     stored_host = config['Fusers'].get('working_folder_host', '').strip()
-    env_host = os.environ.get('COMPUTERNAME') or socket.gethostname().split('.')[0]
 
-    host = stored_host
-
-    # If project path is a UNC path, derive host from path
+    path = resolve_network_working_folder()
     if project_path and project_path.startswith('\\'):
-        parts = project_path.strip('\\').split('\\')
-        if parts:
-            host = parts[0]
-
-    # If this is a fuser computer and no host is set, use local hostname
-    elif config['Fusers'].getboolean('fuser_computer', False) and not host:
-        host = env_host
-
-    # Do not overwrite manually set host otherwise
+        path = project_path
 
     try:
         with open(cfg_path, 'r') as f:
@@ -1260,7 +1266,7 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
         data = {}
 
     data.setdefault('fusers', {'localhost': [{'name': 'LocalFuser'}]})
-    data['shared_path'] = f"\\\\{host}\\SharedMeshDrive\\WorkingFuser"
+    data['shared_path'] = path
 
     try:
         with open(cfg_path, 'w') as f:
@@ -1268,11 +1274,30 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     except Exception as e:
         logging.error("Failed to update fuser config: %s", e)
 
-    # Only write config if the host changed
-    if stored_host != host:
+    host = stored_host
+    if path.startswith('\\'):
+        parts = path.strip('\\').split('\\')
+        if parts:
+            host = parts[0]
+
+    if stored_host != host and host:
         config['Fusers']['working_folder_host'] = host
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
+
+
+def apply_offline_settings() -> None:
+    """Apply offline configuration changes and refresh dependent systems."""
+    ensure_wizard_install_defaults()
+    enforce_photomesh_settings()
+    update_fuser_shared_path()
+
+    o = get_offline_cfg()
+    local_name = get_machine_name()
+    if o["enabled"] and local_name.upper() == o["host_name"].split('.')[0].upper():
+        ensure_offline_share_exists()
+
+    enforce_local_fuser_policy()
 
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
@@ -3263,6 +3288,12 @@ class VBS4Panel(tk.Frame):
                 return {}, None
 
         fuser_settings, default_path = load_fuser_config(config_file)
+        o = get_offline_cfg()
+        if o["enabled"]:
+            default_path = resolve_network_working_folder()
+            if not can_access_unc(default_path):
+                messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+                return
 
         # Auto-discover fuser directories if a shared path is provided
         discovered = discover_fusers_from_shared_path(default_path)
@@ -3330,9 +3361,16 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to load fuser config: {e}")
                 return None
 
-        default_path = shared_path
-        if default_path is None:
-            default_path = load_fuser_config(config_file)
+        o = get_offline_cfg()
+        if o["enabled"]:
+            default_path = resolve_network_working_folder()
+            if not can_access_unc(default_path):
+                messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+                return
+        else:
+            default_path = shared_path
+            if default_path is None:
+                default_path = load_fuser_config(config_file)
 
         fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"
 
@@ -3866,6 +3904,112 @@ class SettingsPanel(tk.Frame):
             fg="white",
             bd=0,
         ).pack(side="left", padx=8)
+        off_cfg = get_offline_cfg()
+        offline_frame = tk.LabelFrame(
+            self,
+            text="Offline Mode",
+            font=("Helvetica", 20),
+            bg="black",
+            fg="white",
+            labelanchor="n",
+        )
+        offline_frame.pack(fill="x", padx=10, pady=10)
+
+        self.offline_enabled_var = tk.BooleanVar(value=off_cfg["enabled"])
+        tk.Checkbutton(
+            offline_frame,
+            text="Enable Offline Mode",
+            variable=self.offline_enabled_var,
+            font=("Helvetica", 16),
+            bg="#444444",
+            fg="white",
+            selectcolor="#444444",
+            command=self._refresh_offline_resolved,
+        ).pack(anchor="w", pady=2)
+
+        row = tk.Frame(offline_frame, bg="black")
+        tk.Label(row, text="Host Name:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        self.offline_host_name_var = tk.StringVar(value=off_cfg["host_name"])
+        tk.Entry(row, textvariable=self.offline_host_name_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        row.pack(fill="x", pady=2)
+
+        row = tk.Frame(offline_frame, bg="black")
+        tk.Label(row, text="Host IP:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        self.offline_host_ip_var = tk.StringVar(value=off_cfg["host_ip"])
+        tk.Entry(row, textvariable=self.offline_host_ip_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        row.pack(fill="x", pady=2)
+
+        row = tk.Frame(offline_frame, bg="black")
+        tk.Label(row, text="Share Name:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        self.offline_share_var = tk.StringVar(value=off_cfg["share_name"])
+        tk.Entry(row, textvariable=self.offline_share_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        row.pack(fill="x", pady=2)
+
+        row = tk.Frame(offline_frame, bg="black")
+        tk.Label(row, text="Local Data Root:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        self.offline_local_root_var = tk.StringVar(value=off_cfg["local_data_root"])
+        tk.Entry(row, textvariable=self.offline_local_root_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        row.pack(fill="x", pady=2)
+
+        row = tk.Frame(offline_frame, bg="black")
+        tk.Label(row, text="Working Fuser Subdir:", font=("Helvetica", 14), bg="black", fg="white").pack(side="left")
+        self.offline_working_var = tk.StringVar(value=off_cfg["working_fuser_subdir"])
+        tk.Entry(row, textvariable=self.offline_working_var, font=("Consolas", 12), bg="#111111", fg="white", insertbackground="white", width=30, bd=0).pack(side="left", fill="x", expand=True, padx=5)
+        row.pack(fill="x", pady=2)
+
+        self.offline_use_ip_var = tk.BooleanVar(value=off_cfg["use_ip_unc"])
+        tk.Checkbutton(
+            offline_frame,
+            text="Use IP in UNC",
+            variable=self.offline_use_ip_var,
+            font=("Helvetica", 16),
+            bg="#444444",
+            fg="white",
+            selectcolor="#444444",
+            command=self._refresh_offline_resolved,
+        ).pack(anchor="w", pady=2)
+
+        self.offline_resolved_var = tk.StringVar()
+        tk.Label(
+            offline_frame,
+            textvariable=self.offline_resolved_var,
+            font=("Helvetica", 12),
+            bg="black",
+            fg="white",
+        ).pack(anchor="w", pady=(4, 2))
+
+        btn_row = tk.Frame(offline_frame, bg="black")
+        tk.Button(
+            btn_row,
+            text="Save + Apply",
+            command=self._save_offline_settings,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=4)
+        tk.Button(
+            btn_row,
+            text="Test Access",
+            command=self._test_offline_access,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=4)
+        btn_row.pack(anchor="w", pady=(4, 0))
+
+        for var in [
+            self.offline_enabled_var,
+            self.offline_host_name_var,
+            self.offline_host_ip_var,
+            self.offline_share_var,
+            self.offline_local_root_var,
+            self.offline_working_var,
+            self.offline_use_ip_var,
+        ]:
+            var.trace_add("write", lambda *args: self._refresh_offline_resolved())
+        self._refresh_offline_resolved()
 
         # Reality Mesh Local Root
         rm_row = tk.Frame(self, bg="black")
@@ -3959,6 +4103,40 @@ class SettingsPanel(tk.Frame):
                   command=lambda: controller.show('Main'),
                   bd=0, highlightthickness=0) \
           .pack(pady=10)
+
+    def _collect_offline_inputs(self) -> dict:
+        return {
+            "enabled": self.offline_enabled_var.get(),
+            "host_name": self.offline_host_name_var.get().strip(),
+            "host_ip": self.offline_host_ip_var.get().strip(),
+            "share_name": self.offline_share_var.get().strip(),
+            "local_data_root": os.path.normpath(self.offline_local_root_var.get().strip()),
+            "working_fuser_subdir": self.offline_working_var.get().strip(),
+            "use_ip_unc": self.offline_use_ip_var.get(),
+        }
+
+    def _refresh_offline_resolved(self, *args):
+        path = working_fuser_unc(self._collect_offline_inputs())
+        self.offline_resolved_var.set(f"Resolved Working Folder: {path}")
+
+    def _save_offline_settings(self):
+        o = self._collect_offline_inputs()
+        if 'Offline' not in config:
+            config['Offline'] = {}
+        sect = config['Offline']
+        for k, v in o.items():
+            sect[k] = str(v)
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        apply_offline_settings()
+        self._refresh_offline_resolved()
+
+    def _test_offline_access(self):
+        path = working_fuser_unc(self._collect_offline_inputs())
+        if can_access_unc(path):
+            messagebox.showinfo("Offline Mode", f"Access OK: {path}")
+        else:
+            messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
 
     def _save_host(self):
         h = self.host_var.get().strip()
