@@ -16,26 +16,9 @@ WIZARD_USER_CFG = os.path.join(
     os.environ["APPDATA"], "Skyline", "PhotoMesh", "Wizard", "config.json"
 )
 
-# Installed Wizard config; attempt to detect actual install folder
-
-
-def _detect_wizard_dir() -> str:
-    candidates = [
-        r"C:\\Program Files\\Skyline\\PhotoMeshWizard",
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard",
-    ]
-    for d in candidates:
-        if os.path.isdir(d):
-            return d
-    root = r"C:\\Program Files\\Skyline"
-    for dp, dn, fn in os.walk(root):
-        if "PhotoMeshWizard.exe" in fn or "WizardGUI.exe" in fn:
-            return dp
-    raise FileNotFoundError("PhotoMesh Wizard folder not found.")
-
-
-WIZARD_DIR = _detect_wizard_dir()
-WIZARD_INSTALL_CFG = os.path.join(WIZARD_DIR, "config.json")
+# Installed Wizard config (official path per manual)
+WIZARD_DIR = r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard"
+WIZARD_INSTALL_CFG = rf"{WIZARD_DIR}\config.json"
 
 
 def _find_wizard_exe():
@@ -48,6 +31,14 @@ def _find_wizard_exe():
 
 # PhotoMesh Wizard executable
 WIZARD_EXE = _find_wizard_exe()
+
+# Preset configuration
+PRESET_NAME = "CPP&OBJ"
+DEFAULT_WIZARD_PRESET = PRESET_NAME
+PRESET_PATH = os.path.join(
+    os.environ["APPDATA"], "Skyline", "PhotoMesh", "Presets", f"{PRESET_NAME}.preset"
+)
+
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
@@ -161,6 +152,51 @@ def can_access_unc(path: str) -> bool:
     except Exception:
         return False
 
+PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
+<BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+  <SerializableVersion>8.0.4.50513</SerializableVersion>
+  <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
+    <d2p1:_Build>4</d2p1:_Build>
+    <d2p1:_Major>8</d2p1:_Major>
+    <d2p1:_Minor>0</d2p1:_Minor>
+    <d2p1:_Revision>50513</d2p1:_Revision>
+  </Version>
+  <BuildParameters>
+    <SerializableVersion>8.0.4.50513</SerializableVersion>
+    <Version xmlns:d3p1="http://schemas.datacontract.org/2004/07/System">
+      <d3p1:_Build>4</d3p1:_Build>
+      <d3p1:_Major>8</d3p1:_Major>
+      <d3p1:_Minor>0</d3p1:_Minor>
+      <d3p1:_Revision>50513</d3p1:_Revision>
+    </Version>
+    <AddWalls>false</AddWalls>
+    <CenterModelsToProject>true</CenterModelsToProject>
+    <DsmSettings />
+    <FillInGround>true</FillInGround>
+    <FocalLengthAccuracy>-1</FocalLengthAccuracy>
+    <HorizontalAccuracyFactor>0.1</HorizontalAccuracyFactor>
+    <IgnoreOrientation>false</IgnoreOrientation>
+    <OrthoSettings />
+    <OutputFormats xmlns:d3p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
+      <d3p1:string>OBJ</d3p1:string>
+    </OutputFormats>
+    <PointCloudFormat>LAS</PointCloudFormat>
+    <PrincipalPointAccuracy>-1</PrincipalPointAccuracy>
+    <RadialAccuracy>false</RadialAccuracy>
+    <TangentialAccuracy>false</TangentialAccuracy>
+    <TileSplitMethod>Simple</TileSplitMethod>
+    <VerticalAccuracyFactor>0.1</VerticalAccuracyFactor>
+    <VerticalBias>false</VerticalBias>
+  </BuildParameters>
+  <Description>saves as center piviot</Description>
+  <IsDefault>false</IsDefault>
+  <IsLastUsed>false</IsLastUsed>
+  <IsSystem>false</IsSystem>
+  <IsSystemDefault>false</IsSystemDefault>
+  <PresetFileName i:nil="true" />
+  <PresetName>CPP&amp;OBJ</PresetName>
+</BuildParametersPreset>
+"""
 
 
 def _load_json_safe(path: str) -> dict:
@@ -190,13 +226,8 @@ def _update_wizard_network_mode(cfg: dict) -> None:
     cfg["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(o)
 
 
-def _bool_map_all_false(d: dict) -> None:
-    for k in list(d.keys()):
-        if isinstance(d[k], bool):
-            d[k] = False
-
-
-def enforce_install_cfg_ui_only() -> None:
+def enforce_install_cfg() -> None:
+    """Force required options in the installation-level Wizard config."""
     cfg = _load_json_safe(WIZARD_INSTALL_CFG)
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
 
@@ -206,13 +237,67 @@ def enforce_install_cfg_ui_only() -> None:
     outputs.pop("Orthophoto", None)
 
     m3d = ui.setdefault("Model3DFormats", {})
-    _bool_map_all_false(m3d)
+    for k in list(m3d.keys()):
+        if isinstance(m3d[k], bool):
+            m3d[k] = False
     m3d["OBJ"] = True
     m3d["3DML"] = False
 
-    ui["CenterPivotToProject"] = True
     ui["CenterModelsToProject"] = True
+    ui["CenterPivotToProject"] = True
     ui["ReprojectToEllipsoid"] = True
+
+    cfg.setdefault("UseMinimize", True)
+    cfg.setdefault("ClosePMWhenDone", False)
+    cfg.setdefault("OutputWaitTimerSeconds", 10)
+    _update_wizard_network_mode(cfg)
+
+    _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+
+
+def enforce_user_cfg() -> None:
+    """Write user-level config selecting the preset and enabling auto-build."""
+    cfg = {
+        "SelectedPreset": PRESET_NAME,
+        "OverrideSettings": True,
+        "AutoBuild": True,
+    }
+    _save_json_safe(WIZARD_USER_CFG, cfg)
+
+
+def enforce_photomesh_settings() -> None:
+    """Legacy wrapper to maintain backwards compatibility."""
+    enforce_install_cfg()
+    enforce_user_cfg()
+
+
+def ensure_wizard_user_defaults(
+    preset: str = PRESET_NAME, autostart: bool = True
+) -> None:
+    """Ensure the PhotoMesh Wizard user config selects *preset* and auto-builds."""
+
+    os.makedirs(os.path.dirname(WIZARD_USER_CFG), exist_ok=True)
+    cfg = {
+        "SelectedPreset": preset,
+        "OverrideSettings": True,
+        "AutoBuild": bool(autostart),
+    }
+    with open(WIZARD_USER_CFG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def ensure_wizard_install_defaults() -> None:
+    """Patch the installed Wizard config with network and basic defaults."""
+
+    path = WIZARD_INSTALL_CFG
+    if not os.path.isfile(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        try:
+            cfg = json.load(f)
+        except Exception:
+            cfg = {}
 
     cfg.setdefault("UseMinimize", True)
     cfg.setdefault("ClosePMWhenDone", False)
@@ -220,22 +305,37 @@ def enforce_install_cfg_ui_only() -> None:
 
     _update_wizard_network_mode(cfg)
 
-    _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+    ui.setdefault("ProcessingLevel", "Standard")
+    ui.setdefault("StopOnError", True)
+    ui.setdefault("MaxProcessing", False)
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
 
 
-def enforce_user_cfg_no_preset(autostart: bool = True) -> None:
-    cfg = _load_json_safe(WIZARD_USER_CFG)
-    cfg["OverrideSettings"] = True
-    cfg["AutoBuild"] = bool(autostart)
-    cfg.pop("SelectedPreset", None)
-    cfg.pop("LastUsedPreset", None)
-    _save_json_safe(WIZARD_USER_CFG, cfg)
+def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> None:
+    """Launch the PhotoMesh Wizard with prepared sources via CLI."""
+    config.read(CONFIG_PATH)
+    enforce_photomesh_settings()
 
+    o = get_offline_cfg()
+    unc = resolve_network_working_folder_from_cfg(o)
+    if o["enabled"] and not can_access_unc(unc):
+        from tkinter import messagebox
 
-def launch_wizard_no_preset(project_name: str, project_path: str, folders: List[str]) -> subprocess.Popen:
-    enforce_install_cfg_ui_only()
-    enforce_user_cfg_no_preset(autostart=True)
+        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+        return
 
+    if not os.path.isfile(WIZARD_EXE):
+        from tkinter import messagebox
+
+        messagebox.showerror(
+            "PhotoMesh Wizard", "PhotoMeshWizard.exe not found.\nCheck installation path."
+        )
+        return
+
+    ensure_preset_exists()
     verify_effective_settings()
 
     args = [
@@ -244,27 +344,33 @@ def launch_wizard_no_preset(project_name: str, project_path: str, folders: List[
         project_name,
         "--projectPath",
         project_path,
+        "--preset",
+        PRESET_NAME,
         "--overrideSettings",
     ]
     for fld in folders:
         args += ["--folder", fld]
 
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return subprocess.Popen(args, cwd=os.path.dirname(WIZARD_EXE), creationflags=creationflags)
-
-
-def enforce_photomesh_settings() -> None:
-    enforce_install_cfg_ui_only()
-    enforce_user_cfg_no_preset()
-
-
-def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) -> subprocess.Popen | None:
     try:
-        return launch_wizard_no_preset(project_name, project_path, folders)
+        subprocess.Popen(args, cwd=os.path.dirname(WIZARD_EXE))
     except Exception as e:
         from tkinter import messagebox
+
         messagebox.showerror("PhotoMesh Wizard", f"Failed to launch Wizard:\n{e}")
-        return None
+
+def ensure_preset_exists() -> str:
+    """Ensure the CPP&OBJ preset file exists with the expected content."""
+    os.makedirs(os.path.dirname(PRESET_PATH), exist_ok=True)
+    try:
+        if os.path.isfile(PRESET_PATH):
+            with open(PRESET_PATH, "r", encoding="utf-8") as f:
+                if f.read() == PRESET_XML:
+                    return PRESET_PATH
+        with open(PRESET_PATH, "w", encoding="utf-8") as f:
+            f.write(PRESET_XML)
+    except OSError as e:
+        raise RuntimeError(f"Unable to write preset: {e}") from e
+    return PRESET_PATH
 
 
 def verify_effective_settings() -> None:
@@ -295,3 +401,63 @@ def verify_effective_settings() -> None:
         if not ok:
             print(f"WARNING: {key} not set as expected")
 
+def set_photomesh_preset(preset_xml: str) -> None:
+    """Write the preset and update all PhotoMesh configuration files."""
+
+    pm_config_path = rf"{WIZARD_DIR}\config.json"
+    data = {}
+    if os.path.isfile(pm_config_path):
+        try:
+            with open(pm_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    data.setdefault("DefaultPhotoMeshWizardUI", {})["Preset"] = PRESET_NAME
+    data["LastUsedPreset"] = PRESET_NAME
+
+    try:
+        with open(pm_config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except PermissionError:
+        pass
+
+def launch_photomesh_with_preset(project_name: str, project_path: str, image_folders: Iterable[str]) -> subprocess.Popen:
+    """Launch PhotoMeshWizard.exe with the CPP&OBJ preset."""
+    config.read(CONFIG_PATH)
+    enforce_photomesh_settings()
+    o = get_offline_cfg()
+    unc = resolve_network_working_folder_from_cfg(o)
+    if o["enabled"] and not can_access_unc(unc):
+        from tkinter import messagebox
+
+        messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+        raise FileNotFoundError("Offline working folder not accessible")
+
+    if not os.path.isfile(WIZARD_EXE):
+        raise FileNotFoundError(f"PhotoMeshWizard.exe not found: {WIZARD_EXE}")
+
+    ensure_preset_exists()
+    verify_effective_settings()
+
+    args = [
+        WIZARD_EXE,
+        "--projectName",
+        project_name,
+        "--projectPath",
+        project_path,
+        "--preset",
+        PRESET_NAME,
+        "--overrideSettings",
+    ]
+    for folder in image_folders:
+        args.extend(["--folder", folder])
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        return subprocess.Popen(
+            args, cwd=os.path.dirname(WIZARD_EXE), creationflags=creationflags
+        )
+    except Exception as exc:
+        print(f"Failed to launch PhotoMeshWizard: {exc}")
+        raise
