@@ -201,6 +201,7 @@ def prepare_photomesh_environment_per_user(
     repo_hint: str,
     preset: str = PRESET_NAME,
     autostart: bool = True,
+    **kwargs
 ) -> str:
     """Apply per-user PhotoMesh preset and wizard defaults.
 
@@ -218,6 +219,8 @@ def prepare_photomesh_environment_per_user(
         search.
     preset:
         Name of the preset to register as default.
+        Note: ``preset_name`` is accepted as a deprecated alias for
+        ``preset``.
     autostart:
         Whether the wizard should start building automatically.
 
@@ -226,6 +229,12 @@ def prepare_photomesh_environment_per_user(
     str
         Path to the preset copied into the user's AppData directory.
     """
+
+    # Back-compat: allow preset_name=
+    if "preset_name" in kwargs and (preset is None or preset == PRESET_NAME):
+        alias = kwargs.pop("preset_name")
+        if alias:
+            preset = alias
 
     preset_path = ensure_oeccp_preset_in_appdata(repo_hint)
     set_default_preset_in_presetsettings(preset)
@@ -280,8 +289,18 @@ def launch_wizard_with_preset(
     project_path: str,
     folders: List[str],
     preset: str = PRESET_NAME,
+    **kwargs
 ) -> subprocess.Popen:
-    """Launch the PhotoMesh Wizard with the supplied preset and folders."""
+    """Launch the PhotoMesh Wizard with the supplied preset and folders.
+
+    Note: ``preset_name`` is accepted as a deprecated alias for ``preset``.
+    """
+
+    # Back-compat: allow preset_name=
+    if "preset_name" in kwargs and (preset is None or preset == PRESET_NAME):
+        alias = kwargs.pop("preset_name")
+        if alias:
+            preset = alias
 
     exe = find_wizard_exe()
     args = [
