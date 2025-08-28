@@ -1,8 +1,10 @@
 from pathlib import Path
 import os
+import re
 import json
 import subprocess
 import configparser
+from tkinter import messagebox, filedialog
 from typing import Iterable, List
 
 # ---------------------------------------------------------------------------
@@ -213,6 +215,63 @@ def _save_json_safe(path: str, data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
+def open_in_explorer(path: str) -> None:
+    try:
+        os.startfile(path)
+    except Exception as e:
+        messagebox.showerror("Open Folder", f"Failed to open:\n{path}\n\n{e}")
+
+
+def replace_share_in_unc_path(p: str, old_share: str, new_share: str) -> str:
+    """
+    Replace the share segment in a UNC path:
+      \\HOST\\OldShare\\...  ->  \\HOST\\NewShare\\...
+    Keep host and trailing subpaths intact.
+    """
+    if not p or not p.startswith("\\\\"):
+        return p
+    parts = p.split("\\")
+    if len(parts) >= 4 and parts[3].lower() == old_share.lower():
+        parts[3] = new_share
+        return "\\".join(parts)
+    return p
+
+
+def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
+    """
+    Scan every key in config.ini and swap \\HOST\\old_share -> \\HOST\\new_share.
+    Save config if changes were made.
+    Also update PhotoMesh wizard install JSON (WIZARD_INSTALL_CFG) for NetworkWorkingFolder.
+    """
+    changed = False
+
+    try:
+        config.read(CONFIG_PATH)
+    except Exception:
+        pass
+
+    for sect in config.sections():
+        for key, val in list(config[sect].items()):
+            if isinstance(val, str) and val.startswith("\\\\"):
+                new_val = replace_share_in_unc_path(val, old_share, new_share)
+                if new_val != val:
+                    config[sect][key] = new_val
+                    changed = True
+
+    if changed:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
+
+    wiz = _load_json_safe(WIZARD_INSTALL_CFG)
+    if wiz:
+        nwf = wiz.get("NetworkWorkingFolder", "")
+        if isinstance(nwf, str) and nwf.startswith("\\\\"):
+            new_nwf = replace_share_in_unc_path(nwf, old_share, new_share)
+            if new_nwf != nwf:
+                wiz["NetworkWorkingFolder"] = new_nwf
+                _save_json_safe(WIZARD_INSTALL_CFG, wiz)
+
+
 def _update_wizard_network_mode(cfg: dict) -> None:
     """
     Always write NetworkWorkingFolder so the Wizard UI shows Network fusers,
@@ -251,8 +310,10 @@ def enforce_install_cfg() -> None:
     cfg.setdefault("ClosePMWhenDone", False)
     cfg.setdefault("OutputWaitTimerSeconds", 10)
     _update_wizard_network_mode(cfg)
-
-    _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+    try:
+        _save_json_safe(WIZARD_INSTALL_CFG, cfg)
+    except PermissionError:
+        print("\u26a0\ufe0f Unable to write install config (permission). Continuing.")
 
 
 def enforce_user_cfg() -> None:
