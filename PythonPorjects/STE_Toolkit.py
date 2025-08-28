@@ -28,18 +28,13 @@ from launch_photomesh_preset import (
     can_access_unc,
     OFFLINE_ACCESS_HINT,
     enforce_photomesh_settings,
+    launch_wizard_cli,
     _is_offline_enabled,
     _load_json_safe,
     _save_json_safe,
     _update_wizard_network_mode,
     WIZARD_INSTALL_CFG,
     resolve_network_working_folder_from_cfg,
-)
-from photomesh.bootstrap import (
-    prepare_photomesh_environment_per_user,
-    enforce_install_cfg_obj_only,
-    launch_wizard_with_preset,
-    verify_effective_settings,
 )
 from collections import OrderedDict
 import time
@@ -3397,11 +3392,7 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
-        prepare_photomesh_environment_per_user(
-            repo_hint=r"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\OECPP.PMPreset",
-            autostart=True,
-        )
-        enforce_install_cfg_obj_only()
+        enforce_photomesh_settings()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -3422,9 +3413,8 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            verify_effective_settings(lambda m: self.log_message(m))
-            wizard_proc = launch_wizard_with_preset(
-                project_name, project_path, self.image_folder_paths, preset_name="OECPP"
+            wizard_proc = launch_wizard_cli(
+                project_name, project_path, self.image_folder_paths
             )
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
@@ -3432,7 +3422,7 @@ class VBS4Panel(tk.Frame):
                 f"Wizard started for project:\n{project_name}",
                 parent=self,
             )
-            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
+            if wizard_proc and hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
                 self.detach_wizard_on_photomesh_start_by_pid(wizard_proc.pid, project_path)
             self.start_progress_monitor(project_path)
         except Exception as e:
