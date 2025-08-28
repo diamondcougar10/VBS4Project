@@ -32,6 +32,7 @@ PRESET_FILENAME = f"{PRESET_NAME}.PMPreset"
 
 ARR = "http://schemas.microsoft.com/2003/10/Serialization/Arrays"
 XMLNS = "http://www.w3.org/2000/xmlns/"
+ET.register_namespace("d3p1", ARR)
 
 PROGRAM_FILES = os.getenv("ProgramFiles", r"C:\\Program Files")
 WIZARD_DIR = os.path.join(
@@ -182,18 +183,78 @@ def set_default_preset_in_presetsettings(preset_name: str = PRESET_NAME) -> None
     tree.write(USER_PRESET_SETTINGS, encoding="utf-8", xml_declaration=True)
 
 
+def normalize_preset_xml(preset_path: str, log=print) -> None:
+    """Idempotently enforce BuildParameters for OBJ-only, center pivot, ellipsoid."""
+    try:
+        tree = ET.parse(preset_path)
+        root = tree.getroot()
+
+        # Ensure <BuildParameters>
+        bp = root.find("./BuildParameters")
+        if bp is None:
+            bp = ET.SubElement(root, "BuildParameters")
+
+        # SerializableVersion (avoid Version.Parse errors)
+        sv = bp.find("./SerializableVersion") or ET.SubElement(bp, "SerializableVersion")
+        if not (sv.text or "").strip():
+            sv.text = "8.0.4.50513"
+
+        # OutputFormats -> OBJ only
+        ofs = bp.find("./OutputFormats")
+        if ofs is None:
+            ofs = ET.SubElement(bp, "OutputFormats")
+        for ch in list(ofs):
+            ofs.remove(ch)
+        ET.SubElement(ofs, f"{{{ARR}}}string").text = "OBJ"
+
+        # Center pivot + ellipsoid (CesiumReprojectZ used by PM presets)
+        def set_true(tag):
+            node = bp.find(tag) or ET.SubElement(bp, tag)
+            node.text = "true"
+
+        set_true("CenterModelsToProject")
+        set_true("CesiumReprojectZ")
+
+        # Top-level convenience flags
+        for tag in ("IsDefault", "IsLastUsed"):
+            node = root.find(tag) or ET.SubElement(root, tag)
+            node.text = "true"
+
+        # Keep preset name consistent if missing
+        pn = root.find("PresetName") or ET.SubElement(root, "PresetName")
+        if not (pn.text or "").strip():
+            pn.text = "OECPP"
+
+        tmp = preset_path + ".tmp"
+        tree.write(tmp, encoding="utf-8", xml_declaration=True)
+        os.replace(tmp, preset_path)
+        log(f"Preset normalized: {preset_path}")
+    except Exception as e:
+        log(f"Preset normalize failed: {e}")
+
+
 def set_user_wizard_defaults(preset: str = PRESET_NAME, autostart: bool = True) -> None:
     """Write wizard ``config.json`` with our desired defaults."""
 
     cfg = _load_json(USER_CFG)
-    cfg.update(
-        {
-            "OverrideSettings": True,
-            "AutoBuild": bool(autostart),
-            "SelectedPreset": preset,
-            "DefaultPresetName": preset,
-        }
-    )
+    cfg.update({
+        "OverrideSettings": True,
+        "AutoBuild": bool(autostart),
+        "SelectedPreset": preset,
+        "DefaultPresetName": preset,
+    })
+    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+    outs = ui.setdefault("OutputProducts", {})
+    outs["3DModel"] = True
+    outs["Ortho"] = False
+    fmts = ui.setdefault("Model3DFormats", {})
+    for k, v in list(fmts.items()):
+        if isinstance(v, bool):
+            fmts[k] = False
+    fmts["OBJ"] = True
+    fmts["3DML"] = False
+    ui["CenterPivotToProject"] = True
+    ui["ReprojectToEllipsoid"] = True
     _save_json(USER_CFG, cfg)
 
 

@@ -36,11 +36,15 @@ from launch_photomesh_preset import (
     resolve_network_working_folder_from_cfg,
 )
 from photomesh.bootstrap import (
-    prepare_photomesh_environment_per_user,
-    enforce_install_cfg_obj_only,
+    ensure_oeccp_preset_in_appdata,
+    set_default_preset_in_presetsettings,
+    set_user_wizard_defaults,
     launch_wizard_with_preset,
+    normalize_preset_xml,
+    enforce_install_cfg_obj_only,
     verify_effective_settings,
 )
+from photomesh.health import preflight_or_report
 from collections import OrderedDict
 import time
 import glob
@@ -3397,10 +3401,11 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
-        prepare_photomesh_environment_per_user(
-            repo_hint=r"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\OECPP.PMPreset",
-            autostart=True,
-        )
+        repo_preset = os.path.join(os.path.dirname(__file__), "photomesh", "OECPP.PMPreset")
+        preset_path = ensure_oeccp_preset_in_appdata(repo_preset)
+        set_default_preset_in_presetsettings("OECPP")
+        normalize_preset_xml(preset_path, log=self.log_message)
+        set_user_wizard_defaults("OECPP", autostart=True)
         enforce_install_cfg_obj_only()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
@@ -3422,9 +3427,11 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
+            if not preflight_or_report(self.log_message, show_dialog=lambda t, m: messagebox.showerror(t, m, parent=self)):
+                return
             verify_effective_settings(lambda m: self.log_message(m))
             wizard_proc = launch_wizard_with_preset(
-                project_name, project_path, self.image_folder_paths, preset_name="OECPP"
+                project_name, project_path, self.image_folder_paths, preset="OECPP"
             )
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
