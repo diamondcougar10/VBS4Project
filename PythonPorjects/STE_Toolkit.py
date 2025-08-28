@@ -22,10 +22,6 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from launch_photomesh_preset import (
-    ensure_wizard_user_defaults,
-    ensure_wizard_install_defaults,
-    launch_wizard_cli,
-    DEFAULT_WIZARD_PRESET,
     get_offline_cfg,
     working_fuser_unc,
     ensure_offline_share_exists,
@@ -38,6 +34,12 @@ from launch_photomesh_preset import (
     _update_wizard_network_mode,
     WIZARD_INSTALL_CFG,
     resolve_network_working_folder_from_cfg,
+)
+from photomesh.bootstrap import (
+    prepare_photomesh_environment_per_user,
+    enforce_install_cfg_obj_only,
+    launch_wizard_with_preset,
+    verify_effective_settings,
 )
 from collections import OrderedDict
 import time
@@ -3397,13 +3399,11 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
-        # Ensure OBJ export is enabled even if install config fails to update
-        enable_obj_in_photomesh_config()
-
-        # Apply Wizard defaults so the correct preset is auto-loaded and
-        # the build runs using the shared network working folder.
-        ensure_wizard_user_defaults(DEFAULT_WIZARD_PRESET, autostart=True)
-        ensure_wizard_install_defaults()
+        prepare_photomesh_environment_per_user(
+            repo_hint=r"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\OECPP.PMPreset",
+            autostart=True,
+        )
+        enforce_install_cfg_obj_only()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -3420,18 +3420,22 @@ class VBS4Panel(tk.Frame):
             return
         # Normalize to UNC style backslashes for PhotoMesh
         project_path = clean_path(project_path)
-        update_fuser_shared_path(project_path)
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            launch_wizard_cli(project_name, project_path, self.image_folder_paths)
+            verify_effective_settings(lambda m: self.log_message(m))
+            wizard_proc = launch_wizard_with_preset(
+                project_name, project_path, self.image_folder_paths, preset_name="OECPP"
+            )
             self.log_message("PhotoMesh Wizard launched successfully.")
             messagebox.showinfo(
                 "PhotoMesh Wizard Launched",
                 f"Wizard started for project:\n{project_name}",
                 parent=self,
             )
+            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
+                self.detach_wizard_on_photomesh_start_by_pid(wizard_proc.pid, project_path)
             self.start_progress_monitor(project_path)
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
