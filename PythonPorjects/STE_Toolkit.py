@@ -23,16 +23,13 @@ except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from launch_photomesh_preset import (
     get_offline_cfg,
-    working_fuser_unc,
     ensure_offline_share_exists,
     can_access_unc,
     OFFLINE_ACCESS_HINT,
     enforce_photomesh_settings,
     _is_offline_enabled,
-    _load_json_safe,
-    _save_json_safe,
-    _update_wizard_network_mode,
-    WIZARD_INSTALL_CFG,
+    propagate_share_rename_in_config,
+    open_in_explorer,
     resolve_network_working_folder_from_cfg,
 )
 from photomesh.bootstrap import (
@@ -3905,169 +3902,74 @@ class SettingsPanel(tk.Frame):
             bd=0,
         ).pack(side="left", padx=8)
 
-        # --- Offline Mode -----------------------------------------------
-        off_cfg = get_offline_cfg()
-        offline = tk.LabelFrame(
-            self, text="Offline Mode", bg="black", fg="white", font=("Helvetica", 16)
+        # --- Offline / Shared Drive ------------------------------------
+        grp = tk.LabelFrame(
+            self,
+            text="Offline / Shared Drive",
+            fg="white",
+            bg="black",
+            labelanchor="nw",
+            padx=10,
+            pady=10,
         )
-        offline.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
+        grp.grid(row=3, column=0, sticky="ew", padx=10, pady=10)
 
-        self.offline_var = tk.BooleanVar(value=_is_offline_enabled())
+        off = get_offline_cfg()
+        self.off_enabled = tk.BooleanVar(value=off["enabled"])
+        self.off_host_name = tk.StringVar(value=off["host_name"])
+        self.off_host_ip = tk.StringVar(value=off["host_ip"])
+        self.off_share_name = tk.StringVar(value=off["share_name"])
+        self.off_local_root = tk.StringVar(value=off["local_data_root"])
+        self.off_work_subdir = tk.StringVar(value=off["working_fuser_subdir"])
+        self.off_use_ip_unc = tk.BooleanVar(value=off["use_ip_unc"])
+
+        row0 = tk.Frame(grp, bg="black")
+        row0.pack(fill="x", pady=4)
         tk.Checkbutton(
-            offline,
+            row0,
             text="Enable Offline Mode",
-            variable=self.offline_var,
-            font=("Helvetica", 16),
-            bg="#444444",
-            fg="white",
-            selectcolor="#444444",
-            command=self._on_offline_toggle,
-        ).pack(anchor="w", pady=2)
-
-        row = tk.Frame(offline, bg="black")
-        tk.Label(row, text="Host Name:", font=("Helvetica", 14), bg="black", fg="white").pack(
-            side="left"
-        )
-        self.offline_host_name_var = tk.StringVar(value=off_cfg["host_name"])
-        tk.Entry(
-            row,
-            textvariable=self.offline_host_name_var,
-            font=("Consolas", 12),
-            bg="#111111",
-            fg="white",
-            insertbackground="white",
-            width=30,
-            bd=0,
-        ).pack(side="left", fill="x", expand=True, padx=5)
-        row.pack(fill="x", pady=2)
-
-        row = tk.Frame(offline, bg="black")
-        tk.Label(row, text="Host IP:", font=("Helvetica", 14), bg="black", fg="white").pack(
-            side="left"
-        )
-        self.offline_host_ip_var = tk.StringVar(value=off_cfg["host_ip"])
-        tk.Entry(
-            row,
-            textvariable=self.offline_host_ip_var,
-            font=("Consolas", 12),
-            bg="#111111",
-            fg="white",
-            insertbackground="white",
-            width=30,
-            bd=0,
-        ).pack(side="left", fill="x", expand=True, padx=5)
-        row.pack(fill="x", pady=2)
-
-        row = tk.Frame(offline, bg="black")
-        tk.Label(row, text="Share Name:", font=("Helvetica", 14), bg="black", fg="white").pack(
-            side="left"
-        )
-        self.offline_share_var = tk.StringVar(value=off_cfg["share_name"])
-        tk.Entry(
-            row,
-            textvariable=self.offline_share_var,
-            font=("Consolas", 12),
-            bg="#111111",
-            fg="white",
-            insertbackground="white",
-            width=30,
-            bd=0,
-        ).pack(side="left", fill="x", expand=True, padx=5)
-        row.pack(fill="x", pady=2)
-
-        row = tk.Frame(offline, bg="black")
-        tk.Label(
-            row, text="Local Data Root:", font=("Helvetica", 14), bg="black", fg="white"
-        ).pack(side="left")
-        self.offline_local_root_var = tk.StringVar(value=off_cfg["local_data_root"])
-        tk.Entry(
-            row,
-            textvariable=self.offline_local_root_var,
-            font=("Consolas", 12),
-            bg="#111111",
-            fg="white",
-            insertbackground="white",
-            width=30,
-            bd=0,
-        ).pack(side="left", fill="x", expand=True, padx=5)
-        row.pack(fill="x", pady=2)
-
-        row = tk.Frame(offline, bg="black")
-        tk.Label(
-            row,
-            text="Working Fuser Subdir:",
-            font=("Helvetica", 14),
+            variable=self.off_enabled,
             bg="black",
             fg="white",
+            selectcolor="black",
         ).pack(side="left")
-        self.offline_working_var = tk.StringVar(
-            value=off_cfg["working_fuser_subdir"]
-        )
-        tk.Entry(
-            row,
-            textvariable=self.offline_working_var,
-            font=("Consolas", 12),
-            bg="#111111",
-            fg="white",
-            insertbackground="white",
-            width=30,
-            bd=0,
-        ).pack(side="left", fill="x", expand=True, padx=5)
-        row.pack(fill="x", pady=2)
-
-        self.offline_use_ip_var = tk.BooleanVar(value=off_cfg["use_ip_unc"])
         tk.Checkbutton(
-            offline,
-            text="Use IP instead",
-            variable=self.offline_use_ip_var,
-            font=("Helvetica", 16),
-            bg="#444444",
-            fg="white",
-            selectcolor="#444444",
-            command=self._refresh_offline_resolved,
-        ).pack(anchor="w", pady=2)
-
-        self.offline_resolved_var = tk.StringVar()
-        tk.Label(
-            offline,
-            textvariable=self.offline_resolved_var,
-            font=("Helvetica", 12),
+            row0,
+            text="Use IP in UNC",
+            variable=self.off_use_ip_unc,
             bg="black",
             fg="white",
-        ).pack(anchor="w", pady=(4, 2))
+            selectcolor="black",
+        ).pack(side="left", padx=10)
 
-        btn_row = tk.Frame(offline, bg="black")
-        tk.Button(
-            btn_row,
-            text="Save + Apply",
-            command=self._save_offline_settings,
-            font=("Helvetica", 12),
-            bg="#444444",
-            fg="white",
-            bd=0,
-        ).pack(side="left", padx=4)
-        tk.Button(
-            btn_row,
-            text="Test Access",
-            command=self._test_offline_access,
-            font=("Helvetica", 12),
-            bg="#444444",
-            fg="white",
-            bd=0,
-        ).pack(side="left", padx=4)
-        btn_row.pack(anchor="w", pady=(4, 0))
+        row1 = tk.Frame(grp, bg="black")
+        row1.pack(fill="x", pady=4)
+        tk.Label(row1, text="Host Name:", bg="black", fg="white").pack(side="left", padx=(0, 6))
+        tk.Entry(row1, textvariable=self.off_host_name, width=22, bg="#111", fg="white", insertbackground="white").pack(side="left")
+        tk.Label(row1, text="Host IP:", bg="black", fg="white").pack(side="left", padx=(12, 6))
+        tk.Entry(row1, textvariable=self.off_host_ip, width=16, bg="#111", fg="white", insertbackground="white").pack(side="left")
 
-        for var in [
-            self.offline_var,
-            self.offline_host_name_var,
-            self.offline_host_ip_var,
-            self.offline_share_var,
-            self.offline_local_root_var,
-            self.offline_working_var,
-            self.offline_use_ip_var,
-        ]:
-            var.trace_add("write", lambda *args: self._refresh_offline_resolved())
-        self._refresh_offline_resolved()
+        row2 = tk.Frame(grp, bg="black")
+        row2.pack(fill="x", pady=4)
+        tk.Label(row2, text="Share Name:", bg="black", fg="white").pack(side="left", padx=(0, 6))
+        tk.Entry(row2, textvariable=self.off_share_name, width=24, bg="#111", fg="white", insertbackground="white").pack(side="left")
+
+        row3 = tk.Frame(grp, bg="black")
+        row3.pack(fill="x", pady=4)
+        tk.Label(row3, text="Local Data Root:", bg="black", fg="white").pack(side="left", padx=(0, 6))
+        tk.Entry(row3, textvariable=self.off_local_root, width=50, bg="#111", fg="white", insertbackground="white").pack(side="left", fill="x", expand=True)
+        tk.Button(row3, text="Browse...", bg="#444", fg="white", command=self._browse_local_root).pack(side="left", padx=8)
+
+        row4 = tk.Frame(grp, bg="black")
+        row4.pack(fill="x", pady=4)
+        tk.Label(row4, text="Working Fuser Subdir:", bg="black", fg="white").pack(side="left", padx=(0, 6))
+        tk.Entry(row4, textvariable=self.off_work_subdir, width=28, bg="#111", fg="white", insertbackground="white").pack(side="left")
+
+        row5 = tk.Frame(grp, bg="black")
+        row5.pack(fill="x", pady=6)
+        tk.Button(row5, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
+        tk.Button(row5, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
+        tk.Button(row5, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
 
         # Reality Mesh Local Root
         rm_row = tk.Frame(self, bg="black")
@@ -4191,52 +4093,64 @@ class SettingsPanel(tk.Frame):
             highlightthickness=0,
         ).grid(row=6, column=0, pady=10)
 
-    def _collect_offline_inputs(self) -> dict:
-        return {
-            "enabled": self.offline_var.get(),
-            "host_name": self.offline_host_name_var.get().strip(),
-            "host_ip": self.offline_host_ip_var.get().strip(),
-            "share_name": self.offline_share_var.get().strip(),
-            "local_data_root": os.path.normpath(self.offline_local_root_var.get().strip()),
-            "working_fuser_subdir": self.offline_working_var.get().strip(),
-            "use_ip_unc": self.offline_use_ip_var.get(),
-        }
+    def _browse_local_root(self):
+        p = filedialog.askdirectory(
+            title="Select Local Data Root",
+            initialdir=self.off_local_root.get() or "C:\\",
+        )
+        if p:
+            self.off_local_root.set(os.path.normpath(p))
 
-    def _refresh_offline_resolved(self, *args):
-        path = working_fuser_unc(self._collect_offline_inputs())
-        self.offline_resolved_var.set(f"Resolved Working Folder: {path}")
+    def _save_offline_settings(self):
+        old_share = config.get("Offline", "share_name", fallback=self.off_share_name.get()).strip()
 
-    def _on_offline_toggle(self):
-        val = bool(self.offline_var.get())
         if "Offline" not in config:
             config["Offline"] = {}
-        config["Offline"]["enabled"] = "True" if val else "False"
+        o = config["Offline"]
+        o["enabled"] = str(bool(self.off_enabled.get()))
+        o["host_name"] = self.off_host_name.get().strip()
+        o["host_ip"] = self.off_host_ip.get().strip()
+        o["share_name"] = self.off_share_name.get().strip()
+        o["local_data_root"] = os.path.normpath(self.off_local_root.get().strip())
+        o["working_fuser_subdir"] = self.off_work_subdir.get().strip()
+        o["use_ip_unc"] = str(bool(self.off_use_ip_unc.get()))
+
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
 
-        cfg = _load_json_safe(WIZARD_INSTALL_CFG)
-        _update_wizard_network_mode(cfg)
-        _save_json_safe(WIZARD_INSTALL_CFG, cfg)
-        self._refresh_offline_resolved()
+        new_share = o["share_name"]
+        if new_share and new_share.lower() != old_share.lower():
+            propagate_share_rename_in_config(old_share, new_share)
 
-    def _save_offline_settings(self):
-        o = self._collect_offline_inputs()
-        if 'Offline' not in config:
-            config['Offline'] = {}
-        sect = config['Offline']
-        for k, v in o.items():
-            sect[k] = str(v)
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
-        apply_offline_settings()
-        self._refresh_offline_resolved()
+        if self.off_enabled.get():
+            ensure_offline_share_exists(log=lambda m: print("[Offline]", m))
+
+        messagebox.showinfo("Settings", "Offline/Shared settings saved.")
 
     def _test_offline_access(self):
-        path = working_fuser_unc(self._collect_offline_inputs())
-        if can_access_unc(path):
-            messagebox.showinfo("Offline Mode", f"Access OK: {path}")
+        o = get_offline_cfg()
+        unc = resolve_network_working_folder_from_cfg(o)
+        if can_access_unc(unc):
+            messagebox.showinfo("Offline Access", f"Access OK:\n{unc}\n\nOpening Explorer…")
+            open_in_explorer(unc)
         else:
-            messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+            messagebox.showerror(
+                "Offline Access",
+                f"Cannot access:\n{unc}\n\n"
+                "If this is a local, offline LAN:\n"
+                " • Ensure all PCs are on the same switch\n"
+                " • Static IPs (e.g., 192.168.50.10/24 host)\n"
+                " • Share exists and permissions allow read/write\n"
+                " • Try toggling 'Use IP in UNC' or add host to hosts file",
+            )
+
+    def _open_working_folder(self):
+        o = get_offline_cfg()
+        unc = resolve_network_working_folder_from_cfg(o)
+        if can_access_unc(unc):
+            open_in_explorer(unc)
+        else:
+            messagebox.showerror("Open Working Folder", f"Cannot access:\n{unc}\nUse Test Access to diagnose.")
 
     def _save_host(self):
         h = self.host_var.get().strip()
