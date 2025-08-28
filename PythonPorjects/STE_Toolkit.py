@@ -2643,12 +2643,12 @@ class VBS4Panel(tk.Frame):
         pb = globals().get("pill_button")
         if pb:
             self.btn_oneclick_toggle = pb(
-                self, "One-Click Terrain Options", self.toggle_oneclick
+                self, "One-Click Terrain Options ▲", self.toggle_oneclick
             )
         else:
             self.btn_oneclick_toggle = tk.Button(
                 self,
-                text="One-Click Terrain Options",
+                text="One-Click Terrain Options ▲",
                 font=("Helvetica", 24),
                 bg="#444444", fg="white",
                 width=30, height=1,
@@ -2664,7 +2664,7 @@ class VBS4Panel(tk.Frame):
         self.btn_oneclick_toggle.bind("<Leave>", self.hide_tooltip)
 
         self.oneclick_slot = tk.Frame(self, bg=self.cget("bg"))
-        self.oneclick_slot.pack(fill="x")
+        # mounted only when expanded
         self.oneclick_group = None
         self.update_fuser_state()
 
@@ -2969,50 +2969,50 @@ class VBS4Panel(tk.Frame):
         else:
             self._expand_oneclick()
 
+    def _wrap_autocollapse(self, fn):
+        def _inner(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                # collapse right after the action so the menu folds back up
+                self.after(10, self._collapse_oneclick)
+        return _inner
+
     def _expand_oneclick(self):
         if self.oneclick_group:
             return
         self.oneclick_open = True
-        self.btn_oneclick_toggle.config(text="Hide Terrain Options")
+        self.btn_oneclick_toggle.config(text="Hide Terrain Options ▼")
 
-        self.oneclick_group = tk.Frame(
-            self.oneclick_slot, bg=self.oneclick_slot.cget('bg')
-        )
-        self.oneclick_group.pack(fill='x', pady=(4, 10))
+        # Ensure the slot is placed directly under the header button
+        if not self.oneclick_slot.winfo_ismapped():
+            self.oneclick_slot.pack(fill="x", pady=(6, 8), after=self.btn_oneclick_toggle)
+
+        self.oneclick_group = tk.Frame(self.oneclick_slot, bg="#333333")
+        self.oneclick_group.pack(fill="x")
 
         panel = tk.Frame(self.oneclick_group, bg="#333333")
-        panel.pack(fill='x', padx=0, pady=0)
-
-        self.rm_path_label = tk.Label(
-            panel,
-            text="",
-            font=("Consolas", 10),
-            bg="#333333",
-            fg="#ddd",
-            anchor="w",
-            justify="left",
-        )
-        self.rm_path_label.pack(fill="x", padx=6)
-        self._update_rm_status()
+        panel.pack(fill="x", padx=0, pady=0)
 
         pb = globals().get("pill_button")
         if pb:
-            pb(panel, "One-Click Conversion", self.on_oneclick_convert)\
-                .pack(pady=8, ipadx=10, ipady=5)
-            pb(panel, "Launch Reality Mesh to VBS4", self.on_launch_reality_mesh)\
-                .pack(pady=8, ipadx=10, ipady=5)
-            pb(panel, "One-Click Terrain Tutorial", self.on_open_oct_tutorial)\
-                .pack(pady=8, ipadx=10, ipady=5)
+            pb(panel, "One-Click Conversion",
+               self._wrap_autocollapse(self.on_oneclick_convert)).pack(pady=8, ipadx=10, ipady=5)
+            pb(panel, "Launch Reality Mesh to VBS4",
+               self._wrap_autocollapse(self.on_launch_reality_mesh)).pack(pady=8, ipadx=10, ipady=5)
+            pb(panel, "One-Click Terrain Tutorial",
+               self._wrap_autocollapse(self.on_open_oct_tutorial)).pack(pady=8, ipadx=10, ipady=5)
         else:
-            tk.Button(panel, text="One-Click Conversion", command=self.on_oneclick_convert,
+            tk.Button(panel, text="One-Click Conversion",
+                      command=self._wrap_autocollapse(self.on_oneclick_convert),
                       font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
                       highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
             tk.Button(panel, text="Launch Reality Mesh to VBS4",
-                      command=self.on_launch_reality_mesh,
+                      command=self._wrap_autocollapse(self.on_launch_reality_mesh),
                       font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
                       highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
             tk.Button(panel, text="One-Click Terrain Tutorial",
-                      command=self.on_open_oct_tutorial,
+                      command=self._wrap_autocollapse(self.on_open_oct_tutorial),
                       font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
                       highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
 
@@ -3020,18 +3020,26 @@ class VBS4Panel(tk.Frame):
             panel.winfo_children()[0].focus_set()
         except Exception:
             pass
-
         if hasattr(self.controller, "update_navigation"):
             self.controller.update_navigation()
 
     def _collapse_oneclick(self):
-        if not self.oneclick_group:
+        if not self.oneclick_group and not self.oneclick_open:
             return
         self.oneclick_open = False
-        self.btn_oneclick_toggle.config(text="One-Click Terrain Options")
-        self.oneclick_group.pack_forget()
-        self.oneclick_group.destroy()
-        self.oneclick_group = None
+        self.btn_oneclick_toggle.config(text="One-Click Terrain Options ▲")
+
+        if self.oneclick_group:
+            try:
+                self.oneclick_group.pack_forget()
+                self.oneclick_group.destroy()
+            except Exception:
+                pass
+            self.oneclick_group = None
+
+        if self.oneclick_slot.winfo_ismapped():
+            self.oneclick_slot.pack_forget()
+
         try:
             self.btn_oneclick_toggle.focus_set()
         except Exception:
