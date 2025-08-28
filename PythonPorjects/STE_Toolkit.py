@@ -1294,10 +1294,8 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
         with open(CONFIG_PATH, 'w') as f:
             config.write(f)
 
-
 def apply_offline_settings() -> None:
     """Apply offline configuration changes and refresh dependent systems."""
-    ensure_wizard_install_defaults()
     enforce_photomesh_settings()
     update_fuser_shared_path()
 
