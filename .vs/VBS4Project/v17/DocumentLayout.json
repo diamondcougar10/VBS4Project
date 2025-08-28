@@ -11,6 +11,10 @@
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\launch_photomesh_preset.py||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
     {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\bootstrap.py||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\photomesh\\bootstrap.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini||{3B902123-F8A7-4915-9F01-361F908088D0}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\config.ini||{3B902123-F8A7-4915-9F01-361F908088D0}"
     }
@@ -22,11 +26,11 @@
       "DocumentGroups": [
         {
           "DockedWidth": 316,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 3,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "config.ini",
               "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini",
               "RelativeDocumentMoniker": "PythonPorjects\\config.ini",
@@ -40,13 +44,26 @@
             },
             {
               "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "bootstrap.py",
+              "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\bootstrap.py",
+              "RelativeDocumentMoniker": "PythonPorjects\\photomesh\\bootstrap.py",
+              "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\bootstrap.py",
+              "RelativeToolTip": "PythonPorjects\\photomesh\\bootstrap.py",
+              "ViewState": "AgIAALgAAAAAAAAAAAAQwNUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2025-08-28T13:41:08.341Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 1,
               "Title": "launch_photomesh_preset.py",
               "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\launch_photomesh_preset.py",
               "RelativeDocumentMoniker": "PythonPorjects\\launch_photomesh_preset.py",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\launch_photomesh_preset.py",
               "RelativeToolTip": "PythonPorjects\\launch_photomesh_preset.py",
-              "ViewState": "AgIAANcAAAAAAAAAAAAEwOUAAAAiAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAIcBAAAsAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-08-27T23:12:59.86Z",
               "EditorCaption": ""
@@ -59,7 +76,7 @@
               "RelativeDocumentMoniker": "PythonPorjects\\STE_Toolkit.py",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py",
               "RelativeToolTip": "PythonPorjects\\STE_Toolkit.py",
-              "ViewState": "AgIAAP0EAAAAAAAAAAAlwA8FAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAJ0CAAAAAAAAAAAAwLkCAABIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-05-21T02:02:53.492Z",
               "EditorCaption": ""
