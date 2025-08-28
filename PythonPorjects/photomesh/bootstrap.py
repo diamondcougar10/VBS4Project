@@ -94,7 +94,6 @@ def _save_json(path: str, data: dict) -> None:
 
 # core functionality ---------------------------------------------------------
 
-
 def ensure_oeccp_preset_in_appdata(repo_hint: str) -> str:
     """Copy and sanitise the ``OECPP`` preset into the user's AppData.
 
@@ -182,35 +181,21 @@ def set_default_preset_in_presetsettings(preset_name: str = PRESET_NAME) -> None
     ET.register_namespace("d2p1", ARR)
     tree.write(USER_PRESET_SETTINGS, encoding="utf-8", xml_declaration=True)
 
+
 def set_user_wizard_defaults(preset: str = PRESET_NAME, autostart: bool = True) -> None:
-    """Write wizard config.json with our desired defaults (OBJ only, no Ortho, pivot/ellipsoid)."""
+    """Write wizard ``config.json`` with our desired defaults."""
+
     cfg = _load_json(USER_CFG)
-
-    # high-level wizard defaults
-    cfg.update({
-        "OverrideSettings": True,
-        "AutoBuild": bool(autostart),
-        "SelectedPreset": preset,
-        "DefaultPresetName": preset,
-    })
-
-    # enforce the UI choices the Wizard uses to seed new projects
-    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-    outputs = ui.setdefault("OutputProducts", {})
-    outputs["3DModel"] = True
-    outputs["Ortho"]   = False
-
-    m3d = ui.setdefault("Model3DFormats", {})
-    for k in list(m3d.keys()):
-        if isinstance(m3d[k], bool):
-            m3d[k] = False
-    m3d["OBJ"]  = True
-    m3d["3DML"] = False
-
-    ui["CenterPivotToProject"]   = True
-    ui["ReprojectToEllipsoid"]   = True
-
+    cfg.update(
+        {
+            "OverrideSettings": True,
+            "AutoBuild": bool(autostart),
+            "SelectedPreset": preset,
+            "DefaultPresetName": preset,
+        }
+    )
     _save_json(USER_CFG, cfg)
+
 
 def prepare_photomesh_environment_per_user(
     repo_hint: str,
