@@ -1,24 +1,16 @@
-"""PhotoMesh helper utilities."""
+"""Helpers for working with PhotoMesh presets and wizard."""
 
 from .bootstrap import (
-    prepare_photomesh_environment_per_user,
-    ensure_oeccp_preset_in_appdata,
-    set_default_preset_in_presetsettings,
-    set_user_wizard_defaults,
-    enforce_install_cfg_obj_only,
-    find_wizard_exe,
-    launch_wizard_with_preset,
-    verify_effective_settings,
+    stage_install_preset,
+    launch_autostart_build,
+    enforce_wizard_defaults_obj_only,
 )
+from .launch_photomesh_preset import launch_photomesh_with_install_preset
 
 __all__ = [
-    "prepare_photomesh_environment_per_user",
-    "ensure_oeccp_preset_in_appdata",
-    "set_default_preset_in_presetsettings",
-    "set_user_wizard_defaults",
-    "enforce_install_cfg_obj_only",
-    "find_wizard_exe",
-    "launch_wizard_with_preset",
-    "verify_effective_settings",
+    "stage_install_preset",
+    "launch_autostart_build",
+    "enforce_wizard_defaults_obj_only",
+    "launch_photomesh_with_install_preset",
 ]
 
