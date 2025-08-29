@@ -7,7 +7,46 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "PythonPorjects"))
 
 from photomesh.launch_photomesh_preset import (
     launch_photomesh_with_install_preset,
+    launch_wizard_with_preset,
 )
+
+
+def test_launch_wizard_with_preset(monkeypatch):
+    called = {}
+
+    def fake_popen(args, cwd=None, creationflags=0):  # pragma: no cover - dummy
+        called["args"] = args
+        called["cwd"] = cwd
+        called["creationflags"] = creationflags
+
+    monkeypatch.setattr(
+        "photomesh.launch_photomesh_preset.subprocess.Popen", fake_popen
+    )
+    monkeypatch.setattr(
+        "photomesh.launch_photomesh_preset.WIZARD_EXE", "wiz.exe"
+    )
+    monkeypatch.setattr(
+        "photomesh.launch_photomesh_preset.WIZARD_DIR", "wizdir"
+    )
+
+    launch_wizard_with_preset("proj", "path", ["a", "b"], preset="Preset")
+
+    assert called["cwd"] == "wizdir"
+    assert called["args"] == [
+        "wiz.exe",
+        "--projectName",
+        "proj",
+        "--projectPath",
+        "path",
+        "--overrideSettings",
+        "--autostart",
+        "--preset",
+        "Preset",
+        "--folder",
+        "a",
+        "--folder",
+        "b",
+    ]
 
 
 def test_launch_photomesh_with_install_preset(monkeypatch):
@@ -16,14 +55,15 @@ def test_launch_photomesh_with_install_preset(monkeypatch):
     def fake_stage(repo_preset_path, preset_name):
         calls["stage"] = (repo_preset_path, preset_name)
 
-    def fake_launch(project_name, project_path, folders, preset_name):
-        calls["launch"] = (project_name, project_path, tuple(folders), preset_name)
+    def fake_launch(project_name, project_path, folders, preset=None, extra_args=None):
+        calls["launch"] = (project_name, project_path, tuple(folders), preset)
 
     monkeypatch.setattr(
         "photomesh.launch_photomesh_preset.stage_install_preset", fake_stage
     )
     monkeypatch.setattr(
-        "photomesh.launch_photomesh_preset.launch_autostart_build", fake_launch
+        "photomesh.launch_photomesh_preset.launch_wizard_with_preset",
+        fake_launch,
     )
 
     launch_photomesh_with_install_preset(

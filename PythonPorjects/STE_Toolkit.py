@@ -33,7 +33,7 @@ from launch_photomesh_preset import (
     resolve_network_working_folder_from_cfg,
 )
 from photomesh.launch_photomesh_preset import (
-    launch_photomesh_with_install_preset,
+    launch_wizard_with_preset,
 )
 from collections import OrderedDict
 import time
@@ -3428,26 +3428,19 @@ class VBS4Panel(tk.Frame):
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
-        repo_preset = r"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\OECPP.PMPreset"
         preset_name = "OECPP"
 
         try:
-            proc = launch_photomesh_with_install_preset(
-                project_name, project_path, self.image_folder_paths, preset_name, repo_preset
+            proc = launch_wizard_with_preset(
+                project_name,
+                project_path,
+                self.image_folder_paths,
+                preset=preset_name,
             )
-            self.log_message(
-                f"PhotoMesh Wizard (autostart) launched with preset: {preset_name}"
-            )
+            self.log_message("PhotoMesh Wizard launched with --autostart.")
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
             self.start_progress_monitor(project_path)
-        except PermissionError:
-            messagebox.showerror(
-                "Permissions",
-                "Cannot copy preset into Program Files. Run as Administrator or pre-stage the preset.",
-                parent=self,
-            )
-            return
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
