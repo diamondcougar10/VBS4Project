@@ -32,11 +32,8 @@ from launch_photomesh_preset import (
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
 )
-from photomesh.bootstrap import (
-    prepare_photomesh_environment_per_user,
-    enforce_install_cfg_obj_only,
-    launch_wizard_with_preset,
-    verify_effective_settings,
+from photomesh.launch_photomesh_preset import (
+    launch_photomesh_with_install_preset,
 )
 from collections import OrderedDict
 import time
@@ -3402,11 +3399,6 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
-        prepare_photomesh_environment_per_user(
-            repo_hint=r"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\OECPP.PMPreset",
-            autostart=True,
-        )
-        enforce_install_cfg_obj_only()
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -3426,26 +3418,34 @@ class VBS4Panel(tk.Frame):
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
+        repo_preset = r"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh\\OECPP.PMPreset"
+        preset_name = "OECPP"
+
         try:
-            verify_effective_settings(lambda m: self.log_message(m))
-            wizard_proc = launch_wizard_with_preset(
-                project_name, project_path, self.image_folder_paths, preset_name="OECPP"
+            proc = launch_photomesh_with_install_preset(
+                project_name, project_path, self.image_folder_paths, preset_name, repo_preset
             )
-            self.log_message("PhotoMesh Wizard launched successfully.")
-            messagebox.showinfo(
-                "PhotoMesh Wizard Launched",
-                f"Wizard started for project:\n{project_name}",
-                parent=self,
+            self.log_message(
+                f"PhotoMesh Wizard (autostart) launched with preset: {preset_name}"
             )
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
-                self.detach_wizard_on_photomesh_start_by_pid(wizard_proc.pid, project_path)
+                self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
             self.start_progress_monitor(project_path)
+        except PermissionError:
+            messagebox.showerror(
+                "Permissions",
+                "Cannot copy preset into Program Files. Run as Administrator or pre-stage the preset.",
+                parent=self,
+            )
+            return
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
             messagebox.showerror("Launch Error", error_message, parent=self)
 
-            if messagebox.askyesno("Open Folder", "Would you like to open the project folder?", parent=self):
+            if messagebox.askyesno(
+                "Open Folder", "Would you like to open the project folder?", parent=self
+            ):
                 os.startfile(project_path)
 
     def view_mesh(self):
