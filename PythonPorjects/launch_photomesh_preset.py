@@ -18,11 +18,34 @@ WIZARD_USER_CFG = os.path.join(
     os.environ["APPDATA"], "Skyline", "PhotoMesh", "Wizard", "config.json"
 )
 
-# Installed Wizard config (official path per manual)
-WIZARD_INSTALL_CFG = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+def _detect_wizard_dir() -> str:
+    candidates = [
+        r"C:\Program Files\Skyline\PhotoMeshWizard",                 # NEW preferred
+        r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard", # legacy
+    ]
+    for d in candidates:
+        if os.path.isdir(d):
+            return d
+    # last-resort scan
+    for dp, _dn, files in os.walk(r"C:\Program Files\Skyline"):
+        if "PhotoMeshWizard.exe" in files or "WizardGUI.exe" in files:
+            return dp
+    raise FileNotFoundError("PhotoMesh Wizard folder not found")
 
-# PhotoMesh Wizard executable
-WIZARD_EXE = r"C:\Program Files\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe"
+
+WIZARD_DIR = _detect_wizard_dir()
+WIZARD_INSTALL_CFG = os.path.join(WIZARD_DIR, "config.json")
+
+
+def _find_wizard_exe() -> str:
+    for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
+        p = os.path.join(WIZARD_DIR, exe)
+        if os.path.isfile(p):
+            return p
+    raise FileNotFoundError("PhotoMesh Wizard executable not found")
+
+
+WIZARD_EXE = _find_wizard_exe()
 
 # Preset configuration
 PRESET_NAME = "CPP&OBJ"
@@ -375,7 +398,7 @@ def launch_wizard_cli(project_name: str, project_path: str, folders: List[str]) 
         args += ["--folder", fld]
 
     try:
-        subprocess.Popen(args, cwd=os.path.dirname(WIZARD_EXE))
+        subprocess.Popen(args, cwd=WIZARD_DIR)
     except Exception as e:
         from tkinter import messagebox
 
@@ -467,7 +490,7 @@ def launch_photomesh_with_preset(project_name: str, project_path: str, image_fol
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         return subprocess.Popen(
-            args, cwd=os.path.dirname(WIZARD_EXE), creationflags=creationflags
+            args, cwd=WIZARD_DIR, creationflags=creationflags
         )
     except Exception as exc:
         print(f"Failed to launch PhotoMeshWizard: {exc}")
