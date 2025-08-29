@@ -72,6 +72,12 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+def _wizard_install_config_paths() -> list[str]:
+    return [
+        r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",                 # NEW
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json", # legacy
+    ]
+
 _lock_file = None
 #------------SINGLETON DEF------------------------------------------------------
 def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
@@ -671,34 +677,38 @@ def set_active_wizard_preset(preset_name="CPP&OBJ"):
 
 
 def enable_obj_in_photomesh_config():
- config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+    import json, os
 
- config_path = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+    updated_any = False
+    for config_path in _wizard_install_config_paths():
+        if not os.path.isfile(config_path):
+            continue
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+            outs = ui.setdefault("OutputProducts", {})
+            outs["3DModel"] = True
+            outs["Ortho"] = False
+            m3d = ui.setdefault("Model3DFormats", {})
+            # turn all bools off then enable OBJ
+            for k, v in list(m3d.items()):
+                if isinstance(v, bool):
+                    m3d[k] = False
+            m3d["OBJ"] = True
+            m3d["3DML"] = False
+            ui["CenterPivotToProject"] = True
+            ui["CenterModelsToProject"] = True
+            ui["ReprojectToEllipsoid"] = True
 
- try:
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-
-    # Ensure the structure exists before editing
-    if "DefaultPhotoMeshWizardUI" not in config:
-        config["DefaultPhotoMeshWizardUI"] = {}
-    if "Model3DFormats" not in config["DefaultPhotoMeshWizardUI"]:
-        config["DefaultPhotoMeshWizardUI"]["Model3DFormats"] = {}
-
-    # ✅ Enable OBJ
-    config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["OBJ"] = True
-
-    # ❌ Disable 3DML
-    config["DefaultPhotoMeshWizardUI"]["Model3DFormats"]["3DML"] = False
-
-    # Save changes
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=4)
-
-    print("✅ OBJ enabled and 3DML disabled in config.json")
-
- except Exception as e:
-        print(f"❌ Failed to update config.json: {e}")
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+            print(f"✅ Updated Wizard config at: {config_path}")
+            updated_any = True
+        except Exception as e:
+            print(f"⚠️ Failed to update {config_path}: {e}")
+    if not updated_any:
+        print("❌ No install-level Wizard config.json found to update")
 
 def _copytree_progress(src: str, dst: str, progress_cb=None) -> None:
     """Recursively copy *src* to *dst* reporting progress."""

@@ -43,8 +43,8 @@ def detect_wizard_dir(pm_dir: str) -> str:
     """Return the directory containing ``PhotoMeshWizard.exe``."""
 
     cands = [
-        os.path.join(pm_dir, r"Tools\PhotomeshWizard"),
         r"C:\\Program Files\\Skyline\\PhotoMeshWizard",
+        os.path.join(pm_dir, r"Tools\\PhotomeshWizard"),
     ]
     for d in cands:
         if os.path.isdir(d):
