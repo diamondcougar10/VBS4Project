@@ -397,6 +397,49 @@ def enforce_photomesh_settings(preset: str = "", autostart: bool = True) -> None
     enforce_wizard_install_config(fuser_unc=fuser_unc)
     ensure_wizard_user_defaults(preset=preset, autostart=autostart)
 
+# -------------------- OBJ-only defaults + autostart launch --------------------
+def enforce_wizard_defaults_obj_only(
+    *, fuser_unc: Optional[str] = None, log=print
+) -> None:
+    """Enforce install config for OBJ-only build (Ortho OFF, OBJ ON)."""
+    enforce_wizard_install_config(
+        model3d=True,
+        obj=True,
+        d3dml=False,
+        ortho_ui=False,
+        center_pivot=True,
+        ellipsoid=True,
+        fuser_unc=fuser_unc,
+        log=log,
+    )
+
+
+def launch_autostart_build(
+    project_name: str,
+    project_path: str,
+    imagery_folders: Iterable[str],
+    *,
+    preset_name: str = "",
+    log=print,
+) -> subprocess.Popen:
+    """Launch PhotoMesh Wizard with --overrideSettings --autostart and optional --preset."""
+    args = [
+        WIZARD_EXE,
+        "--projectName",
+        project_name,
+        "--projectPath",
+        project_path,
+        "--overrideSettings",
+        "--autostart",
+    ]
+    if preset_name:
+        args += ["--preset", preset_name]
+    for folder in imagery_folders or []:
+        args += ["--folder", folder]
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
+
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
     project_name: str,
@@ -427,7 +470,7 @@ def launch_wizard_with_preset(
         "--overrideSettings",
     ]
     if preset:
-        norm = stage_preset(preset, enforce_obj_only=False, log=log)
+        norm = stage_preset(preset)
         if norm:
             args += ["--preset", norm]
     if autostart:
