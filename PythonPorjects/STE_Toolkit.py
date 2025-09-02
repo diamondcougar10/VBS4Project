@@ -21,10 +21,8 @@ try:
     import psutil
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
-from photomesh_preset import stage_preset
 from photomesh_launcher import (
-    enforce_wizard_defaults_obj_only,
-    launch_autostart_build,
+    launch_wizard_with_preset,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -3437,28 +3435,23 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            host = config.get("Offline", "working_fuser_host", fallback="KIT1-1").strip() or "KIT1-1"
+            host = config.get("Offline", "working_fuser_host", fallback="KIT1-1").strip()
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-
-        # Hard-coded preset (same value used in watcher)
-        PRESET_INPUT = r"STEPRESET"  # or full path to .PMPreset
-        PRESET_NAME = stage_preset(PRESET_INPUT)
+        desired = self.preset_entry.get().strip() or "OECPP"
 
         try:
-            # Enforce Wizard JSON defaults: 3DModel ON, Ortho OFF, OBJ ON, 3DML OFF, pivot+ellipsoid ON
-            enforce_wizard_defaults_obj_only(fuser_unc=fuser_unc, log=self.log_message)
-
-            # Launch Wizard with --overrideSettings --autostart --preset <NAME ONLY>
-            proc = launch_autostart_build(
+            proc = launch_wizard_with_preset(
                 project_name,
                 project_path,
                 self.image_folder_paths,
-                preset_name=PRESET_NAME,
+                preset=desired,
+                autostart=True,
+                fuser_unc=fuser_unc,
                 log=self.log_message,
             )
-            self.log_message(f"PhotoMesh Wizard launched with preset '{PRESET_NAME}' (autostart).")
+            self.log_message("PhotoMesh Wizard launched with --autostart.")
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
             self.start_progress_monitor(project_path)

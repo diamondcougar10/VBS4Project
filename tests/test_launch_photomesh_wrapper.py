@@ -36,7 +36,7 @@ def test_launch_wizard_with_preset(monkeypatch):
     )
     monkeypatch.setattr(
         "photomesh_launcher.stage_preset",
-        lambda preset: preset,
+        lambda preset, enforce_obj_only=False, log=None: preset,
     )
 
     launch_wizard_with_preset("proj", "path", ["a", "b"], preset="Preset")
