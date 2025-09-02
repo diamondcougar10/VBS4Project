@@ -54,23 +54,24 @@ def test_launch_wizard_with_preset(monkeypatch):
         "b",
     ]
 def test_stage_install_preset(monkeypatch):
-    copies = []
+    calls = []
 
     monkeypatch.setattr(
         "photomesh_launcher.os.path.isfile", lambda p: True
     )
+
+    def fake_copy(src, dst, attempts=5, base_delay=0.3, log=print):
+        calls.append((src, dst))
+        return True
+
     monkeypatch.setattr(
-        "photomesh_launcher.os.makedirs", lambda p, exist_ok=True: None
-    )
-    monkeypatch.setattr(
-        "photomesh_launcher.shutil.copy2",
-        lambda src, dst: copies.append((src, dst)),
+        "photomesh_launcher._copy2_atomic_with_retries", fake_copy
     )
 
     stage_install_preset("repo.PMPreset", "Preset")
 
-    assert len(copies) == 3
-    assert all(src == "repo.PMPreset" for src, _ in copies)
+    assert len(calls) == 3
+    assert all(src == "repo.PMPreset" for src, _ in calls)
 
 
 def test_offline_cfg_resolution(monkeypatch):
