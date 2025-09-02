@@ -3429,22 +3429,11 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            host = config.get("Offline", "working_fuser_host", fallback="KIT1-1").strip()
-        except Exception:
-            host = "KIT1-1"
-        fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-
-        preset_name = "OECPP"
-
-        try:
             proc = launch_wizard_with_preset(
                 project_name,
                 project_path,
                 self.image_folder_paths,
-                preset=preset_name,
-                autostart=True,
-                fuser_unc=fuser_unc,
-                log=self.log_message,
+                host="kit1-1",
             )
             self.log_message("PhotoMesh Wizard launched with --autostart.")
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
@@ -3454,11 +3443,6 @@ class VBS4Panel(tk.Frame):
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
             messagebox.showerror("Launch Error", error_message, parent=self)
-
-            if messagebox.askyesno(
-                "Open Folder", "Would you like to open the project folder?", parent=self
-            ):
-                os.startfile(project_path)
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
