@@ -21,19 +21,19 @@ try:
     import psutil
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
-from launch_photomesh_preset import (
+from photomesh_launcher import (
+    stage_install_preset,
+    enforce_wizard_install_config,
+    launch_wizard_with_preset,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
     OFFLINE_ACCESS_HINT,
-    enforce_photomesh_settings,
     _is_offline_enabled,
     propagate_share_rename_in_config,
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
-)
-from photomesh.launch_photomesh_preset import (
-    launch_wizard_with_preset,
+    enforce_photomesh_settings,
 )
 from collections import OrderedDict
 import time
@@ -3433,8 +3433,13 @@ class VBS4Panel(tk.Frame):
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-
         preset_name = "OECPP"
+        repo_preset = os.path.join(
+            os.path.dirname(__file__), "photomesh", "OECPP.PMPreset"
+        )
+
+        stage_install_preset(repo_preset, preset_name)
+        enforce_wizard_install_config(ortho_ui=True)
 
         try:
             proc = launch_wizard_with_preset(
