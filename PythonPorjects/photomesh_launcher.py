@@ -540,6 +540,8 @@ def enforce_photomesh_settings(autostart: bool = True) -> None:
 def _ensure_valid_outputs(config_path: str, log=print) -> None:
     """Fix 'no outputs' deadlock: if Ortho is off, ensure Model3D+3DML are on."""
     try:
+        if not os.path.isfile(config_path):
+            return
         cfg = _load_json(config_path)
         ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
         outs = ui.setdefault("OutputProducts", {})
@@ -549,11 +551,17 @@ def _ensure_valid_outputs(config_path: str, log=print) -> None:
                 outs["3DModel"] = True
                 m3d["3DML"] = True
                 _save_json(config_path, cfg)
-                log(
-                    f"🛠️ Patched outputs to avoid 'no outputs' deadlock: {config_path}"
-                )
+                log(f"🛠️ Patched outputs for valid 3D base at: {config_path}")
     except Exception as e:
-        log(f"⚠️ Could not validate outputs in {config_path}: {e}")
+        log(f"⚠️ Output validation skipped for {config_path}: {e}")
+
+
+def _wizard_install_config_paths() -> list[str]:
+    """Return possible install-level Wizard config.json paths."""
+    return [
+        WIZARD_INSTALL_CFG,
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
+    ]
 
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
@@ -564,6 +572,7 @@ def launch_wizard_with_preset(
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     want_ortho: bool = False,
+    preset: str = PRESET_NAME,
     log=print,
 ) -> subprocess.Popen:
     """
@@ -585,16 +594,15 @@ def launch_wizard_with_preset(
         log("⚠️ Could not update install config (permission). Continuing.")
 
     # Final sanity: repair outputs if older config slipped through
-    for cfg_path in (WIZARD_INSTALL_CFG,):
-        if os.path.isfile(cfg_path):
-            _ensure_valid_outputs(cfg_path, log=log)
+    for cfg_path in _wizard_install_config_paths():
+        _ensure_valid_outputs(cfg_path, log=log)
 
     args = [
         WIZARD_EXE,
         "--projectName", project_name,
         "--projectPath", project_path,
         "--overrideSettings",
-        "--preset", PRESET_NAME,
+        "--preset", preset,
     ]
     if autostart:
         args.append("--autostart")
