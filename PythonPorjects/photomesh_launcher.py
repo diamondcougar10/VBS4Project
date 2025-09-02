@@ -39,6 +39,12 @@ try:  # pragma: no cover - environment specific
 except FileNotFoundError:  # pragma: no cover - missing install
     WIZARD_EXE = os.path.join(WIZARD_DIR, "PhotoMeshWizard.exe")
 
+# Folders where PhotoMesh/Wizard auto-discovers presets by name
+PRESET_DIRS = [
+    os.path.join(os.environ.get("APPDATA", ""), r"Skyline\PhotoMesh\Presets"),
+    r"C:\\Program Files\\Skyline\\PhotoMesh\Presets",
+]
+
 # -------------------- tiny JSON helpers --------------------
 def _load_json(path: str) -> dict:
     try:
@@ -57,6 +63,55 @@ def _atomic_write(path: str, text: str) -> None:
 
 def _save_json(path: str, obj: dict) -> None:
     _atomic_write(path, json.dumps(obj, indent=2))
+
+
+def _is_known_preset_dir(path: str) -> bool:
+    try:
+        if not path:
+            return False
+        p = os.path.normcase(os.path.normpath(path))
+        for d in PRESET_DIRS:
+            if os.path.normcase(os.path.normpath(d)) == p:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _preset_arg_from_user_value(preset) -> str:
+    """
+    Normalize a user-supplied preset into what PhotoMesh expects on CLI:
+      - 'OECPP'                   -> 'OECPP'
+      - 'OECPP.PMPreset'          -> 'OECPP'
+      - r'C:\\...\\OECPP.PMPreset'  -> 'OECPP' if parent is a known Presets dir,
+                                     else r'C:\\...\\OECPP' (no extension)
+      - ['Base','OBJ_Only']       -> 'Base,OBJ_Only'
+      - mix-and-match lists of names/paths are supported
+    """
+    if isinstance(preset, (list, tuple)):
+        return ",".join(_preset_arg_from_user_value(p).strip() for p in preset if str(p).strip())
+
+    val = str(preset or "").strip().strip('"').strip("'")
+    if not val:
+        return ""
+
+    # If a path was supplied, strip quotes and normalize
+    name_wo_ext, ext = os.path.splitext(val)
+    if ext.lower() == ".pmpreset":
+        val = name_wo_ext  # drop the extension
+
+    # If it still looks like a path, decide whether to pass name or full path
+    if os.path.isabs(val) or any(sep in val for sep in ("/", "\\")):
+        parent = os.path.dirname(val)
+        base_no_ext = os.path.splitext(os.path.basename(val))[0]
+        # If the preset lives in a known Presets dir, pass just the name
+        if _is_known_preset_dir(parent):
+            return base_no_ext
+        # Otherwise pass the full path (without extension)
+        return os.path.join(parent, base_no_ext)
+
+    # Plain name already
+    return val
 
 # -------------------- Offline / network configuration --------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -370,9 +425,11 @@ def launch_wizard_with_preset(
         "--overrideSettings",
     ]
     if preset:
-        args += ["--preset", preset]
+        norm = _preset_arg_from_user_value(preset)
+        if norm:
+            args += ["--preset", norm]
     if autostart:
-        args += ["--autostart"]
+        args.append("--autostart")
     for f in imagery_folders or []:
         args += ["--folder", f]
 
