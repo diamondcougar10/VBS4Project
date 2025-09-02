@@ -1,11 +1,118 @@
 from __future__ import annotations
-import os, json, shutil, subprocess, tempfile, configparser
+import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecmp
 from typing import Iterable, Optional
 
 try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
 except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
+
+# === PRESET (hard-coded) ===
+PRESET_NAME = "STEPRESET"
+PRESET_SRC = r"C:\\BiSim OneClick\\Presets\\STEPRESET.PMPreset"  # adjust if needed
+
+
+# -------------------- Admin helpers --------------------
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
+def is_admin() -> bool:
+    if not is_windows():
+        return False
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+
+def relaunch_self_as_admin() -> None:
+    """
+    Relaunch the current Python script with admin rights (UAC prompt).
+    Returns immediately in the parent process; elevated child will start the GUI.
+    """
+    if not is_windows():
+        return
+    params = " ".join([f'"{arg}"' for arg in sys.argv[1:]])
+    rc = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, f'"{sys.argv[0]}" {params}', None, 1
+    )
+    if rc <= 32:
+        raise RuntimeError(f"Elevation failed, ShellExecuteW code: {rc}")
+
+
+def run_exe_as_admin(exe_path: str, args: list[str] | None = None, cwd: str | None = None):
+    """
+    Launch an external EXE with admin rights. Uses ShellExecuteW('runas').
+    Returns immediately (non-blocking).
+    """
+    if not is_windows():
+        raise RuntimeError("Admin launch is only supported on Windows.")
+    args = args or []
+    argline = " ".join([f'"{a}"' for a in args])
+    rc = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", exe_path, argline, cwd or None, 1
+    )
+    if rc <= 32:
+        raise RuntimeError(f"Admin launch failed, ShellExecuteW code: {rc}")
+
+
+def run_exe_as_admin_blocking(
+    exe_path: str, args: list[str] | None = None, cwd: str | None = None
+):
+    """Alternative: run elevated and wait for completion via PowerShell Start-Process -Verb RunAs."""
+    args = args or []
+    argline = " ".join([f'"{a}"' for a in args])
+    ps = [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "Start-Process",
+        f'"{exe_path}"',
+        "-ArgumentList",
+        f'"{argline}"',
+        "-Verb",
+        "RunAs",
+        "-Wait",
+    ]
+    subprocess.run(ps, check=True, cwd=cwd or None)
+
+
+# -------------------- Preset staging --------------------
+def stage_preset(src_path: str, preset_name: str) -> Optional[str]:
+    """Copy *src_path* into the first writable PhotoMesh Presets folder."""
+    if not os.path.isfile(src_path):
+        return None
+
+    dst_roots = [
+        os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Skyline", "PhotoMesh", "Presets"),
+        os.path.join(os.environ.get("PROGRAMDATA", ""), "Skyline", "PhotoMesh", "Presets"),
+        os.path.join(os.path.expanduser("~/Documents"), "PhotoMesh", "Presets"),
+    ]
+    for root in dst_roots:
+        if not root:
+            continue
+        try:
+            os.makedirs(root, exist_ok=True)
+            dst = os.path.join(root, f"{preset_name}.PMPreset")
+            if not os.path.isfile(dst) or not filecmp.cmp(src_path, dst, shallow=False):
+                shutil.copy2(src_path, dst)
+            return dst
+        except Exception:
+            continue
+    return None
+
+
+# Elevate GUI if needed and stage preset on import
+if is_windows() and not is_admin():
+    print("[INFO] Elevation required. Relaunching as Administrator…")
+    relaunch_self_as_admin()
+    sys.exit(0)
+
+staged = stage_preset(PRESET_SRC, PRESET_NAME)
+print(f"[INFO] Preset staged to: {staged or 'N/A'}")
 
 # -------------------- Wizard detection --------------------
 def _detect_wizard_dir() -> str:
@@ -435,3 +542,25 @@ def launch_wizard_with_preset(
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
+
+
+def launch_wizard_autostart_admin(
+    project_name: str, project_path: str, folders: list[str]
+) -> None:
+    """Launch PhotoMesh Wizard as admin with autostart and hard-coded preset."""
+    wizard_exe = r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\PhotoMeshWizard.exe"
+    args = [
+        "--projectName", project_name,
+        "--projectPath", project_path,
+        "--autostart",
+        "--preset", PRESET_NAME,
+    ]
+    for folder in folders:
+        args += ["--folder", folder]
+    run_exe_as_admin(wizard_exe, args)
+
+
+def launch_photomesh_admin() -> None:
+    """Launch PhotoMesh.exe elevated without arguments."""
+    pm_exe = r"C:\\Program Files\\Skyline\\PhotoMesh\\PhotoMesh.exe"
+    run_exe_as_admin(pm_exe, [])
