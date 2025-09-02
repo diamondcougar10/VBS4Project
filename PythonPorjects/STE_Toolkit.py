@@ -22,8 +22,9 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
+    install_embedded_preset,
     enforce_wizard_install_config,
-    queue_build_with_preset,
+    launch_wizard_with_preset,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -33,6 +34,7 @@ from photomesh_launcher import (
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
     enforce_photomesh_settings,
+    PRESET_NAME,
 )
 from collections import OrderedDict
 import time
@@ -3434,19 +3436,31 @@ class VBS4Panel(tk.Frame):
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-        enforce_wizard_install_config(ortho_ui=False, fuser_unc=fuser_unc)
+        try:
+            install_embedded_preset(log=self.log_message)
+        except Exception as e:
+            self.log_message(f"⚠️ Could not install embedded preset: {e}")
+        enforce_wizard_install_config(ortho_ui=False)
 
         try:
-            queue_build_with_preset(
-                project_name=project_name,
-                project_dir=project_path,
-                imagery_folders=self.image_folder_paths,
+            proc = launch_wizard_with_preset(
+                project_name,
+                project_path,
+                self.image_folder_paths,
+                preset=PRESET_NAME,
+                autostart=True,
+                fuser_unc=fuser_unc,
+                want_ortho=False,
                 log=self.log_message,
             )
+            self.log_message("PhotoMesh Wizard launched with --autostart.")
+            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
+                self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
+            self.start_progress_monitor(project_path)
         except Exception as e:
-            error_message = f"Failed to queue PhotoMesh build.\nError: {str(e)}"
+            error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
-            messagebox.showerror("Queue Error", error_message, parent=self)
+            messagebox.showerror("Launch Error", error_message, parent=self)
 
             if messagebox.askyesno(
                 "Open Folder", "Would you like to open the project folder?", parent=self
