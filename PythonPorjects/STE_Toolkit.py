@@ -3433,12 +3433,23 @@ class VBS4Panel(tk.Frame):
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-        preset_name = "OECPP"
+        preset_name = "STEPRESET"
         repo_preset = os.path.join(
-            os.path.dirname(__file__), "photomesh", "OECPP.PMPreset"
+            os.path.dirname(__file__), "photomesh", f"{preset_name}.PMPreset"
         )
+        if not os.path.isfile(repo_preset):
+            candidates = [
+                os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
+                os.path.join(r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets", f"{preset_name}.PMPreset"),
+            ]
+            repo_preset = next((p for p in candidates if p and os.path.isfile(p)), "")
 
-        stage_install_preset(repo_preset, preset_name)
+        if repo_preset:
+            stage_install_preset(repo_preset, preset_name, log=self.log_message)
+        else:
+            self.log_message(
+                f"⚠️ Preset '{preset_name}' not found; ensure it exists in a Presets folder."
+            )
         enforce_wizard_install_config(ortho_ui=True)
 
         try:
