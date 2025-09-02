@@ -9,8 +9,7 @@ except Exception:  # pragma: no cover - headless/test environments
 
 # === PRESET (hard-coded) ===
 PRESET_NAME = "STEPRESET"
-PRESET_SRC = r"C:\\BiSim OneClick\\Presets\\STEPRESET.PMPreset"  # adjust if needed
-
+PRESET_SRC = os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets")
 
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
