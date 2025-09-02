@@ -689,15 +689,17 @@ def enable_obj_in_photomesh_config():
                 cfg = json.load(f)
             ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
             outs = ui.setdefault("OutputProducts", {})
+            # Keep base 3D model product ON; Ortho OFF by default in UI.
             outs["3DModel"] = True
-            outs["Ortho"] = False
+            outs["Ortho"]   = False
             m3d = ui.setdefault("Model3DFormats", {})
-            # turn all bools off then enable OBJ
+            # Ensure base 3D format (3DML) is ON and keep OBJ ON as an extra export.
+            # Optionally turn other formats off to avoid surprises.
             for k, v in list(m3d.items()):
-                if isinstance(v, bool):
+                if isinstance(v, bool) and k not in ("OBJ", "3DML"):
                     m3d[k] = False
-            m3d["OBJ"] = True
-            m3d["3DML"] = False
+            m3d["3DML"] = True   # CRITICAL: keep base 3D model enabled
+            m3d["OBJ"]  = True
             ui["CenterPivotToProject"] = True
             ui["CenterModelsToProject"] = True
             ui["ReprojectToEllipsoid"] = True
@@ -3447,6 +3449,7 @@ class VBS4Panel(tk.Frame):
                 self.image_folder_paths,
                 autostart=True,
                 fuser_unc=fuser_unc,
+                want_ortho=False,
                 log=self.log_message,
             )
             self.log_message("PhotoMesh Wizard launched with --autostart.")
