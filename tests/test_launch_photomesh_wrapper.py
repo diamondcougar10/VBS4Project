@@ -28,6 +28,10 @@ def test_launch_wizard_with_preset(monkeypatch):
     monkeypatch.setattr(
         "photomesh.launch_photomesh_preset.WIZARD_DIR", "wizdir"
     )
+    monkeypatch.setattr(
+        "photomesh.launch_photomesh_preset.enforce_wizard_install_config",
+        lambda **kwargs: None,
+    )
 
     launch_wizard_with_preset("proj", "path", ["a", "b"], preset="Preset")
 
@@ -39,9 +43,9 @@ def test_launch_wizard_with_preset(monkeypatch):
         "--projectPath",
         "path",
         "--overrideSettings",
-        "--autostart",
         "--preset",
         "Preset",
+        "--autostart",
         "--folder",
         "a",
         "--folder",
@@ -55,8 +59,8 @@ def test_launch_photomesh_with_install_preset(monkeypatch):
     def fake_stage(repo_preset_path, preset_name):
         calls["stage"] = (repo_preset_path, preset_name)
 
-    def fake_launch(project_name, project_path, folders, preset=None, extra_args=None):
-        calls["launch"] = (project_name, project_path, tuple(folders), preset)
+    def fake_launch(project_name, project_path, folders, preset=None, *, autostart=True, fuser_unc=None, log=print):
+        calls["launch"] = (project_name, project_path, tuple(folders), preset, autostart, fuser_unc)
 
     monkeypatch.setattr(
         "photomesh.launch_photomesh_preset.stage_install_preset", fake_stage
@@ -71,5 +75,5 @@ def test_launch_photomesh_with_install_preset(monkeypatch):
     )
 
     assert calls["stage"] == ("repo.preset", "Preset")
-    assert calls["launch"] == ("proj", "path", ("a", "b"), "Preset")
+    assert calls["launch"] == ("proj", "path", ("a", "b"), "Preset", True, None)
 
