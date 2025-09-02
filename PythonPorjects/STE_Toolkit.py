@@ -3440,13 +3440,14 @@ class VBS4Panel(tk.Frame):
             install_embedded_preset(log=self.log_message)
         except Exception as e:
             self.log_message(f"⚠️ Could not install embedded preset: {e}")
-        enforce_wizard_install_config(ortho_ui=True)
+        enforce_wizard_install_config(ortho_ui=False)
 
         try:
             proc = launch_wizard_with_preset(
                 project_name,
                 project_path,
                 self.image_folder_paths,
+                preset=PRESET_NAME,
                 autostart=True,
                 fuser_unc=fuser_unc,
                 want_ortho=False,
