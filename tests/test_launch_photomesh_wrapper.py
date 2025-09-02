@@ -5,11 +5,13 @@ from pathlib import Path
 # Ensure the photomesh module is importable
 sys.path.append(str(Path(__file__).resolve().parents[1] / "PythonPorjects"))
 
+import photomesh_launcher
 from photomesh_launcher import (
-    stage_install_preset,
+    install_embedded_preset,
     launch_wizard_with_preset,
     get_offline_cfg,
     resolve_network_working_folder_from_cfg,
+    PRESET_NAME,
 )
 
 
@@ -35,7 +37,7 @@ def test_launch_wizard_with_preset(monkeypatch):
         lambda **kwargs: None,
     )
 
-    launch_wizard_with_preset("proj", "path", ["a", "b"], preset="Preset")
+    launch_wizard_with_preset("proj", "path", ["a", "b"])
 
     assert called["cwd"] == "wizdir"
     assert called["args"] == [
@@ -46,32 +48,29 @@ def test_launch_wizard_with_preset(monkeypatch):
         "path",
         "--overrideSettings",
         "--preset",
-        "Preset",
+        PRESET_NAME,
         "--autostart",
         "--folder",
         "a",
         "--folder",
         "b",
     ]
-def test_stage_install_preset(monkeypatch):
+def test_install_embedded_preset(monkeypatch):
     calls = []
 
-    monkeypatch.setattr(
-        "photomesh_launcher.os.path.isfile", lambda p: True
-    )
+    def fake_write(path, text, log=print):
+        calls.append((path, text))
 
-    def fake_copy(src, dst, attempts=5, base_delay=0.3, log=print):
-        calls.append((src, dst))
-        return True
+    monkeypatch.setattr("photomesh_launcher._write_text_atomic", fake_write)
+    monkeypatch.setattr("photomesh_launcher._ensure_dir", lambda p: None)
+    monkeypatch.setattr("photomesh_launcher.os.path.isfile", lambda p: True)
+    monkeypatch.setattr("photomesh_launcher.filecmp.cmp", lambda a, b, shallow=False: True)
 
-    monkeypatch.setattr(
-        "photomesh_launcher._copy2_atomic_with_retries", fake_copy
-    )
+    path = install_embedded_preset(log=lambda *_: None)
 
-    stage_install_preset("repo.PMPreset", "Preset")
-
-    assert len(calls) == 3
-    assert all(src == "repo.PMPreset" for src, _ in calls)
+    assert path == photomesh_launcher.PRESET_PATH
+    assert calls[0][0] == photomesh_launcher.PRESET_PATH
+    assert calls[0][1].startswith("<?xml")
 
 
 def test_offline_cfg_resolution(monkeypatch):

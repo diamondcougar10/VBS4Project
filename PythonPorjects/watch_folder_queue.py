@@ -15,8 +15,13 @@ import time
 import requests
 from urllib.parse import quote
 
+from photomesh_launcher import PRESET_NAME, install_embedded_preset
 
-PRESET_NAME = "STEPRESET"
+try:
+    installed = install_embedded_preset()
+    print(f"[CFG] Embedded preset installed to: {installed}")
+except Exception as e:
+    print(f"[WARN] Could not install embedded preset: {e}")
 # Adjust these paths for your environment
 WATCH_FOLDER = r"C:\\Temp\\Watch"
 WORKING_FOLDER = r"C:\\Temp\\PhotoMeshWork"
