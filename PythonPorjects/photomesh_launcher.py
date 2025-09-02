@@ -64,6 +64,12 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
+# Repo-level wizard template (same shape as Wizard config.json)
+REPO_WIZARD_TEMPLATE = os.environ.get(
+    "PM_WIZARD_TEMPLATE_JSON",
+    os.path.join(BASE_DIR, "config.json")
+)
+
 WIZARD_USER_CFG = os.path.join(
     os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Wizard", "config.json"
 )
@@ -195,22 +201,70 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
                 wiz["NetworkWorkingFolder"] = new_nwf
                 _save_json(WIZARD_INSTALL_CFG, wiz)
 
-# -------------------- “modify only if key exists” patcher --------------------
-def _patch_existing(d: dict, path: list[str], value) -> bool:
+# -------------------- Apply repo template --------------------
+def _patch_intersection(dst: dict, src: dict) -> bool:
     """
-    Follow 'path' without creating new keys; set the leaf only if it exists.
-    Returns True if a change was applied.
+    Recursively copy values from src -> dst for keys that already exist in dst.
+    - Never creates new keys in dst.
+    - For dict leaves, recurses.
+    - For non-dict leaves, assigns when the key exists and values differ.
+    Returns True if any change was applied.
     """
-    cur = d
-    for k in path[:-1]:
-        if not isinstance(cur, dict) or k not in cur or not isinstance(cur[k], dict):
-            return False
-        cur = cur[k]
-    leaf = path[-1]
-    if isinstance(cur, dict) and leaf in cur and cur[leaf] != value:
-        cur[leaf] = value
-        return True
-    return False
+    changed = False
+    if not isinstance(dst, dict) or not isinstance(src, dict):
+        return False
+    for k, v in src.items():
+        if k not in dst:
+            continue
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            if _patch_intersection(dst[k], v):
+                changed = True
+        else:
+            if dst.get(k) != v:
+                dst[k] = v
+                changed = True
+    return changed
+
+
+def apply_wizard_template_from_repo(
+    template_path: str = REPO_WIZARD_TEMPLATE,
+    dynamic_overrides: Optional[dict] = None,
+    log=print
+) -> None:
+    """
+    Load repo template JSON and apply values to the installed Wizard config,
+    but ONLY where keys already exist in the install file. Optionally apply
+    dynamic_overrides the same way (e.g., computed NetworkWorkingFolder).
+    """
+    # Load installed Wizard config
+    target = _load_json(WIZARD_INSTALL_CFG)
+    if not target:
+        log(f"⚠️ Unable to load Wizard install config: {WIZARD_INSTALL_CFG}")
+        return
+
+    # Load repo template (if present)
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            tmpl = json.load(f)
+    except Exception as e:
+        tmpl = {}
+        log(f"⚠️ Skipping repo template ({template_path}): {e}")
+
+    changed = False
+    # Apply template intersection
+    if tmpl:
+        if _patch_intersection(target, tmpl):
+            changed = True
+
+    # Apply dynamic overrides (e.g., Offline UNC) the same way
+    if isinstance(dynamic_overrides, dict) and dynamic_overrides:
+        if _patch_intersection(target, dynamic_overrides):
+            changed = True
+
+    if changed:
+        _save_json(WIZARD_INSTALL_CFG, target)
+        log(f"Wizard config updated from template: {WIZARD_INSTALL_CFG}")
+
 
 # -------------------- Write Wizard config (minimal, no new keys) --------------------
 def enforce_wizard_install_config(
@@ -218,33 +272,33 @@ def enforce_wizard_install_config(
     center_pivot: bool = True, ellipsoid: bool = True, fuser_unc: Optional[str] = None, log=print
 ) -> None:
     """
-    Edit ONLY existing keys in <Wizard>\\config.json:
-      DefaultPhotoMeshWizardUI.OutputProducts.Model3D = True
-      DefaultPhotoMeshWizardUI.OutputProducts.Ortho   = ortho_ui (UI-only)
-      DefaultPhotoMeshWizardUI.Model3DFormats.OBJ     = obj
-      DefaultPhotoMeshWizardUI.Model3DFormats.3DML    = d3dml
-      DefaultPhotoMeshWizardUI.CenterPivotToProject   = center_pivot
-      DefaultPhotoMeshWizardUI.ReprojectToEllipsoid   = ellipsoid
-      NetworkWorkingFolder = fuser_unc (if provided)
+    Compose minimal overrides that MUST be true/false for your workflow,
+    then apply the repo template + these overrides to the installed config.
     """
-    cfg = _load_json(WIZARD_INSTALL_CFG)
-    changed = False
-    changed |= _patch_existing(cfg, ["DefaultPhotoMeshWizardUI","OutputProducts","Model3D"], bool(model3d))
-    changed |= _patch_existing(cfg, ["DefaultPhotoMeshWizardUI","OutputProducts","Ortho"],   bool(ortho_ui))
-    changed |= _patch_existing(cfg, ["DefaultPhotoMeshWizardUI","Model3DFormats","OBJ"],     bool(obj))
-    changed |= _patch_existing(cfg, ["DefaultPhotoMeshWizardUI","Model3DFormats","3DML"],    bool(d3dml))
-    changed |= _patch_existing(cfg, ["DefaultPhotoMeshWizardUI","CenterPivotToProject"],     bool(center_pivot))
-    changed |= _patch_existing(cfg, ["DefaultPhotoMeshWizardUI","ReprojectToEllipsoid"],     bool(ellipsoid))
+    overrides = {
+        "DefaultPhotoMeshWizardUI": {
+            "OutputProducts": {
+                "Model3D": bool(model3d),
+                "Ortho":   bool(ortho_ui),
+            },
+            "Model3DFormats": {
+                "OBJ":  bool(obj),
+                "3DML": bool(d3dml),
+            },
+            # Only applied if these keys already exist in install config
+            "CenterPivotToProject":   bool(center_pivot),
+            "ReprojectToEllipsoid":   bool(ellipsoid),
+        }
+    }
+    # Add NetworkWorkingFolder override if provided
+    if fuser_unc:
+        overrides["NetworkWorkingFolder"] = fuser_unc
 
-    if fuser_unc and isinstance(cfg, dict):
-        # Allow write if the key exists at root (don’t inject new trees)
-        if "NetworkWorkingFolder" in cfg and cfg["NetworkWorkingFolder"] != fuser_unc:
-            cfg["NetworkWorkingFolder"] = fuser_unc
-            changed = True
-
-    if changed:
-        _save_json(WIZARD_INSTALL_CFG, cfg)
-        log(f"Wizard config updated: {WIZARD_INSTALL_CFG}")
+    apply_wizard_template_from_repo(
+        template_path=REPO_WIZARD_TEMPLATE,
+        dynamic_overrides=overrides,
+        log=log
+    )
 
 # -------------------- Preset staging (Program Files + Wizard) --------------------
 def stage_install_preset(repo_preset_path: str, preset_name: str, log=print) -> None:
