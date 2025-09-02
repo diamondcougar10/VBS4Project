@@ -2,11 +2,11 @@ import sys
 from pathlib import Path
 
 
-# Ensure the photomesh module is importable
+# Ensure the photomesh package is importable
 sys.path.append(str(Path(__file__).resolve().parents[1] / "PythonPorjects"))
 
-from photomesh_launcher import (
-    stage_install_preset,
+from photomesh.launch_photomesh_preset import (
+    launch_photomesh_with_install_preset,
     launch_wizard_with_preset,
 )
 
@@ -20,16 +20,16 @@ def test_launch_wizard_with_preset(monkeypatch):
         called["creationflags"] = creationflags
 
     monkeypatch.setattr(
-        "photomesh_launcher.subprocess.Popen", fake_popen
+        "photomesh.launch_photomesh_preset.subprocess.Popen", fake_popen
     )
     monkeypatch.setattr(
-        "photomesh_launcher.WIZARD_EXE", "wiz.exe"
+        "photomesh.launch_photomesh_preset.WIZARD_EXE", "wiz.exe"
     )
     monkeypatch.setattr(
-        "photomesh_launcher.WIZARD_DIR", "wizdir"
+        "photomesh.launch_photomesh_preset.WIZARD_DIR", "wizdir"
     )
     monkeypatch.setattr(
-        "photomesh_launcher.enforce_wizard_install_config",
+        "photomesh.launch_photomesh_preset.enforce_wizard_install_config",
         lambda **kwargs: None,
     )
 
@@ -51,22 +51,29 @@ def test_launch_wizard_with_preset(monkeypatch):
         "--folder",
         "b",
     ]
-def test_stage_install_preset(monkeypatch):
-    copies = []
+
+
+def test_launch_photomesh_with_install_preset(monkeypatch):
+    calls = {}
+
+    def fake_stage(repo_preset_path, preset_name):
+        calls["stage"] = (repo_preset_path, preset_name)
+
+    def fake_launch(project_name, project_path, folders, preset=None, *, autostart=True, fuser_unc=None, log=print):
+        calls["launch"] = (project_name, project_path, tuple(folders), preset, autostart, fuser_unc)
 
     monkeypatch.setattr(
-        "photomesh_launcher.os.path.isfile", lambda p: True
+        "photomesh.launch_photomesh_preset.stage_install_preset", fake_stage
     )
     monkeypatch.setattr(
-        "photomesh_launcher.os.makedirs", lambda p, exist_ok=True: None
-    )
-    monkeypatch.setattr(
-        "photomesh_launcher.shutil.copy2",
-        lambda src, dst: copies.append((src, dst)),
+        "photomesh.launch_photomesh_preset.launch_wizard_with_preset",
+        fake_launch,
     )
 
-    stage_install_preset("repo.PMPreset", "Preset")
+    launch_photomesh_with_install_preset(
+        "proj", "path", ["a", "b"], "Preset", "repo.preset"
+    )
 
-    assert len(copies) == 3
-    assert all(src == "repo.PMPreset" for src, _ in copies)
+    assert calls["stage"] == ("repo.preset", "Preset")
+    assert calls["launch"] == ("proj", "path", ("a", "b"), "Preset", True, None)
 
