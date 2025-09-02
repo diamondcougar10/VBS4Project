@@ -9,7 +9,8 @@ except Exception:  # pragma: no cover - headless/test environments
 
 # === PRESET (hard-coded) ===
 PRESET_NAME = "STEPRESET"
-PRESET_SRC = os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets")
+# Prefer shipping a known path rather than %APPDATA%
+PRESET_SRC = r"C:\BiSim OneClick\Presets\STEPRESET.PMPreset"
 
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
@@ -187,10 +188,10 @@ def _is_known_preset_dir(path: str) -> bool:
 def _preset_arg_from_user_value(preset) -> str:
     """
     Normalize a user-supplied preset into what PhotoMesh expects on CLI:
-      - 'OECPP'                   -> 'OECPP'
-      - 'OECPP.PMPreset'          -> 'OECPP'
-      - r'C:\\...\\OECPP.PMPreset'  -> 'OECPP' if parent is a known Presets dir,
-                                     else r'C:\\...\\OECPP' (no extension)
+      - 'STEPRESET'                   -> 'STEPRESET'
+      - 'STEPRESET.PMPreset'          -> 'STEPRESET'
+      - r'C:\\...\\STEPRESET.PMPreset'  -> 'STEPRESET' if parent is a known Presets dir,
+                                     else r'C:\\...\\STEPRESET' (no extension)
       - ['Base','OBJ_Only']       -> 'Base,OBJ_Only'
       - mix-and-match lists of names/paths are supported
     """
@@ -462,29 +463,49 @@ def enforce_wizard_install_config(
     )
 
 # -------------------- Preset staging (Program Files + Wizard) --------------------
+def _resolve_preset_src(repo_preset_path: str, preset_name: str) -> str:
+    """Accept folder or file; prefer <preset_name>.PMPreset"""
+    p = os.path.normpath(os.path.expandvars(repo_preset_path.strip('"')))
+    candidates: list[str] = []
+    if os.path.isdir(p):
+        candidates.append(os.path.join(p, f"{preset_name}.PMPreset"))
+        try:
+            for f in os.listdir(p):
+                if f.lower().endswith(".pmpreset"):
+                    candidates.append(os.path.join(p, f))
+        except Exception:
+            pass
+    else:
+        candidates.append(p)
+    candidates += [
+        os.path.join(os.getcwd(), "Presets", f"{preset_name}.PMPreset"),
+        os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets\%s.PMPreset" % preset_name,
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    raise FileNotFoundError(f"Could not locate {preset_name}.PMPreset")
+
+
 def stage_install_preset(repo_preset_path: str, preset_name: str, log=print) -> None:
     """
     Copy a .PMPreset to both Program Files preset folders and AppData fallback.
-    No XML rewriting here; assume repo preset already encodes OBJ-only + pivot + ellipsoid.
     """
-    if not os.path.isfile(repo_preset_path):
-        raise FileNotFoundError(repo_preset_path)
-
-    if not repo_preset_path.lower().endswith(".pmpreset"):
+    src = _resolve_preset_src(repo_preset_path, preset_name)
+    if not src.lower().endswith(".pmpreset"):
         raise ValueError("Preset must be a .PMPreset")
-
     targets = [
         os.path.join(r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets", f"{preset_name}.PMPreset"),
-        os.path.join(WIZARD_DIR, "Presets", f"{preset_name}.PMPreset"),  # Wizard Presets
-        os.path.join(os.environ.get("APPDATA",""), "Skyline","PhotoMesh","Presets", f"{preset_name}.PMPreset"),
+        os.path.join(WIZARD_DIR, "Presets", f"{preset_name}.PMPreset") if WIZARD_DIR else "",
+        os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
     ]
     for dst in targets:
-        try:
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(repo_preset_path, dst)
-            log(f"Staged preset -> {dst}")
-        except Exception as e:
-            log(f"Skipping preset copy to {dst}: {e}")
+        if not dst:
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        log(f"Staged preset -> {dst}")
 
 # -------------------- User config helpers --------------------
 def ensure_wizard_user_defaults(preset: str = "", autostart: bool = True) -> None:
@@ -507,13 +528,13 @@ def launch_wizard_with_preset(
     project_path: str,
     imagery_folders: Iterable[str],
     *,
-    preset: Optional[str] = None,
+    preset: Optional[str] = PRESET_NAME,
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     log=print,
 ) -> subprocess.Popen:
     """
-    Start PhotoMesh Wizard with --overrideSettings, optional --preset and --autostart.
+    Start PhotoMesh Wizard with --overrideSettings, hard-coded preset and optional autostart.
     Before launch, ensure UI seeds won’t block startup (Ortho ON in UI; 3DML OFF; OBJ ON).
     """
     try:
@@ -529,11 +550,8 @@ def launch_wizard_with_preset(
         "--projectName", project_name,
         "--projectPath", project_path,
         "--overrideSettings",
+        "--preset", _preset_arg_from_user_value(preset or PRESET_NAME),
     ]
-    if preset:
-        norm = _preset_arg_from_user_value(preset)
-        if norm:
-            args += ["--preset", norm]
     if autostart:
         args.append("--autostart")
     for f in imagery_folders or []:
