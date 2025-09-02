@@ -536,6 +536,25 @@ def enforce_photomesh_settings(autostart: bool = True) -> None:
     enforce_wizard_install_config(fuser_unc=fuser_unc)
     ensure_wizard_user_defaults(autostart=autostart)
 
+
+def _ensure_valid_outputs(config_path: str, log=print) -> None:
+    """Fix 'no outputs' deadlock: if Ortho is off, ensure Model3D+3DML are on."""
+    try:
+        cfg = _load_json(config_path)
+        ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+        outs = ui.setdefault("OutputProducts", {})
+        m3d = ui.setdefault("Model3DFormats", {})
+        if not outs.get("Ortho", False):
+            if not outs.get("3DModel", False) or not m3d.get("3DML", False):
+                outs["3DModel"] = True
+                m3d["3DML"] = True
+                _save_json(config_path, cfg)
+                log(
+                    f"🛠️ Patched outputs to avoid 'no outputs' deadlock: {config_path}"
+                )
+    except Exception as e:
+        log(f"⚠️ Could not validate outputs in {config_path}: {e}")
+
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
     project_name: str,
@@ -544,19 +563,31 @@ def launch_wizard_with_preset(
     *,
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
+    want_ortho: bool = False,
     log=print,
 ) -> subprocess.Popen:
     """
     Start PhotoMesh Wizard with --overrideSettings, hard-coded preset and optional autostart.
-    Before launch, ensure UI seeds won’t block startup (Ortho ON in UI; 3DML OFF; OBJ ON).
+    Seeds config to keep 3DML ON and Ortho OFF by default unless *want_ortho* is True.
     """
     try:
         enforce_wizard_install_config(
-            model3d=True, obj=True, d3dml=False, ortho_ui=True,
-            center_pivot=True, ellipsoid=True, fuser_unc=fuser_unc, log=log
+            model3d=True,
+            obj=True,
+            d3dml=True,                  # keep base 3D model enabled
+            ortho_ui=bool(want_ortho),   # Ortho OFF unless explicitly requested
+            center_pivot=True,
+            ellipsoid=True,
+            fuser_unc=fuser_unc,
+            log=log,
         )
     except PermissionError:
         log("⚠️ Could not update install config (permission). Continuing.")
+
+    # Final sanity: repair outputs if older config slipped through
+    for cfg_path in (WIZARD_INSTALL_CFG,):
+        if os.path.isfile(cfg_path):
+            _ensure_valid_outputs(cfg_path, log=log)
 
     args = [
         WIZARD_EXE,
