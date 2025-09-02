@@ -2,6 +2,9 @@ from __future__ import annotations
 import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecmp, time, uuid, errno
 from typing import Iterable, Optional
 
+import requests
+from sseclient import SSEClient
+
 try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
 except Exception:  # pragma: no cover - headless/test environments
@@ -489,26 +492,28 @@ def apply_wizard_template_from_repo(
 
 # -------------------- Write Wizard config (minimal, no new keys) --------------------
 def enforce_wizard_install_config(
-    *, model3d: bool = True, obj: bool = True, d3dml: bool = False, ortho_ui: bool = False,
-    center_pivot: bool = True, ellipsoid: bool = True, fuser_unc: Optional[str] = None, log=print
+    *,
+    model3d: bool = True,
+    ortho_ui: bool = False,
+    center_pivot: bool = True,
+    ellipsoid: bool = True,
+    fuser_unc: Optional[str] = None,
+    log=print,
 ) -> None:
-    """
-    Compose minimal overrides that MUST be true/false for your workflow,
-    then apply the repo template + these overrides to the installed config.
-    """
+    """Apply minimal overrides to the installed Wizard config for a valid UI."""
     overrides = {
         "DefaultPhotoMeshWizardUI": {
             "OutputProducts": {
                 "Model3D": bool(model3d),
-                "Ortho":   bool(ortho_ui),
+                "Ortho": bool(ortho_ui),
             },
             "Model3DFormats": {
-                "OBJ":  bool(obj),
-                "3DML": bool(d3dml),
+                "OBJ": True,
+                "3DML": True,
             },
             # Only applied if these keys already exist in install config
-            "CenterPivotToProject":   bool(center_pivot),
-            "ReprojectToEllipsoid":   bool(ellipsoid),
+            "CenterPivotToProject": bool(center_pivot),
+            "ReprojectToEllipsoid": bool(ellipsoid),
         }
     }
     # Add NetworkWorkingFolder override if provided
@@ -563,6 +568,97 @@ def _wizard_install_config_paths() -> list[str]:
         r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     ]
 
+# -------------------- Project Queue helpers --------------------
+JSON_OUT_DIR = os.environ.get(
+    "PM_JSON_OUT", os.path.join(os.path.expanduser("~"), "Documents", "PhotoMeshJSON")
+)
+WORKING_FOLDER = os.environ.get("PM_WORKING", r"C:\\WorkingFolder")
+QUEUE_API_URL = os.environ.get("PM_QUEUE_URL", "http://localhost:8087/ProjectQueue/")
+QUEUE_SSE_URL = os.environ.get("PM_QUEUE_SSE", "http://localhost:8087/ProjectQueue/events")
+MAX_LOCAL_FUSERS = int(os.environ.get("PM_LOCAL_FUSERS", "4"))
+
+
+def build_queue_payload(
+    project_name: str,
+    project_path: str,
+    source_path: list[dict],
+    preset_name: str = "STEPRESET",
+):
+    return [
+        {
+            "comment": f"Auto project: {project_name}",
+            "action": 0,
+            "projectPath": project_path,
+            "buildFrom": 1,
+            "buildUntil": 6,
+            "inheritBuild": "",
+            "preset": preset_name,
+            "workingFolder": WORKING_FOLDER,
+            "MaxLocalFusers": MAX_LOCAL_FUSERS,
+            "MaxAWSFusers": 0,
+            "AWSFuserStartupScript": "",
+            "AWSBuildConfigurationName": "",
+            "AWSBuildConfigurationJsonPath": "",
+            "sourceType": 0,
+            "sourcePath": source_path,
+        }
+    ]
+
+
+def submit_project_to_queue(project_name: str, payload: list[dict], log=print) -> None:
+    _ensure_dir(JSON_OUT_DIR)
+    _save_json(os.path.join(JSON_OUT_DIR, f"{project_name}.json"), payload)
+    r = requests.post(f"{QUEUE_API_URL}project/add", json=payload, timeout=60)
+    if r.status_code != 200:
+        raise RuntimeError(f"Queue add failed ({r.status_code}): {r.text[:400]}")
+    log(f"Submitted project → {project_name}")
+
+
+def start_queue_build(log=print) -> None:
+    r = requests.get(f"{QUEUE_API_URL}Build/Start", timeout=60)
+    if r.status_code != 200:
+        raise RuntimeError(f"Build/Start failed ({r.status_code}): {r.text[:400]}")
+    log("Build started")
+
+
+def watch_queue_events(log=print) -> None:
+    try:
+        for ev in SSEClient(QUEUE_SSE_URL):
+            if ev.event == "Finished":
+                data = json.loads(ev.data)
+                log(f"Build finished → {data.get('comment', '')}")
+            elif ev.event == "QueueFinished":
+                log("All queued projects complete.")
+                break
+    except Exception as e:
+        log(f"SSE watch error: {e}")
+
+
+def queue_build_with_preset(
+    project_name: str,
+    project_dir: str,
+    imagery_folders: list[str],
+    log=print,
+):
+    """Build via Project Queue using STEPRESET. Each imagery folder → one collection."""
+    try:
+        install_embedded_preset(log=log)
+    except Exception as e:
+        log(f"Preset staging warning: {e}")
+
+    project_path = os.path.join(project_dir, f"{project_name}.PhotoMeshXML")
+    source_path = [
+        {"name": os.path.basename(p.rstrip(r'\\/')), "path": p, "properties": ""}
+        for p in imagery_folders
+    ]
+
+    payload = build_queue_payload(
+        project_name, project_path, source_path, preset_name="STEPRESET"
+    )
+    submit_project_to_queue(project_name, payload, log=log)
+    start_queue_build(log=log)
+    watch_queue_events(log=log)
+
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
     project_name: str,
@@ -582,8 +678,6 @@ def launch_wizard_with_preset(
     try:
         enforce_wizard_install_config(
             model3d=True,
-            obj=True,
-            d3dml=True,                  # keep base 3D model enabled
             ortho_ui=bool(want_ortho),   # Ortho OFF unless explicitly requested
             center_pivot=True,
             ellipsoid=True,
