@@ -3428,6 +3428,14 @@ class VBS4Panel(tk.Frame):
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
+        # Determine the fuser UNC (prefer Offline cfg, else use host from config, else default)
+        try:
+            host = config.get("Offline", "working_fuser_host", fallback="KIT1-1").strip()
+        except Exception:
+            host = "KIT1-1"
+        fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
+
+        # Optional: your standard preset name (or None if not using one)
         preset_name = "OECPP"
 
         try:
@@ -3436,6 +3444,9 @@ class VBS4Panel(tk.Frame):
                 project_path,
                 self.image_folder_paths,
                 preset=preset_name,
+                autostart=True,
+                fuser_unc=fuser_unc,
+                log=self.log_message,
             )
             self.log_message("PhotoMesh Wizard launched with --autostart.")
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):

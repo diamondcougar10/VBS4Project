@@ -28,6 +28,10 @@ def test_launch_wizard_with_preset(monkeypatch):
     monkeypatch.setattr(
         "photomesh.launch_photomesh_preset.WIZARD_DIR", "wizdir"
     )
+    monkeypatch.setattr(
+        "photomesh.launch_photomesh_preset.enforce_wizard_install_config",
+        lambda **kwargs: None,
+    )
 
     launch_wizard_with_preset("proj", "path", ["a", "b"], preset="Preset")
 
@@ -39,9 +43,9 @@ def test_launch_wizard_with_preset(monkeypatch):
         "--projectPath",
         "path",
         "--overrideSettings",
-        "--autostart",
         "--preset",
         "Preset",
+        "--autostart",
         "--folder",
         "a",
         "--folder",
