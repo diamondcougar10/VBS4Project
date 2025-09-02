@@ -1,11 +1,86 @@
 from __future__ import annotations
-import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecmp
+import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecmp, time, uuid, errno
 from typing import Iterable, Optional
 
 try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
 except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
+
+
+def _files_equal(a: str, b: str) -> bool:
+    try:
+        if not (os.path.isfile(a) and os.path.isfile(b)):
+            return False
+        if os.path.getsize(a) != os.path.getsize(b):
+            return False
+        return filecmp.cmp(a, b, shallow=False)
+    except Exception:
+        return False
+
+
+def _copy2_atomic_with_retries(
+    src: str,
+    dst: str,
+    attempts: int = 5,
+    base_delay: float = 0.3,
+    log=print,
+) -> bool:
+    """
+    Copy src->dst atomically via a temp file + os.replace. Retry on sharing violations.
+    Returns True if dst updated/created; False if we gave up (caller can decide to skip/continue).
+    """
+    dstdir = os.path.dirname(dst)
+    os.makedirs(dstdir, exist_ok=True)
+
+    # If already identical, skip early
+    if os.path.exists(dst) and _files_equal(src, dst):
+        log(f"Preset already up to date -> {dst}")
+        return True
+
+    # Stage to a unique temp file in the same folder (preserves ACLs on replace)
+    tmp = os.path.join(
+        dstdir,
+        f".{os.path.basename(dst)}.{os.getpid()}.{uuid.uuid4().hex}.tmp",
+    )
+    try:
+        shutil.copy2(src, tmp)
+    except Exception as e:
+        log(f"Staging temp copy failed for {dst}: {e}")
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        return False
+
+    # Attempt atomic replace with backoff
+    for i in range(attempts):
+        try:
+            os.replace(tmp, dst)  # atomic on Windows
+            log(f"Staged preset -> {dst}")
+            return True
+        except PermissionError as e:
+            # Likely [WinError 32]: file in use by PhotoMesh/Wizard
+            delay = base_delay * (2 ** i)
+            log(
+                f"Destination locked ({dst}). Retry {i+1}/{attempts} in {delay:.1f}s… ({e})"
+            )
+            time.sleep(delay)
+        except OSError as e:
+            # Other OS errors: retry a couple times too, then give up
+            delay = base_delay * (2 ** i)
+            log(
+                f"Replace failed for {dst}. Retry {i+1}/{attempts} in {delay:.1f}s… ({e})"
+            )
+            time.sleep(delay)
+    # Give up; clean temp if still present
+    try:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    except Exception:
+        pass
+    return False
 
 # === PRESET (hard-coded) ===
 PRESET_NAME = "STEPRESET"
@@ -503,12 +578,28 @@ def stage_install_preset(repo_preset_path: str, preset_name: str, log=print) -> 
         os.path.join(WIZARD_DIR, "Presets", f"{preset_name}.PMPreset") if WIZARD_DIR else "",
         os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
     ]
+    successes, failures = 0, []
     for dst in targets:
         if not dst:
             continue
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
-        log(f"Staged preset -> {dst}")
+        try:
+            if _copy2_atomic_with_retries(src, dst, log=log):
+                successes += 1
+            else:
+                failures.append(dst)
+        except PermissionError as e:
+            # Final guard; treat as non-fatal for this target
+            log(f"Skipping locked target (still in use): {dst} ({e})")
+            failures.append(dst)
+        except Exception as e:
+            log(f"Skipping preset copy to {dst}: {e}")
+            failures.append(dst)
+    if successes == 0:
+        raise RuntimeError(
+            "Preset staging failed for all targets. "
+            "Close PhotoMesh/PhotomeshWizard and try again.\n"
+            "Targets tried:\n  - " + "\n  - ".join(t for t in targets if t)
+        )
 
 # -------------------- User config helpers --------------------
 def ensure_wizard_user_defaults(preset: str = "", autostart: bool = True) -> None:
