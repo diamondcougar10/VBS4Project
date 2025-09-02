@@ -651,7 +651,7 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     return proj_folder, data_folder
 
 
-def set_active_wizard_preset(preset_name="CPP&OBJ"):
+def set_active_wizard_preset(preset_name="OECPP"):
     import os
     import json
 
