@@ -3,19 +3,19 @@ from typing import Iterable
 
 from photomesh_preset import stage_preset
 
-# === Preset (hard-coded) ===
-# Use either the NAME if it's already under a Presets folder, or the absolute file path:
-PRESET_INPUT = r"STEPRESET"  # or r"C:\\path\\to\\STEPRESET.PMPreset"
-PRESET_NAME_ONLY = stage_preset(PRESET_INPUT)
-
 
 def build_queue_payload(
     project_name: str,
     project_path: str,
     image_folders: Iterable[str],
     config,
+    preset_name: str | None = None,
 ) -> list[dict]:
     api = config.get("PhotoMeshAPI", {})
+    desired = (preset_name or api.get("preset") or "OECPP").strip()
+    enforce_obj_only = bool(api.get("enforce_obj_only", True))
+    preset_name_only = stage_preset(desired, enforce_obj_only=enforce_obj_only)
+
     working = api.get("working_fuser_unc", "")
     max_local = int(api.get("max_local_fusers", 4))
 
@@ -34,7 +34,7 @@ def build_queue_payload(
             "buildFrom": 1,
             "buildUntil": 6,
             "inheritBuild": "",
-            "preset": PRESET_NAME_ONLY,  # <- NAME ONLY, no extension
+            "preset": preset_name_only,
             "workingFolder": working,
             "MaxLocalFusers": max_local,
             "MaxAWSFusers": 0,
