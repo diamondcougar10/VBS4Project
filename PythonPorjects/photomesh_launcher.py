@@ -7,89 +7,150 @@ try:  # pragma: no cover - tkinter may not be available
 except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
 
-
-def _files_equal(a: str, b: str) -> bool:
-    try:
-        if not (os.path.isfile(a) and os.path.isfile(b)):
-            return False
-        if os.path.getsize(a) != os.path.getsize(b):
-            return False
-        return filecmp.cmp(a, b, shallow=False)
-    except Exception:
-        return False
-
-
-def _copy2_atomic_with_retries(
-    src: str,
-    dst: str,
-    attempts: int = 5,
-    base_delay: float = 0.3,
-    log=print,
-) -> bool:
-    """
-    Copy src->dst atomically via a temp file + os.replace. Retry on sharing violations.
-    Returns True if dst updated/created; False if we gave up (caller can decide to skip/continue).
-    """
-    dstdir = os.path.dirname(dst)
-    os.makedirs(dstdir, exist_ok=True)
-
-    # If already identical, skip early
-    if os.path.exists(dst) and _files_equal(src, dst):
-        log(f"Preset already up to date -> {dst}")
-        return True
-
-    # Stage to a unique temp file in the same folder (preserves ACLs on replace)
-    tmp = os.path.join(
-        dstdir,
-        f".{os.path.basename(dst)}.{os.getpid()}.{uuid.uuid4().hex}.tmp",
-    )
-    try:
-        shutil.copy2(src, tmp)
-    except Exception as e:
-        log(f"Staging temp copy failed for {dst}: {e}")
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-        return False
-
-    # Attempt atomic replace with backoff
-    for i in range(attempts):
-        try:
-            os.replace(tmp, dst)  # atomic on Windows
-            log(f"Staged preset -> {dst}")
-            return True
-        except PermissionError as e:
-            # Likely [WinError 32]: file in use by PhotoMesh/Wizard
-            delay = base_delay * (2 ** i)
-            log(
-                f"Destination locked ({dst}). Retry {i+1}/{attempts} in {delay:.1f}s… ({e})"
-            )
-            time.sleep(delay)
-        except OSError as e:
-            # Other OS errors: retry a couple times too, then give up
-            delay = base_delay * (2 ** i)
-            log(
-                f"Replace failed for {dst}. Retry {i+1}/{attempts} in {delay:.1f}s… ({e})"
-            )
-            time.sleep(delay)
-    # Give up; clean temp if still present
-    try:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-    except Exception:
-        pass
-    return False
-
-# === PRESET (hard-coded) ===
+# Preset configuration
 PRESET_NAME = "STEPRESET"
-# Prefer shipping a known path rather than %APPDATA%
-PRESET_SRC = os.path.join(
-    os.environ.get("APPDATA", ""),
-    "Skyline", "PhotoMesh", "Presets", "STEPRESET.PMPreset"
+PRESET_PATH = os.path.join(
+    os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{PRESET_NAME}.PMPreset"
 )
 
+# Load shared configuration for network fuser settings
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+
+# Embedded preset XML
+PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
+<BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+  <SerializableVersion>8.0.4.50513</SerializableVersion>
+  <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
+    <d2p1:_Build>4</d2p1:_Build>
+    <d2p1:_Major>8</d2p1:_Major>
+    <d2p1:_Minor>0</d2p1:_Minor>
+    <d2p1:_Revision>50513</d2p1:_Revision>
+  </Version>
+  <BuildParameters>
+    <SerializableVersion>8.0.4.50513</SerializableVersion>
+    <Version xmlns:d3p1="http://schemas.datacontract.org/2004/07/System">
+      <d3p1:_Build>4</d3p1:_Build>
+      <d3p1:_Major>8</d3p1:_Major>
+      <d3p1:_Minor>0</d3p1:_Minor>
+      <d3p1:_Revision>50513</d3p1:_Revision>
+    </Version>
+    <AddWalls>false</AddWalls>
+    <BuildATFlags>-m_tf 100 @Match2[DoSort=1] @Match2[max_matches_for_image=100] @Match2[num_cameras_per_group=10] @Match2[min_connected_to_camera=30] @Match2[num_features_per_collection=300] @Match2[total_num_features=900] @featuredetect2[GdalUseHistogram=1] @featuredetect2[GdalHistAllBands=0] @featuredetect2[GdalHistMin=0.0001] @featuredetect2[GdalHistMax=0.9999] @featuredetect2[ClaheClipLimit=2] @featuredetect2[ClaheGridPixelsX=256] @featuredetect2[ClaheGridPixelsY=256] @texturemesh[MaxThreads=4]</BuildATFlags>
+    <BuildFlags></BuildFlags>
+    <CenterModelsToProject>true</CenterModelsToProject>
+    <CesiumReprojectZ>true</CesiumReprojectZ>
+    <ColorTone>1.05</ColorTone>
+    <DsmSettings>
+      <SizeH>20000</SizeH>
+      <SizeW>20000</SizeW>
+    </DsmSettings>
+    <FillInGround>true</FillInGround>
+    <FocalLengthAccuracy>-1</FocalLengthAccuracy>
+    <HorizontalAccuracyFactor>0.1</HorizontalAccuracyFactor>
+    <IgnoreOrientation>false</IgnoreOrientation>
+    <LasMethod>FromImageCorrelation</LasMethod>
+    <OrthoSettings>
+      <SizeH>32768</SizeH>
+      <SizeW>32768</SizeW>
+    </OrthoSettings>
+    <OrthophotoCompressionRatio>98</OrthophotoCompressionRatio>
+    <OutputCoordinateSystem xmlns:d3p1="http://www.skylineglobe.com/schema-3dml">
+      <d3p1:OriginalWKT>PROJCS["UTM zone 15, Northern Hemisphere",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-93],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32615"]]</d3p1:OriginalWKT>
+      <d3p1:WKT>PROJCS["UTM zone 15, Northern Hemisphere",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-93],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32615"]]</d3p1:WKT>
+    </OutputCoordinateSystem>
+    <OutputFormats xmlns:d3p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
+      <d3p1:string>OBJ</d3p1:string>
+    </OutputFormats>
+    <PointCloudFormat>LAS</PointCloudFormat>
+    <PointCloudQuality>4</PointCloudQuality>
+    <PrincipalPointAccuracy>-1</PrincipalPointAccuracy>
+    <RadialAccuracy>false</RadialAccuracy>
+    <TangentialAccuracy>false</TangentialAccuracy>
+    <TileSplitMethod>Simple</TileSplitMethod>
+    <VerticalAccuracyFactor>0.1</VerticalAccuracyFactor>
+    <VerticalBias>false</VerticalBias>
+  </BuildParameters>
+  <Description>ste toolkit output preset </Description>
+  <IsDefault>false</IsDefault>
+  <IsLastUsed>false</IsLastUsed>
+  <IsSystem>false</IsSystem>
+  <IsSystemDefault>false</IsSystemDefault>
+  <PresetFileName i:nil="true" />
+  <PresetName>STEPRESET</PresetName>
+</BuildParametersPreset>
+"""
+
+def _ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+def _files_equal_text(existing_path: str, new_text: str) -> bool:
+    try:
+        if not os.path.isfile(existing_path):
+            return False
+        with open(existing_path, "rb") as f:
+            current = f.read()
+        return current == new_text.encode("utf-8")
+    except Exception:
+        return False
+
+def _write_text_atomic(path: str, text: str, log=print) -> None:
+    dstdir = os.path.dirname(path)
+    _ensure_dir(dstdir)
+    if _files_equal_text(path, text):
+        log(f"Preset already up to date -> {path}")
+        return
+    tmp = os.path.join(dstdir, f".{os.path.basename(path)}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    with open(tmp, "wb") as f:
+        f.write(text.encode("utf-8"))
+    os.replace(tmp, path)
+    log(f"Preset written -> {path}")
+
+def install_embedded_preset(log=print) -> str:
+    """
+    Writes the embedded PRESET_XML to PRESET_PATH (AppData Presets).
+    Optionally attempts to stage to Wizard/Program Files; skips if locked/no permission.
+    Returns the AppData PRESET_PATH that we control.
+    """
+    _write_text_atomic(PRESET_PATH, PRESET_XML, log=log)
+
+    wizard_dir = None
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        if not base:
+            continue
+        candidate = os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard")
+        if os.path.isdir(candidate):
+            wizard_dir = candidate
+            break
+
+    targets = []
+    if wizard_dir:
+        targets.append(os.path.join(wizard_dir, "Presets", f"{PRESET_NAME}.PMPreset"))
+    targets.append(os.path.join(r"C:\\Program Files\\Skyline\\PhotoMesh\Presets", f"{PRESET_NAME}.PMPreset"))
+
+    for dst in targets:
+        try:
+            _ensure_dir(os.path.dirname(dst))
+            if not (os.path.isfile(dst) and filecmp.cmp(PRESET_PATH, dst, shallow=False)):
+                tmp = dst + f".{os.getpid()}.{uuid.uuid4().hex}.tmp"
+                shutil.copy2(PRESET_PATH, tmp)
+                try:
+                    os.replace(tmp, dst)
+                finally:
+                    if os.path.exists(tmp):
+                        try:
+                            os.remove(tmp)
+                        except Exception:
+                            pass
+                log(f"Staged preset -> {dst}")
+            else:
+                log(f"Preset already up to date -> {dst}")
+        except PermissionError as e:
+            log(f"Skipping staged copy (permission): {dst} ({e})")
+        except OSError as e:
+            log(f"Skipping staged copy (locked/in use): {dst} ({e})")
+
+    return PRESET_PATH
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
     return os.name == "nt"
@@ -158,39 +219,16 @@ def run_exe_as_admin_blocking(
 
 
 # -------------------- Preset staging --------------------
-def stage_preset(src_path: str, preset_name: str) -> Optional[str]:
-    """Copy *src_path* into the first writable PhotoMesh Presets folder."""
-    if not os.path.isfile(src_path):
-        return None
-
-    dst_roots = [
-        os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets"),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Skyline", "PhotoMesh", "Presets"),
-        os.path.join(os.environ.get("PROGRAMDATA", ""), "Skyline", "PhotoMesh", "Presets"),
-        os.path.join(os.path.expanduser("~/Documents"), "PhotoMesh", "Presets"),
-    ]
-    for root in dst_roots:
-        if not root:
-            continue
-        try:
-            os.makedirs(root, exist_ok=True)
-            dst = os.path.join(root, f"{preset_name}.PMPreset")
-            if not os.path.isfile(dst) or not filecmp.cmp(src_path, dst, shallow=False):
-                shutil.copy2(src_path, dst)
-            return dst
-        except Exception:
-            continue
-    return None
-
-
-# Elevate GUI if needed and stage preset on import
 if is_windows() and not is_admin():
     print("[INFO] Elevation required. Relaunching as Administrator…")
     relaunch_self_as_admin()
     sys.exit(0)
 
-staged = stage_preset(PRESET_SRC, PRESET_NAME)
-print(f"[INFO] Preset staged to: {staged or 'N/A'}")
+try:
+    installed = install_embedded_preset()
+    print(f"[CFG] Embedded preset installed to: {installed}")
+except Exception as e:
+    print(f"[WARN] Could not install embedded preset: {e}")
 
 # -------------------- Wizard detection --------------------
 def _detect_wizard_dir() -> str:
@@ -224,12 +262,6 @@ try:  # pragma: no cover - environment specific
 except FileNotFoundError:  # pragma: no cover - missing install
     WIZARD_EXE = os.path.join(WIZARD_DIR, "PhotoMeshWizard.exe")
 
-# Folders where PhotoMesh/Wizard auto-discovers presets by name
-PRESET_DIRS = [
-    os.path.join(os.environ.get("APPDATA", ""), r"Skyline\PhotoMesh\Presets"),
-    r"C:\\Program Files\\Skyline\\PhotoMesh\Presets",
-]
-
 # -------------------- tiny JSON helpers --------------------
 def _load_json(path: str) -> dict:
     try:
@@ -249,58 +281,7 @@ def _atomic_write(path: str, text: str) -> None:
 def _save_json(path: str, obj: dict) -> None:
     _atomic_write(path, json.dumps(obj, indent=2))
 
-
-def _is_known_preset_dir(path: str) -> bool:
-    try:
-        if not path:
-            return False
-        p = os.path.normcase(os.path.normpath(path))
-        for d in PRESET_DIRS:
-            if os.path.normcase(os.path.normpath(d)) == p:
-                return True
-        return False
-    except Exception:
-        return False
-
-
-def _preset_arg_from_user_value(preset) -> str:
-    """
-    Normalize a user-supplied preset into what PhotoMesh expects on CLI:
-      - 'STEPRESET'                   -> 'STEPRESET'
-      - 'STEPRESET.PMPreset'          -> 'STEPRESET'
-      - r'C:\\...\\STEPRESET.PMPreset'  -> 'STEPRESET' if parent is a known Presets dir,
-                                     else r'C:\\...\\STEPRESET' (no extension)
-      - ['Base','OBJ_Only']       -> 'Base,OBJ_Only'
-      - mix-and-match lists of names/paths are supported
-    """
-    if isinstance(preset, (list, tuple)):
-        return ",".join(_preset_arg_from_user_value(p).strip() for p in preset if str(p).strip())
-
-    val = str(preset or "").strip().strip('"').strip("'")
-    if not val:
-        return ""
-
-    # If a path was supplied, strip quotes and normalize
-    name_wo_ext, ext = os.path.splitext(val)
-    if ext.lower() == ".pmpreset":
-        val = name_wo_ext  # drop the extension
-
-    # If it still looks like a path, decide whether to pass name or full path
-    if os.path.isabs(val) or any(sep in val for sep in ("/", "\\")):
-        parent = os.path.dirname(val)
-        base_no_ext = os.path.splitext(os.path.basename(val))[0]
-        # If the preset lives in a known Presets dir, pass just the name
-        if _is_known_preset_dir(parent):
-            return base_no_ext
-        # Otherwise pass the full path (without extension)
-        return os.path.join(parent, base_no_ext)
-
-    # Plain name already
-    return val
-
 # -------------------- Offline / network configuration --------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
@@ -540,81 +521,20 @@ def enforce_wizard_install_config(
         log=log
     )
 
-# -------------------- Preset staging (Program Files + Wizard) --------------------
-def _resolve_preset_src(repo_preset_path: str, preset_name: str) -> str:
-    """Accept folder or file; prefer <preset_name>.PMPreset"""
-    p = os.path.normpath(os.path.expandvars(repo_preset_path.strip('"')))
-    candidates: list[str] = []
-    if os.path.isdir(p):
-        candidates.append(os.path.join(p, f"{preset_name}.PMPreset"))
-        try:
-            for f in os.listdir(p):
-                if f.lower().endswith(".pmpreset"):
-                    candidates.append(os.path.join(p, f))
-        except Exception:
-            pass
-    else:
-        candidates.append(p)
-    candidates += [
-        os.path.join(os.getcwd(), "Presets", f"{preset_name}.PMPreset"),
-        os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets\%s.PMPreset" % preset_name,
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return c
-    raise FileNotFoundError(f"Could not locate {preset_name}.PMPreset")
-
-
-def stage_install_preset(repo_preset_path: str, preset_name: str, log=print) -> None:
-    """
-    Copy a .PMPreset to both Program Files preset folders and AppData fallback.
-    """
-    src = _resolve_preset_src(repo_preset_path, preset_name)
-    if not src.lower().endswith(".pmpreset"):
-        raise ValueError("Preset must be a .PMPreset")
-    targets = [
-        os.path.join(r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets", f"{preset_name}.PMPreset"),
-        os.path.join(WIZARD_DIR, "Presets", f"{preset_name}.PMPreset") if WIZARD_DIR else "",
-        os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
-    ]
-    successes, failures = 0, []
-    for dst in targets:
-        if not dst:
-            continue
-        try:
-            if _copy2_atomic_with_retries(src, dst, log=log):
-                successes += 1
-            else:
-                failures.append(dst)
-        except PermissionError as e:
-            # Final guard; treat as non-fatal for this target
-            log(f"Skipping locked target (still in use): {dst} ({e})")
-            failures.append(dst)
-        except Exception as e:
-            log(f"Skipping preset copy to {dst}: {e}")
-            failures.append(dst)
-    if successes == 0:
-        raise RuntimeError(
-            "Preset staging failed for all targets. "
-            "Close PhotoMesh/PhotomeshWizard and try again.\n"
-            "Targets tried:\n  - " + "\n  - ".join(t for t in targets if t)
-        )
-
 # -------------------- User config helpers --------------------
-def ensure_wizard_user_defaults(preset: str = "", autostart: bool = True) -> None:
+def ensure_wizard_user_defaults(autostart: bool = True) -> None:
     cfg = {
-        "SelectedPreset": preset,
+        "SelectedPreset": PRESET_NAME,
         "OverrideSettings": True,
         "AutoBuild": bool(autostart),
     }
     _save_json(WIZARD_USER_CFG, cfg)
 
-def enforce_photomesh_settings(preset: str = "", autostart: bool = True) -> None:
+def enforce_photomesh_settings(autostart: bool = True) -> None:
     o = get_offline_cfg()
     fuser_unc = resolve_network_working_folder_from_cfg(o)
     enforce_wizard_install_config(fuser_unc=fuser_unc)
-    ensure_wizard_user_defaults(preset=preset, autostart=autostart)
+    ensure_wizard_user_defaults(autostart=autostart)
 
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
@@ -622,7 +542,6 @@ def launch_wizard_with_preset(
     project_path: str,
     imagery_folders: Iterable[str],
     *,
-    preset: Optional[str] = PRESET_NAME,
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     log=print,
@@ -644,7 +563,7 @@ def launch_wizard_with_preset(
         "--projectName", project_name,
         "--projectPath", project_path,
         "--overrideSettings",
-        "--preset", _preset_arg_from_user_value(preset or PRESET_NAME),
+        "--preset", PRESET_NAME,
     ]
     if autostart:
         args.append("--autostart")
