@@ -22,7 +22,7 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    stage_install_preset,
+    install_embedded_preset,
     enforce_wizard_install_config,
     launch_wizard_with_preset,
     get_offline_cfg,
@@ -34,6 +34,7 @@ from photomesh_launcher import (
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
     enforce_photomesh_settings,
+    PRESET_NAME,
 )
 from collections import OrderedDict
 import time
@@ -3433,23 +3434,10 @@ class VBS4Panel(tk.Frame):
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-        preset_name = "STEPRESET"
-        repo_preset = os.path.join(
-            os.path.dirname(__file__), "photomesh", f"{preset_name}.PMPreset"
-        )
-        if not os.path.isfile(repo_preset):
-            candidates = [
-                os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"),
-                os.path.join(r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets", f"{preset_name}.PMPreset"),
-            ]
-            repo_preset = next((p for p in candidates if p and os.path.isfile(p)), "")
-
-        if repo_preset:
-            stage_install_preset(repo_preset, preset_name, log=self.log_message)
-        else:
-            self.log_message(
-                f"⚠️ Preset '{preset_name}' not found; ensure it exists in a Presets folder."
-            )
+        try:
+            install_embedded_preset(log=self.log_message)
+        except Exception as e:
+            self.log_message(f"⚠️ Could not install embedded preset: {e}")
         enforce_wizard_install_config(ortho_ui=True)
 
         try:
@@ -3457,7 +3445,6 @@ class VBS4Panel(tk.Frame):
                 project_name,
                 project_path,
                 self.image_folder_paths,
-                preset=preset_name,
                 autostart=True,
                 fuser_unc=fuser_unc,
                 log=self.log_message,
