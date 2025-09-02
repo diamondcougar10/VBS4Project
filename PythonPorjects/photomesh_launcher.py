@@ -323,7 +323,7 @@ def apply_wizard_template_from_repo(
 
 # -------------------- Write Wizard config (minimal, no new keys) --------------------
 def enforce_wizard_install_config(
-    *, model3d: bool = True, obj: bool = True, d3dml: bool = False, ortho_ui: bool = True,
+    *, model3d: bool = True, obj: bool = True, d3dml: bool = False, ortho_ui: bool = False,
     center_pivot: bool = True, ellipsoid: bool = True, fuser_unc: Optional[str] = None, log=print
 ) -> None:
     """

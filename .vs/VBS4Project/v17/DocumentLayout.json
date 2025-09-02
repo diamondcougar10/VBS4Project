@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py||{8B382828-6202-11D1-8870-0000F87579D2}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\STE_Toolkit.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh_launcher.py||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\photomesh_launcher.py||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\launch_photomesh_preset.py||{8B382828-6202-11D1-8870-0000F87579D2}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\launch_photomesh_preset.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:PythonPorjects\\STE_Toolkit.py||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\config.ini||{3B902123-F8A7-4915-9F01-361F908088D0}",
@@ -22,7 +22,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 316,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Document",
@@ -40,26 +40,26 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "launch_photomesh_preset.py",
-              "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\launch_photomesh_preset.py",
-              "RelativeDocumentMoniker": "PythonPorjects\\launch_photomesh_preset.py",
-              "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\launch_photomesh_preset.py",
-              "RelativeToolTip": "PythonPorjects\\launch_photomesh_preset.py",
-              "ViewState": "AgIAANcAAAAAAAAAAAAEwOUAAAAiAAAAAAAAAA==",
+              "DocumentIndex": 0,
+              "Title": "photomesh_launcher.py",
+              "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh_launcher.py",
+              "RelativeDocumentMoniker": "PythonPorjects\\photomesh_launcher.py",
+              "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\photomesh_launcher.py",
+              "RelativeToolTip": "PythonPorjects\\photomesh_launcher.py",
+              "ViewState": "AgIAADEBAAAAAAAAAAAAAEMBAABWAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
-              "WhenOpened": "2025-08-27T23:12:59.86Z",
+              "WhenOpened": "2025-09-02T16:57:16.029Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "STE_Toolkit.py",
               "DocumentMoniker": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py",
               "RelativeDocumentMoniker": "PythonPorjects\\STE_Toolkit.py",
               "ToolTip": "C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\STE_Toolkit.py",
               "RelativeToolTip": "PythonPorjects\\STE_Toolkit.py",
-              "ViewState": "AgIAAP0EAAAAAAAAAAAlwA8FAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAJ8CAAAAAAAAAAAAALMCAAAXAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-05-21T02:02:53.492Z",
               "EditorCaption": ""
