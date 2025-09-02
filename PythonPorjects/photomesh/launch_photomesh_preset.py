@@ -1,40 +1,46 @@
-"""Prepare and launch PhotoMesh Wizard using a predefined preset."""
+"""Helpers for launching PhotoMesh Wizard with presets."""
 
 from __future__ import annotations
 
-import os, json, shutil, time, threading, xml.etree.ElementTree as ET
-import re, subprocess
-from typing import List
+import os, json, subprocess
+
+from .bootstrap import stage_install_preset
 
 
-# Base directory of the repo (PythonPorjects)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# New/updated install paths for Presets + Wizard config
-WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
-WIZARD_INSTALL_CFG = rf"{WIZARD_DIR}\config.json"
-WIZARD_PRESET_DIR = rf"{WIZARD_DIR}\Presets"
-
-PM_INSTALL_DIR = r"C:\\Program Files\\Skyline\\PhotoMesh"
-PM_PRESET_DIR = rf"{PM_INSTALL_DIR}\Presets"
-
-# Our preset file name (do NOT include any weird characters)
-PRESET_NAME = "OECPP"
-PRESET_FILENAME = f"{PRESET_NAME}.PMPreset"
-
-# Where we store a master copy in the repo (already present)
-REPO_PRESET = rf"{BASE_DIR}\photomesh\{PRESET_FILENAME}"
-
-# Your shared fuser UNC (host may vary — keep a formatter)
-DEFAULT_FUSER_UNC_FMT = r"\\{host}\SharedMeshDrive\WorkingFuser"
-DEFAULT_HOST = "kit1-1"
-
-# Launchable Wizard EXE
-WIZARD_EXE = rf"{WIZARD_DIR}\WizardGUI.exe"
+def _detect_wizard_dir() -> str:
+    candidates = [
+        r"C:\\Program Files\\Skyline\\PhotoMeshWizard",
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard",
+    ]
+    for d in candidates:
+        if os.path.isdir(d):
+            return d
+    for dp, _dn, files in os.walk(r"C:\\Program Files\\Skyline"):
+        if "PhotoMeshWizard.exe" in files or "WizardGUI.exe" in files:
+            return dp
+    raise FileNotFoundError("PhotoMesh Wizard folder not found")
 
 
-def _ensure_dir(p: str) -> None:
-    os.makedirs(p, exist_ok=True)
+try:  # pragma: no cover - environment specific
+    WIZARD_DIR = _detect_wizard_dir()
+except FileNotFoundError:  # pragma: no cover - missing install
+    WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
+
+WIZARD_INSTALL_CFG = os.path.join(WIZARD_DIR, "config.json")
+
+
+def _find_wizard_exe() -> str:
+    for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
+        p = os.path.join(WIZARD_DIR, exe)
+        if os.path.isfile(p):
+            return p
+    raise FileNotFoundError("PhotoMesh Wizard executable not found")
+
+
+try:  # pragma: no cover - environment specific
+    WIZARD_EXE = _find_wizard_exe()
+except FileNotFoundError:  # pragma: no cover - missing install
+    WIZARD_EXE = os.path.join(WIZARD_DIR, "PhotoMeshWizard.exe")
 
 
 def _load_json_safe(path: str) -> dict:
@@ -45,147 +51,115 @@ def _load_json_safe(path: str) -> dict:
         return {}
 
 
-def _save_json_safe(path: str, obj: dict) -> None:
-    _ensure_dir(os.path.dirname(path))
+def _save_json_safe(path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
+        json.dump(data, f, indent=2)
     os.replace(tmp, path)
 
 
-# Sanitize preset XML and enforce OBJ-only + pivot/ellipsoid
-ARR = "http://schemas.microsoft.com/2003/10/Serialization/Arrays"
-ET.register_namespace("d3p1", ARR)
-
-
-def _strip_illegal_xmlns(raw: str) -> str:
-    raw = re.sub(r"\sxmlns:[A-Za-z_][\w\-.]*=\"(?:xml|xmlns)\"", "", raw)
-    raw = re.sub(r"\sxmlns=\"(?:xml|xmlns)\"", "", raw)
-    return raw
-
-
-def repair_and_normalize_preset(preset_path: str, preset_name: str = PRESET_NAME) -> None:
-    try:
-        with open(preset_path, "r", encoding="utf-8", errors="ignore") as f:
-            cleaned = _strip_illegal_xmlns(f.read())
-        tree = ET.ElementTree(ET.fromstring(cleaned))
-    except Exception:
-        root = ET.Element("BuildParametersPreset")
-        tree = ET.ElementTree(root)
-
-    root = tree.getroot()
-    bp = root.find("./BuildParameters") or ET.SubElement(root, "BuildParameters")
-
-    # Ensure OutputFormats = [OBJ]
-    ofs = bp.find("./OutputFormats") or ET.SubElement(bp, "OutputFormats")
-    for c in list(ofs):
-        ofs.remove(c)
-    ET.SubElement(ofs, f"{{{ARR}}}string").text = "OBJ"
-
-    # Set center pivot + ellipsoid reprojection
-    for tag in ("CenterModelsToProject", "CesiumReprojectZ"):
-        n = bp.find(tag) or ET.SubElement(bp, tag)
-        n.text = "true"
-
-    # Make it the default/last used for good measure
-    for tag in ("IsDefault", "IsLastUsed"):
-        n = root.find(tag) or ET.SubElement(root, tag)
-        n.text = "true"
-
-    pn = root.find("PresetName") or ET.SubElement(root, "PresetName")
-    pn.text = preset_name
-
-    tmp = preset_path + ".tmp"
-    tree.write(tmp, encoding="utf-8", xml_declaration=True)
-    os.replace(tmp, preset_path)
-
-
-def _try_copy_preset(src: str, dst_dir: str) -> bool:
-    try:
-        _ensure_dir(dst_dir)
-        dst = os.path.join(dst_dir, PRESET_FILENAME)
-        shutil.copy2(src, dst)
-        repair_and_normalize_preset(dst)
-        return True
-    except PermissionError:
-        return False
-
-
-def install_presets_to_program_files(repo_src: str = REPO_PRESET) -> None:
-    # PhotoMeshWizard\Presets
-    ok1 = _try_copy_preset(repo_src, WIZARD_PRESET_DIR)
-    # PhotoMesh\Presets
-    ok2 = _try_copy_preset(repo_src, PM_PRESET_DIR)
-
-    # If not admin, at least ensure per-user preset exists (Wizard also reads user roaming)
-    if not (ok1 and ok2):
-        user_dir = os.path.expandvars(r"%APPDATA%\\Skyline\\PhotoMesh\\Presets")
-        _try_copy_preset(repo_src, user_dir)
-
-
-def _wizard_write_defaults(host: str = DEFAULT_HOST) -> None:
+def enforce_wizard_install_config(*, obj: bool = True, ortho: bool = True,
+                                  fuser_unc: str | None = None, log=print):
+    """
+    Write C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json (or legacy) so:
+      - OutputProducts: 3D Model ON, Ortho ON (Wizard-only requirement)
+      - Model3DFormats: OBJ=True, 3DML=False
+      - CenterPivot/ReprojectEllipsoid = True
+      - NetworkWorkingFolder = fuser UNC (param or Offline cfg)
+      - UseMinimize=True, ClosePMWhenDone=True
+    """
     cfg = _load_json_safe(WIZARD_INSTALL_CFG)
 
-    # keep nice runtime defaults (minimized, low-priority optional)
-    cfg.setdefault("UseMinimize", True)
-    cfg.setdefault("ClosePMWhenDone", False)
-    cfg.setdefault("UseLowPriorityPM", False)
-
-    # Default UI seeds — safe for launch
     ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
     outs = ui.setdefault("OutputProducts", {})
     outs["3DModel"] = True
     outs["Model3D"] = True
-    outs["Ortho"] = True  # lets the Wizard happily kick off; preset controls real output
+    outs["Ortho"] = bool(ortho)
 
     m3d = ui.setdefault("Model3DFormats", {})
-    # don't force 3DML on; leave formats neutral in UI — preset will choose OBJ
     for k, v in list(m3d.items()):
         if isinstance(v, bool):
             m3d[k] = False
-    m3d.setdefault("OBJ", True)
+    m3d["OBJ"] = bool(obj)
+    m3d["3DML"] = False
 
-    # Fuser UNC
-    network = cfg.setdefault("NetworkWorkingFolder", {})
-    network["UNC"] = DEFAULT_FUSER_UNC_FMT.format(host=host)
+    ui["CenterPivotToProject"] = True
+    ui["CenterModelsToProject"] = True
+    ui["ReprojectToEllipsoid"] = True
+
+    cfg["UseMinimize"] = True
+    cfg["ClosePMWhenDone"] = True
+
+    if fuser_unc is None:
+        try:
+            from .bootstrap import get_offline_cfg, resolve_network_working_folder_from_cfg
+            fuser_unc = resolve_network_working_folder_from_cfg(get_offline_cfg())
+        except Exception:
+            fuser_unc = r"\\KIT1-1\SharedMeshDrive\WorkingFuser"
+    cfg["NetworkWorkingFolder"] = fuser_unc
 
     _save_json_safe(WIZARD_INSTALL_CFG, cfg)
-
-
-def prepare_presets_and_wizard_defaults(host: str = DEFAULT_HOST) -> None:
-    install_presets_to_program_files()
-    _wizard_write_defaults(host=host)
+    log(
+        f"✅ Wizard config updated: {WIZARD_INSTALL_CFG}\n"
+        f"   - 3DModel=True, Ortho={outs['Ortho']}\n"
+        f"   - OBJ={m3d.get('OBJ')}, 3DML={m3d.get('3DML')}\n"
+        f"   - NetworkWorkingFolder={cfg['NetworkWorkingFolder']}"
+    )
 
 
 def launch_wizard_with_preset(
     project_name: str,
     project_path: str,
-    folders: List[str],
-    host: str = DEFAULT_HOST,
-):
-    """Launch PhotoMesh Wizard with our preset and autostart flags."""
+    imagery_folders: list[str],
+    preset: str | None = None,
+    *,
+    autostart: bool = True,
+    fuser_unc: str | None = None,
+    log=print,
+) -> subprocess.Popen:
+    # Write install-level config so the Wizard starts with correct UI flags & fuser UNC
+    try:
+        enforce_wizard_install_config(obj=True, ortho=True, fuser_unc=fuser_unc, log=log)
+    except PermissionError:
+        log(
+            "⚠️ No permission to write install-level config.json (run as Admin or pre-stage). Continuing."
+        )
 
-    # prep presets + defaults
-    prepare_presets_and_wizard_defaults(host=host)
-
-    # Build args — preset + override + autostart (Wizard 1.5+)
     args = [
         WIZARD_EXE,
         "--projectName",
         project_name,
         "--projectPath",
         project_path,
-        "--preset",
-        PRESET_NAME,
         "--overrideSettings",
-        "--autostart",
     ]
-    for fld in folders or []:
-        args += ["--folder", fld]
+    if preset:
+        args += ["--preset", preset]
+    if autostart:
+        args += ["--autostart"]
 
-    # No messagebox confirmations; just launch
-    return subprocess.Popen(args, cwd=WIZARD_DIR)
+    for f in imagery_folders or []:
+        args += ["--folder", f]
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
 
 
-__all__ = ["launch_wizard_with_preset", "prepare_presets_and_wizard_defaults"]
+def launch_photomesh_with_install_preset(
+    project_name: str,
+    project_path: str,
+    imagery_folders: list[str],
+    preset_name: str,
+    repo_preset_path: str,
+) -> subprocess.Popen:
+    """Stage *repo_preset_path* under Program Files and start an autostart build."""
+
+    stage_install_preset(repo_preset_path, preset_name)
+    return launch_wizard_with_preset(
+        project_name, project_path, imagery_folders, preset=preset_name
+    )
+
+
+__all__ = ["launch_wizard_with_preset", "launch_photomesh_with_install_preset"]
 
