@@ -22,6 +22,8 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
+    stage_install_preset,
+    enforce_wizard_install_config,
     launch_wizard_with_preset,
     get_offline_cfg,
     ensure_offline_share_exists,
@@ -2602,14 +2604,6 @@ class VBS4Panel(tk.Frame):
         enable_obj_in_photomesh_config()
         set_active_wizard_preset()
 
-        self.preset_entry = tk.Entry(self, width=30)
-        try:
-            default_preset = config.get("PhotoMeshAPI", "preset", fallback="OECPP")
-        except Exception:
-            default_preset = "OECPP"
-        self.preset_entry.insert(0, default_preset)
-        self.preset_entry.pack()
-
         tk.Label(
             self,
             text="VBS4 / BlueIG",
@@ -3439,14 +3433,20 @@ class VBS4Panel(tk.Frame):
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-        desired = self.preset_entry.get().strip() or "OECPP"
+        preset_name = "OECPP"
+        repo_preset = os.path.join(
+            os.path.dirname(__file__), "photomesh", "OECPP.PMPreset"
+        )
+
+        stage_install_preset(repo_preset, preset_name)
+        enforce_wizard_install_config(ortho_ui=True)
 
         try:
             proc = launch_wizard_with_preset(
                 project_name,
                 project_path,
                 self.image_folder_paths,
-                preset=desired,
+                preset=preset_name,
                 autostart=True,
                 fuser_unc=fuser_unc,
                 log=self.log_message,

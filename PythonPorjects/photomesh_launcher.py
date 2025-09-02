@@ -2,8 +2,6 @@ from __future__ import annotations
 import os, json, shutil, subprocess, tempfile, configparser
 from typing import Iterable, Optional
 
-from photomesh_preset import stage_preset
-
 try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
 except Exception:  # pragma: no cover - headless/test environments
@@ -427,7 +425,7 @@ def launch_wizard_with_preset(
         "--overrideSettings",
     ]
     if preset:
-        norm = stage_preset(preset, enforce_obj_only=False, log=log)
+        norm = _preset_arg_from_user_value(preset)
         if norm:
             args += ["--preset", norm]
     if autostart:
