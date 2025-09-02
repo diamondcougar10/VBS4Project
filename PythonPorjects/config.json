@@ -1,0 +1,10 @@
+{
+  "PhotoMeshAPI": {
+    "queue_base_url": "http://localhost:8087/ProjectQueue",
+    "sse_url": "http://localhost:8087/ProjectQueue/events",
+    "preset": "OECPP",
+    "enforce_obj_only": true,
+    "working_fuser_unc": "\\\\KIT1-1\\SharedMeshDrive\\WorkingFuser",
+    "max_local_fusers": 4
+  }
+}
