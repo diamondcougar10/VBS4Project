@@ -46,7 +46,7 @@ NEW_WIZARD_CFG = {
       "Ortho": False,
       "DSM": False,
       "DTM": False,
-      "LAS": False
+      "LAS": True
     },
     "Model3DFormats": {
       "3DML": True,
@@ -55,13 +55,106 @@ NEW_WIZARD_CFG = {
     },
     "ProcessingLevel": "Standard",
     "StopOnError": False,
-    "MaxProcessing": False
+    "MaxProcessing": False,
+    "CenterPivotToProject": True,
+    "CenterModelsToProject": True,
+    "ReprojectToEllipsoid": True
   },
   "GBPerFuser": 24,
   "UseDepthAnything": False,
   "PMWServiceTimeoutInMinutes": 1440,
   "NetworkWorkingFolder": "\\\\KIT1-1\\SharedMeshDrive\\WorkingFuser"
 }
+
+def _wizard_install_targets():
+    t = []
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        if base:
+            t.append(os.path.join(base, "Skyline", "PhotoMeshWizard", "config.json"))
+            t.append(os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json"))
+    la = os.environ.get("LOCALAPPDATA")
+    if la:
+        p = os.path.join(la, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        t.append(p)
+    return t
+
+def _atomic_write(path, obj):
+    tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2)
+    os.replace(tmp, path)
+
+def install_exact_wizard_config(log=print):
+    wrote = False
+    for dst in _wizard_install_targets():
+        parent = os.path.dirname(dst)
+        if not os.path.isdir(parent) and "Local" not in parent:
+            log(f"[SKIP] {dst} (parent missing)")
+            continue
+        try:
+            if os.path.isfile(dst):
+                ts = time.strftime("%Y%m%d-%H%M%S")
+                shutil.copy2(dst, f"{dst}.bak.{ts}")
+            _atomic_write(dst, NEW_WIZARD_CFG)
+            with open(dst, "r", encoding="utf-8") as f:
+                if json.load(f) != NEW_WIZARD_CFG:
+                    raise RuntimeError("Post-write mismatch.")
+            log(f"✅ Installed Wizard config → {dst}")
+            wrote = True
+        except PermissionError as e:
+            log(f"⚠️ Permission denied for {dst} (run as Admin). {e}")
+        except Exception as e:
+            log(f"⚠️ Failed writing {dst}: {e}")
+    if not wrote:
+        log("❌ No config.json updated.")
+
+def clear_user_overrides(log=print):
+    p = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json")
+    if not os.path.isfile(p):
+        return
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        for k in (
+            "SelectedPreset",
+            "SelectedPresets",
+            "Selected Presets",
+            "PresetOverrides",
+            "LastPresetOverrides",
+            "PresetStack",
+            "SelectedPresetNames",
+            "OverrideSettings",
+        ):
+            if k in cfg:
+                cfg.pop(k, None)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        log("🧹 Cleared per-user override history.")
+    except Exception as e:
+        log(f"⚠️ Could not clear user overrides: {e}")
+
+def launch_wizard_ui_override(project_name, project_path, image_folders, autostart=True, log=print):
+    wd = None
+    for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            cand = os.path.join(base or "", "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", exe)
+            if os.path.isfile(cand):
+                wd = cand
+                break
+        if wd:
+            break
+    if not wd:
+        raise FileNotFoundError("Wizard executable not found.")
+    os.makedirs(project_path, exist_ok=True)
+    args = [wd, "--projectName", project_name, "--projectPath", project_path, "--overrideSettings"]
+    if autostart:
+        args.append("--autostart")
+    for folder in image_folders:
+        args += ["--folder", folder]
+    log("[Wizard] Launch with UI overrides:\n" + " ".join([f'\"{a}\"' if " " in a else a for a in args]))
+    import subprocess
+    return subprocess.Popen(args, close_fds=False)
 
 def _wizard_config_targets():
     r"""
@@ -393,36 +486,6 @@ def ensure_wizard_user_defaults(autostart: bool = True) -> None:
 def enforce_photomesh_settings(autostart: bool = True) -> None:
     install_wizard_config()
     ensure_wizard_user_defaults(autostart=autostart)
-
-
-def clear_user_wizard_overrides() -> None:
-    """Remove user-level preset override stacks if present."""
-    import os
-    import json
-
-    p = os.path.join(
-        os.environ.get("LOCALAPPDATA", ""),
-        "Skyline",
-        "PhotoMesh",
-        "PhotomeshWizard",
-        "config.json",
-    )
-    if not os.path.isfile(p):
-        return
-    with open(p, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-    for k in (
-        "SelectedPresets",
-        "Selected Presets",
-        "PresetOverrides",
-        "LastPresetOverrides",
-        "PresetStack",
-        "SelectedPresetNames",
-    ):
-        if k in cfg:
-            cfg.pop(k, None)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
 
 
 # -------------------- Launch Wizard --------------------
