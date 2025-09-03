@@ -22,9 +22,8 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    clear_user_overrides,
+    force_obj_defaults_and_clear_overrides,
     find_wizard_exe,
-    merge_wizard_defaults,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -3368,7 +3367,7 @@ class VBS4Panel(tk.Frame):
 
         try:
             try:
-                merge_wizard_defaults(CONFIG_PATH, log=self.log_message)
+                force_obj_defaults_and_clear_overrides(log=self.log_message)
             except Exception as e:
                 self.log_message(f"[Wizard cfg merge] {e}")
 
@@ -3380,7 +3379,6 @@ class VBS4Panel(tk.Frame):
                 messagebox.showerror("Launch Error", error_message, parent=self)
                 return
 
-            clear_user_overrides(log=self.log_message)
             args = [
                 wizard_exe,
                 "--projectName",
