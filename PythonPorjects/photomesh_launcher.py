@@ -98,6 +98,102 @@ PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
 </BuildParametersPreset>
 """
 
+# === 1) Paste the exact JSON we were given ===
+NEW_WIZARD_CFG = {
+  "PhotomeshRestUrl": "http://localhost:8086",
+  "NameEllipsoid": "WGS 84",
+  "DatumEllipsoid": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]",
+  "NameGeoid": "WGS 84 + EGM96 geoid height",
+  "DatumGeoid": "COMPD_CS[\"WGS 84 + EGM96 geoid height\", GEOGCS[\"WGS 84\", DATUM[\"WGS_1984\", SPHEROID[\"WGS 84\", 6378137, 298.257223563, AUTHORITY[\"EPSG\", \"7030\"]], AUTHORITY[\"EPSG\", \"6326\"]], PRIMEM[\"Greenwich\", 0, AUTHORITY[\"EPSG\", \"8901\"]], UNIT[\"degree\", 0.0174532925199433, AUTHORITY[\"EPSG\", \"9122\"]], AUTHORITY[\"EPSG\", \"4326\"]], VERT_CS[\"EGM96 geoid height\", VERT_DATUM[\"EGM96 geoid\", 2005, AUTHORITY[\"EPSG\", \"5171\"], EXTENSION[\"PROJ4_GRIDS\", \"egm96_15.gtx\"]], UNIT[\"m\", 1.0], AXIS[\"Up\", UP], AUTHORITY[\"EPSG\", \"5773\"]]]",
+  "SecondsPerFrame": 1.0,
+  "StandardWaitTime": 1500,
+  "UseMinimize": True,
+  "UseLowPriorityPM": False,
+  "UseRawRequests": False,
+  "EnableTextureMeshMaxThreads": True,
+  "OutputsWaitTimerSeconds": 0,
+  "ClosePMWhenDone": True,
+  "DefaultPhotoMeshWizardUI": {
+    "VerticalDatum": "Ellipsoid",
+    "GPSAccuracy": "Standard",
+    "CollectionType": "3DMapping",
+    "OptimizeShadow": True,
+    "OutputProducts": {
+      "Model3D": True,
+      "Ortho": False,
+      "DSM": False,
+      "DTM": False,
+      "LAS": False
+    },
+    "Model3DFormats": {
+      "3DML": True,
+      "OBJ": True,
+      "SLPK": True
+    },
+    "ProcessingLevel": "Standard",
+    "StopOnError": False,
+    "MaxProcessing": False
+  },
+  "GBPerFuser": 24,
+  "UseDepthAnything": False,
+  "PMWServiceTimeoutInMinutes": 1440,
+  "NetworkWorkingFolder": ""
+}
+
+def _wizard_config_targets():
+    """
+    All typical Wizard config.json locations:
+      - Legacy:   C:\Program Files\Skyline\PhotoMeshWizard\config.json
+      - Tools:    C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\config.json
+      - Per-user: %LOCALAPPDATA%\Skyline\PhotoMesh\PhotomeshWizard\config.json
+    """
+    targets = []
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        if base:
+            targets.append(os.path.join(base, "Skyline", "PhotoMeshWizard", "config.json"))
+            targets.append(os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json"))
+    la = os.environ.get("LOCALAPPDATA")
+    if la:
+        targets.append(os.path.join(la, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json"))
+    # keep those whose parent dir exists (we will create per-user dir if missing)
+    out = []
+    for p in targets:
+        parent = os.path.dirname(p)
+        if parent.lower().startswith((os.environ.get("ProgramFiles","" ).lower(),
+                                      (os.environ.get("ProgramFiles(x86)","") or "x").lower())):
+            if os.path.isdir(parent):
+                out.append(p)
+        else:
+            os.makedirs(parent, exist_ok=True)
+            out.append(p)
+    return out
+
+def _backup(path: str):
+    if os.path.isfile(path):
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, f"{path}.bak.{ts}")
+
+def _atomic_write_json(path: str, data: dict):
+    tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+def install_wizard_config(log=print):
+    wrote = False
+    for dst in _wizard_config_targets():
+        try:
+            _backup(dst)
+            _atomic_write_json(dst, NEW_WIZARD_CFG)
+            log(f"[Wizard] Installed config → {dst}")
+            wrote = True
+        except PermissionError as e:
+            log(f"[Wizard] Permission denied writing {dst}. Run this script as Administrator. ({e})")
+        except Exception as e:
+            log(f"[Wizard] Skipped {dst}: {e}")
+    if not wrote:
+        raise RuntimeError("No config.json was written. Run elevated and ensure Wizard is closed.")
+
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
@@ -980,6 +1076,8 @@ def disable_wizard_generated_override(log=print) -> None:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual run utility
+    install_wizard_config()
+    print("Done. Launch PhotoMesh Wizard and verify Options reflect the new defaults.")
     print("Patching 3D.PMPreset to OBJ-only, with center/ellipsoid...")
     patch_3d_preset_obj_only()
     disable_wizard_generated_override()
