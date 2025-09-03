@@ -13,6 +13,12 @@ PRESET_PATH = os.path.join(
     os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{PRESET_NAME}.PMPreset"
 )
 
+# Known Wizard preset directories (both legacy and tools paths)
+WIZARD_PRESET_DIRS = [
+    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\Presets",                # legacy path
+    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\Presets"  # tools path
+]
+
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
@@ -109,28 +115,14 @@ def _write_text_atomic(path: str, text: str, log=print) -> None:
 def install_embedded_preset(log=print) -> str:
     """
     Writes the embedded PRESET_XML to PRESET_PATH (AppData Presets).
-    Optionally attempts to stage to Wizard/Program Files; skips if locked/no permission.
+    Additionally stages the preset to known Wizard preset directories.
     Returns the AppData PRESET_PATH that we control.
     """
     _write_text_atomic(PRESET_PATH, PRESET_XML, log=log)
-
-    wizard_dir = None
-    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
-        if not base:
-            continue
-        candidate = os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard")
-        if os.path.isdir(candidate):
-            wizard_dir = candidate
-            break
-
-    targets = []
-    if wizard_dir:
-        targets.append(os.path.join(wizard_dir, "Presets", f"{PRESET_NAME}.PMPreset"))
-    targets.append(os.path.join(r"C:\\Program Files\\Skyline\\PhotoMesh\Presets", f"{PRESET_NAME}.PMPreset"))
-
-    for dst in targets:
+    for d in WIZARD_PRESET_DIRS:
+        dst = os.path.join(d, f"{PRESET_NAME}.PMPreset")
         try:
-            _ensure_dir(os.path.dirname(dst))
+            _ensure_dir(d)
             if not (os.path.isfile(dst) and filecmp.cmp(PRESET_PATH, dst, shallow=False)):
                 tmp = dst + f".{os.getpid()}.{uuid.uuid4().hex}.tmp"
                 shutil.copy2(PRESET_PATH, tmp)
@@ -624,31 +616,37 @@ def clear_wizard_preset_overrides(log=print):
     if not touched:
         log("No Wizard config.json found to clear overrides.")
 
+# Resolve preset locations for the Wizard
+def _resolve_preset_for_wizard(preset_name: str) -> str | None:
+    """Return absolute path to <preset_name>.PMPreset in a Wizard Presets dir if found; else None."""
+    for d in WIZARD_PRESET_DIRS:
+        p = os.path.join(d, f"{preset_name}.PMPreset")
+        if os.path.isfile(p):
+            return p
+    p = os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset")
+    return p if os.path.isfile(p) else None
+
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
     project_name: str,
     project_path: str,
     imagery_folders: Iterable[str],
     *,
-    preset: str = PRESET_NAME,
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     want_ortho: bool = False,
+    preset: str = PRESET_NAME,
     log=print,
 ) -> subprocess.Popen:
-    """Start PhotoMesh Wizard with *preset* and optional *autostart*.
+    """Start PhotoMesh Wizard with an explicit preset."""
 
-    The install config is seeded so the UI keeps 3D Model/3DML/OBJ enabled while
-    Ortho remains off, preventing a stall on launch. Any leftover preset overrides
-    are cleared so the provided preset (or the Wizard default) fully controls
-    outputs.
-    """
+    # Minimal install-config seeding: allow Wizard to start
     try:
         enforce_wizard_install_config(
             model3d=True,
             obj=True,
-            d3dml=True,          # keep base 3D model enabled so the Wizard will actually start
-            ortho_ui=False,      # Ortho OFF in UI (your preference)
+            d3dml=True if not want_ortho else True,   # keep 3DML on in UI so Wizard can start
+            ortho_ui=bool(want_ortho),                # UI checkbox only
             center_pivot=True,
             ellipsoid=True,
             fuser_unc=fuser_unc,
@@ -657,23 +655,25 @@ def launch_wizard_with_preset(
     except PermissionError:
         log("⚠️ Could not update install config (permission). Continuing.")
 
-    # Safety: if Ortho is OFF and 3DML ended up OFF, fix it so the Wizard has a valid 3D base
-    for cfg_path in _wizard_install_config_paths():
-        _ensure_valid_outputs(cfg_path, log=log)
-
-    # Clear any remembered override stacks so our preset/default is respected
+    # Clear any remembered preset/UI overrides so the .PMPreset is honored
     clear_wizard_preset_overrides(log=log)
 
-    # Build CLI (NO overrides — let the preset/default control outputs)
-    args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path]
-    for f in imagery_folders or []:
-        args += ["--folder", f]
-    # Use only the preset (absolute .PMPreset path from Test 2)
-    preset_arg = preset
-    args += ["--preset", preset_arg]
+    # Resolve absolute preset path inside a Wizard Presets folder
+    preset_abs = _resolve_preset_for_wizard(preset or PRESET_NAME)
+    if not preset_abs:
+        raise FileNotFoundError(f"Preset not found in Wizard Presets: {preset or PRESET_NAME}")
+
+    # Build CLI: NO --overrideSettings
+    args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path, "--preset", preset_abs]
     if autostart:
         args.append("--autostart")
-    log(f"[Wizard] Launch args (no overrides): {args}")
+    for f in imagery_folders or []:
+        args += ["--folder", f]
+
+    log(f"[Wizard] WIZARD_DIR: {WIZARD_DIR}")
+    log(f"[Wizard] WIZARD_EXE: {WIZARD_EXE}")
+    log(f"[Wizard] Using preset file: {preset_abs}")
+    log(f"[Wizard] Launch cmd: {args}")
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
