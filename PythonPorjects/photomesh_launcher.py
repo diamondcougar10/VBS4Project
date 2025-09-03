@@ -151,6 +151,27 @@ def install_embedded_preset(log=print) -> str:
             log(f"Skipping staged copy (locked/in use): {dst} ({e})")
 
     return PRESET_PATH
+
+def stage_install_preset(repo_preset_path: str, preset_name: str, log=print) -> None:
+    """
+    Copy .PMPreset primarily into the running Wizard's Presets folder
+    (C:\\Program Files\\Skyline\\PhotoMeshWizard\\Presets), then fall back.
+    """
+    targets = []
+    targets.append(os.path.join(_wizard_presets_dir(), f"{preset_name}.PMPreset"))
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        targets.append(os.path.join(appdata, "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"))
+    pf = os.environ.get("ProgramFiles")
+    if pf:
+        targets.append(os.path.join(pf, "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset"))
+    for dst in targets:
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(repo_preset_path, dst)
+            log(f"Staged preset -> {dst}")
+        except Exception as e:
+            log(f"Skipping preset copy to {dst}: {e}")
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
     return os.name == "nt"
@@ -231,24 +252,41 @@ except Exception as e:
     print(f"[WARN] Could not install embedded preset: {e}")
 
 # -------------------- Wizard detection --------------------
-def _detect_wizard_dir() -> str:
-    candidates = [
-        r"C:\\Program Files\\Skyline\\PhotoMeshWizard",                 # new (8.0.4.150+)
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard", # legacy
-    ]
+def _find_wizard_dir() -> str:
+    r"""
+    Prefer legacy path (your install):
+      C:\Program Files\Skyline\PhotoMeshWizard
+    then fall back to x86 and the modern Tools\PhotomeshWizard locations.
+    """
+    pf   = os.environ.get("ProgramFiles")
+    pf86 = os.environ.get("ProgramFiles(x86)")
+    candidates: list[str] = []
+    if pf:
+        candidates.append(os.path.join(pf,  "Skyline", "PhotoMeshWizard"))
+    if pf86:
+        candidates.append(os.path.join(pf86, "Skyline", "PhotoMeshWizard"))
+    if pf:
+        candidates.append(os.path.join(pf,  "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard"))
+    if pf86:
+        candidates.append(os.path.join(pf86, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard"))
     for d in candidates:
-        if os.path.isdir(d):
+        if d and os.path.isdir(d):
             return d
-    for dp, _dn, files in os.walk(r"C:\\Program Files\\Skyline"):
-        if "PhotoMeshWizard.exe" in files or "WizardGUI.exe" in files:
-            return dp
-    raise FileNotFoundError("PhotoMesh Wizard folder not found")
+    raise FileNotFoundError("PhotoMesh Wizard directory not found under Program Files.")
 
 try:  # pragma: no cover - environment specific
-    WIZARD_DIR = _detect_wizard_dir()
+    WIZARD_DIR = _find_wizard_dir()
 except FileNotFoundError:  # pragma: no cover - missing install
-    WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
+    WIZARD_DIR = r"C:\Program Files\Skyline\PhotoMeshWizard"
+print(f"[Wizard] Using install at: {WIZARD_DIR}")
 WIZARD_INSTALL_CFG = os.path.join(WIZARD_DIR, "config.json")
+
+def _wizard_presets_dir() -> str:
+    """Presets folder under the chosen Wizard dir (legacy-first)."""
+    d = os.path.join(WIZARD_DIR, "Presets")
+    os.makedirs(d, exist_ok=True)
+    print(f"[Wizard] Presets dir: {d}")
+    return d
 
 def _find_wizard_exe() -> str:
     for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
@@ -560,10 +598,18 @@ def _ensure_valid_outputs(config_path: str, log=print) -> None:
 
 def _wizard_install_config_paths() -> list[str]:
     """Return possible install-level Wizard config.json paths."""
-    return [
-        WIZARD_INSTALL_CFG,
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
-    ]
+    paths: list[str] = []
+    cfg = WIZARD_INSTALL_CFG
+    if os.path.isfile(cfg):
+        print(f"[Wizard] Using config at: {cfg}")
+        paths.append(cfg)
+    pf = os.environ.get("ProgramFiles")
+    if pf:
+        alt = os.path.join(pf, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json")
+        if alt != cfg and os.path.isfile(alt):
+            print(f"[Wizard] Using config at: {alt}")
+            paths.append(alt)
+    return paths
 
 def clear_wizard_preset_overrides(log=print):
     """
@@ -668,9 +714,14 @@ def launch_wizard_with_preset(
     ]
     for f in imagery_folders or []:
         args += ["--folder", f]
-    # Do NOT use overrides. Either rely on the Wizard default or pass our preset explicitly.
-    # If you replaced "PhotoMesh Default.PMPreset" with your XML, you can even drop --preset.
-    args += ["--preset", preset]  # or: ["--preset", PRESET_NAME]
+    # Prefer absolute preset path inside the detected Wizard Presets dir
+    preset_abs = os.path.join(_wizard_presets_dir(), f"{preset}.PMPreset")
+    if os.path.isfile(preset_abs):
+        args += ["--preset", preset_abs]
+        log(f"Using preset file: {preset_abs}")
+    else:
+        # Fallback to name if file missing (still works if preset is shipped by Skyline)
+        args += ["--preset", preset]
     if autostart:
         args.append("--autostart")
 
