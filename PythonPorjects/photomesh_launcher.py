@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecmp, time, uuid, errno
+import xml.etree.ElementTree as ET
 from typing import Iterable, Optional
 
 try:  # pragma: no cover - tkinter may not be available
@@ -699,3 +700,100 @@ def launch_photomesh_admin() -> None:
     """Launch PhotoMesh.exe elevated without arguments."""
     pm_exe = r"C:\\Program Files\\Skyline\\PhotoMesh\\PhotoMesh.exe"
     run_exe_as_admin(pm_exe, [])
+
+
+# ---------- Locate Wizard Presets ----------
+def _wizard_presets_dirs() -> list[str]:
+    """Return existing Wizard preset directories."""
+    return [d for d in WIZARD_PRESET_DIRS if os.path.isdir(d)]
+
+
+def _atomic_write_text(path: str, text: str) -> None:
+    """Atomically write text to path."""
+    tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    with open(tmp, "wb") as f:
+        f.write(text.encode("utf-8"))
+    os.replace(tmp, path)
+
+
+# ---------- Patch the 3D preset ----------
+def patch_3d_preset_obj_only(log=print) -> None:
+    """Force the Wizard's 3D preset to OBJ-only with center/ellipsoid options."""
+    ns_arrays = {"arr": "http://schemas.microsoft.com/2003/10/Serialization/Arrays"}
+    ET.register_namespace("arr", ns_arrays["arr"])
+
+    patched_any = False
+    for d in _wizard_presets_dirs():
+        preset_path = os.path.join(d, "3D.PMPreset")
+        if not os.path.isfile(preset_path):
+            log(f"⚠️  Not found: {preset_path}")
+            continue
+
+        bak = f"{preset_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        try:
+            shutil.copy2(preset_path, bak)
+            log(f"Backup → {bak}")
+        except Exception as e:  # pragma: no cover - best effort
+            log(f"Backup skipped: {e}")
+
+        tree = ET.parse(preset_path)
+        root = tree.getroot()
+
+        def ensure(tag: str) -> ET.Element:
+            e = root.find(f".//{tag}")
+            if e is None:
+                bp = root.find(".//BuildParameters")
+                e = ET.SubElement(bp if bp is not None else root, tag)
+            return e
+
+        of = root.find(".//OutputFormats")
+        if of is None:
+            of = ET.SubElement(ensure("BuildParameters"), "OutputFormats")
+        for c in list(of):
+            of.remove(c)
+        of.append(ET.Element(f"{{{ns_arrays['arr']}}}string"))
+        of[-1].text = "OBJ"
+
+        ensure("CenterModelsToProject").text = "true"
+        if root.find(".//CesiumReprojectZ") is None:
+            ET.SubElement(ensure("BuildParameters"), "CesiumReprojectZ").text = "true"
+        else:
+            root.find(".//CesiumReprojectZ").text = "true"
+
+        cp = root.find(".//CenterPivotToProject")
+        if cp is not None:
+            cp.text = "true"
+
+        desc = ensure("Description")
+        desc.text = (desc.text or "3D") + "  [OBJ-only via launcher]"
+        pn = ensure("PresetName")
+        if pn.text != "3D":
+            pn.text = "3D"
+
+        xml_str = ET.tostring(root, encoding="utf-8", xml_declaration=True).decode("utf-8")
+        _atomic_write_text(preset_path, xml_str)
+        log(f"✅ Patched: {preset_path}")
+        patched_any = True
+
+    if not patched_any:
+        log("❌ No Wizard Presets folder found / 3D.PMPreset missing.")
+
+
+# ---------- (Optional) disable WizardGenerated 3DML override ----------
+def disable_wizard_generated_override(log=print) -> None:
+    for d in _wizard_presets_dirs():
+        for fname in ("WizardGenerated_Output_3DML_.PMPreset", "WizardGenerated_Output.PMPreset"):
+            p = os.path.join(d, fname)
+            if os.path.isfile(p):
+                try:
+                    os.replace(p, p + ".disabled")
+                    log(f"🔒 Disabled override preset → {p}.disabled")
+                except Exception as e:  # pragma: no cover - best effort
+                    log(f"Skip disabling {p}: {e}")
+
+
+if __name__ == "__main__":  # pragma: no cover - manual run utility
+    print("Patching 3D.PMPreset to OBJ-only, with center/ellipsoid...")
+    patch_3d_preset_obj_only()
+    disable_wizard_generated_override()
+    print("Done. Launch the Wizard and open Presets to confirm.")
