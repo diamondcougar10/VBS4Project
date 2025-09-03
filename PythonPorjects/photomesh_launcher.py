@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecmp, time, uuid, errno
+import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, time, uuid, errno
 import xml.etree.ElementTree as ET
 from typing import Iterable, Optional
 
@@ -13,18 +13,6 @@ try:  # pragma: no cover - tkinter may not be available
 except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
 
-# Preset configuration
-PRESET_NAME = "STEPRESET"
-PRESET_PATH = os.path.join(
-    os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{PRESET_NAME}.PMPreset"
-)
-
-# Known Wizard preset directories (both legacy and tools paths)
-WIZARD_PRESET_DIRS = [
-    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\Presets",                # legacy path
-    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\Presets"  # tools path
-]
-
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
@@ -33,70 +21,6 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
 QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
 WORKING_FOLDER = r"C:\\WorkingFolder"
-
-# Embedded preset XML
-PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
-<BuildParametersPreset xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-  <SerializableVersion>8.0.4.50513</SerializableVersion>
-  <Version xmlns:d2p1="http://schemas.datacontract.org/2004/07/System">
-    <d2p1:_Build>4</d2p1:_Build>
-    <d2p1:_Major>8</d2p1:_Major>
-    <d2p1:_Minor>0</d2p1:_Minor>
-    <d2p1:_Revision>50513</d2p1:_Revision>
-  </Version>
-  <BuildParameters>
-    <SerializableVersion>8.0.4.50513</SerializableVersion>
-    <Version xmlns:d3p1="http://schemas.datacontract.org/2004/07/System">
-      <d3p1:_Build>4</d3p1:_Build>
-      <d3p1:_Major>8</d3p1:_Major>
-      <d3p1:_Minor>0</d3p1:_Minor>
-      <d3p1:_Revision>50513</d3p1:_Revision>
-    </Version>
-    <AddWalls>false</AddWalls>
-    <BuildATFlags>-m_tf 100 @Match2[DoSort=1] @Match2[max_matches_for_image=100] @Match2[num_cameras_per_group=10] @Match2[min_connected_to_camera=30] @Match2[num_features_per_collection=300] @Match2[total_num_features=900] @featuredetect2[GdalUseHistogram=1] @featuredetect2[GdalHistAllBands=0] @featuredetect2[GdalHistMin=0.0001] @featuredetect2[GdalHistMax=0.9999] @featuredetect2[ClaheClipLimit=2] @featuredetect2[ClaheGridPixelsX=256] @featuredetect2[ClaheGridPixelsY=256] @texturemesh[MaxThreads=4]</BuildATFlags>
-    <BuildFlags></BuildFlags>
-    <CenterModelsToProject>true</CenterModelsToProject>
-    <CesiumReprojectZ>true</CesiumReprojectZ>
-    <ColorTone>1.05</ColorTone>
-    <DsmSettings>
-      <SizeH>20000</SizeH>
-      <SizeW>20000</SizeW>
-    </DsmSettings>
-    <FillInGround>true</FillInGround>
-    <FocalLengthAccuracy>-1</FocalLengthAccuracy>
-    <HorizontalAccuracyFactor>0.1</HorizontalAccuracyFactor>
-    <IgnoreOrientation>false</IgnoreOrientation>
-    <LasMethod>FromImageCorrelation</LasMethod>
-    <OrthoSettings>
-      <SizeH>32768</SizeH>
-      <SizeW>32768</SizeW>
-    </OrthoSettings>
-    <OrthophotoCompressionRatio>98</OrthophotoCompressionRatio>
-    <OutputCoordinateSystem xmlns:d3p1="http://www.skylineglobe.com/schema-3dml">
-      <d3p1:OriginalWKT>PROJCS["UTM zone 15, Northern Hemisphere",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-93],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32615"]]</d3p1:OriginalWKT>
-      <d3p1:WKT>PROJCS["UTM zone 15, Northern Hemisphere",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-93],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32615"]]</d3p1:WKT>
-    </OutputCoordinateSystem>
-    <OutputFormats xmlns:d3p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
-      <d3p1:string>OBJ</d3p1:string>
-    </OutputFormats>
-    <PointCloudFormat>LAS</PointCloudFormat>
-    <PointCloudQuality>4</PointCloudQuality>
-    <PrincipalPointAccuracy>-1</PrincipalPointAccuracy>
-    <RadialAccuracy>false</RadialAccuracy>
-    <TangentialAccuracy>false</TangentialAccuracy>
-    <TileSplitMethod>Simple</TileSplitMethod>
-    <VerticalAccuracyFactor>0.1</VerticalAccuracyFactor>
-    <VerticalBias>false</VerticalBias>
-  </BuildParameters>
-  <Description>ste toolkit output preset </Description>
-  <IsDefault>false</IsDefault>
-  <IsLastUsed>false</IsLastUsed>
-  <IsSystem>false</IsSystem>
-  <IsSystemDefault>false</IsSystemDefault>
-  <PresetFileName i:nil="true" />
-  <PresetName>STEPRESET</PresetName>
-</BuildParametersPreset>
-"""
 
 # === 1) Paste the exact JSON we were given ===
 NEW_WIZARD_CFG = {
@@ -207,49 +131,6 @@ def _files_equal_text(existing_path: str, new_text: str) -> bool:
     except Exception:
         return False
 
-def _write_text_atomic(path: str, text: str, log=print) -> None:
-    dstdir = os.path.dirname(path)
-    _ensure_dir(dstdir)
-    if _files_equal_text(path, text):
-        log(f"Preset already up to date -> {path}")
-        return
-    tmp = os.path.join(dstdir, f".{os.path.basename(path)}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    with open(tmp, "wb") as f:
-        f.write(text.encode("utf-8"))
-    os.replace(tmp, path)
-    log(f"Preset written -> {path}")
-
-def install_embedded_preset(log=print) -> str:
-    """
-    Writes the embedded PRESET_XML to PRESET_PATH (AppData Presets).
-    Additionally stages the preset to known Wizard preset directories.
-    Returns the AppData PRESET_PATH that we control.
-    """
-    _write_text_atomic(PRESET_PATH, PRESET_XML, log=log)
-    for d in WIZARD_PRESET_DIRS:
-        dst = os.path.join(d, f"{PRESET_NAME}.PMPreset")
-        try:
-            _ensure_dir(d)
-            if not (os.path.isfile(dst) and filecmp.cmp(PRESET_PATH, dst, shallow=False)):
-                tmp = dst + f".{os.getpid()}.{uuid.uuid4().hex}.tmp"
-                shutil.copy2(PRESET_PATH, tmp)
-                try:
-                    os.replace(tmp, dst)
-                finally:
-                    if os.path.exists(tmp):
-                        try:
-                            os.remove(tmp)
-                        except Exception:
-                            pass
-                log(f"Staged preset -> {dst}")
-            else:
-                log(f"Preset already up to date -> {dst}")
-        except PermissionError as e:
-            log(f"Skipping staged copy (permission): {dst} ({e})")
-        except OSError as e:
-            log(f"Skipping staged copy (locked/in use): {dst} ({e})")
-
-    return PRESET_PATH
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
     return os.name == "nt"
@@ -316,18 +197,6 @@ def run_exe_as_admin_blocking(
     ]
     subprocess.run(ps, check=True, cwd=cwd or None)
 
-
-# -------------------- Preset staging --------------------
-if is_windows() and not is_admin():
-    print("[INFO] Elevation required. Relaunching as Administrator…")
-    relaunch_self_as_admin()
-    sys.exit(0)
-
-try:
-    installed = install_embedded_preset()
-    print(f"[CFG] Embedded preset installed to: {installed}")
-except Exception as e:
-    print(f"[WARN] Could not install embedded preset: {e}")
 
 # -------------------- Wizard detection --------------------
 def _detect_wizard_dir() -> str:
@@ -623,8 +492,6 @@ def enforce_wizard_install_config(
 # -------------------- User config helpers --------------------
 def ensure_wizard_user_defaults(autostart: bool = True) -> None:
     cfg = {
-        "SelectedPreset": PRESET_NAME,
-        "OverrideSettings": False,
         "AutoBuild": bool(autostart),
     }
     _save_json(WIZARD_USER_CFG, cfg)
@@ -664,77 +531,8 @@ def _wizard_install_config_paths() -> list[str]:
         r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     ]
 
-def clear_wizard_preset_overrides(log=print):
-    """
-    Remove any saved 'Selected Presets (last override)' so Wizard won't apply them.
-    Edits install-level and per-user Wizard config.json files if present.
-    """
-    import json, os
-
-    CANDIDATE_KEYS = {
-        "SelectedPresets", "Selected Presets",
-        "PresetOverrides", "LastPresetOverrides",
-        "LastOverrideSelection", "OverridePresetList",
-        "PresetStack", "SelectedPresetNames",
-    }
-
-    def _scrub(d):
-        if isinstance(d, dict):
-            for k in list(d.keys()):
-                if k in CANDIDATE_KEYS:
-                    d[k] = [] if isinstance(d[k], list) else {}
-                else:
-                    _scrub(d[k])
-        elif isinstance(d, list):
-            for x in d:
-                _scrub(x)
-
-    def _try_path(p):
-        if not os.path.isfile(p):
-            return False
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            _scrub(cfg)
-            # optional flags some builds honor
-            cfg.setdefault("PresetManager", {}).update({
-                "ApplyOverridesOnLaunch": False,
-                "UseLastPresetOverride": False,
-            })
-            with open(p, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
-            log(f"Cleared Wizard preset overrides → {p}")
-            return True
-        except Exception as e:
-            log(f"Skip clearing overrides at {p}: {e}")
-            return False
-
-    # Known locations
-    paths = []
-    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
-        if base:
-            paths.append(os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json"))
-            paths.append(os.path.join(base, "Skyline", "PhotoMeshWizard", "config.json"))  # legacy
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        paths.append(os.path.join(local, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json"))
-
-    touched = any(_try_path(p) for p in paths)
-    if not touched:
-        log("No Wizard config.json found to clear overrides.")
-
-# Resolve preset locations for the Wizard
-def _resolve_preset_for_wizard(preset_name: str) -> str | None:
-    """Return absolute path to <preset_name>.PMPreset in a Wizard Presets dir if found; else None."""
-    for d in WIZARD_PRESET_DIRS:
-        p = os.path.join(d, f"{preset_name}.PMPreset")
-        if os.path.isfile(p):
-            return p
-    p = os.path.join(os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Presets", f"{preset_name}.PMPreset")
-    return p if os.path.isfile(p) else None
-
-# -------------------- Launch Wizard with preset --------------------
-def launch_wizard_with_preset(
+# -------------------- Launch Wizard --------------------
+def launch_wizard(
     project_name: str,
     project_path: str,
     imagery_folders: Iterable[str],
@@ -742,18 +540,16 @@ def launch_wizard_with_preset(
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     want_ortho: bool = False,
-    preset: str = PRESET_NAME,
     log=print,
 ) -> subprocess.Popen:
-    """Start PhotoMesh Wizard with an explicit preset."""
+    """Start PhotoMesh Wizard using default configuration."""
 
-    # Minimal install-config seeding: allow Wizard to start
     try:
         enforce_wizard_install_config(
             model3d=True,
             obj=True,
-            d3dml=True if not want_ortho else True,   # keep 3DML on in UI so Wizard can start
-            ortho_ui=bool(want_ortho),                # UI checkbox only
+            d3dml=True if not want_ortho else True,
+            ortho_ui=bool(want_ortho),
             center_pivot=True,
             ellipsoid=True,
             fuser_unc=fuser_unc,
@@ -762,16 +558,7 @@ def launch_wizard_with_preset(
     except PermissionError:
         log("⚠️ Could not update install config (permission). Continuing.")
 
-    # Clear any remembered preset/UI overrides so the .PMPreset is honored
-    clear_wizard_preset_overrides(log=log)
-
-    # Resolve absolute preset path inside a Wizard Presets folder
-    preset_abs = _resolve_preset_for_wizard(preset or PRESET_NAME)
-    if not preset_abs:
-        raise FileNotFoundError(f"Preset not found in Wizard Presets: {preset or PRESET_NAME}")
-
-    # Build CLI: NO --overrideSettings
-    args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path, "--preset", preset_abs]
+    args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path]
     if autostart:
         args.append("--autostart")
     for f in imagery_folders or []:
@@ -779,27 +566,10 @@ def launch_wizard_with_preset(
 
     log(f"[Wizard] WIZARD_DIR: {WIZARD_DIR}")
     log(f"[Wizard] WIZARD_EXE: {WIZARD_EXE}")
-    log(f"[Wizard] Using preset file: {preset_abs}")
     log(f"[Wizard] Launch cmd: {args}")
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
-
-
-def launch_wizard_autostart_admin(
-    project_name: str, project_path: str, folders: list[str]
-) -> None:
-    """Launch PhotoMesh Wizard as admin with autostart and hard-coded preset."""
-    wizard_exe = r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\PhotoMeshWizard.exe"
-    args = [
-        "--projectName", project_name,
-        "--projectPath", project_path,
-        "--autostart",
-        "--preset", PRESET_NAME,
-    ]
-    for folder in folders:
-        args += ["--folder", folder]
-    run_exe_as_admin(wizard_exe, args)
 
 
 def launch_photomesh_admin() -> None:
@@ -825,17 +595,6 @@ def find_photomesh_exe() -> str:
             return exe
     raise FileNotFoundError("PhotoMesh.exe not found under Program Files.")
 
-
-def engine_presets_dir() -> str:
-    """Return the PhotoMesh engine presets directory."""
-    for base in _program_files_candidates():
-        d = os.path.join(base, "Skyline", "PhotoMesh", "Presets")
-        if os.path.isdir(d):
-            return d
-    pf = os.environ.get("ProgramFiles") or ""
-    d = os.path.join(pf, "Skyline", "PhotoMesh", "Presets")
-    os.makedirs(d, exist_ok=True)
-    return d
 
 
 def queue_alive(timeout: float = 2.0) -> bool:
@@ -873,37 +632,10 @@ def ensure_photomesh_queue_running(log=print, wait_seconds: int = 45) -> None:
     )
 
 
-def stage_engine_preset_from_text(
-    preset_xml: str, preset_name: str = PRESET_NAME, log=print
-) -> str:
-    dst_dir = engine_presets_dir()
-    os.makedirs(dst_dir, exist_ok=True)
-    dst = os.path.join(dst_dir, f"{preset_name}.PMPreset")
-    tmp = f"{dst}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(preset_xml)
-    shutil.move(tmp, dst)
-    log(f"[Engine] Preset staged → {dst}")
-    return dst
-
-
-def stage_engine_preset_from_file(
-    src_path: str, preset_name: str = PRESET_NAME, log=print
-) -> str:
-    if not os.path.isfile(src_path):
-        raise FileNotFoundError(src_path)
-    dst = os.path.join(engine_presets_dir(), f"{preset_name}.PMPreset")
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src_path, dst)
-    log(f"[Engine] Preset copied → {dst}")
-    return dst
-
-
 def queue_payload(
     project_name: str,
     project_dir: str,
     image_folders: Iterable[str],
-    preset_name: str = PRESET_NAME,
 ) -> list[dict]:
     project_xml = os.path.join(project_dir, f"{project_name}.PhotoMeshXML")
     os.makedirs(project_dir, exist_ok=True)
@@ -919,7 +651,6 @@ def queue_payload(
             "buildFrom": 1,
             "buildUntil": 6,
             "inheritBuild": "",
-            "preset": preset_name,
             "workingFolder": WORKING_FOLDER,
             "MaxLocalFusers": 8,
             "MaxAWSFusers": 0,
@@ -965,120 +696,3 @@ def poll_queue_until_done(poll_every: int = 5, max_minutes: int = 120, log=print
         time.sleep(poll_every)
     log("[Queue] Monitor window expired.")
 
-
-def run_build_via_queue(
-    project_name: str,
-    project_dir: str,
-    image_folders: list[str],
-    preset_xml_or_path: str,
-    is_xml_text: bool,
-    log=print,
-) -> None:
-    ensure_photomesh_queue_running(log=log)
-    if is_xml_text:
-        stage_engine_preset_from_text(preset_xml_or_path, preset_name=PRESET_NAME, log=log)
-    else:
-        stage_engine_preset_from_file(preset_xml_or_path, preset_name=PRESET_NAME, log=log)
-    payload = queue_payload(project_name, project_dir, image_folders, preset_name=PRESET_NAME)
-    submit_queue_build(payload, log=log)
-    # Optional monitoring
-    # poll_queue_until_done(log=log)
-
-
-# ---------- Locate Wizard Presets ----------
-def _wizard_presets_dirs() -> list[str]:
-    """Return existing Wizard preset directories."""
-    return [d for d in WIZARD_PRESET_DIRS if os.path.isdir(d)]
-
-
-def _atomic_write_text(path: str, text: str) -> None:
-    """Atomically write text to path."""
-    tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-    with open(tmp, "wb") as f:
-        f.write(text.encode("utf-8"))
-    os.replace(tmp, path)
-
-
-# ---------- Patch the 3D preset ----------
-def patch_3d_preset_obj_only(log=print) -> None:
-    """Force the Wizard's 3D preset to OBJ-only with center/ellipsoid options."""
-    ns_arrays = {"arr": "http://schemas.microsoft.com/2003/10/Serialization/Arrays"}
-    ET.register_namespace("arr", ns_arrays["arr"])
-
-    patched_any = False
-    for d in _wizard_presets_dirs():
-        preset_path = os.path.join(d, "3D.PMPreset")
-        if not os.path.isfile(preset_path):
-            log(f"⚠️  Not found: {preset_path}")
-            continue
-
-        bak = f"{preset_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
-        try:
-            shutil.copy2(preset_path, bak)
-            log(f"Backup → {bak}")
-        except Exception as e:  # pragma: no cover - best effort
-            log(f"Backup skipped: {e}")
-
-        tree = ET.parse(preset_path)
-        root = tree.getroot()
-
-        def ensure(tag: str) -> ET.Element:
-            e = root.find(f".//{tag}")
-            if e is None:
-                bp = root.find(".//BuildParameters")
-                e = ET.SubElement(bp if bp is not None else root, tag)
-            return e
-
-        of = root.find(".//OutputFormats")
-        if of is None:
-            of = ET.SubElement(ensure("BuildParameters"), "OutputFormats")
-        for c in list(of):
-            of.remove(c)
-        of.append(ET.Element(f"{{{ns_arrays['arr']}}}string"))
-        of[-1].text = "OBJ"
-
-        ensure("CenterModelsToProject").text = "true"
-        if root.find(".//CesiumReprojectZ") is None:
-            ET.SubElement(ensure("BuildParameters"), "CesiumReprojectZ").text = "true"
-        else:
-            root.find(".//CesiumReprojectZ").text = "true"
-
-        cp = root.find(".//CenterPivotToProject")
-        if cp is not None:
-            cp.text = "true"
-
-        desc = ensure("Description")
-        desc.text = (desc.text or "3D") + "  [OBJ-only via launcher]"
-        pn = ensure("PresetName")
-        if pn.text != "3D":
-            pn.text = "3D"
-
-        xml_str = ET.tostring(root, encoding="utf-8", xml_declaration=True).decode("utf-8")
-        _atomic_write_text(preset_path, xml_str)
-        log(f"✅ Patched: {preset_path}")
-        patched_any = True
-
-    if not patched_any:
-        log("❌ No Wizard Presets folder found / 3D.PMPreset missing.")
-
-
-# ---------- (Optional) disable WizardGenerated 3DML override ----------
-def disable_wizard_generated_override(log=print) -> None:
-    for d in _wizard_presets_dirs():
-        for fname in ("WizardGenerated_Output_3DML_.PMPreset", "WizardGenerated_Output.PMPreset"):
-            p = os.path.join(d, fname)
-            if os.path.isfile(p):
-                try:
-                    os.replace(p, p + ".disabled")
-                    log(f"🔒 Disabled override preset → {p}.disabled")
-                except Exception as e:  # pragma: no cover - best effort
-                    log(f"Skip disabling {p}: {e}")
-
-
-if __name__ == "__main__":  # pragma: no cover - manual run utility
-    install_wizard_config()
-    print("Done. Launch PhotoMesh Wizard and verify Options reflect the new defaults.")
-    print("Patching 3D.PMPreset to OBJ-only, with center/ellipsoid...")
-    patch_3d_preset_obj_only()
-    disable_wizard_generated_override()
-    print("Done. Launch the Wizard and open Presets to confirm.")
