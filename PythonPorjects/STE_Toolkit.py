@@ -22,7 +22,6 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    enforce_wizard_install_config,
     launch_wizard,
     get_offline_cfg,
     ensure_offline_share_exists,
@@ -71,11 +70,110 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def _wizard_install_config_paths() -> list[str]:
-    return [
-        r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",                 # NEW
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json", # legacy
-    ]
+# --- BEGIN exact Wizard config installer (replaces enable_obj_in_photomesh_config) ---
+import os, json, time, shutil, uuid
+
+# Paste your NEW config EXACTLY here (no extra fields):
+NEW_WIZARD_CFG = {
+    "PhotomeshRestUrl": "http://localhost:8086",
+    "NameEllipsoid": "WGS 84",
+    "DatumEllipsoid": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]",
+    "NameGeoid": "WGS 84 + EGM96 geoid height",
+    "DatumGeoid": "COMPD_CS[\"WGS 84 + EGM96 geoid height\", GEOGCS[\"WGS 84\", DATUM[\"WGS_1984\", SPHEROID[\"WGS 84\", 6378137, 298.257223563, AUTHORITY[\"EPSG\", \"7030\"]], AUTHORITY[\"EPSG\", \"6326\"]], PRIMEM[\"Greenwich\", 0, AUTHORITY[\"EPSG\", \"8901\"]], UNIT[\"degree\", 0.0174532925199433, AUTHORITY[\"EPSG\", \"9122\"]], AUTHORITY[\"EPSG\", \"4326\"]], VERT_CS[\"EGM96 geoid height\", VERT_DATUM[\"EGM96 geoid\", 2005, AUTHORITY[\"EPSG\", \"5171\"], EXTENSION[\"PROJ4_GRIDS\", \"egm96_15.gtx\"]], UNIT[\"m\", 1.0], AXIS[\"Up\", UP], AUTHORITY[\"EPSG\", \"5773\"]]]",
+    "SecondsPerFrame": 1.0,
+    "StandardWaitTime": 1500,
+    "UseMinimize": True,
+    "UseLowPriorityPM": False,
+    "UseRawRequests": False,
+    "EnableTextureMeshMaxThreads": True,
+    "OutputsWaitTimerSeconds": 0,
+    "ClosePMWhenDone": True,
+    "DefaultPhotoMeshWizardUI": {
+        "VerticalDatum": "Ellipsoid",
+        "GPSAccuracy": "Standard",
+        "CollectionType": "3DMapping",
+        "OptimizeShadow": True,
+        "OutputProducts": {
+            "Model3D": True,
+            "Ortho": False,
+            "DSM": False,
+            "DTM": False,
+            "LAS": False
+        },
+        "Model3DFormats": {
+            "3DML": True,
+            "OBJ": True,
+            "SLPK": True
+        },
+        "ProcessingLevel": "Standard",
+        "StopOnError": False,
+        "MaxProcessing": False
+    },
+    "GBPerFuser": 24,
+    "UseDepthAnything": False,
+    "PMWServiceTimeoutInMinutes": 1440,
+    "NetworkWorkingFolder": "\\\\KIT1-1\\SharedMeshDrive\\WorkingFuser"
+}
+
+def _wizard_config_targets():
+    """
+    All typical Wizard config.json locations:
+      - C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json           (legacy)
+      - C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json
+      - %LOCALAPPDATA%\\Skyline\\PhotoMesh\\PhotomeshWizard\\config.json   (per-user)
+    """
+    t = []
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        if base:
+            t.append(os.path.join(base, "Skyline", "PhotoMeshWizard", "config.json"))
+            t.append(os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json"))
+    la = os.environ.get("LOCALAPPDATA")
+    if la:
+        user_cfg = os.path.join(la, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json")
+        os.makedirs(os.path.dirname(user_cfg), exist_ok=True)
+        t.append(user_cfg)
+    return t
+
+def _backup(path: str):
+    if os.path.isfile(path):
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, f"{path}.bak.{ts}")
+
+def _atomic_write_json(path: str, data: dict):
+    tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+def enforce_wizard_config_exact(log=print) -> None:
+    """
+    Overwrite Wizard config.json at all known locations with NEW_WIZARD_CFG exactly.
+    No merges, no setdefault, no extra keys. Must run as Admin for Program Files paths.
+    """
+    wrote = False
+    for dst in _wizard_config_targets():
+        parent = os.path.dirname(dst)
+        if not os.path.isdir(parent):
+            # Skip Program Files path that doesn't exist on this machine
+            log(f"[SKIP] {dst} (parent missing)")
+            continue
+        try:
+            _backup(dst)
+            _atomic_write_json(dst, NEW_WIZARD_CFG)
+            # sanity check: read back and compare parsed JSON
+            with open(dst, "r", encoding="utf-8") as f:
+                back = json.load(f)
+            if back != NEW_WIZARD_CFG:
+                raise RuntimeError("config mismatch after write")
+            log(f"✅ Installed EXACT Wizard config → {dst}")
+            wrote = True
+        except PermissionError as e:
+            log(f"⚠️ Permission denied writing {dst}. Run as Administrator. ({e})")
+        except Exception as e:
+            log(f"⚠️ Failed writing {dst}: {e}")
+    if not wrote:
+        log("❌ No config.json updated.")
+# --- END exact Wizard config installer ---
 
 _lock_file = None
 #------------SINGLETON DEF------------------------------------------------------
@@ -653,41 +751,6 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
 
 
 
-def enable_obj_in_photomesh_config():
-    import json, os
-
-    updated_any = False
-    for config_path in _wizard_install_config_paths():
-        if not os.path.isfile(config_path):
-            continue
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-            outs = ui.setdefault("OutputProducts", {})
-            # Keep base 3D model product ON; Ortho OFF by default in UI.
-            outs["3DModel"] = True
-            outs["Ortho"]   = False
-            m3d = ui.setdefault("Model3DFormats", {})
-            # Ensure base 3D format (3DML) is ON and keep OBJ ON as an extra export.
-            # Optionally turn other formats off to avoid surprises.
-            for k, v in list(m3d.items()):
-                if isinstance(v, bool) and k not in ("OBJ", "3DML"):
-                    m3d[k] = False
-            m3d["3DML"] = True   # CRITICAL: keep base 3D model enabled
-            m3d["OBJ"]  = True
-            ui["CenterPivotToProject"] = True
-            ui["CenterModelsToProject"] = True
-            ui["ReprojectToEllipsoid"] = True
-
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
-            print(f"✅ Updated Wizard config at: {config_path}")
-            updated_any = True
-        except Exception as e:
-            print(f"⚠️ Failed to update {config_path}: {e}")
-    if not updated_any:
-        print("❌ No install-level Wizard config.json found to update")
 
 def _copytree_progress(src: str, dst: str, progress_cb=None) -> None:
     """Recursively copy *src* to *dst* reporting progress."""
@@ -2580,7 +2643,7 @@ class VBS4Panel(tk.Frame):
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
-        enable_obj_in_photomesh_config()
+        enforce_wizard_config_exact(log=self.controller.log_message if hasattr(self.controller, "log_message") else print)
 
         tk.Label(
             self,
@@ -3407,19 +3470,11 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            host = config.get("Offline", "working_fuser_host", fallback="KIT1-1").strip()
-        except Exception:
-            host = "KIT1-1"
-        fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-        enforce_wizard_install_config(ortho_ui=False)
-
-        try:
             proc = launch_wizard(
                 project_name,
                 project_path,
                 self.image_folder_paths,
                 autostart=True,
-                fuser_unc=fuser_unc,
                 want_ortho=False,  # explicitly disable Ortho
                 log=self.log_message,
             )
