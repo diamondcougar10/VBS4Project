@@ -65,7 +65,7 @@ NEW_WIZARD_CFG = {
 }
 
 def _wizard_config_targets():
-    """
+    r"""
     All typical Wizard config.json locations:
       - Legacy:   C:\Program Files\Skyline\PhotoMeshWizard\config.json
       - Tools:    C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\config.json
