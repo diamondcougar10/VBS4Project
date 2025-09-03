@@ -84,6 +84,21 @@ except StopIteration:  # pragma: no cover - missing install
 WIZ_CFG = os.path.join(WIZ_DIR, "config.json")
 
 
+def _wizard_presets_dirs() -> list[str]:
+    return [
+        r"C:\Program Files\Skyline\PhotoMeshWizard\Presets",
+        r"C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\Presets",
+    ]
+
+
+def _resolve_wizard_preset(name: str) -> str:
+    for d in _wizard_presets_dirs():
+        p = os.path.join(d, f"{name}.PMPreset")
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
 def _repair_output_and_pivot(
     preset_path: str, preset_name: str, log: logging.Logger | callable = logging.info
 ) -> None:
@@ -129,6 +144,9 @@ def stage_install_preset(repo_preset_path: str, preset_name: str) -> str:
     dst = os.path.join(PM_PRESETS_DIR, f"{preset_name}.PMPreset")
     shutil.copy2(repo_preset_path, dst)
     _repair_output_and_pivot(dst, preset_name)
+    for d in _wizard_presets_dirs():
+        os.makedirs(d, exist_ok=True)
+        shutil.copy2(dst, os.path.join(d, f"{preset_name}.PMPreset"))
     return dst
 
 
@@ -161,7 +179,7 @@ def enforce_wizard_defaults_obj_only() -> None:
         if isinstance(v, bool):
             m3d[k] = False
     m3d["OBJ"] = True
-    m3d["3DML"] = False
+    m3d["3DML"] = True
     ui["CenterPivotToProject"] = True
     ui["CenterModelsToProject"] = True
     ui["ReprojectToEllipsoid"] = True
@@ -176,15 +194,17 @@ def launch_autostart_build(
     """Launch the Wizard with ``--autostart`` using an install-level preset."""
 
     enforce_wizard_defaults_obj_only()
+    preset_abs = _resolve_wizard_preset(preset_name) or preset_name
+    logging.info(f"[wizard] exe: {WIZ_EXE}")
+    logging.info(f"[wizard] preset: {preset_abs}")
     args = [
         WIZ_EXE,
         "--projectName",
         project_name,
         "--projectPath",
         project_path,
-        "--overrideSettings",
         "--preset",
-        preset_name,
+        preset_abs,
         "--autostart",
     ]
     for f in folders:
