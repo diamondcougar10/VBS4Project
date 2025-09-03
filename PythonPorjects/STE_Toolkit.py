@@ -667,7 +667,7 @@ def set_active_wizard_preset(preset_name="CPP&OBJ"):
 
     config = {
         "SelectedPreset": preset_name,
-        "OverrideSettings": True,
+        "OverrideSettings": False,
         "AutoBuild": True  # Optional: auto-start build
     }
 
