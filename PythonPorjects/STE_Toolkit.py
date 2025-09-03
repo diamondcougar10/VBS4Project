@@ -22,7 +22,9 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    launch_wizard,
+    install_exact_wizard_config,
+    clear_user_overrides,
+    launch_wizard_ui_override,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -98,7 +100,7 @@ NEW_WIZARD_CFG = {
             "Ortho": False,
             "DSM": False,
             "DTM": False,
-            "LAS": False
+            "LAS": True
         },
         "Model3DFormats": {
             "3DML": True,
@@ -107,7 +109,10 @@ NEW_WIZARD_CFG = {
         },
         "ProcessingLevel": "Standard",
         "StopOnError": False,
-        "MaxProcessing": False
+        "MaxProcessing": False,
+        "CenterPivotToProject": True,
+        "CenterModelsToProject": True,
+        "ReprojectToEllipsoid": True
     },
     "GBPerFuser": 24,
     "UseDepthAnything": False,
@@ -3470,15 +3475,16 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            proc = launch_wizard(
+            install_exact_wizard_config(log=self.log_message)
+            clear_user_overrides(log=self.log_message)
+            proc = launch_wizard_ui_override(
                 project_name,
                 project_path,
                 self.image_folder_paths,
                 autostart=True,
-                want_ortho=False,  # explicitly disable Ortho
                 log=self.log_message,
             )
-            self.log_message("PhotoMesh Wizard launched with --autostart.")
+            self.log_message("PhotoMesh Wizard launched with --overrideSettings.")
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
             self.start_progress_monitor(project_path)
