@@ -15,6 +15,46 @@ except Exception:  # pragma: no cover - headless/test environments
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+config = configparser.ConfigParser()
+config.read(CONFIG_PATH)
+
+# ---------- Host / UNC helpers (read from GUI Settings) ----------
+def _read_photomesh_host() -> str:
+    """
+    Resolve the PhotoMesh 'host' from config.ini written by your GUI Settings.
+    Checked keys (first one that exists & non-empty wins):
+      [Offline] working_fuser_host | host_name | network_host | fuser_host
+      [Network] host
+    Fallback: 'KIT1-1'
+    """
+    try:
+        config.read(CONFIG_PATH)
+        if config.has_section("Offline"):
+            for key in ("working_fuser_host", "host_name", "network_host", "fuser_host"):
+                if config.has_option("Offline", key):
+                    v = config.get("Offline", key).strip()
+                    if v:
+                        return v
+        if config.has_section("Network") and config.has_option("Network", "host"):
+            v = config.get("Network", "host").strip()
+            if v:
+                return v
+    except Exception:
+        pass
+    return "KIT1-1"
+
+
+def working_share_root() -> str:
+    """UNC to the root share on the host (no hardcoded name)."""
+    return rf"\\{_read_photomesh_host()}\SharedMeshDrive"
+
+
+def working_fuser_unc() -> str:
+    """UNC to the WorkingFuser subfolder (common pattern in your code)."""
+    return os.path.join(working_share_root(), "WorkingFuser")
+
+# NOTE: If you still have any old helpers that used COMPUTERNAME to build a UNC,
+# delete them and use working_share_root()/working_fuser_unc() instead.
 
 # Queue endpoints and working directory used by the PhotoMesh engine
 QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
@@ -85,11 +125,6 @@ STICKY_PRESET_KEYS = (
 )
 
 
-def _host_unc():
-    host = os.environ.get("COMPUTERNAME") or socket.gethostname()
-    return rf"\\{host}\SharedMeshDrive\WorkingFuser"
-
-
 def force_obj_defaults_and_clear_overrides(log=print) -> list[str]:
     """Write strict defaults and remove preset stickiness for the Wizard."""
     touched: list[str] = []
@@ -122,7 +157,7 @@ def force_obj_defaults_and_clear_overrides(log=print) -> list[str]:
             ui["CenterModelsToProject"] = True
             ui["ReprojectToEllipsoid"] = True
 
-            cfg["NetworkWorkingFolder"] = _host_unc()
+            cfg["NetworkWorkingFolder"] = working_fuser_unc()
 
             lower_app = os.environ.get("APPDATA", "").lower()
             lower_la = os.environ.get("LOCALAPPDATA", "").lower()
@@ -174,6 +209,9 @@ def launch_wizard_with_defaults(
 
 def launch_photomesh_wizard(project_name: str, project_path: str, folders: Iterable[str]) -> subprocess.Popen:
     """Launch PhotoMesh Wizard with enforced OBJ defaults."""
+    h = _read_photomesh_host()
+    print(f"[PhotoMesh] Host from Settings: {h}")
+    print(f"[PhotoMesh] WorkingFuser UNC: {working_fuser_unc()}")
     return launch_wizard_with_defaults(project_name, project_path, list(folders), autostart=True, log=print)
 
 # -------------------- Admin helpers --------------------
@@ -280,12 +318,12 @@ def get_offline_cfg() -> dict:
         "use_ip_unc": o.getboolean("use_ip_unc", False),
     }
 
-def build_unc(o: dict) -> str:
+def build_unc_from_cfg(o: dict) -> str:
     host = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
     return rf"\\\\{host}\\{o['share_name']}"
 
-def working_fuser_unc(o: dict) -> str:
-    return os.path.join(build_unc(o), o["working_fuser_subdir"])
+def working_fuser_unc_from_cfg(o: dict) -> str:
+    return os.path.join(build_unc_from_cfg(o), o["working_fuser_subdir"])
 
 def resolve_network_working_folder_from_cfg(o: dict) -> str:
     base = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
@@ -530,6 +568,8 @@ __all__ = [
     "launch_wizard_with_defaults",
     "launch_photomesh_wizard",
     "launch_wizard",
+    "working_share_root",
+    "working_fuser_unc",
     "get_offline_cfg",
     "ensure_offline_share_exists",
     "can_access_unc",
