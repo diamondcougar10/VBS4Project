@@ -3450,7 +3450,7 @@ class VBS4Panel(tk.Frame):
                 preset=PRESET_NAME,
                 autostart=True,
                 fuser_unc=fuser_unc,
-                want_ortho=False,
+                want_ortho=False,  # explicitly disable Ortho
                 log=self.log_message,
             )
             self.log_message("PhotoMesh Wizard launched with --autostart.")

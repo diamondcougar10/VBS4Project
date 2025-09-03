@@ -538,11 +538,12 @@ def enforce_photomesh_settings(autostart: bool = True) -> None:
 
 
 def _ensure_valid_outputs(config_path: str, log=print) -> None:
-    """Fix 'no outputs' deadlock: if Ortho is off, ensure Model3D+3DML are on."""
+    import json, os
+    if not os.path.isfile(config_path):
+        return
     try:
-        if not os.path.isfile(config_path):
-            return
-        cfg = _load_json(config_path)
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
         ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
         outs = ui.setdefault("OutputProducts", {})
         m3d = ui.setdefault("Model3DFormats", {})
@@ -550,10 +551,11 @@ def _ensure_valid_outputs(config_path: str, log=print) -> None:
             if not outs.get("3DModel", False) or not m3d.get("3DML", False):
                 outs["3DModel"] = True
                 m3d["3DML"] = True
-                _save_json(config_path, cfg)
-                log(f"🛠️ Patched outputs for valid 3D base at: {config_path}")
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+                log(f"🛠️ Patched outputs: {config_path}")
     except Exception as e:
-        log(f"⚠️ Output validation skipped for {config_path}: {e}")
+        log(f"⚠️ Could not validate outputs in {config_path}: {e}")
 
 
 def _wizard_install_config_paths() -> list[str]:
@@ -593,7 +595,7 @@ def launch_wizard_with_preset(
     except PermissionError:
         log("⚠️ Could not update install config (permission). Continuing.")
 
-    # Final sanity: repair outputs if older config slipped through
+    # Repair legacy configs that could stall the Wizard when Ortho is off
     for cfg_path in _wizard_install_config_paths():
         _ensure_valid_outputs(cfg_path, log=log)
 
@@ -601,13 +603,13 @@ def launch_wizard_with_preset(
         WIZARD_EXE,
         "--projectName", project_name,
         "--projectPath", project_path,
-        "--overrideSettings",
-        "--preset", preset,
     ]
-    if autostart:
-        args.append("--autostart")
     for f in imagery_folders or []:
         args += ["--folder", f]
+    # Force preset + overrides; autostart optional
+    args += ["--overrideSettings", "--preset", preset]
+    if autostart:
+        args.append("--autostart")
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
