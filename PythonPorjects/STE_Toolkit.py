@@ -22,9 +22,9 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    install_exact_wizard_config,
     clear_user_overrides,
-    launch_wizard_ui_override,
+    find_wizard_exe,
+    merge_wizard_defaults,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -72,113 +72,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# --- BEGIN exact Wizard config installer (replaces enable_obj_in_photomesh_config) ---
-import os, json, time, shutil, uuid
-
-# Paste your NEW config EXACTLY here (no extra fields):
-NEW_WIZARD_CFG = {
-    "PhotomeshRestUrl": "http://localhost:8086",
-    "NameEllipsoid": "WGS 84",
-    "DatumEllipsoid": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]",
-    "NameGeoid": "WGS 84 + EGM96 geoid height",
-    "DatumGeoid": "COMPD_CS[\"WGS 84 + EGM96 geoid height\", GEOGCS[\"WGS 84\", DATUM[\"WGS_1984\", SPHEROID[\"WGS 84\", 6378137, 298.257223563, AUTHORITY[\"EPSG\", \"7030\"]], AUTHORITY[\"EPSG\", \"6326\"]], PRIMEM[\"Greenwich\", 0, AUTHORITY[\"EPSG\", \"8901\"]], UNIT[\"degree\", 0.0174532925199433, AUTHORITY[\"EPSG\", \"9122\"]], AUTHORITY[\"EPSG\", \"4326\"]], VERT_CS[\"EGM96 geoid height\", VERT_DATUM[\"EGM96 geoid\", 2005, AUTHORITY[\"EPSG\", \"5171\"], EXTENSION[\"PROJ4_GRIDS\", \"egm96_15.gtx\"]], UNIT[\"m\", 1.0], AXIS[\"Up\", UP], AUTHORITY[\"EPSG\", \"5773\"]]]",
-    "SecondsPerFrame": 1.0,
-    "StandardWaitTime": 1500,
-    "UseMinimize": True,
-    "UseLowPriorityPM": False,
-    "UseRawRequests": False,
-    "EnableTextureMeshMaxThreads": True,
-    "OutputsWaitTimerSeconds": 0,
-    "ClosePMWhenDone": True,
-    "DefaultPhotoMeshWizardUI": {
-        "VerticalDatum": "Ellipsoid",
-        "GPSAccuracy": "Standard",
-        "CollectionType": "3DMapping",
-        "OptimizeShadow": True,
-        "OutputProducts": {
-            "Model3D": True,
-            "Ortho": False,
-            "DSM": False,
-            "DTM": False,
-            "LAS": True
-        },
-        "Model3DFormats": {
-            "3DML": True,
-            "OBJ": True,
-            "SLPK": True
-        },
-        "ProcessingLevel": "Standard",
-        "StopOnError": False,
-        "MaxProcessing": False,
-        "CenterPivotToProject": True,
-        "CenterModelsToProject": True,
-        "ReprojectToEllipsoid": True
-    },
-    "GBPerFuser": 24,
-    "UseDepthAnything": False,
-    "PMWServiceTimeoutInMinutes": 1440,
-    "NetworkWorkingFolder": "\\\\KIT1-1\\SharedMeshDrive\\WorkingFuser"
-}
-
-def _wizard_config_targets():
-    """
-    All typical Wizard config.json locations:
-      - C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json           (legacy)
-      - C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json
-      - %LOCALAPPDATA%\\Skyline\\PhotoMesh\\PhotomeshWizard\\config.json   (per-user)
-    """
-    t = []
-    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
-        if base:
-            t.append(os.path.join(base, "Skyline", "PhotoMeshWizard", "config.json"))
-            t.append(os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json"))
-    la = os.environ.get("LOCALAPPDATA")
-    if la:
-        user_cfg = os.path.join(la, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json")
-        os.makedirs(os.path.dirname(user_cfg), exist_ok=True)
-        t.append(user_cfg)
-    return t
-
-def _backup(path: str):
-    if os.path.isfile(path):
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        shutil.copy2(path, f"{path}.bak.{ts}")
-
-def _atomic_write_json(path: str, data: dict):
-    tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, path)
-
-def enforce_wizard_config_exact(log=print) -> None:
-    """
-    Overwrite Wizard config.json at all known locations with NEW_WIZARD_CFG exactly.
-    No merges, no setdefault, no extra keys. Must run as Admin for Program Files paths.
-    """
-    wrote = False
-    for dst in _wizard_config_targets():
-        parent = os.path.dirname(dst)
-        if not os.path.isdir(parent):
-            # Skip Program Files path that doesn't exist on this machine
-            log(f"[SKIP] {dst} (parent missing)")
-            continue
-        try:
-            _backup(dst)
-            _atomic_write_json(dst, NEW_WIZARD_CFG)
-            # sanity check: read back and compare parsed JSON
-            with open(dst, "r", encoding="utf-8") as f:
-                back = json.load(f)
-            if back != NEW_WIZARD_CFG:
-                raise RuntimeError("config mismatch after write")
-            log(f"✅ Installed EXACT Wizard config → {dst}")
-            wrote = True
-        except PermissionError as e:
-            log(f"⚠️ Permission denied writing {dst}. Run as Administrator. ({e})")
-        except Exception as e:
-            log(f"⚠️ Failed writing {dst}: {e}")
-    if not wrote:
-        log("❌ No config.json updated.")
-# --- END exact Wizard config installer ---
 
 _lock_file = None
 #------------SINGLETON DEF------------------------------------------------------
@@ -2648,7 +2541,6 @@ class VBS4Panel(tk.Frame):
         self.create_battlespaces_button()
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
-        enforce_wizard_config_exact(log=self.controller.log_message if hasattr(self.controller, "log_message") else print)
 
         tk.Label(
             self,
@@ -3475,15 +3367,36 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            install_exact_wizard_config(log=self.log_message)
+            try:
+                merge_wizard_defaults(CONFIG_PATH, log=self.log_message)
+            except Exception as e:
+                self.log_message(f"[Wizard cfg merge] {e}")
+
+            try:
+                wizard_exe = find_wizard_exe()
+            except Exception as e:
+                error_message = f"Failed to start PhotoMesh Wizard.\nError: {e}"
+                self.log_message(error_message)
+                messagebox.showerror("Launch Error", error_message, parent=self)
+                return
+
             clear_user_overrides(log=self.log_message)
-            proc = launch_wizard_ui_override(
+            args = [
+                wizard_exe,
+                "--projectName",
                 project_name,
+                "--projectPath",
                 project_path,
-                self.image_folder_paths,
-                autostart=True,
-                log=self.log_message,
+                "--overrideSettings",
+            ]
+            args.append("--autostart")
+            for folder in self.image_folder_paths:
+                args += ["--folder", folder]
+            self.log_message(
+                "[Wizard] Launch with UI overrides:\n" +
+                " ".join([f'\"{a}\"' if " " in a else a for a in args])
             )
+            proc = subprocess.Popen(args, close_fds=False)
             self.log_message("PhotoMesh Wizard launched with --overrideSettings.")
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
@@ -3496,7 +3409,7 @@ class VBS4Panel(tk.Frame):
             if messagebox.askyesno(
                 "Open Folder", "Would you like to open the project folder?", parent=self
             ):
-                os.startfile(project_path)
+                open_in_explorer(project_path)
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"

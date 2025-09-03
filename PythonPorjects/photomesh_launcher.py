@@ -21,6 +21,109 @@ QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
 QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
 WORKING_FOLDER = r"C:\\WorkingFolder"
 
+# --- Wizard helpers ---------------------------------------------------------
+def find_wizard_dir() -> str:
+    candidates = [
+        r"C:\\Program Files\\Skyline\\PhotoMeshWizard",
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard",
+    ]
+    for d in candidates:
+        if os.path.isdir(d):
+            return d
+    return candidates[0]
+
+
+def find_wizard_exe() -> str:
+    d = find_wizard_dir()
+    for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
+        p = os.path.join(d, exe)
+        if os.path.isfile(p):
+            return p
+    raise FileNotFoundError("PhotoMesh Wizard executable not found.")
+
+
+def user_wizard_config_path() -> str:
+    la = os.environ.get("LOCALAPPDATA", "")
+    path = os.path.join(la, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
+
+def _merge_bool(d: dict, key: str, value: bool):
+    cur = d.get(key)
+    if cur is not True and cur is not False:
+        d[key] = value
+    elif value and cur is False:
+        d[key] = True
+
+
+def _ensure_dict(root: dict, key: str) -> dict:
+    node = root.get(key)
+    if not isinstance(node, dict):
+        node = {}
+        root[key] = node
+    return node
+
+
+def get_host_from_ini(config_ini_path: str) -> str:
+    import configparser, os
+    host = "KIT1-1"
+    cfg = configparser.ConfigParser()
+    try:
+        if os.path.isfile(config_ini_path):
+            cfg.read(config_ini_path)
+            if cfg.has_option("Fusers", "working_folder_host"):
+                host = cfg.get("Fusers", "working_folder_host").strip() or host
+            elif cfg.has_option("General", "host"):
+                host = cfg.get("General", "host").strip() or host
+    except Exception:
+        pass
+    return host
+
+
+def merge_wizard_defaults(config_ini_path: str, log=print) -> str:
+    """
+    Non-destructively update the *user* Wizard config.json.
+    - Only set/enable the few required keys
+    - Preserve everything else
+    - Update NetworkWorkingFolder based on host from config.ini
+    Returns the config.json path used.
+    """
+    path = user_wizard_config_path()
+    try:
+        data = {}
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+        ui = _ensure_dict(data, "DefaultPhotoMeshWizardUI")
+        outs = _ensure_dict(ui, "OutputProducts")
+        m3d = _ensure_dict(ui, "Model3DFormats")
+
+        _merge_bool(outs, "Model3D", True)
+        _merge_bool(outs, "Ortho", False)
+        _merge_bool(outs, "DSM", False)
+        _merge_bool(outs, "DTM", False)
+        _merge_bool(outs, "LAS", True)
+
+        _merge_bool(m3d, "3DML", True)
+        _merge_bool(m3d, "OBJ", True)
+        _merge_bool(m3d, "SLPK", True)
+
+        host = get_host_from_ini(config_ini_path)
+        nwf = f"\\\\{host}\\SharedMeshDrive\\WorkingFuser"
+        cur = data.get("NetworkWorkingFolder", "")
+        if not isinstance(cur, str) or not cur.strip():
+            data["NetworkWorkingFolder"] = nwf
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        log(f"✅ Wizard user config merged → {path}")
+        return path
+    except Exception as e:
+        log(f"⚠️ Failed to merge Wizard config: {e}")
+        return path
+
 # === 1) Paste the exact JSON we were given ===
 NEW_WIZARD_CFG = {
   "PhotomeshRestUrl": "http://localhost:8086",
@@ -135,17 +238,7 @@ def clear_user_overrides(log=print):
         log(f"⚠️ Could not clear user overrides: {e}")
 
 def launch_wizard_ui_override(project_name, project_path, image_folders, autostart=True, log=print):
-    wd = None
-    for exe in ("PhotoMeshWizard.exe", "WizardGUI.exe"):
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
-            cand = os.path.join(base or "", "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", exe)
-            if os.path.isfile(cand):
-                wd = cand
-                break
-        if wd:
-            break
-    if not wd:
-        raise FileNotFoundError("Wizard executable not found.")
+    wd = find_wizard_exe()
     os.makedirs(project_path, exist_ok=True)
     args = [wd, "--projectName", project_name, "--projectPath", project_path, "--overrideSettings"]
     if autostart:
@@ -637,4 +730,22 @@ def poll_queue_until_done(poll_every: int = 5, max_minutes: int = 120, log=print
             pass
         time.sleep(poll_every)
     log("[Queue] Monitor window expired.")
+
+
+__all__ = [
+    "install_exact_wizard_config",
+    "clear_user_overrides",
+    "launch_wizard_ui_override",
+    "get_offline_cfg",
+    "ensure_offline_share_exists",
+    "can_access_unc",
+    "OFFLINE_ACCESS_HINT",
+    "_is_offline_enabled",
+    "propagate_share_rename_in_config",
+    "open_in_explorer",
+    "resolve_network_working_folder_from_cfg",
+    "enforce_photomesh_settings",
+    "find_wizard_exe",
+    "merge_wizard_defaults",
+]
 
