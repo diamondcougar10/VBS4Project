@@ -1,6 +1,5 @@
 from __future__ import annotations
-import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, time, uuid, errno
-import xml.etree.ElementTree as ET
+import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, time, uuid
 from typing import Iterable, Optional
 
 try:  # pragma: no cover - optional dependency
@@ -501,6 +500,36 @@ def enforce_photomesh_settings(autostart: bool = True) -> None:
     fuser_unc = resolve_network_working_folder_from_cfg(o)
     enforce_wizard_install_config(fuser_unc=fuser_unc)
     ensure_wizard_user_defaults(autostart=autostart)
+
+
+def clear_user_wizard_overrides() -> None:
+    """Remove user-level preset override stacks if present."""
+    import os
+    import json
+
+    p = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""),
+        "Skyline",
+        "PhotoMesh",
+        "PhotomeshWizard",
+        "config.json",
+    )
+    if not os.path.isfile(p):
+        return
+    with open(p, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    for k in (
+        "SelectedPresets",
+        "Selected Presets",
+        "PresetOverrides",
+        "LastPresetOverrides",
+        "PresetStack",
+        "SelectedPresetNames",
+    ):
+        if k in cfg:
+            cfg.pop(k, None)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
 
 
 def _ensure_valid_outputs(config_path: str, log=print) -> None:
