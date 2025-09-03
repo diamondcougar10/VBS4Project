@@ -46,14 +46,14 @@ def test_launch_wizard_with_preset(monkeypatch):
         "proj",
         "--projectPath",
         "path",
-        "--overrideSettings",
-        "--preset",
-        PRESET_NAME,
-        "--autostart",
         "--folder",
         "a",
         "--folder",
         "b",
+        "--overrideSettings",
+        "--preset",
+        PRESET_NAME,
+        "--autostart",
     ]
 def test_install_embedded_preset(monkeypatch):
     calls = []
