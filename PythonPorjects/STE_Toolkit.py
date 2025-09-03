@@ -22,8 +22,7 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    force_obj_defaults_and_clear_overrides,
-    find_wizard_exe,
+    launch_photomesh_wizard,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -3366,44 +3365,18 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            try:
-                force_obj_defaults_and_clear_overrides(log=self.log_message)
-            except Exception as e:
-                self.log_message(f"[Wizard cfg merge] {e}")
-
-            try:
-                wizard_exe = find_wizard_exe()
-            except Exception as e:
-                error_message = f"Failed to start PhotoMesh Wizard.\nError: {e}"
-                self.log_message(error_message)
-                messagebox.showerror("Launch Error", error_message, parent=self)
-                return
-
-            args = [
-                wizard_exe,
-                "--projectName",
-                project_name,
-                "--projectPath",
-                project_path,
-                "--overrideSettings",
-            ]
-            args.append("--autostart")
-            for folder in self.image_folder_paths:
-                args += ["--folder", folder]
-            self.log_message(
-                "[Wizard] Launch with UI overrides:\n" +
-                " ".join([f'\"{a}\"' if " " in a else a for a in args])
+            proc = launch_photomesh_wizard(
+                project_name=project_name,
+                project_path=project_path,
+                folders=self.image_folder_paths,
             )
-            proc = subprocess.Popen(args, close_fds=False)
-            self.log_message("PhotoMesh Wizard launched with --overrideSettings.")
-            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid"):
+            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
             self.start_progress_monitor(project_path)
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
             messagebox.showerror("Launch Error", error_message, parent=self)
-
             if messagebox.askyesno(
                 "Open Folder", "Would you like to open the project folder?", parent=self
             ):
