@@ -517,7 +517,7 @@ def enforce_wizard_install_config(
 def ensure_wizard_user_defaults(autostart: bool = True) -> None:
     cfg = {
         "SelectedPreset": PRESET_NAME,
-        "OverrideSettings": True,
+        "OverrideSettings": False,
         "AutoBuild": bool(autostart),
     }
     _save_json(WIZARD_USER_CFG, cfg)
