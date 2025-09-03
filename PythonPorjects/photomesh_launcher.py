@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, json, subprocess, tempfile, configparser, ctypes, time, uuid, socket
+import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, time, uuid, socket
 from typing import Iterable
 
 try:  # pragma: no cover - optional dependency
@@ -21,13 +21,16 @@ QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
 QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
 WORKING_FOLDER = r"C:\\WorkingFolder"
 
+# PhotoMesh Wizard (fixed install path per environment)
+WIZARD_EXE         = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\PhotoMeshWizard.exe"
+WIZARD_INSTALL_CFG = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json"
 WIZARD_INSTALL_CFGS = [
-    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    WIZARD_INSTALL_CFG,
     r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
 ]
 
 
-def user_wizard_cfg_paths():
+def _user_cfg_paths():
     paths = []
     app = os.environ.get("APPDATA", "")
     if app:
@@ -78,6 +81,7 @@ STICKY_PRESET_KEYS = (
     "PresetStack",
     "LastUsedPreset",
     "PresetOverrides",
+    "Preset",
 )
 
 
@@ -89,7 +93,7 @@ def _host_unc():
 def force_obj_defaults_and_clear_overrides(log=print) -> list[str]:
     """Write strict defaults and remove preset stickiness for the Wizard."""
     touched: list[str] = []
-    targets = [p for p in WIZARD_INSTALL_CFGS if os.path.isfile(p)] + user_wizard_cfg_paths()
+    targets = [p for p in WIZARD_INSTALL_CFGS if os.path.isfile(p)] + _user_cfg_paths()
     for cfg_path in targets:
         try:
             cfg = _load_json(cfg_path)
@@ -124,7 +128,7 @@ def force_obj_defaults_and_clear_overrides(log=print) -> list[str]:
             lower_la = os.environ.get("LOCALAPPDATA", "").lower()
             if cfg_path.lower().startswith((lower_app, lower_la)):
                 cfg["OverrideSettings"] = True
-                cfg["AutoBuild"] = cfg.get("AutoBuild", True)
+                cfg.setdefault("AutoBuild", True)
 
             _atomic_write_json(cfg_path, cfg)
             log(f"✅ Patched Wizard config → {cfg_path} (removed presets: {removed_any})")
@@ -158,7 +162,7 @@ def launch_wizard_with_defaults(
     log=print,
 ):
     force_obj_defaults_and_clear_overrides(log=log)
-    exe = find_wizard_exe()
+    exe = WIZARD_EXE
     args = [exe, "--projectName", project_name, "--projectPath", project_path, "--overrideSettings"]
     if autostart:
         args.append("--autostart")
@@ -166,6 +170,11 @@ def launch_wizard_with_defaults(
         args += ["--folder", f]
     log("[Wizard] " + " ".join(f'\"{a}\"' if " " in a else a for a in args))
     return subprocess.Popen(args, cwd=os.path.dirname(exe), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def launch_photomesh_wizard(project_name: str, project_path: str, folders: Iterable[str]) -> subprocess.Popen:
+    """Launch PhotoMesh Wizard with enforced OBJ defaults."""
+    return launch_wizard_with_defaults(project_name, project_path, list(folders), autostart=True, log=print)
 
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
@@ -519,6 +528,7 @@ def poll_queue_until_done(poll_every: int = 5, max_minutes: int = 120, log=print
 __all__ = [
     "force_obj_defaults_and_clear_overrides",
     "launch_wizard_with_defaults",
+    "launch_photomesh_wizard",
     "launch_wizard",
     "get_offline_cfg",
     "ensure_offline_share_exists",
