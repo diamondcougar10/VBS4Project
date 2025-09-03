@@ -1,7 +1,7 @@
 """Simple watch-folder -> PhotoMesh Project Queue bridge.
 
 Monitors a directory for new sub-folders and submits them to the PhotoMesh
-REST Project Queue using a hard-coded preset. After submission the script
+REST Project Queue. After submission the script
 starts the build and prints progress via SSE.
 
 This example avoids external dependencies by using polling for new folders
@@ -15,13 +15,7 @@ import time
 import requests
 from urllib.parse import quote
 
-from photomesh_launcher import PRESET_NAME, install_embedded_preset
-
-try:
-    installed = install_embedded_preset()
-    print(f"[CFG] Embedded preset installed to: {installed}")
-except Exception as e:
-    print(f"[WARN] Could not install embedded preset: {e}")
+# No additional configuration is staged; PhotoMesh defaults are used
 # Adjust these paths for your environment
 WATCH_FOLDER = r"C:\\Temp\\Watch"
 WORKING_FOLDER = r"C:\\Temp\\PhotoMeshWork"
@@ -60,7 +54,6 @@ class WatchFolderQueue:
                 "buildFrom": 1,
                 "buildUntil": 6,
                 "inheritBuild": "",
-                "preset": PRESET_NAME,
                 "workingFolder": WORKING_FOLDER,
                 "MaxLocalFusers": 10,
                 "MaxAWSFusers": 0,
