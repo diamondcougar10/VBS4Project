@@ -35,6 +35,10 @@ def test_launch_wizard_with_preset(monkeypatch):
         "photomesh_launcher.enforce_wizard_install_config",
         lambda **kwargs: None,
     )
+    monkeypatch.setattr(
+        "photomesh_launcher._resolve_preset_for_wizard",
+        lambda name: "wizdir/Presets/STEPRESET.PMPreset",
+    )
 
     called["cleared"] = False
 
@@ -56,13 +60,13 @@ def test_launch_wizard_with_preset(monkeypatch):
         "proj",
         "--projectPath",
         "path",
+        "--preset",
+        "wizdir/Presets/STEPRESET.PMPreset",
+        "--autostart",
         "--folder",
         "a",
         "--folder",
         "b",
-        "--preset",
-        photomesh_launcher.PRESET_NAME,
-        "--autostart",
     ]
 def test_install_embedded_preset(monkeypatch):
     calls = []
