@@ -568,10 +568,8 @@ def _wizard_install_config_paths() -> list[str]:
 def clear_wizard_preset_overrides(log=print):
     """
     Remove any saved 'Selected Presets (last override)' so Wizard won't apply them.
-    Edits install-level and per-user Wizard config.json files if present.
+    Scrubs both install-level and per-user Wizard config.json files when present.
     """
-    import json, os
-
     CANDIDATE_KEYS = {
         "SelectedPresets", "Selected Presets",
         "PresetOverrides", "LastPresetOverrides",
@@ -579,38 +577,17 @@ def clear_wizard_preset_overrides(log=print):
         "PresetStack", "SelectedPresetNames",
     }
 
-    def _scrub(d):
-        if isinstance(d, dict):
-            for k in list(d.keys()):
+    def _scrub(node):
+        if isinstance(node, dict):
+            for k in list(node.keys()):
                 if k in CANDIDATE_KEYS:
-                    d[k] = [] if isinstance(d[k], list) else {}
+                    node[k] = [] if isinstance(node[k], list) else {}
                 else:
-                    _scrub(d[k])
-        elif isinstance(d, list):
-            for x in d:
+                    _scrub(node[k])
+        elif isinstance(node, list):
+            for x in node:
                 _scrub(x)
 
-    def _try_path(p):
-        if not os.path.isfile(p):
-            return False
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            _scrub(cfg)
-            # optional flags some builds honor
-            cfg.setdefault("PresetManager", {}).update({
-                "ApplyOverridesOnLaunch": False,
-                "UseLastPresetOverride": False,
-            })
-            with open(p, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
-            log(f"Cleared Wizard preset overrides → {p}")
-            return True
-        except Exception as e:
-            log(f"Skip clearing overrides at {p}: {e}")
-            return False
-
-    # Known locations
     paths = []
     for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
         if base:
@@ -620,7 +597,24 @@ def clear_wizard_preset_overrides(log=print):
     if local:
         paths.append(os.path.join(local, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json"))
 
-    touched = any(_try_path(p) for p in paths)
+    touched = False
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            _scrub(cfg)
+            cfg.setdefault("PresetManager", {}).update({
+                "ApplyOverridesOnLaunch": False,
+                "UseLastPresetOverride": False,
+            })
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+            log(f"Cleared Wizard preset overrides → {p}")
+            touched = True
+        except Exception as e:
+            log(f"Skip clearing overrides at {p}: {e}")
     if not touched:
         log("No Wizard config.json found to clear overrides.")
 
@@ -640,6 +634,9 @@ def launch_wizard_with_preset(
     Start PhotoMesh Wizard using the given preset without overrides and optional autostart.
     Seeds config to keep 3DML ON and Ortho OFF by default unless *want_ortho* is True.
     """
+    # Test 1: ensure no saved override stack will be applied
+    clear_wizard_preset_overrides(log=log)
+
     try:
         enforce_wizard_install_config(
             model3d=True,
@@ -657,9 +654,6 @@ def launch_wizard_with_preset(
     # Repair legacy configs that could stall the Wizard when Ortho is off
     for cfg_path in _wizard_install_config_paths():
         _ensure_valid_outputs(cfg_path, log=log)
-
-    # Clear any remembered override stacks so our preset/default is respected
-    clear_wizard_preset_overrides(log=log)
 
     args = [
         WIZARD_EXE,
