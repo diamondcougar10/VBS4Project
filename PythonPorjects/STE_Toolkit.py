@@ -22,9 +22,8 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    install_embedded_preset,
     enforce_wizard_install_config,
-    launch_wizard_with_preset,
+    launch_wizard,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -34,7 +33,6 @@ from photomesh_launcher import (
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
     enforce_photomesh_settings,
-    PRESET_NAME,
 )
 from collections import OrderedDict
 import time
@@ -653,28 +651,6 @@ def create_project_folder(build_dir: str, project_name: str, dataset_root: str |
     os.makedirs(data_folder, exist_ok=True)
     return proj_folder, data_folder
 
-
-def set_active_wizard_preset(preset_name="CPP&OBJ"):
-    import os
-    import json
-
-    config_path = os.path.join(
-        os.environ.get("APPDATA", ""),
-        "Skyline", "PhotoMesh", "Wizard", "config.json"
-    )
-
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-
-    config = {
-        "SelectedPreset": preset_name,
-        "OverrideSettings": False,
-        "AutoBuild": True  # Optional: auto-start build
-    }
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
-
-    print(f"✅ Set {preset_name} as active preset in Wizard config")
 
 
 def enable_obj_in_photomesh_config():
@@ -2605,7 +2581,6 @@ class VBS4Panel(tk.Frame):
         self.create_vbs4_folder_button()
         self.tooltip = Tooltip(self)
         enable_obj_in_photomesh_config()
-        set_active_wizard_preset()
 
         tk.Label(
             self,
@@ -3436,18 +3411,13 @@ class VBS4Panel(tk.Frame):
         except Exception:
             host = "KIT1-1"
         fuser_unc = rf"\\{host}\SharedMeshDrive\WorkingFuser"
-        try:
-            install_embedded_preset(log=self.log_message)
-        except Exception as e:
-            self.log_message(f"⚠️ Could not install embedded preset: {e}")
         enforce_wizard_install_config(ortho_ui=False)
 
         try:
-            proc = launch_wizard_with_preset(
+            proc = launch_wizard(
                 project_name,
                 project_path,
                 self.image_folder_paths,
-                preset=PRESET_NAME,
                 autostart=True,
                 fuser_unc=fuser_unc,
                 want_ortho=False,  # explicitly disable Ortho
