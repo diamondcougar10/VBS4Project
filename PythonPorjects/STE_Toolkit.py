@@ -32,6 +32,9 @@ from photomesh_launcher import (
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
     enforce_photomesh_settings,
+    working_share_root,
+    working_fuser_unc,
+    _read_photomesh_host,
 )
 from collections import OrderedDict
 import time
@@ -454,12 +457,9 @@ def _try_link_under(base_dir: str) -> str:
 
 
 def _candidate_install_roots() -> list[str]:
-    """Return possible install roots for both spellings under \\{host}\\SharedMeshDrive\\…"""
-    host = get_host()
-    roots = []
-    for subdir in RM_INSTALL_SUBDIRS:
-        roots.append(f"\\\\{host}\\SharedMeshDrive\\{subdir}")
-    return roots
+    """Return possible install roots for both spellings under \\host\\SharedMeshDrive\\…"""
+    root = working_share_root()
+    return [os.path.join(root, subdir) for subdir in RM_INSTALL_SUBDIRS]
 
 
 def find_unc_rm_link() -> str:
@@ -931,27 +931,14 @@ config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
 # ----- Host/UNC helpers -----
-# Prefer reusing the existing Fusers working-folder host key if present; otherwise
-# fall back to a general ``host`` entry under the ``General`` section.
-HOST_KEY = ("Fusers", "working_folder_host")
-
-
-def _host_key() -> tuple[str, str]:
-    if HOST_KEY[0] in config and HOST_KEY[1] in config[HOST_KEY[0]]:
-        return HOST_KEY
-    return ("General", "host")
-
-
 def get_host() -> str:
-    sect, key = _host_key()
-    return config.get(sect, key, fallback="KIT1-1").strip()
+    return _read_photomesh_host()
 
 
 def set_host(host: str) -> None:
-    sect, key = _host_key()
-    if sect not in config:
-        config[sect] = {}
-    config[sect][key] = host.strip()
+    if "Offline" not in config:
+        config["Offline"] = {}
+    config["Offline"]["working_fuser_host"] = host.strip()
     with open(CONFIG_PATH, "w") as f:
         config.write(f)
 
@@ -3328,7 +3315,7 @@ class VBS4Panel(tk.Frame):
             if default_path is None:
                 default_path = load_fuser_config(config_file)
 
-        fuser_path = default_path or r"\\localhost\SharedMeshDrive\WorkingFuser"
+        fuser_path = default_path or working_fuser_unc()
 
         for idx in range(1, 4):
             name = f"LocalFuser{idx}"
