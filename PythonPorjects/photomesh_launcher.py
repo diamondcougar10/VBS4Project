@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, time, uuid
-from typing import Iterable, Optional
+from typing import Iterable
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
@@ -60,7 +60,7 @@ NEW_WIZARD_CFG = {
   "GBPerFuser": 24,
   "UseDepthAnything": False,
   "PMWServiceTimeoutInMinutes": 1440,
-  "NetworkWorkingFolder": ""
+  "NetworkWorkingFolder": "\\\\KIT1-1\\SharedMeshDrive\\WorkingFuser"
 }
 
 def _wizard_config_targets():
@@ -252,12 +252,6 @@ def _save_json(path: str, obj: dict) -> None:
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
-# Repo-level wizard template (same shape as Wizard config.json)
-REPO_WIZARD_TEMPLATE = os.environ.get(
-    "PM_WIZARD_TEMPLATE_JSON",
-    os.path.join(BASE_DIR, "config.json")
-)
-
 WIZARD_USER_CFG = os.path.join(
     os.environ.get("APPDATA", ""), "Skyline", "PhotoMesh", "Wizard", "config.json"
 )
@@ -389,105 +383,6 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
                 wiz["NetworkWorkingFolder"] = new_nwf
                 _save_json(WIZARD_INSTALL_CFG, wiz)
 
-# -------------------- Apply repo template --------------------
-def _patch_intersection(dst: dict, src: dict) -> bool:
-    """
-    Recursively copy values from src -> dst for keys that already exist in dst.
-    - Never creates new keys in dst.
-    - For dict leaves, recurses.
-    - For non-dict leaves, assigns when the key exists and values differ.
-    Returns True if any change was applied.
-    """
-    changed = False
-    if not isinstance(dst, dict) or not isinstance(src, dict):
-        return False
-    for k, v in src.items():
-        if k not in dst:
-            continue
-        if isinstance(v, dict) and isinstance(dst.get(k), dict):
-            if _patch_intersection(dst[k], v):
-                changed = True
-        else:
-            if dst.get(k) != v:
-                dst[k] = v
-                changed = True
-    return changed
-
-
-def apply_wizard_template_from_repo(
-    template_path: str = REPO_WIZARD_TEMPLATE,
-    dynamic_overrides: Optional[dict] = None,
-    log=print
-) -> None:
-    """
-    Load repo template JSON and apply values to the installed Wizard config,
-    but ONLY where keys already exist in the install file. Optionally apply
-    dynamic_overrides the same way (e.g., computed NetworkWorkingFolder).
-    """
-    # Load installed Wizard config
-    target = _load_json(WIZARD_INSTALL_CFG)
-    if not target:
-        log(f"⚠️ Unable to load Wizard install config: {WIZARD_INSTALL_CFG}")
-        return
-
-    # Load repo template (if present)
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            tmpl = json.load(f)
-    except Exception as e:
-        tmpl = {}
-        log(f"⚠️ Skipping repo template ({template_path}): {e}")
-
-    changed = False
-    # Apply template intersection
-    if tmpl:
-        if _patch_intersection(target, tmpl):
-            changed = True
-
-    # Apply dynamic overrides (e.g., Offline UNC) the same way
-    if isinstance(dynamic_overrides, dict) and dynamic_overrides:
-        if _patch_intersection(target, dynamic_overrides):
-            changed = True
-
-    if changed:
-        _save_json(WIZARD_INSTALL_CFG, target)
-        log(f"Wizard config updated from template: {WIZARD_INSTALL_CFG}")
-
-
-# -------------------- Write Wizard config (minimal, no new keys) --------------------
-def enforce_wizard_install_config(
-    *, model3d: bool = True, obj: bool = True, d3dml: bool = False, ortho_ui: bool = False,
-    center_pivot: bool = True, ellipsoid: bool = True, fuser_unc: Optional[str] = None, log=print
-) -> None:
-    """
-    Compose minimal overrides that MUST be true/false for your workflow,
-    then apply the repo template + these overrides to the installed config.
-    """
-    overrides = {
-        "DefaultPhotoMeshWizardUI": {
-            "OutputProducts": {
-                "Model3D": bool(model3d),
-                "Ortho":   bool(ortho_ui),
-            },
-            "Model3DFormats": {
-                "OBJ":  bool(obj),
-                "3DML": bool(d3dml),
-            },
-            # Only applied if these keys already exist in install config
-            "CenterPivotToProject":   bool(center_pivot),
-            "ReprojectToEllipsoid":   bool(ellipsoid),
-        }
-    }
-    # Add NetworkWorkingFolder override if provided
-    if fuser_unc:
-        overrides["NetworkWorkingFolder"] = fuser_unc
-
-    apply_wizard_template_from_repo(
-        template_path=REPO_WIZARD_TEMPLATE,
-        dynamic_overrides=overrides,
-        log=log
-    )
-
 # -------------------- User config helpers --------------------
 def ensure_wizard_user_defaults(autostart: bool = True) -> None:
     cfg = {
@@ -496,9 +391,7 @@ def ensure_wizard_user_defaults(autostart: bool = True) -> None:
     _save_json(WIZARD_USER_CFG, cfg)
 
 def enforce_photomesh_settings(autostart: bool = True) -> None:
-    o = get_offline_cfg()
-    fuser_unc = resolve_network_working_folder_from_cfg(o)
-    enforce_wizard_install_config(fuser_unc=fuser_unc)
+    install_wizard_config()
     ensure_wizard_user_defaults(autostart=autostart)
 
 
@@ -532,34 +425,6 @@ def clear_user_wizard_overrides() -> None:
         json.dump(cfg, f, indent=2)
 
 
-def _ensure_valid_outputs(config_path: str, log=print) -> None:
-    import json, os
-    if not os.path.isfile(config_path):
-        return
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-        ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-        outs = ui.setdefault("OutputProducts", {})
-        m3d = ui.setdefault("Model3DFormats", {})
-        if not outs.get("Ortho", False):
-            if not outs.get("3DModel", False) or not m3d.get("3DML", False):
-                outs["3DModel"] = True
-                m3d["3DML"] = True
-                with open(config_path, "w", encoding="utf-8") as f:
-                    json.dump(cfg, f, indent=2)
-                log(f"🛠️ Patched outputs: {config_path}")
-    except Exception as e:
-        log(f"⚠️ Could not validate outputs in {config_path}: {e}")
-
-
-def _wizard_install_config_paths() -> list[str]:
-    """Return possible install-level Wizard config.json paths."""
-    return [
-        WIZARD_INSTALL_CFG,
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
-    ]
-
 # -------------------- Launch Wizard --------------------
 def launch_wizard(
     project_name: str,
@@ -567,25 +432,10 @@ def launch_wizard(
     imagery_folders: Iterable[str],
     *,
     autostart: bool = True,
-    fuser_unc: Optional[str] = None,
     want_ortho: bool = False,
     log=print,
 ) -> subprocess.Popen:
     """Start PhotoMesh Wizard using default configuration."""
-
-    try:
-        enforce_wizard_install_config(
-            model3d=True,
-            obj=True,
-            d3dml=True if not want_ortho else True,
-            ortho_ui=bool(want_ortho),
-            center_pivot=True,
-            ellipsoid=True,
-            fuser_unc=fuser_unc,
-            log=log,
-        )
-    except PermissionError:
-        log("⚠️ Could not update install config (permission). Continuing.")
 
     args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path]
     if autostart:
