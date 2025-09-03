@@ -11,7 +11,6 @@ from photomesh_launcher import (
     launch_wizard_with_preset,
     get_offline_cfg,
     resolve_network_working_folder_from_cfg,
-    PRESET_NAME,
 )
 
 
@@ -37,9 +36,20 @@ def test_launch_wizard_with_preset(monkeypatch):
         lambda **kwargs: None,
     )
 
+    called["cleared"] = False
+
+    def fake_clear(log=print):
+        called["cleared"] = True
+
+    monkeypatch.setattr(
+        "photomesh_launcher.clear_wizard_preset_overrides",
+        fake_clear,
+    )
+
     launch_wizard_with_preset("proj", "path", ["a", "b"])
 
     assert called["cwd"] == "wizdir"
+    assert called["cleared"] is True
     assert called["args"] == [
         "wiz.exe",
         "--projectName",
@@ -50,9 +60,8 @@ def test_launch_wizard_with_preset(monkeypatch):
         "a",
         "--folder",
         "b",
-        "--overrideSettings",
         "--preset",
-        PRESET_NAME,
+        "PhotoMesh Default",
         "--autostart",
     ]
 def test_install_embedded_preset(monkeypatch):

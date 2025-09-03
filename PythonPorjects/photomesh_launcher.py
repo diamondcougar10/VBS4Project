@@ -565,6 +565,65 @@ def _wizard_install_config_paths() -> list[str]:
         r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     ]
 
+def clear_wizard_preset_overrides(log=print):
+    """
+    Remove any saved 'Selected Presets (last override)' so Wizard won't apply them.
+    Edits install-level and per-user Wizard config.json files if present.
+    """
+    import json, os
+
+    CANDIDATE_KEYS = {
+        "SelectedPresets", "Selected Presets",
+        "PresetOverrides", "LastPresetOverrides",
+        "LastOverrideSelection", "OverridePresetList",
+        "PresetStack", "SelectedPresetNames",
+    }
+
+    def _scrub(d):
+        if isinstance(d, dict):
+            for k in list(d.keys()):
+                if k in CANDIDATE_KEYS:
+                    d[k] = [] if isinstance(d[k], list) else {}
+                else:
+                    _scrub(d[k])
+        elif isinstance(d, list):
+            for x in d:
+                _scrub(x)
+
+    def _try_path(p):
+        if not os.path.isfile(p):
+            return False
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            _scrub(cfg)
+            # optional flags some builds honor
+            cfg.setdefault("PresetManager", {}).update({
+                "ApplyOverridesOnLaunch": False,
+                "UseLastPresetOverride": False,
+            })
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+            log(f"Cleared Wizard preset overrides → {p}")
+            return True
+        except Exception as e:
+            log(f"Skip clearing overrides at {p}: {e}")
+            return False
+
+    # Known locations
+    paths = []
+    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
+        if base:
+            paths.append(os.path.join(base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "config.json"))
+            paths.append(os.path.join(base, "Skyline", "PhotoMeshWizard", "config.json"))  # legacy
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        paths.append(os.path.join(local, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json"))
+
+    touched = any(_try_path(p) for p in paths)
+    if not touched:
+        log("No Wizard config.json found to clear overrides.")
+
 # -------------------- Launch Wizard with preset --------------------
 def launch_wizard_with_preset(
     project_name: str,
@@ -574,11 +633,11 @@ def launch_wizard_with_preset(
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     want_ortho: bool = False,
-    preset: str = PRESET_NAME,
+    preset: str = "PhotoMesh Default",
     log=print,
 ) -> subprocess.Popen:
     """
-    Start PhotoMesh Wizard with --overrideSettings, hard-coded preset and optional autostart.
+    Start PhotoMesh Wizard using the given preset without overrides and optional autostart.
     Seeds config to keep 3DML ON and Ortho OFF by default unless *want_ortho* is True.
     """
     try:
@@ -599,6 +658,9 @@ def launch_wizard_with_preset(
     for cfg_path in _wizard_install_config_paths():
         _ensure_valid_outputs(cfg_path, log=log)
 
+    # Clear any remembered override stacks so our preset/default is respected
+    clear_wizard_preset_overrides(log=log)
+
     args = [
         WIZARD_EXE,
         "--projectName", project_name,
@@ -606,8 +668,9 @@ def launch_wizard_with_preset(
     ]
     for f in imagery_folders or []:
         args += ["--folder", f]
-    # Force preset + overrides; autostart optional
-    args += ["--overrideSettings", "--preset", preset]
+    # Do NOT use overrides. Either rely on the Wizard default or pass our preset explicitly.
+    # If you replaced "PhotoMesh Default.PMPreset" with your XML, you can even drop --preset.
+    args += ["--preset", preset]  # or: ["--preset", PRESET_NAME]
     if autostart:
         args.append("--autostart")
 
