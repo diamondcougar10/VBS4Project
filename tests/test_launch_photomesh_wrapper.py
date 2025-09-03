@@ -61,7 +61,7 @@ def test_launch_wizard_with_preset(monkeypatch):
         "--folder",
         "b",
         "--preset",
-        "PhotoMesh Default",
+        photomesh_launcher.PRESET_NAME,
         "--autostart",
     ]
 def test_install_embedded_preset(monkeypatch):

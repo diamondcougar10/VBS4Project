@@ -630,22 +630,25 @@ def launch_wizard_with_preset(
     project_path: str,
     imagery_folders: Iterable[str],
     *,
+    preset: str = PRESET_NAME,
     autostart: bool = True,
     fuser_unc: Optional[str] = None,
     want_ortho: bool = False,
-    preset: str = "PhotoMesh Default",
     log=print,
 ) -> subprocess.Popen:
-    """
-    Start PhotoMesh Wizard using the given preset without overrides and optional autostart.
-    Seeds config to keep 3DML ON and Ortho OFF by default unless *want_ortho* is True.
+    """Start PhotoMesh Wizard with *preset* and optional *autostart*.
+
+    The install config is seeded so the UI keeps 3D Model/3DML/OBJ enabled while
+    Ortho remains off, preventing a stall on launch. Any leftover preset overrides
+    are cleared so the provided preset (or the Wizard default) fully controls
+    outputs.
     """
     try:
         enforce_wizard_install_config(
             model3d=True,
             obj=True,
-            d3dml=True,                  # keep base 3D model enabled
-            ortho_ui=bool(want_ortho),   # Ortho OFF unless explicitly requested
+            d3dml=True,          # keep base 3D model enabled so the Wizard will actually start
+            ortho_ui=False,      # Ortho OFF in UI (your preference)
             center_pivot=True,
             ellipsoid=True,
             fuser_unc=fuser_unc,
@@ -654,25 +657,23 @@ def launch_wizard_with_preset(
     except PermissionError:
         log("⚠️ Could not update install config (permission). Continuing.")
 
-    # Repair legacy configs that could stall the Wizard when Ortho is off
+    # Safety: if Ortho is OFF and 3DML ended up OFF, fix it so the Wizard has a valid 3D base
     for cfg_path in _wizard_install_config_paths():
         _ensure_valid_outputs(cfg_path, log=log)
 
     # Clear any remembered override stacks so our preset/default is respected
     clear_wizard_preset_overrides(log=log)
 
-    args = [
-        WIZARD_EXE,
-        "--projectName", project_name,
-        "--projectPath", project_path,
-    ]
+    # Build CLI (NO overrides — let the preset/default control outputs)
+    args = [WIZARD_EXE, "--projectName", project_name, "--projectPath", project_path]
     for f in imagery_folders or []:
         args += ["--folder", f]
-    # Do NOT use overrides. Either rely on the Wizard default or pass our preset explicitly.
-    # If you replaced "PhotoMesh Default.PMPreset" with your XML, you can even drop --preset.
-    args += ["--preset", preset]  # or: ["--preset", PRESET_NAME]
+    # Use only the preset (absolute .PMPreset path from Test 2)
+    preset_arg = preset
+    args += ["--preset", preset_arg]
     if autostart:
         args.append("--autostart")
+    log(f"[Wizard] Launch args (no overrides): {args}")
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(args, cwd=WIZARD_DIR, creationflags=creationflags)
