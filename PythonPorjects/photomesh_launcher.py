@@ -3,6 +3,11 @@ import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, filecm
 import xml.etree.ElementTree as ET
 from typing import Iterable, Optional
 
+try:  # pragma: no cover - optional dependency
+    import requests  # type: ignore
+except Exception:  # pragma: no cover - requests may be absent in minimal environments
+    requests = None  # type: ignore
+
 try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
 except Exception:  # pragma: no cover - headless/test environments
@@ -23,6 +28,11 @@ WIZARD_PRESET_DIRS = [
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+
+# Queue endpoints and working directory used by the PhotoMesh engine
+QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
+QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
+WORKING_FOLDER = r"C:\\WorkingFolder"
 
 # Embedded preset XML
 PRESET_XML = """<?xml version="1.0" encoding="utf-8"?>
@@ -700,6 +710,183 @@ def launch_photomesh_admin() -> None:
     """Launch PhotoMesh.exe elevated without arguments."""
     pm_exe = r"C:\\Program Files\\Skyline\\PhotoMesh\\PhotoMesh.exe"
     run_exe_as_admin(pm_exe, [])
+
+
+# -------------------- Project Queue helpers --------------------
+def _program_files_candidates():
+    pf = os.environ.get("ProgramFiles")
+    pf86 = os.environ.get("ProgramFiles(x86)")
+    for base in (pf, pf86):
+        if base:
+            yield base
+
+
+def find_photomesh_exe() -> str:
+    """Locate PhotoMesh.exe (engine GUI)."""
+    for base in _program_files_candidates():
+        exe = os.path.join(base, "Skyline", "PhotoMesh", "PhotoMesh.exe")
+        if os.path.isfile(exe):
+            return exe
+    raise FileNotFoundError("PhotoMesh.exe not found under Program Files.")
+
+
+def engine_presets_dir() -> str:
+    """Return the PhotoMesh engine presets directory."""
+    for base in _program_files_candidates():
+        d = os.path.join(base, "Skyline", "PhotoMesh", "Presets")
+        if os.path.isdir(d):
+            return d
+    pf = os.environ.get("ProgramFiles") or ""
+    d = os.path.join(pf, "Skyline", "PhotoMesh", "Presets")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def queue_alive(timeout: float = 2.0) -> bool:
+    """Check if the Project Queue endpoint is reachable."""
+    if not requests:
+        return False
+    try:
+        r = requests.get(QUEUE_API_URL, timeout=timeout)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def ensure_photomesh_queue_running(log=print, wait_seconds: int = 45) -> None:
+    """Ensure PhotoMesh is running (as admin) and its Project Queue is alive."""
+    if queue_alive():
+        log("[Queue] Project Queue already reachable.")
+        return
+
+    exe = find_photomesh_exe()
+    log(f"[PhotoMesh] Launching as Administrator: {exe}")
+    try:
+        run_exe_as_admin(exe, [])
+    except Exception as e:
+        raise RuntimeError(f"Failed to start PhotoMesh as admin: {e}")
+
+    start = time.time()
+    while time.time() - start < wait_seconds:
+        if queue_alive():
+            log("[Queue] Project Queue is up.")
+            return
+        time.sleep(1.5)
+    raise TimeoutError(
+        "Project Queue did not come up within the wait window. Open PhotoMesh and ensure the Queue service is enabled."
+    )
+
+
+def stage_engine_preset_from_text(
+    preset_xml: str, preset_name: str = PRESET_NAME, log=print
+) -> str:
+    dst_dir = engine_presets_dir()
+    os.makedirs(dst_dir, exist_ok=True)
+    dst = os.path.join(dst_dir, f"{preset_name}.PMPreset")
+    tmp = f"{dst}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(preset_xml)
+    shutil.move(tmp, dst)
+    log(f"[Engine] Preset staged → {dst}")
+    return dst
+
+
+def stage_engine_preset_from_file(
+    src_path: str, preset_name: str = PRESET_NAME, log=print
+) -> str:
+    if not os.path.isfile(src_path):
+        raise FileNotFoundError(src_path)
+    dst = os.path.join(engine_presets_dir(), f"{preset_name}.PMPreset")
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(src_path, dst)
+    log(f"[Engine] Preset copied → {dst}")
+    return dst
+
+
+def queue_payload(
+    project_name: str,
+    project_dir: str,
+    image_folders: Iterable[str],
+    preset_name: str = PRESET_NAME,
+) -> list[dict]:
+    project_xml = os.path.join(project_dir, f"{project_name}.PhotoMeshXML")
+    os.makedirs(project_dir, exist_ok=True)
+    source_path = [
+        {"name": os.path.basename(p.rstrip(r"\\/")), "path": p, "properties": ""}
+        for p in image_folders
+    ]
+    return [
+        {
+            "comment": f"Auto project: {project_name}",
+            "action": 0,
+            "projectPath": project_xml,
+            "buildFrom": 1,
+            "buildUntil": 6,
+            "inheritBuild": "",
+            "preset": preset_name,
+            "workingFolder": WORKING_FOLDER,
+            "MaxLocalFusers": 8,
+            "MaxAWSFusers": 0,
+            "AWSFuserStartupScript": "",
+            "AWSBuildConfigurationName": "",
+            "AWSBuildConfigurationJsonPath": "",
+            "sourceType": 0,
+            "sourcePath": source_path,
+        }
+    ]
+
+
+def submit_queue_build(payload: list[dict], log=print) -> None:
+    if not requests:
+        raise RuntimeError("requests library is required for queue submission")
+    r = requests.post(f"{QUEUE_API_URL}project/add", json=payload, timeout=60)
+    if r.status_code != 200:
+        raise RuntimeError(f"[Queue] Add failed: {r.status_code} {r.text[:300]}")
+    log("[Queue] Project submitted.")
+
+    r = requests.get(f"{QUEUE_API_URL}Build/Start", timeout=60)
+    if r.status_code != 200:
+        raise RuntimeError(f"[Queue] Build/Start failed: {r.status_code} {r.text[:300]}")
+    log("[Queue] Build started.")
+
+
+def poll_queue_until_done(poll_every: int = 5, max_minutes: int = 120, log=print) -> None:
+    if not requests:
+        log("[Queue] requests module missing; cannot monitor queue.")
+        return
+    end = time.time() + max_minutes * 60
+    last = 0
+    while time.time() < end:
+        try:
+            r = requests.get(f"{QUEUE_API_URL}", timeout=5)
+            if r.status_code == 200:
+                now = int(time.time())
+                if now // 30 != last // 30:
+                    log("[Queue] …still building")
+                    last = now
+        except Exception:
+            pass
+        time.sleep(poll_every)
+    log("[Queue] Monitor window expired.")
+
+
+def run_build_via_queue(
+    project_name: str,
+    project_dir: str,
+    image_folders: list[str],
+    preset_xml_or_path: str,
+    is_xml_text: bool,
+    log=print,
+) -> None:
+    ensure_photomesh_queue_running(log=log)
+    if is_xml_text:
+        stage_engine_preset_from_text(preset_xml_or_path, preset_name=PRESET_NAME, log=log)
+    else:
+        stage_engine_preset_from_file(preset_xml_or_path, preset_name=PRESET_NAME, log=log)
+    payload = queue_payload(project_name, project_dir, image_folders, preset_name=PRESET_NAME)
+    submit_queue_build(payload, log=log)
+    # Optional monitoring
+    # poll_queue_until_done(log=log)
 
 
 # ---------- Locate Wizard Presets ----------
