@@ -1,13 +1,63 @@
+# =============================================================================
+# Project: VBS4Project
+# File: update_photomesh_config.py
+# Purpose: Apply minimal defaults to PhotoMesh Wizard config
+# =============================================================================
+# Table of Contents
+#   1) Imports
+#   2) Constants & Configuration
+#   3) Paths & Environment
+#   4) Data Models / Types (if any)
+#   5) Utilities (pure helpers, no I/O)
+#   6) File I/O & JSON helpers
+#   7) Wizard Config (read/patch install config)
+#   8) Network / UNC resolution
+#   9) Launch / CLI argument builders
+#  10) GUI / Tkinter handlers
+#  11) Logging & Error handling
+#  12) Main entry point
+# =============================================================================
+
+# region Imports
 import json
 import os
+# endregion
 
-CONFIG_PATH = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
+# region Constants & Configuration
+# PhotoMesh Wizard install config (read by Wizard at startup)
+CONFIG_PATH = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json"
+# endregion
+
+# region Paths & Environment
+# No additional environment paths required.
+# endregion
+
+# region Data Models / Types
+# endregion
+
+# region Utilities
+# endregion
+
+# region File I/O & JSON helpers
+def _load_config(path: str) -> dict:
+    """Load JSON configuration from *path*."""
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
+def _save_config(path: str, config: dict) -> None:
+    """Write JSON *config* to *path* atomically."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4)
+    os.replace(tmp, path)
+# endregion
+
+# region Wizard Config
 def update_config(path: str) -> None:
+    """Enable 3D model OBJ and 3DML flags in install-level Wizard config."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            config = json.load(f)
+        config = _load_config(path)
     except FileNotFoundError:
         print(f"❌ File not found: {path}")
         return
@@ -27,15 +77,35 @@ def update_config(path: str) -> None:
     # fmts["LAS"] = True
 
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4)
+        _save_config(path, config)
         print("✅ config.json updated successfully.")
     except PermissionError as exc:
         print(f"❌ Permission denied writing file: {exc}")
         print("Please run this script as Administrator.")
     except Exception as exc:
         print(f"❌ Failed to update config: {exc}")
+# endregion
 
+# region Network / UNC resolution
+# endregion
 
+# region Launch / CLI argument builders
+# endregion
+
+# region GUI / Tkinter handlers
+# endregion
+
+# region Logging & Error handling
+# endregion
+
+# region Main entry point
 if __name__ == "__main__":
     update_config(CONFIG_PATH)
+# endregion
+
+# =============================================================================
+# Refactor Notes
+# - Added atomic config read/write helpers.
+# - Structured file with explicit sections and docstrings.
+# =============================================================================
+
