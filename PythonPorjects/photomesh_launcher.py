@@ -1,5 +1,6 @@
 from __future__ import annotations
-import os, sys, json, shutil, subprocess, tempfile, configparser, ctypes, time, uuid, socket
+import os, sys, json, subprocess, tempfile, time
+import configparser, ctypes
 from typing import Iterable
 
 try:  # pragma: no cover - optional dependency
@@ -11,6 +12,89 @@ try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
 except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
+
+# ---- Authoritative Wizard locations ----
+WIZARD_DIR         = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
+WIZARD_EXE         = rf"{WIZARD_DIR}\\PhotoMeshWizard.exe"
+WIZARD_INSTALL_CFG = rf"{WIZARD_DIR}\\config.json"
+
+# Keys that would re-apply a preset/overrides (must be removed)
+_PRESET_KEYS = ("SelectedPreset","SelectedPresets","PresetStack","LastUsedPreset","PresetOverrides","Preset")
+
+def _load_json_silent(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _atomic_write_json(path: str, data: dict) -> None:
+    """Atomic write (no .bak files)."""
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".pmcfg.", dir=d, text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+def set_wizard_defaults_exact(log=print) -> None:
+    """
+    Edit ONLY the installed Wizard config that the Wizard reads on launch.
+    No AppData writes, no presets, no backups, do not touch NetworkWorkingFolder.
+    """
+    cfg = _load_json_silent(WIZARD_INSTALL_CFG)
+    for k in _PRESET_KEYS:
+        cfg.pop(k, None)
+
+    ui   = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+    outs = ui.setdefault("OutputProducts", {})
+    fmts = ui.setdefault("Model3DFormats", {})
+
+    # === Required defaults for every build ===
+    # Outputs
+    outs["Model3D"] = True
+    outs["Ortho"]   = False
+    outs["DSM"]     = False
+    outs["DTM"]     = False
+    outs["LAS"]     = True
+    # Formats (OBJ alongside base 3DML per vendor guidance)
+    fmts["OBJ"]  = True
+    fmts["3DML"] = True
+    # Centering / reprojection
+    ui["CenterPivotToProject"]  = True
+    ui["CenterModelsToProject"] = True
+    ui["ReprojectToEllipsoid"]  = True
+
+    _atomic_write_json(WIZARD_INSTALL_CFG, cfg)
+
+    # Log the effective values we just wrote (helps acceptance/debug)
+    log(f"[WizardCfg] {WIZARD_INSTALL_CFG}")
+    log(f"  OutputProducts: Model3D={outs.get('Model3D')}, Ortho={outs.get('Ortho')}, "
+        f"DSM={outs.get('DSM')}, DTM={outs.get('DTM')}, LAS={outs.get('LAS')}")
+    log(f"  Model3DFormats: OBJ={fmts.get('OBJ')}, 3DML={fmts.get('3DML')}")
+    log(f"  CenterPivotToProject={ui.get('CenterPivotToProject')}, "
+        f"CenterModelsToProject={ui.get('CenterModelsToProject')}, "
+        f"ReprojectToEllipsoid={ui.get('ReprojectToEllipsoid')}")
+
+def launch_wizard_new_project(project_name: str, project_path: str, folders, log=print) -> subprocess.Popen:
+    """
+    Write install defaults, then launch Wizard for a NEW project.
+    - No presets passed.
+    - Use --overrideSettings so Build Settings honor our defaults.
+    - folders: iterable of image folder paths.
+    """
+    set_wizard_defaults_exact(log=log)   # write FIRST
+    time.sleep(0.2)                      # small settle to avoid AV/IO races
+    args = [
+        WIZARD_EXE,
+        "--projectName", project_name,
+        "--projectPath", project_path,
+        "--autostart",
+        "--overrideSettings",
+    ]
+    for f in folders or []:
+        args += ["--folder", f]
+    log(f"[Wizard] {' '.join(args)}")
+    return subprocess.Popen(args, close_fds=False)
 
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -61,120 +145,6 @@ QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
 QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
 WORKING_FOLDER = r"C:\\WorkingFolder"
 
-# PhotoMesh Wizard (fixed install path per environment)
-WIZARD_EXE         = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\PhotoMeshWizard.exe"
-WIZARD_INSTALL_CFG = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json"
-WIZARD_INSTALL_CFGS = [
-    WIZARD_INSTALL_CFG,
-    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
-]
-
-
-def _user_cfg_paths():
-    paths = []
-    app = os.environ.get("APPDATA", "")
-    if app:
-        paths.append(os.path.join(app, "Skyline", "PhotoMesh", "Wizard", "config.json"))
-        paths.append(os.path.join(app, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json"))
-    la = os.environ.get("LOCALAPPDATA", "")
-    if la:
-        paths.append(os.path.join(la, "Skyline", "PhotoMesh", "PhotomeshWizard", "config.json"))
-    for p in paths:
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-    return paths
-
-
-def _ensure_dict(root: dict, key: str) -> dict:
-    node = root.get(key)
-    if not isinstance(node, dict):
-        node = {}
-        root[key] = node
-    return node
-
-
-def _load_json(path: str) -> dict:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def _atomic_write_json(path: str, data: dict) -> None:
-    d = os.path.dirname(path) or "."
-    fd, tmp = tempfile.mkstemp(prefix=".pmcfg.", dir=d, text=True)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, path)
-    except Exception:
-        try:
-            os.remove(tmp)
-        except Exception:
-            pass
-        raise
-
-
-STICKY_PRESET_KEYS = (
-    "SelectedPreset",
-    "SelectedPresets",
-    "PresetStack",
-    "LastUsedPreset",
-    "PresetOverrides",
-    "Preset",
-)
-
-
-def force_obj_defaults_and_clear_overrides(log=print) -> list[str]:
-    """Write strict defaults and remove preset stickiness for the Wizard."""
-    touched: list[str] = []
-    targets = [p for p in WIZARD_INSTALL_CFGS if os.path.isfile(p)] + _user_cfg_paths()
-    for cfg_path in targets:
-        try:
-            cfg = _load_json(cfg_path)
-
-            removed_any = False
-            for k in STICKY_PRESET_KEYS:
-                if k in cfg:
-                    cfg.pop(k, None)
-                    removed_any = True
-
-            ui = _ensure_dict(cfg, "DefaultPhotoMeshWizardUI")
-            outs = _ensure_dict(ui, "OutputProducts")
-            fmts = _ensure_dict(ui, "Model3DFormats")
-
-            outs["Model3D"] = True
-            outs["3DModel"] = True
-            outs["Ortho"] = False
-            outs["DSM"] = False
-            outs["DTM"] = False
-            outs["LAS"] = True
-
-            fmts["OBJ"] = True
-            fmts["3DML"] = True
-
-            ui["CenterPivotToProject"] = True
-            ui["CenterModelsToProject"] = True
-            ui["ReprojectToEllipsoid"] = True
-
-            cfg["NetworkWorkingFolder"] = working_fuser_unc()
-
-            lower_app = os.environ.get("APPDATA", "").lower()
-            lower_la = os.environ.get("LOCALAPPDATA", "").lower()
-            if cfg_path.lower().startswith((lower_app, lower_la)):
-                cfg["OverrideSettings"] = True
-                cfg.setdefault("AutoBuild", True)
-
-            _atomic_write_json(cfg_path, cfg)
-            log(f"✅ Patched Wizard config → {cfg_path} (removed presets: {removed_any})")
-            touched.append(cfg_path)
-        except PermissionError as e:
-            log(f"⚠️ Permission denied writing {cfg_path} (run as Admin). {e}")
-        except Exception as e:
-            log(f"⚠️ Failed writing {cfg_path}: {e}")
-    return touched
-
-
 def find_wizard_exe() -> str:
     for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
         if not base:
@@ -186,34 +156,6 @@ def find_wizard_exe() -> str:
         if os.path.isfile(p2):
             return p2
     raise FileNotFoundError("PhotoMesh Wizard executable not found.")
-
-
-def launch_wizard_with_defaults(
-    project_name: str,
-    project_path: str,
-    folders: list[str],
-    *,
-    autostart: bool = True,
-    log=print,
-):
-    force_obj_defaults_and_clear_overrides(log=log)
-    exe = WIZARD_EXE
-    args = [exe, "--projectName", project_name, "--projectPath", project_path, "--overrideSettings"]
-    if autostart:
-        args.append("--autostart")
-    for f in folders:
-        args += ["--folder", f]
-    log("[Wizard] " + " ".join(f'\"{a}\"' if " " in a else a for a in args))
-    return subprocess.Popen(args, cwd=os.path.dirname(exe), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-
-
-def launch_photomesh_wizard(project_name: str, project_path: str, folders: Iterable[str]) -> subprocess.Popen:
-    """Launch PhotoMesh Wizard with enforced OBJ defaults."""
-    h = _read_photomesh_host()
-    print(f"[PhotoMesh] Host from Settings: {h}")
-    print(f"[PhotoMesh] WorkingFuser UNC: {working_fuser_unc()}")
-    return launch_wizard_with_defaults(project_name, project_path, list(folders), autostart=True, log=print)
-
 # -------------------- Admin helpers --------------------
 def is_windows() -> bool:
     return os.name == "nt"
@@ -402,40 +344,11 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
     if changed:
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
-    for cfg_path in WIZARD_INSTALL_CFGS:
-        wiz = _load_json(cfg_path)
-        if wiz:
-            nwf = wiz.get("NetworkWorkingFolder", "")
-            if isinstance(nwf, str) and nwf.startswith("\\\\"):
-                new_nwf = replace_share_in_unc_path(nwf, old_share, new_share)
-                if new_nwf != nwf:
-                    wiz["NetworkWorkingFolder"] = new_nwf
-                    _atomic_write_json(cfg_path, wiz)
 
 
 def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
-    force_obj_defaults_and_clear_overrides(log=log)
-
-
-# -------------------- Launch Wizard --------------------
-def launch_wizard(
-    project_name: str,
-    project_path: str,
-    imagery_folders: Iterable[str],
-    *,
-    autostart: bool = True,
-    want_ortho: bool = False,
-    log=print,
-) -> subprocess.Popen:
-    del want_ortho  # legacy param unused
-    folders = list(imagery_folders or [])
-    return launch_wizard_with_defaults(
-        project_name,
-        project_path,
-        folders,
-        autostart=autostart,
-        log=log,
-    )
+    del autostart  # compatibility placeholder
+    set_wizard_defaults_exact(log=log)
 
 
 def launch_photomesh_admin() -> None:
@@ -564,10 +477,8 @@ def poll_queue_until_done(poll_every: int = 5, max_minutes: int = 120, log=print
 
 
 __all__ = [
-    "force_obj_defaults_and_clear_overrides",
-    "launch_wizard_with_defaults",
-    "launch_photomesh_wizard",
-    "launch_wizard",
+    "set_wizard_defaults_exact",
+    "launch_wizard_new_project",
     "working_share_root",
     "working_fuser_unc",
     "get_offline_cfg",
@@ -580,5 +491,7 @@ __all__ = [
     "resolve_network_working_folder_from_cfg",
     "enforce_photomesh_settings",
     "find_wizard_exe",
+    "submit_queue_build",
+    "poll_queue_until_done",
 ]
 
