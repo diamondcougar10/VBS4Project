@@ -34,6 +34,8 @@ from photomesh_launcher import (
     working_share_root,
     working_fuser_unc,
     _read_photomesh_host,
+    apply_minimal_wizard_defaults,
+    launch_wizard_new_project,
 )
 from collections import OrderedDict
 import time
@@ -3351,7 +3353,8 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            from photomesh_launcher import launch_wizard_new_project
+            apply_minimal_wizard_defaults()
+            enforce_photomesh_settings()
             proc = launch_wizard_new_project(
                 project_name=project_name,
                 project_path=project_path,
