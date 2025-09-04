@@ -1,27 +1,7 @@
 import json
-import sys
-import ctypes
 import os
 
 CONFIG_PATH = r"C:\Program Files\Skyline\PhotoMeshWizard\config.json"
-
-
-def is_admin() -> bool:
-    """Check for administrative privileges on Windows."""
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except Exception:
-        return False
-
-
-def elevate() -> bool:
-    """Attempt to relaunch the script with admin rights."""
-    params = " ".join(f'"{arg}"' for arg in sys.argv)
-    try:
-        ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-        return int(ret) > 32
-    except Exception:
-        return False
 
 
 def update_config(path: str) -> None:
@@ -38,8 +18,13 @@ def update_config(path: str) -> None:
         print(f"❌ Failed to parse JSON: {exc}")
         return
 
-    # Update the desired field
-    config.setdefault("DefaultPhotoMeshWizardUI", {}).setdefault("Model3DFormats", {})["OBJ"] = True
+    ui = config.setdefault("DefaultPhotoMeshWizardUI", {})
+    ui.setdefault("OutputProducts", {}).update({"Model3D": True})
+    fmts = ui.setdefault("Model3DFormats", {})
+    fmts["3DML"] = True
+    fmts["OBJ"] = True
+    # Optional:
+    # fmts["LAS"] = True
 
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -53,12 +38,4 @@ def update_config(path: str) -> None:
 
 
 if __name__ == "__main__":
-    if not is_admin():
-        print("⚠️  This script needs to run with Administrator privileges.")
-        if elevate():
-            sys.exit(0)
-        else:
-            print("❌ Could not obtain elevated privileges. Please rerun this script as Administrator.")
-            sys.exit(1)
     update_config(CONFIG_PATH)
-    input("Press Enter to exit...")

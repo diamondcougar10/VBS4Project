@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, json, subprocess, tempfile, time
+import os, sys, json, subprocess, time
 import configparser, ctypes
 from typing import Iterable
 
@@ -14,76 +14,56 @@ except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
 
 # ---- Authoritative Wizard locations ----
-WIZARD_DIR         = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
-WIZARD_EXE         = rf"{WIZARD_DIR}\\PhotoMeshWizard.exe"
-WIZARD_INSTALL_CFG = rf"{WIZARD_DIR}\\config.json"
+WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
+WIZARD_EXE = rf"{WIZARD_DIR}\\PhotoMeshWizard.exe"
 
-# Keys that would re-apply a preset/overrides (must be removed)
-_PRESET_KEYS = ("SelectedPreset","SelectedPresets","PresetStack","LastUsedPreset","PresetOverrides","Preset")
+WIZ_CFG_PATHS = [
+    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
+]
 
-def _load_json_silent(path: str) -> dict:
+
+def _load_json(path: str) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
-def _atomic_write_json(path: str, data: dict) -> None:
-    """Atomic write (no .bak files)."""
-    d = os.path.dirname(path) or "."
-    fd, tmp = tempfile.mkstemp(prefix=".pmcfg.", dir=d, text=True)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
+
+def _save_json(path: str, data: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
 
-def set_wizard_defaults_exact(log=print) -> None:
+
+def apply_minimal_wizard_defaults() -> None:
     """
-    Edit ONLY the installed Wizard config that the Wizard reads on launch.
-    No AppData writes, no presets, no backups, do not touch NetworkWorkingFolder.
+    Ensure install-level Wizard defaults enable 3D model with OBJ (+3DML).
+    Do not touch presets or user-level files.
     """
-    cfg = _load_json_silent(WIZARD_INSTALL_CFG)
-    for k in _PRESET_KEYS:
-        cfg.pop(k, None)
-
-    ui   = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-    outs = ui.setdefault("OutputProducts", {})
-    fmts = ui.setdefault("Model3DFormats", {})
-
-    # === Required defaults for every build ===
-    # Outputs
-    outs["Model3D"] = True
-    outs["Ortho"]   = False
-    outs["DSM"]     = False
-    outs["DTM"]     = False
-    outs["LAS"]     = True
-    # Formats (OBJ alongside base 3DML per vendor guidance)
-    fmts["OBJ"]  = True
-    fmts["3DML"] = True
-    # Centering / reprojection
-    ui["CenterPivotToProject"]  = True
-    ui["CenterModelsToProject"] = True
-    ui["ReprojectToEllipsoid"]  = True
-
-    _atomic_write_json(WIZARD_INSTALL_CFG, cfg)
-
-    # Log the effective values we just wrote (helps acceptance/debug)
-    log(f"[WizardCfg] {WIZARD_INSTALL_CFG}")
-    log(f"  OutputProducts: Model3D={outs.get('Model3D')}, Ortho={outs.get('Ortho')}, "
-        f"DSM={outs.get('DSM')}, DTM={outs.get('DTM')}, LAS={outs.get('LAS')}")
-    log(f"  Model3DFormats: OBJ={fmts.get('OBJ')}, 3DML={fmts.get('3DML')}")
-    log(f"  CenterPivotToProject={ui.get('CenterPivotToProject')}, "
-        f"CenterModelsToProject={ui.get('CenterModelsToProject')}, "
-        f"ReprojectToEllipsoid={ui.get('ReprojectToEllipsoid')}")
+    for cfg_path in WIZ_CFG_PATHS:
+        if not os.path.isfile(cfg_path):
+            continue
+        cfg = _load_json(cfg_path)
+        ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+        ui.setdefault("OutputProducts", {}).update({"Model3D": True})
+        m3d = ui.setdefault("Model3DFormats", {})
+        m3d["3DML"] = True
+        m3d["OBJ"] = True
+        # Optional:
+        # m3d["LAS"] = True
+        _save_json(cfg_path, cfg)
+        print(f"[Wizard] Ensured Model3D/OBJ/3DML enabled -> {cfg_path}")
 
 def launch_wizard_new_project(project_name: str, project_path: str, folders, log=print) -> subprocess.Popen:
     """
-    Write install defaults, then launch Wizard for a NEW project.
+    Launch Wizard for a NEW project.
     - No presets passed.
     - Use --overrideSettings so Build Settings honor our defaults.
     - folders: iterable of image folder paths.
     """
-    set_wizard_defaults_exact(log=log)   # write FIRST
-    time.sleep(0.2)                      # small settle to avoid AV/IO races
     args = [
         WIZARD_EXE,
         "--projectName", project_name,
@@ -348,7 +328,7 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
 
 def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
     del autostart  # compatibility placeholder
-    set_wizard_defaults_exact(log=log)
+    del log  # no-op; network/host propagation handled elsewhere
 
 
 def launch_photomesh_admin() -> None:
