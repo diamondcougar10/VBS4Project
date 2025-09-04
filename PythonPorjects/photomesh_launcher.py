@@ -28,7 +28,7 @@ import os
 import subprocess
 import sys
 import time
-from typing import Iterable
+from typing import Iterable, List
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
@@ -59,6 +59,10 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
 QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
 WORKING_FOLDER = r"C:\\WorkingFolder"
+
+PHOTOMESH_EXE = r"C:\\Program Files\\Skyline\\PhotoMesh\\PhotoMesh.exe"
+QUEUE_READY_TIMEOUT_SEC = 90
+QUEUE_POLL_INTERVAL_SEC = 2
 
 # Off-line connection hint shown when UNC paths fail
 OFFLINE_ACCESS_HINT = (
@@ -541,6 +545,195 @@ def poll_queue_until_done(
             pass
         time.sleep(poll_every)
     log("[Queue] Monitor window expired.")
+
+# =============================================================================
+# PhotoMesh Project Queue integration (no Wizard)
+# =============================================================================
+
+
+def _is_queue_up() -> bool:
+    """Return True if the Project Queue REST API responds."""
+    if not requests:
+        return False
+    try:
+        r = requests.get(QUEUE_API_URL + "version", timeout=1.5)
+        return r.ok
+    except Exception:
+        return False
+
+
+def launch_photomesh_if_needed(log=print) -> None:
+    """
+    Ensure PhotoMesh.exe is running so the Project Queue is available.
+    Start it detached/non-blocking if not already up. No admin required.
+    """
+    if _is_queue_up():
+        return
+    if not os.path.isfile(PHOTOMESH_EXE):
+        raise FileNotFoundError(f"PhotoMesh.exe not found: {PHOTOMESH_EXE}")
+    subprocess.Popen([PHOTOMESH_EXE], close_fds=True)
+    log("PhotoMesh.exe started (waiting for Project Queue REST to become ready).")
+
+
+def wait_for_queue_ready(timeout_sec: int = QUEUE_READY_TIMEOUT_SEC, log=print) -> None:
+    """Poll until the Project Queue REST API is ready or time out."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if _is_queue_up():
+            log("Project Queue REST is ready.")
+            return
+        time.sleep(QUEUE_POLL_INTERVAL_SEC)
+    raise TimeoutError("PhotoMesh Project Queue did not become ready in time.")
+
+
+def make_source_path_from_folders(folders: List[str]) -> List[dict]:
+    """
+    Build the 'sourcePath' list for /project/add from the already-selected image folders.
+    If subfolders contain JPG/JPEG, treat each subfolder as a collection; else use folder.
+    """
+    out: List[dict] = []
+    for folder in folders or []:
+        if not os.path.isdir(folder):
+            continue
+        subdirs = [d for d in os.listdir(folder) if os.path.isdir(os.path.join(folder, d))]
+        collections = []
+        if subdirs:
+            for s in subdirs:
+                p = os.path.join(folder, s)
+                try:
+                    has_jpg = any(fn.lower().endswith((".jpg", ".jpeg")) for fn in os.listdir(p))
+                except Exception:
+                    has_jpg = False
+                if has_jpg:
+                    collections.append({"name": s, "path": p, "properties": ""})
+        if not collections:
+            collections = [{"name": "RGB", "path": folder, "properties": ""}]
+        out.extend(collections)
+    return out
+
+
+def build_queue_payload(
+    project_name: str,
+    project_dir: str,
+    source_path: List[dict],
+    working_folder: str,
+    preset_name: str | None = None,
+) -> list[dict]:
+    """
+    Create /project/add payload. If preset_name is None/empty, engine defaults apply.
+    """
+    os.makedirs(project_dir, exist_ok=True)
+    project_xml = os.path.join(project_dir, f"{project_name}.PhotoMeshXML")
+    return [{
+        "comment": f"Auto project: {project_name}",
+        "action": 0,
+        "projectPath": project_xml,
+        "buildFrom": 1,
+        "buildUntil": 6,
+        "inheritBuild": "",
+        "preset": preset_name or "",
+        "workingFolder": working_folder,
+        "MaxLocalFusers": 10,
+        "MaxAWSFusers": 0,
+        "AWSFuserStartupScript": "",
+        "AWSBuildConfigurationName": "",
+        "AWSBuildConfigurationJsonPath": "",
+        "sourceType": 0,
+        "sourcePath": source_path
+    }]
+
+
+def submit_project_to_queue(payload: list[dict], log=print) -> None:
+    """POST /project/add and raise on failure."""
+    if not requests:
+        raise RuntimeError("requests library is required for queue submission")
+    r = requests.post(QUEUE_API_URL + "project/add", json=payload, timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f"/project/add failed [{r.status_code}]: {r.text}")
+    log("Submitted project to Project Queue.")
+
+
+def start_build(log=print) -> None:
+    """GET /Build/Start and raise on failure."""
+    if not requests:
+        raise RuntimeError("requests library is required for queue submission")
+    r = requests.get(QUEUE_API_URL + "Build/Start", timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f"/Build/Start failed [{r.status_code}]: {r.text}")
+    log("Build started.")
+
+
+# =============================================================================
+# Optional: engine preset staging (only if you WANT to use a preset by name)
+# =============================================================================
+import shutil
+import xml.etree.ElementTree as ET
+
+ENGINE_PRESET_DIR = r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets"
+
+
+def _read_preset_name(pmpreset_path: str) -> str:
+    try:
+        root = ET.parse(pmpreset_path).getroot()
+        n = root.find(".//PresetName")
+        if n is not None and (n.text or "").strip():
+            return n.text.strip()
+    except Exception:
+        pass
+    return os.path.splitext(os.path.basename(pmpreset_path))[0]
+
+
+def install_engine_preset(pmpreset_path: str, log=print) -> str:
+    """Copy .PMPreset into engine Presets so 'preset' resolves by name in /project/add."""
+    if not os.path.isfile(pmpreset_path):
+        raise FileNotFoundError(pmpreset_path)
+    if not pmpreset_path.lower().endswith(".pmpreset"):
+        raise ValueError("Expected a .PMPreset file")
+
+    name = _read_preset_name(pmpreset_path)
+    dst = os.path.join(ENGINE_PRESET_DIR, f"{name}.PMPreset")
+
+    try:
+        os.makedirs(ENGINE_PRESET_DIR, exist_ok=True)
+        if not os.path.isfile(dst) or os.path.getmtime(pmpreset_path) > os.path.getmtime(dst):
+            shutil.copy2(pmpreset_path, dst)
+            log(f"Installed engine preset → {dst}")
+        else:
+            log(f"Engine preset already up to date → {dst}")
+    except PermissionError as e:
+        raise PermissionError(
+            f"Cannot copy preset to '{ENGINE_PRESET_DIR}'. "
+            f"Run once as Administrator or copy manually."
+        ) from e
+    return name
+
+
+def queue_build_from_gui_selection(
+    project_name: str,
+    project_dir: str,
+    image_folders: List[str],
+    working_folder: str,
+    preset_src: str | None = None,
+    log=print,
+) -> None:
+    """
+    Do not change GUI. Ensure engine queue is up, build payload from current selection,
+    submit, and start build.
+    """
+    launch_photomesh_if_needed(log=log)
+    wait_for_queue_ready(log=log)
+
+    src = make_source_path_from_folders(image_folders)
+    if not src:
+        raise ValueError("No valid imagery found for sourcePath.")
+
+    preset_name = None
+    if preset_src:
+        preset_name = install_engine_preset(preset_src, log=log)
+
+    payload = build_queue_payload(project_name, project_dir, src, working_folder, preset_name)
+    submit_project_to_queue(payload, log=log)
+    start_build(log=log)
 # endregion
 
 # region GUI / Tkinter handlers
@@ -578,6 +771,14 @@ __all__ = [
     "find_wizard_exe",
     "submit_queue_build",
     "poll_queue_until_done",
+    "queue_build_from_gui_selection",
+    "launch_photomesh_if_needed",
+    "wait_for_queue_ready",
+    "make_source_path_from_folders",
+    "build_queue_payload",
+    "submit_project_to_queue",
+    "start_build",
+    "install_engine_preset",
 ]
 
 # =============================================================================
