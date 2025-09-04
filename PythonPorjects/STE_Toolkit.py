@@ -71,6 +71,10 @@ from photomesh_launcher import (
     _read_photomesh_host,
     apply_minimal_wizard_defaults,
     launch_wizard_new_project,
+    install_pmpreset,
+    list_output_settings_xml,
+    assert_obj_enabled,
+    assert_preset_settings_name,
 )
 from collections import OrderedDict
 import time
@@ -178,8 +182,8 @@ def _iter_build_outputs(build_root: str):
             continue
 
 
-def wait_for_obj_or_xyz(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10, log=print) -> str | None:
-    """Block until an OBJ export (or offset.xyz sidecar) exists. Return the folder that holds it."""
+def wait_for_obj(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10, log=print) -> str | None:
+    """Block until an OBJ export exists. Return the folder that holds it."""
     start = time.time()
     while time.time() - start < timeout_sec:
         for odir in _iter_build_outputs(build_root):
@@ -189,11 +193,6 @@ def wait_for_obj_or_xyz(build_root: str, timeout_sec: int = 8*3600, poll_sec: in
                     if any(fn.lower().endswith(".obj") for fn in files):
                         log(f"[watch] OBJ found: {obj_dir}")
                         return obj_dir
-            if any(os.path.isfile(os.path.join(odir, name)) for name in ("Output-WKT.txt", "Output-WKT_Models.txt")):
-                xyz = next((f for f in os.listdir(odir) if f.lower().endswith("_offset.xyz")), "")
-                if xyz:
-                    log(f"[watch] offset.xyz found: {os.path.join(odir, xyz)}")
-                    return odir
         time.sleep(poll_sec)
     return None
 
@@ -3549,6 +3548,8 @@ class VBS4Panel(tk.Frame):
         try:
             apply_minimal_wizard_defaults()
             enforce_photomesh_settings()
+            pmpreset_path = os.path.join(os.path.dirname(__file__), "STEPRESET.PMPreset")
+            install_pmpreset(pmpreset_path, name="STEPRESET", log=self.log_message)
             proc = launch_wizard_new_project(
                 project_name=project_name,
                 project_path=project_dir,
@@ -3557,8 +3558,38 @@ class VBS4Panel(tk.Frame):
             )
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_dir)
-            self.log_message("PhotoMesh Wizard launched with --overrideSettings (no preset).")
+            self.log_message(
+                "PhotoMesh Wizard launched with preset STEPRESET and --overrideSettings."
+            )
             self.start_progress_monitor(project_dir)
+
+            ps_path = os.path.join(project_dir, "PresetSettings.xml")
+            if os.path.isfile(ps_path):
+                try:
+                    assert_preset_settings_name(project_dir, "STEPRESET")
+                    self.log_message(f"\u2705 Preset STEPRESET confirmed in {ps_path}")
+                    self.preset_check_pending = False
+                except RuntimeError:
+                    raise
+            else:
+                self.log_message(
+                    "\u26a0\ufe0f PresetSettings.xml not found yet; will check again after build starts."
+                )
+                self.preset_check_pending = True
+
+            xmls = list_output_settings_xml(project_dir)
+            if xmls:
+                try:
+                    assert_obj_enabled(xmls[0])
+                    self.log_message(f"\u2705 OBJ detected in {xmls[0]}")
+                    self.obj_check_pending = False
+                except RuntimeError:
+                    raise
+            else:
+                self.log_message(
+                    "\u26a0\ufe0f No Output-Settings.xml found yet; will check again after build starts."
+                )
+                self.obj_check_pending = True
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
@@ -3617,25 +3648,10 @@ class VBS4Panel(tk.Frame):
 
         def _pipeline():
             try:
-                self.log_message("Waiting for PhotoMesh to finish (TerraExplorer or OBJ/XYZ).")
-                got_te = [False]
-                result = [None]
-
-                def _wait_te():
-                    got_te[0] = wait_for_terraexplorer_start(log=self.log_message)
-
-                def _wait_obj():
-                    result[0] = wait_for_obj_or_xyz(self.last_build_dir, log=self.log_message)
-
-                t1 = threading.Thread(target=_wait_te, daemon=True)
-                t2 = threading.Thread(target=_wait_obj, daemon=True)
-                t1.start(); t2.start()
-
-                for t in itertools.cycle((t1, t2)):
-                    t.join(timeout=0.5)
-                    if not t1.is_alive() or not t2.is_alive():
-                        break
-
+                self.log_message("Waiting for PhotoMesh to finish (OBJ).")
+                result = wait_for_obj(self.last_build_dir, log=self.log_message)
+                if not result:
+                    raise RuntimeError("Timed out waiting for OBJ export.")
                 self.log_message("Build completion detected.")
             except Exception as exc:
                 self.log_message(f"Failed while waiting for completion: {exc}")
@@ -3825,6 +3841,7 @@ class VBS4Panel(tk.Frame):
     # ------------------------------------------------------------------
     def start_progress_monitor(self, project_path: str):
         """Begin monitoring PhotoMesh render logs under *project_path*."""
+        self.project_root = project_path
         self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
         self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
         self.last_build_dir = os.path.join(project_path, "Build_1", "out")
@@ -3836,6 +3853,28 @@ class VBS4Panel(tk.Frame):
         self.progress_job = self.after(2000, self.update_render_progress)
 
     def update_render_progress(self):
+        if getattr(self, "preset_check_pending", False) and getattr(self, "project_root", ""):
+            ps_path = os.path.join(self.project_root, "PresetSettings.xml")
+            if os.path.isfile(ps_path):
+                try:
+                    assert_preset_settings_name(self.project_root, "STEPRESET")
+                    self.log_message("\u2705 Preset STEPRESET confirmed in PresetSettings.xml")
+                except RuntimeError as e:
+                    self.log_message(str(e))
+                    messagebox.showerror("Preset Not Enabled", str(e), parent=self)
+                self.preset_check_pending = False
+
+        if getattr(self, "obj_check_pending", False) and getattr(self, "project_root", ""):
+            xmls = list_output_settings_xml(self.project_root)
+            if xmls:
+                try:
+                    assert_obj_enabled(xmls[0])
+                    self.log_message("\u2705 OBJ detected in Output-Settings.xml")
+                except RuntimeError as e:
+                    self.log_message(str(e))
+                    messagebox.showerror("OBJ Not Enabled", str(e), parent=self)
+                self.obj_check_pending = False
+
         paths = []
         if self.project_log_folder and os.path.isdir(self.project_log_folder):
             paths += glob.glob(os.path.join(self.project_log_folder, "Out*.log"))
