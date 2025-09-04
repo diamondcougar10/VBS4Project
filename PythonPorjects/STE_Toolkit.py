@@ -4696,6 +4696,8 @@ if __name__ == "__main__":
         print("STE Toolkit is already running.")
         sys.exit(0)
     start_command_server()
+    # Ensure PhotoMesh Wizard defaults include OBJ output at startup
+    apply_minimal_wizard_defaults()
     app = MainApp()
     if config['Fusers'].getboolean('fuser_computer', False):
         update_fuser_shared_path()
