@@ -3360,7 +3360,7 @@ class VBS4Panel(tk.Frame):
             )
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
-            self.log_message("PhotoMesh Wizard launched with --overrideSettings (no preset).")
+            self.log_message("PhotoMesh Wizard project prepared and build started with patched preset.")
             self.start_progress_monitor(project_path)
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
