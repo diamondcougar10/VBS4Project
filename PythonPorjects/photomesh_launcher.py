@@ -1,8 +1,7 @@
 from __future__ import annotations
-import os, sys, json, subprocess, tempfile, time, glob
+import os, sys, json, subprocess, tempfile, time
 import configparser, ctypes
 from typing import Iterable
-from xml.etree import ElementTree as ET
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
@@ -76,119 +75,26 @@ def set_wizard_defaults_exact(log=print) -> None:
         f"CenterModelsToProject={ui.get('CenterModelsToProject')}, "
         f"ReprojectToEllipsoid={ui.get('ReprojectToEllipsoid')}")
 
-
-def _find_project_preset(project_name: str, project_path: str, since_ts: float) -> str:
-    """Return path to the newest .PMPreset created since *since_ts*.
-
-    Searches both the user's AppData presets directory and the project
-    folder itself.  Prefers files whose name contains *project_name*.
-    """
-    candidates: list[str] = []
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        preset_dir = os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
-        candidates.extend(glob.glob(os.path.join(preset_dir, "*.PMPreset")))
-    candidates.extend(glob.glob(os.path.join(project_path, "*.PMPreset")))
-    candidates = [p for p in candidates if os.path.getmtime(p) >= since_ts]
-    if not candidates:
-        return ""
-    named = [p for p in candidates if project_name.lower() in os.path.basename(p).lower()]
-    if named:
-        return max(named, key=os.path.getmtime)
-    return max(candidates, key=os.path.getmtime)
-
-
-def _ensure_xml_path(root: ET.Element, path: str) -> ET.Element:
-    """Ensure *path* exists under *root* and return the final element."""
-    cur = root
-    for part in path.split("/"):
-        nxt = cur.find(part)
-        if nxt is None:
-            nxt = ET.SubElement(cur, part)
-        cur = nxt
-    return cur
-
-
-def _patch_pmpreset_xml(path: str, log=print) -> None:
-    """Set required build flags to ``true`` in the project preset."""
-    try:
-        tree = ET.parse(path)
-        root = tree.getroot()
-    except Exception as e:  # pragma: no cover - parsing errors rare
-        log(f"[Preset] Failed to parse {path}: {e}")
-        return
-
-    flags = [
-        "BuildParameters/OutputProducts/Model3D",
-        "BuildParameters/Model3DFormats/OBJ",
-        "BuildParameters/Model3DFormats/3DML",
-        "BuildParameters/CenterPivotToProject",
-        "BuildParameters/CenterModelsToProject",
-        "BuildParameters/ReprojectToEllipsoid",
-    ]
-    for xpath in flags:
-        elem = _ensure_xml_path(root, xpath)
-        elem.text = "true"
-
-    tree.write(path, encoding="utf-8")
-    log(f"[Preset] Patched {path}")
-
 def launch_wizard_new_project(project_name: str, project_path: str, folders, log=print) -> subprocess.Popen:
     """
-    Write install defaults, launch Wizard to create the project (no autostart),
-    patch the emitted project preset, then start the build.
-
-    Returns the ``Popen`` handle of the autostarted Wizard process.
+    Write install defaults, then launch Wizard for a NEW project.
+    - No presets passed.
+    - Use --overrideSettings so Build Settings honor our defaults.
+    - folders: iterable of image folder paths.
     """
-    set_wizard_defaults_exact(log=log)
-    time.sleep(0.2)
-
-    # Initial launch without autostart so the project preset is generated
-    prep_args = [
+    set_wizard_defaults_exact(log=log)   # write FIRST
+    time.sleep(0.2)                      # small settle to avoid AV/IO races
+    args = [
         WIZARD_EXE,
-        "--projectName",
-        project_name,
-        "--projectPath",
-        project_path,
-        "--overrideSettings",
-    ]
-    for f in folders or []:
-        prep_args += ["--folder", f]
-    log(f"[Wizard-prepare] {' '.join(prep_args)}")
-    t0 = time.time()
-    proc = subprocess.Popen(prep_args, close_fds=False)
-
-    # Wait for the project preset to appear
-    preset_path = ""
-    deadline = time.time() + 60
-    while time.time() < deadline:
-        preset_path = _find_project_preset(project_name, project_path, t0)
-        if preset_path:
-            break
-        time.sleep(0.5)
-    if preset_path:
-        _patch_pmpreset_xml(preset_path, log=log)
-    else:
-        log("[Wizard] No project preset found; build may use defaults.")
-
-    # Close the preparation instance
-    try:
-        proc.terminate()
-    except Exception:
-        pass
-
-    # Relaunch with autostart to begin build
-    start_args = [
-        WIZARD_EXE,
-        "--projectName",
-        project_name,
-        "--projectPath",
-        project_path,
+        "--projectName", project_name,
+        "--projectPath", project_path,
         "--autostart",
         "--overrideSettings",
     ]
-    log(f"[Wizard-start] {' '.join(start_args)}")
-    return subprocess.Popen(start_args, close_fds=False)
+    for f in folders or []:
+        args += ["--folder", f]
+    log(f"[Wizard] {' '.join(args)}")
+    return subprocess.Popen(args, close_fds=False)
 
 # Load shared configuration for network fuser settings
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
