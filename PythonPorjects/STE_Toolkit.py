@@ -51,6 +51,7 @@ import re
 import socket
 import threading
 import shlex
+import itertools
 try:
     import psutil
 except Exception:  # pragma: no cover - psutil may not be installed
@@ -157,6 +158,66 @@ def run_in_thread(target, *args, **kwargs):
     thread = threading.Thread(target=target, args=args,
                              kwargs=kwargs, daemon=True)
     thread.start()
+
+
+def _iter_build_outputs(build_root: str):
+    """Yield outputBuild_* directories under Build_* (newest first)."""
+    for bdir in sorted(
+        (os.path.join(build_root, d) for d in os.listdir(build_root) if d.lower().startswith("build_")),
+        key=os.path.getmtime,
+        reverse=True,
+    ):
+        try:
+            for odir in sorted(
+                (os.path.join(bdir, d) for d in os.listdir(bdir) if d.lower().startswith("outputbuild_")),
+                key=os.path.getmtime,
+                reverse=True,
+            ):
+                yield odir
+        except Exception:
+            continue
+
+
+def wait_for_obj_or_xyz(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10, log=print) -> str | None:
+    """Block until an OBJ export (or offset.xyz sidecar) exists. Return the folder that holds it."""
+    start = time.time()
+    while time.time() - start < timeout_sec:
+        for odir in _iter_build_outputs(build_root):
+            obj_dir = os.path.join(odir, "OBJ")
+            if os.path.isdir(obj_dir):
+                for _root, _dirs, files in os.walk(obj_dir):
+                    if any(fn.lower().endswith(".obj") for fn in files):
+                        log(f"[watch] OBJ found: {obj_dir}")
+                        return obj_dir
+            if any(os.path.isfile(os.path.join(odir, name)) for name in ("Output-WKT.txt", "Output-WKT_Models.txt")):
+                xyz = next((f for f in os.listdir(odir) if f.lower().endswith("_offset.xyz")), "")
+                if xyz:
+                    log(f"[watch] offset.xyz found: {os.path.join(odir, xyz)}")
+                    return odir
+        time.sleep(poll_sec)
+    return None
+
+
+def wait_for_terraexplorer_start(timeout_sec: int = 8*3600, poll_sec: int = 5, log=print) -> bool:
+    """Return True when TerraExplorer.exe is observed."""
+    want = "terraexplorer.exe"
+    start = time.time()
+    while time.time() - start < timeout_sec:
+        try:
+            if psutil:
+                for p in psutil.process_iter(["name"]):
+                    if (p.info.get("name") or "").lower() == want:
+                        log("[watch] TerraExplorer.exe detected")
+                        return True
+            else:
+                out = subprocess.check_output(["tasklist"], text=True, stderr=subprocess.DEVNULL)
+                if any(want in line.lower() for line in out.splitlines()):
+                    log("[watch] TerraExplorer.exe detected (tasklist)")
+                    return True
+        except Exception:
+            pass
+        time.sleep(poll_sec)
+    return False
 
 
 # =============================================================================
@@ -3556,25 +3617,41 @@ class VBS4Panel(tk.Frame):
 
         def _pipeline():
             try:
-                self.log_message("Waiting for mesh build to complete...")
-                json_path = wait_for_output_json(self.last_build_dir)
-                self.log_message(f"Mesh build finished: {json_path}")
+                self.log_message("Waiting for PhotoMesh to finish (TerraExplorer or OBJ/XYZ).")
+                got_te = [False]
+                result = [None]
+
+                def _wait_te():
+                    got_te[0] = wait_for_terraexplorer_start(log=self.log_message)
+
+                def _wait_obj():
+                    result[0] = wait_for_obj_or_xyz(self.last_build_dir, log=self.log_message)
+
+                t1 = threading.Thread(target=_wait_te, daemon=True)
+                t2 = threading.Thread(target=_wait_obj, daemon=True)
+                t1.start(); t2.start()
+
+                for t in itertools.cycle((t1, t2)):
+                    t.join(timeout=0.5)
+                    if not t1.is_alive() or not t2.is_alive():
+                        break
+
+                self.log_message("Build completion detected.")
             except Exception as exc:
-                self.log_message(f"Failed while waiting for build: {exc}")
+                self.log_message(f"Failed while waiting for completion: {exc}")
                 self.after(0, lambda e=exc: messagebox.showerror(
                     "Build Error", str(e), parent=self))
                 return
 
             def launch_rm():
                 try:
-                    self.log_message("Launching Reality Mesh to VBS4...")
-                    self.post_process_last_build(self.last_build_dir)
+                    self.log_message("Launching Reality Mesh to VBS4…")
+                    self.launch_reality_mesh_to_vbs4()
                     self.log_message("Reality Mesh to VBS4 launched.")
                 except Exception as exc:
                     self.log_message(f"Launch failed: {exc}")
                     messagebox.showerror("Launch Error", str(exc), parent=self)
 
-            # Schedule the Reality Mesh launch on the main thread
             self.after(0, launch_rm)
 
         run_in_thread(_pipeline)
