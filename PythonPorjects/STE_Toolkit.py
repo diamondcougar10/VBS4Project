@@ -68,9 +68,8 @@ from photomesh_launcher import (
     working_share_root,
     working_fuser_unc,
     _read_photomesh_host,
-    queue_build_from_gui_selection,
-    launch_photomesh_main,
-    wait_for_queue_ready,
+    apply_minimal_wizard_defaults,
+    launch_wizard_new_project,
 )
 from collections import OrderedDict
 import time
@@ -3447,19 +3446,6 @@ class VBS4Panel(tk.Frame):
                 self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
-        try:
-            launch_photomesh_main()
-        except FileNotFoundError as e:
-            messagebox.showerror("PhotoMesh", str(e), parent=self)
-            return
-        if not wait_for_queue_ready():
-            messagebox.showerror(
-                "PhotoMesh",
-                "Project Queue API not available on localhost:8087",
-                parent=self,
-            )
-            return
-
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
             self.select_imagery()
             if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -3499,30 +3485,27 @@ class VBS4Panel(tk.Frame):
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
-        image_folders = self.image_folder_paths
-
         try:
-            working_unc = config.get("Paths", "NetworkWorkingFolder", fallback="").strip()
-            if not working_unc:
-                working_unc = config.get("Offline", "network_working_folder", fallback="").strip()
-        except Exception:
-            working_unc = ""
-
-        preset_src = None  # optional preset path or None
-
-        try:
-            queue_build_from_gui_selection(
+            apply_minimal_wizard_defaults()
+            enforce_photomesh_settings()
+            proc = launch_wizard_new_project(
                 project_name=project_name,
-                project_dir=project_dir,
-                image_folders=image_folders,
-                working_folder=working_unc,
-                preset_src=preset_src,
-                log=self.log_message if hasattr(self, "log_message") else print,
+                project_path=project_dir,
+                folders=self.image_folder_paths,
+                log=self.log_message,
             )
-            self.log_message(f"Queued project '{project_name}' and started build.")
+            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
+                self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_dir)
+            self.log_message("PhotoMesh Wizard launched with --overrideSettings (no preset).")
+            self.start_progress_monitor(project_dir)
         except Exception as e:
-            self.log_message(f"Queue error: {e}")
-            messagebox.showerror("PhotoMesh Queue Error", str(e), parent=self)
+            error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
+            self.log_message(error_message)
+            messagebox.showerror("Launch Error", error_message, parent=self)
+            if messagebox.askyesno(
+                "Open Folder", "Would you like to open the project folder?", parent=self
+            ):
+                open_in_explorer(project_dir)
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"

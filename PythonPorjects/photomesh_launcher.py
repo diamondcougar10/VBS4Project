@@ -25,21 +25,15 @@ import configparser
 import ctypes
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
-from typing import Iterable, List
+from typing import Iterable
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
 except Exception:  # pragma: no cover - requests may be absent in minimal environments
     requests = None  # type: ignore
-
-try:  # pragma: no cover - psutil may not be installed
-    import psutil  # type: ignore
-except Exception:  # pragma: no cover
-    psutil = None  # type: ignore
 
 try:  # pragma: no cover - tkinter may not be available
     from tkinter import messagebox
@@ -64,12 +58,7 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 # Queue endpoints and working directory used by the PhotoMesh engine
 QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
 QUEUE_SSE_URL = "http://127.0.0.1:8087/ProjectQueue/events"
-QUEUE_HOST = "127.0.0.1"
-QUEUE_PORT = 8087
 WORKING_FOLDER = r"C:\\WorkingFolder"
-
-PHOTOMESH_EXE = r"C:\\Program Files\\Skyline\\PhotoMesh\\PhotoMesh.exe"
-QUEUE_READY_TIMEOUT_SEC = 90
 
 # Off-line connection hint shown when UNC paths fail
 OFFLINE_ACCESS_HINT = (
@@ -552,202 +541,6 @@ def poll_queue_until_done(
             pass
         time.sleep(poll_every)
     log("[Queue] Monitor window expired.")
-
-# =============================================================================
-# PhotoMesh Project Queue integration (no Wizard)
-# =============================================================================
-
-
-def _is_listening(host: str, port: int, timeout_sec: float = 0.5) -> bool:
-    """Return True if *host:port* accepts a TCP connection."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout_sec):
-            return True
-    except OSError:
-        return False
-
-
-def _is_photomesh_running() -> bool:
-    """Check whether PhotoMesh.exe is already running."""
-    try:
-        if psutil:
-            for p in psutil.process_iter(["name", "exe"]):
-                nm = (p.info.get("name") or "").lower()
-                if nm == "photomesh.exe":
-                    return True
-    except Exception:
-        pass
-    try:
-        out = subprocess.check_output(["tasklist"], text=True, stderr=subprocess.DEVNULL)
-        return "PhotoMesh.exe" in out
-    except Exception:
-        return False
-
-
-def launch_photomesh_main() -> subprocess.Popen | None:
-    """Start PhotoMesh.exe if it isn't already running."""
-    if _is_photomesh_running():
-        return None
-    if not os.path.isfile(PHOTOMESH_EXE):
-        raise FileNotFoundError(f"PhotoMesh.exe not found at {PHOTOMESH_EXE}")
-    return subprocess.Popen([PHOTOMESH_EXE], cwd=os.path.dirname(PHOTOMESH_EXE))
-
-
-def wait_for_queue_ready(max_wait_sec: int = QUEUE_READY_TIMEOUT_SEC) -> bool:
-    """Wait until the Project Queue TCP port is listening."""
-    start = time.time()
-    while time.time() - start < max_wait_sec:
-        if _is_listening(QUEUE_HOST, QUEUE_PORT):
-            return True
-        time.sleep(1.0)
-    return False
-
-
-def make_source_path_from_folders(folders: List[str]) -> List[dict]:
-    """
-    Build the 'sourcePath' list for /project/add from the already-selected image folders.
-    If subfolders contain JPG/JPEG, treat each subfolder as a collection; else use folder.
-    """
-    out: List[dict] = []
-    for folder in folders or []:
-        if not os.path.isdir(folder):
-            continue
-        subdirs = [d for d in os.listdir(folder) if os.path.isdir(os.path.join(folder, d))]
-        collections = []
-        if subdirs:
-            for s in subdirs:
-                p = os.path.join(folder, s)
-                try:
-                    has_jpg = any(fn.lower().endswith((".jpg", ".jpeg")) for fn in os.listdir(p))
-                except Exception:
-                    has_jpg = False
-                if has_jpg:
-                    collections.append({"name": s, "path": p, "properties": ""})
-        if not collections:
-            collections = [{"name": "RGB", "path": folder, "properties": ""}]
-        out.extend(collections)
-    return out
-
-
-def build_queue_payload(
-    project_name: str,
-    project_dir: str,
-    source_path: List[dict],
-    working_folder: str,
-    preset_name: str | None = None,
-) -> list[dict]:
-    """
-    Create /project/add payload. If preset_name is None/empty, engine defaults apply.
-    """
-    os.makedirs(project_dir, exist_ok=True)
-    project_xml = os.path.join(project_dir, f"{project_name}.PhotoMeshXML")
-    return [{
-        "comment": f"Auto project: {project_name}",
-        "action": 0,
-        "projectPath": project_xml,
-        "buildFrom": 1,
-        "buildUntil": 6,
-        "inheritBuild": "",
-        "preset": preset_name or "",
-        "workingFolder": working_folder,
-        "MaxLocalFusers": 10,
-        "MaxAWSFusers": 0,
-        "AWSFuserStartupScript": "",
-        "AWSBuildConfigurationName": "",
-        "AWSBuildConfigurationJsonPath": "",
-        "sourceType": 0,
-        "sourcePath": source_path
-    }]
-
-
-def submit_project_to_queue(payload: list[dict], log=print) -> None:
-    """POST /project/add and raise on failure."""
-    if not requests:
-        raise RuntimeError("requests library is required for queue submission")
-    r = requests.post(QUEUE_API_URL + "project/add", json=payload, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"/project/add failed [{r.status_code}]: {r.text}")
-    log("Submitted project to Project Queue.")
-
-
-def start_build(log=print) -> None:
-    """GET /Build/Start and raise on failure."""
-    if not requests:
-        raise RuntimeError("requests library is required for queue submission")
-    r = requests.get(QUEUE_API_URL + "Build/Start", timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"/Build/Start failed [{r.status_code}]: {r.text}")
-    log("Build started.")
-
-
-# =============================================================================
-# Optional: engine preset staging (only if you WANT to use a preset by name)
-# =============================================================================
-import shutil
-import xml.etree.ElementTree as ET
-
-ENGINE_PRESET_DIR = r"C:\\Program Files\\Skyline\\PhotoMesh\\Presets"
-
-
-def _read_preset_name(pmpreset_path: str) -> str:
-    try:
-        root = ET.parse(pmpreset_path).getroot()
-        n = root.find(".//PresetName")
-        if n is not None and (n.text or "").strip():
-            return n.text.strip()
-    except Exception:
-        pass
-    return os.path.splitext(os.path.basename(pmpreset_path))[0]
-
-
-def install_engine_preset(pmpreset_path: str, log=print) -> str:
-    """Copy .PMPreset into engine Presets so 'preset' resolves by name in /project/add."""
-    if not os.path.isfile(pmpreset_path):
-        raise FileNotFoundError(pmpreset_path)
-    if not pmpreset_path.lower().endswith(".pmpreset"):
-        raise ValueError("Expected a .PMPreset file")
-
-    name = _read_preset_name(pmpreset_path)
-    dst = os.path.join(ENGINE_PRESET_DIR, f"{name}.PMPreset")
-
-    try:
-        os.makedirs(ENGINE_PRESET_DIR, exist_ok=True)
-        if not os.path.isfile(dst) or os.path.getmtime(pmpreset_path) > os.path.getmtime(dst):
-            shutil.copy2(pmpreset_path, dst)
-            log(f"Installed engine preset → {dst}")
-        else:
-            log(f"Engine preset already up to date → {dst}")
-    except PermissionError as e:
-        raise PermissionError(
-            f"Cannot copy preset to '{ENGINE_PRESET_DIR}'. "
-            f"Run once as Administrator or copy manually."
-        ) from e
-    return name
-
-
-def queue_build_from_gui_selection(
-    project_name: str,
-    project_dir: str,
-    image_folders: List[str],
-    working_folder: str,
-    preset_src: str | None = None,
-    log=print,
-) -> None:
-    """
-    Do not change GUI. Build payload from current selection, submit, and start build.
-    Assumes PhotoMesh is already running and the Project Queue is ready.
-    """
-    src = make_source_path_from_folders(image_folders)
-    if not src:
-        raise ValueError("No valid imagery found for sourcePath.")
-
-    preset_name = None
-    if preset_src:
-        preset_name = install_engine_preset(preset_src, log=log)
-
-    payload = build_queue_payload(project_name, project_dir, src, working_folder, preset_name)
-    submit_project_to_queue(payload, log=log)
-    start_build(log=log)
 # endregion
 
 # region GUI / Tkinter handlers
@@ -785,14 +578,6 @@ __all__ = [
     "find_wizard_exe",
     "submit_queue_build",
     "poll_queue_until_done",
-    "queue_build_from_gui_selection",
-    "launch_photomesh_main",
-    "wait_for_queue_ready",
-    "make_source_path_from_folders",
-    "build_queue_payload",
-    "submit_project_to_queue",
-    "start_build",
-    "install_engine_preset",
 ]
 
 # =============================================================================
