@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 import time
+import http.client
 from typing import List
 
 try:  # pragma: no cover - optional dependency
@@ -463,11 +464,21 @@ def poll_queue_until_done(
 
 def _is_queue_up() -> bool:
     """Return True if the Project Queue REST API responds."""
-    if not requests:
-        return False
+    # 1) fast path with requests when available
+    if requests:
+        try:
+            r = requests.get(QUEUE_API_URL + "version", timeout=1.5)
+            return r.ok
+        except Exception:
+            return False
+    # 2) stdlib fallback (no external deps)
     try:
-        r = requests.get(QUEUE_API_URL + "version", timeout=1.5)
-        return r.ok
+        conn = http.client.HTTPConnection("127.0.0.1", 8087, timeout=1.5)
+        conn.request("GET", "/ProjectQueue/version")
+        resp = conn.getresponse()
+        ok = (200 <= resp.status < 300)
+        conn.close()
+        return ok
     except Exception:
         return False
 
@@ -491,7 +502,28 @@ def wait_for_queue_ready(timeout_sec: int = QUEUE_READY_TIMEOUT_SEC, log=print) 
             log("Project Queue REST is ready.")
             return
         time.sleep(QUEUE_POLL_INTERVAL_SEC)
-    raise TimeoutError("PhotoMesh Project Queue did not become ready in time.")
+    log("⚠️  Project Queue did not respond in time; continuing anyway.")
+
+
+def ensure_photomesh_queue_running(
+    log=print,
+    wait_seconds: int = QUEUE_READY_TIMEOUT_SEC,
+    run_as_admin: bool = False,
+) -> None:
+    """Launch PhotoMesh and wait for the Project Queue REST API."""
+    # ``run_as_admin`` retained for API compatibility but ignored; launching
+    # PhotoMesh does not require elevation for the queue to become available.
+    launch_photomesh_if_needed(log=log)
+    wait_for_queue_ready(timeout_sec=wait_seconds, log=log)
+
+
+# --- NEW: simple prelaunch wrapper used by the GUI ---
+def prelaunch_photomesh_queue(log=print, wait_seconds: int = 90) -> None:
+    """
+    Ensure PhotoMesh is running and the Project Queue REST endpoint responds
+    before the GUI opens any file dialogs. No elevation required.
+    """
+    ensure_photomesh_queue_running(log=log, wait_seconds=wait_seconds, run_as_admin=False)
 
 def make_source_path_from_folders(folders: List[str]) -> List[dict]:
     """
@@ -550,21 +582,48 @@ def build_queue_payload(
 
 def submit_project_to_queue(payload: list[dict], log=print) -> None:
     """POST /project/add and raise on failure."""
-    if not requests:
-        raise RuntimeError("requests library is required for queue submission")
-    r = requests.post(QUEUE_API_URL + "project/add", json=payload, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"/project/add failed [{r.status_code}]: {r.text}")
-    log("Submitted project to Project Queue.")
+    if requests:
+        r = requests.post(QUEUE_API_URL + "project/add", json=payload, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"/project/add failed [{r.status_code}]: {r.text}")
+        log("Submitted project to Project Queue.")
+        return
+
+    # stdlib fallback when requests is unavailable
+    try:
+        body = json.dumps(payload)
+        conn = http.client.HTTPConnection("127.0.0.1", 8087, timeout=30)
+        conn.request("POST", "/ProjectQueue/project/add", body, {"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        data = resp.read().decode()
+        conn.close()
+        if not (200 <= resp.status < 300):
+            raise RuntimeError(f"/project/add failed [{resp.status}]: {data}")
+        log("Submitted project to Project Queue.")
+    except Exception as e:
+        raise RuntimeError(f"/project/add failed: {e}") from e
 
 def start_build(log=print) -> None:
     """GET /Build/Start and raise on failure."""
-    if not requests:
-        raise RuntimeError("requests library is required for queue submission")
-    r = requests.get(QUEUE_API_URL + "Build/Start", timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"/Build/Start failed [{r.status_code}]: {r.text}")
-    log("Build started.")
+    if requests:
+        r = requests.get(QUEUE_API_URL + "Build/Start", timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"/Build/Start failed [{r.status_code}]: {r.text}")
+        log("Build started.")
+        return
+
+    # stdlib fallback when requests is unavailable
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", 8087, timeout=30)
+        conn.request("GET", "/ProjectQueue/Build/Start")
+        resp = conn.getresponse()
+        data = resp.read().decode()
+        conn.close()
+        if not (200 <= resp.status < 300):
+            raise RuntimeError(f"/Build/Start failed [{resp.status}]: {data}")
+        log("Build started.")
+    except Exception as e:
+        raise RuntimeError(f"/Build/Start failed: {e}") from e
 
 # =============================================================================
 # Optional: engine preset staging (only if you WANT to use a preset by name)
@@ -610,18 +669,16 @@ def install_engine_preset(pmpreset_path: str, log=print) -> str:
 
 def queue_build_from_gui_selection(
     project_name: str,
-    project_dir: str,
+    project_output_dir: str,
     image_folders: List[str],
-    working_folder: str,
-    preset_src: str | None = None,
     log=print,
+    preset_src: str | None = None,
 ) -> None:
     """
-    Do not change GUI. Ensure engine queue is up, build payload from current selection,
-    submit, and start build.
+    Ensure PhotoMesh's Project Queue is running, build payload from the current
+    GUI selection, submit, and start the build.
     """
-    launch_photomesh_if_needed(log=log)
-    wait_for_queue_ready(log=log)
+    ensure_photomesh_queue_running(log=log, wait_seconds=QUEUE_READY_TIMEOUT_SEC, run_as_admin=False)
 
     src = make_source_path_from_folders(image_folders)
     if not src:
@@ -631,7 +688,10 @@ def queue_build_from_gui_selection(
     if preset_src:
         preset_name = install_engine_preset(preset_src, log=log)
 
-    payload = build_queue_payload(project_name, project_dir, src, working_folder, preset_name)
+    o = get_offline_cfg()
+    working_folder = resolve_network_working_folder_from_cfg(o)
+
+    payload = build_queue_payload(project_name, project_output_dir, src, working_folder, preset_name)
     submit_project_to_queue(payload, log=log)
     start_build(log=log)
 # endregion
@@ -670,6 +730,8 @@ __all__ = [
     "find_wizard_exe",
     "poll_queue_until_done",
     "queue_build_from_gui_selection",
+    "ensure_photomesh_queue_running",
+    "prelaunch_photomesh_queue",
     "launch_photomesh_if_needed",
     "wait_for_queue_ready",
     "make_source_path_from_folders",

@@ -68,6 +68,7 @@ from photomesh_launcher import (
     working_share_root,
     working_fuser_unc,
     _read_photomesh_host,
+    prelaunch_photomesh_queue,
     queue_build_from_gui_selection,
 )
 from collections import OrderedDict
@@ -3083,8 +3084,58 @@ class VBS4Panel(tk.Frame):
         if hasattr(self.controller, "update_navigation"):
             self.controller.update_navigation()
 
-    def on_oneclick_convert(self):
-        self.one_click_conversion()
+    def get_projects_root_default(self) -> str:
+        """Thin wrapper around saved Projects root configuration."""
+        return get_projects_root()
+
+    def set_projects_root_default(self, path: str) -> None:
+        """Persist Projects root selection for next time."""
+        set_projects_root(path)
+
+    def on_oneclick_convert(self, *args, **kwargs):
+        """Handle the One-Click Conversion button press."""
+        # 0) PRE-LAUNCH PHOTOMESH QUEUE
+        self.log_message("[PhotoMesh] Starting/validating Project Queue ...")
+        try:
+            prelaunch_photomesh_queue(log=self.log_message, wait_seconds=90)
+            self.log_message("[PhotoMesh] Queue is live.")
+        except Exception as e:
+            messagebox.showerror("PhotoMesh Launch Error",
+                                 f"Failed to start PhotoMesh/Queue.\n{e}",
+                                 parent=self)
+            return
+
+        # 1) IMAGERY + PROJECT SELECTION
+        if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
+            self.select_imagery()
+            if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
+                return
+
+        project_name = prompt_project_name(self)
+        if not project_name:
+            messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
+            return
+
+        project_output_dir = self.get_projects_root_default()
+        if not project_output_dir:
+            project_output_dir = filedialog.askdirectory(title="Select Project Output Folder", parent=self)
+            if not project_output_dir:
+                messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                return
+            self.set_projects_root_default(project_output_dir)
+
+        # 2) QUEUE THE BUILD
+        try:
+            queue_build_from_gui_selection(
+                project_name=project_name,
+                project_output_dir=project_output_dir,
+                image_folders=self.image_folder_paths,
+                log=self.log_message,
+            )
+            self.log_message("Queued build via Project Queue.")
+        except Exception as e:
+            messagebox.showerror("PhotoMesh Queue Error", str(e), parent=self)
+            return
 
     def on_launch_reality_mesh(self):
      self.launch_reality_mesh_to_vbs4()
@@ -3487,24 +3538,16 @@ class VBS4Panel(tk.Frame):
 
         image_folders = self.image_folder_paths
 
-        try:
-            working_unc = config.get("Paths", "NetworkWorkingFolder", fallback="").strip()
-            if not working_unc:
-                working_unc = config.get("Offline", "network_working_folder", fallback="").strip()
-        except Exception:
-            working_unc = ""
-
         preset_src = None  # optional preset path or None
 
         try:
             self.log_message("Submitting project to PhotoMesh queue…")
             queue_build_from_gui_selection(
                 project_name=project_name,
-                project_dir=project_dir,
+                project_output_dir=project_dir,
                 image_folders=image_folders,
-                working_folder=working_unc,
-                preset_src=preset_src,
                 log=self.log_message if hasattr(self, "log_message") else print,
+                preset_src=preset_src,
             )
             self.log_message(f"Queued project '{project_name}' and started build.")
         except Exception as e:
