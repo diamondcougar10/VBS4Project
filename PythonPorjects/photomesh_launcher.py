@@ -493,27 +493,6 @@ def wait_for_queue_ready(timeout_sec: int = QUEUE_READY_TIMEOUT_SEC, log=print) 
         time.sleep(QUEUE_POLL_INTERVAL_SEC)
     raise TimeoutError("PhotoMesh Project Queue did not become ready in time.")
 
-
-def ensure_photomesh_queue_running(
-    log=print,
-    wait_seconds: int = QUEUE_READY_TIMEOUT_SEC,
-    run_as_admin: bool = False,
-) -> None:
-    """Launch PhotoMesh and wait for the Project Queue REST API."""
-    # ``run_as_admin`` retained for API compatibility but ignored; launching
-    # PhotoMesh does not require elevation for the queue to become available.
-    launch_photomesh_if_needed(log=log)
-    wait_for_queue_ready(timeout_sec=wait_seconds, log=log)
-
-
-# --- NEW: simple prelaunch wrapper used by the GUI ---
-def prelaunch_photomesh_queue(log=print, wait_seconds: int = 90) -> None:
-    """
-    Ensure PhotoMesh is running and the Project Queue REST endpoint responds
-    before the GUI opens any file dialogs. No elevation required.
-    """
-    ensure_photomesh_queue_running(log=log, wait_seconds=wait_seconds, run_as_admin=False)
-
 def make_source_path_from_folders(folders: List[str]) -> List[dict]:
     """
     Build the 'sourcePath' list for /project/add from the already-selected image folders.
@@ -631,16 +610,18 @@ def install_engine_preset(pmpreset_path: str, log=print) -> str:
 
 def queue_build_from_gui_selection(
     project_name: str,
-    project_output_dir: str,
+    project_dir: str,
     image_folders: List[str],
-    log=print,
+    working_folder: str,
     preset_src: str | None = None,
+    log=print,
 ) -> None:
     """
-    Ensure PhotoMesh's Project Queue is running, build payload from the current
-    GUI selection, submit, and start the build.
+    Do not change GUI. Ensure engine queue is up, build payload from current selection,
+    submit, and start build.
     """
-    ensure_photomesh_queue_running(log=log, wait_seconds=QUEUE_READY_TIMEOUT_SEC, run_as_admin=False)
+    launch_photomesh_if_needed(log=log)
+    wait_for_queue_ready(log=log)
 
     src = make_source_path_from_folders(image_folders)
     if not src:
@@ -650,10 +631,7 @@ def queue_build_from_gui_selection(
     if preset_src:
         preset_name = install_engine_preset(preset_src, log=log)
 
-    o = get_offline_cfg()
-    working_folder = resolve_network_working_folder_from_cfg(o)
-
-    payload = build_queue_payload(project_name, project_output_dir, src, working_folder, preset_name)
+    payload = build_queue_payload(project_name, project_dir, src, working_folder, preset_name)
     submit_project_to_queue(payload, log=log)
     start_build(log=log)
 # endregion
@@ -692,8 +670,6 @@ __all__ = [
     "find_wizard_exe",
     "poll_queue_until_done",
     "queue_build_from_gui_selection",
-    "ensure_photomesh_queue_running",
-    "prelaunch_photomesh_queue",
     "launch_photomesh_if_needed",
     "wait_for_queue_ready",
     "make_source_path_from_folders",
