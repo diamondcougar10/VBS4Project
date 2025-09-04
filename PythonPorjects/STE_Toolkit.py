@@ -74,6 +74,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# --- UI toasts ---
+SHOW_SELECTION_TOAST = False
+
 
 _lock_file = None
 #------------SINGLETON DEF------------------------------------------------------
@@ -3137,11 +3140,18 @@ class VBS4Panel(tk.Frame):
             norm_folders = [clean_path(f) for f in folders]
             self.image_folder_paths = norm_folders
             self.image_folder_path = ";".join(norm_folders)
-            messagebox.showinfo(
-                "Imagery Selected",
-                "Selected imagery folders:\n" + "\n".join(norm_folders),
-                parent=folder_window,
-            )
+            if SHOW_SELECTION_TOAST:
+                messagebox.showinfo(
+                    "Imagery Selected",
+                    f"Selected imagery folders:\n{', '.join(self.image_folder_paths)}",
+                    parent=folder_window,
+                )
+            else:
+                # keep a breadcrumb in the log; NO modal dialog
+                if hasattr(self, "log_message"):
+                    self.log_message(
+                        f"Imagery selected: {', '.join(self.image_folder_paths)}"
+                    )
             self.log_message("Selected imagery folders:")
             for folder in norm_folders:
                 self.log_message(f" - {folder}")
