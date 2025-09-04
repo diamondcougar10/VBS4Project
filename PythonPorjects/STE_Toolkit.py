@@ -1,3 +1,9 @@
+"""STE Toolkit utility module."""
+
+# =============================================================================
+# METADATA & IMPORTS
+# =============================================================================
+
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog, simpledialog, messagebox
@@ -58,7 +64,10 @@ try:  # Optional atomic write helper
 except Exception:  # pragma: no cover - helper may not exist
     write_config_atomic = None
 
-# Win32 constants for tweaking window styles:
+# =============================================================================
+# CONSTANTS & GLOBALS
+# =============================================================================
+# Win32 constants for tweaking window styles
 GWL_STYLE        = -16
 WS_BORDER        = 0x00800000
 WS_DLGFRAME      = 0x00400000
@@ -67,6 +76,12 @@ SWP_NOSIZE       = 0x0001
 SWP_NOZORDER     = 0x0004
 SWP_FRAMECHANGED = 0x0020
 
+# UI toasts
+SHOW_SELECTION_TOAST = False
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
 logging.basicConfig(
     level=logging.INFO,
     filename='ste_toolkit.log',
@@ -74,12 +89,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# --- UI toasts ---
-SHOW_SELECTION_TOAST = False
-
-
+# =============================================================================
+# SINGLETON / PROCESS GUARD
+# =============================================================================
 _lock_file = None
-#------------SINGLETON DEF------------------------------------------------------
+
 def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
     """Prevent multiple instances by locking a file in the temp directory."""
     global _lock_file
@@ -106,15 +120,20 @@ def release_singleton() -> None:
         _lock_file.close()
         _lock_file = None
 
+# =============================================================================
+# THREADING UTILITIES
+# =============================================================================
+
 def run_in_thread(target, *args, **kwargs):
     """Run *target* in a background daemon thread."""
     thread = threading.Thread(target=target, args=args,
                              kwargs=kwargs, daemon=True)
     thread.start()
 
-# ---------------------------------------------------------------------------
-# PhotoMesh progress helpers
-# ---------------------------------------------------------------------------
+
+# =============================================================================
+# PHOTOMESH PROGRESS PARSING
+# =============================================================================
 
 def extract_progress(line: str) -> int | None:
     """Return progress percent from a log line if present."""
@@ -130,9 +149,9 @@ def extract_progress(line: str) -> int | None:
     return None
 
 
-#==============================================================================
-# NETWORK HELPERS
-#==============================================================================
+# =============================================================================
+# NETWORK / PATH HELPERS
+# =============================================================================
 
 def get_local_ip():
     """Return the primary IPv4 address of this machine."""
@@ -156,9 +175,10 @@ def clean_path(path: str) -> str:
     return path
 
 
-#==============================================================================
-# VBS4 INSTALL PATH FINDER
-#==============================================================================
+# =============================================================================
+# VBS4 / BLUEIG / BVI PATH RESOLUTION
+# =============================================================================
+# Locate installation paths for supported applications.
 
 def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
     """Return the file version of *exe* as a tuple or ``None`` on failure."""
@@ -277,9 +297,30 @@ def get_vbs4_launcher_path():
 
     logging.warning("VBS4 Launcher path not found")
     return ''
-#==============================================================================
-# VERSION DISPLAY FUNCTIONS
-#==============================================================================
+
+
+def get_blueig_install_path() -> str:
+    path = config['General'].get('blueig_path', '')
+    if not path or not os.path.isfile(path):
+        path = find_executable('BlueIG.exe')
+        if path:
+            config['General']['blueig_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+    return path or ''
+
+
+def get_ares_manager_path() -> str:
+    """Return saved ARES Manager path if it exists, else empty string."""
+    path = config['General'].get('bvi_manager_path', '')
+    if path and os.path.isfile(path):
+        return path
+    return ''
+
+# =============================================================================
+# VERSION & EXECUTABLE DISCOVERY
+# =============================================================================
+# Helpers to read executable versions and locate binaries.
 
 def get_exe_file_version(exe_path: str) -> str:
     """Return the FileVersion field from an executable, if available."""
@@ -372,9 +413,10 @@ def find_executable(name, additional_paths=[]):
 
     return best_path
 
-# ---------------------------------------------------------------------------
-# Reality Mesh UNC template + tolerant lookup
-# ---------------------------------------------------------------------------
+# =============================================================================
+# REALITY MESH LINK & UNC RESOLUTION
+# =============================================================================
+# Resolve network shortcuts and local roots for Reality Mesh.
 
 RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
 # Accept either folder spelling (some machines have a typo in the share name)
@@ -607,6 +649,11 @@ def update_vbs4_settings(path: str) -> None:
     with open(path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
 
+
+# =============================================================================
+# REALITY MESH DATASET HELPERS
+# =============================================================================
+# Utilities for creating and processing Reality Mesh datasets.
 
 def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
     while not os.path.exists(path):
@@ -923,9 +970,10 @@ def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
 
     return dataset_folder
 
-#==============================================================================
-# CONFIGURATION - APP ICON APPLICATION
-#==============================================================================
+# =============================================================================
+# CONFIGURATION & APP ICON
+# =============================================================================
+# Load configuration file and apply application icon.
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
@@ -1024,9 +1072,10 @@ if 'fullscreen' not in config['General']:
         config.write(f)
        
 
-#==============================================================================
+# =============================================================================
 # AUTO-LAUNCH CONFIG
-#==============================================================================
+# =============================================================================
+# Persist user-defined auto-launch program and arguments.
 
 if 'Auto-Launch' not in config:
     config['Auto-Launch'] = {
@@ -1037,9 +1086,21 @@ if 'Auto-Launch' not in config:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
-#------------------------------------------------------------------------------
-# FUSER CONFIG
-#------------------------------------------------------------------------------
+
+def is_auto_launch_enabled() -> bool:
+    return config.getboolean('Auto-Launch', 'enabled', fallback=False)
+
+
+def get_auto_launch_cmd() -> tuple[str, list[str]]:
+    path = config['Auto-Launch'].get('program_path', '').strip()
+    raw_args = config['Auto-Launch'].get('arguments', '').strip()
+    args = raw_args.split() if raw_args else []
+    return path, args
+
+# =============================================================================
+# FUSER CONFIG & CONTROL
+# =============================================================================
+# Manage PhotoMesh Fuser executable settings and scaling.
 
 if 'Fusers' not in config:
     config['Fusers'] = {
@@ -1061,9 +1122,7 @@ if 'working_folder_host' not in config['Fusers']:
         config.write(f)
 
 
-# ---------------------------------------------------------------------------
-# Fuser helpers
-# ---------------------------------------------------------------------------
+# --- Fuser helpers ---
 
 def get_machine_name() -> str:
     return socket.gethostname().split('.')[0].upper()
@@ -1260,18 +1319,11 @@ def apply_offline_settings() -> None:
 
     enforce_local_fuser_policy()
 
-def is_auto_launch_enabled() -> bool:
-    return config.getboolean('Auto-Launch', 'enabled', fallback=False)
 
-def get_auto_launch_cmd() -> tuple[str, list[str]]:
-    path = config['Auto-Launch'].get('program_path', '').strip()
-    raw_args = config['Auto-Launch'].get('arguments', '').strip()
-    args = raw_args.split() if raw_args else []
-    return path, args
-
-#==============================================================================
-# SETTINGS HELPERS
-#==============================================================================
+# =============================================================================
+# SETTINGS HELPERS (Registry, toggles)
+# =============================================================================
+# Registry-based toggles and local settings.
 
 def is_startup_enabled() -> bool:
     """Return True if the app is registered to launch on Windows startup."""
@@ -1314,9 +1366,10 @@ def toggle_close_on_launch():
     status = "Enabled" if enabled else "Disabled"
     messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
 
-#==============================================================================
-# COMMAND LAUNCH HELPERS
-#==============================================================================
+# =============================================================================
+# GENERIC COMMAND LAUNCH HELPERS
+# =============================================================================
+# Batch file creation and executable resolution utilities.
 BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
 BVI_BAT      = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
 
@@ -1493,16 +1546,6 @@ def get_bvi_batch_file() -> str:
     )
     return create_bvi_batch_file(ares_exe)
 
-def get_blueig_install_path() -> str:
-    path = config['General'].get('blueig_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('BlueIG.exe')
-        if path:
-            config['General']['blueig_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-    return path or ''
-
 def launch_vbs4():
     path = get_vbs4_install_path()
     if not path:
@@ -1611,7 +1654,10 @@ def open_bvi_terrain():
 
     run_in_thread(_open)
        
-# ─── BACKGROUND & LOGOS ──────────────────────────────────────────────────────
+# =============================================================================
+# UI ASSETS & BACKGROUND/LOGOS
+# =============================================================================
+# Paths and helpers for background images and logos.
 
 background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
 logo_STE_path         = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
@@ -1669,7 +1715,10 @@ def set_wallpaper(window):
     lbl.image = ph
     lbl.place(relwidth=1, relheight=1)
     
-# ─── TUTORIALS PANEL DATA ────────────────────────────────────────────────────
+# =============================================================================
+# HELP/TUTORIALS & DOCUMENT OPENERS
+# =============================================================================
+# Static references and routines for help menus.
 
 tutorials_items = {
     "VBS4 Documentation": lambda: webbrowser.open(
@@ -1920,7 +1969,10 @@ def set_oneclick_output_path(path: str) -> None:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
-# ======================== SETUP & CONFIGURATION ========================= #
+# =============================================================================
+# FILE DIALOG / EXE SELECTION HELPERS
+# =============================================================================
+# Prompts for choosing executables and directories.
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -1938,13 +1990,6 @@ def set_vbs4_install_path():
         messagebox.showinfo("Settings", f"VBS4 path set to:\n{path}")
     else:
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
-
-def get_ares_manager_path() -> str:
-    """Return saved ARES Manager path if it exists, else empty string."""
-    path = config['General'].get('bvi_manager_path', '')
-    if path and os.path.isfile(path):
-        return path
-    return ''
 
 def set_ares_manager_path():
     path = filedialog.askopenfilename(title="Select ARES Manager.exe", filetypes=[("Executable", "*.exe")])
