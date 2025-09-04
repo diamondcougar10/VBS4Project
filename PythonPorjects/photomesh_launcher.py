@@ -82,6 +82,26 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
+
+def _save_config():
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        config.write(f)
+
+
+def get_projects_root() -> str:
+    try:
+        root = config.get("Paths", "projects_root", fallback="").strip()
+        return root
+    except Exception:
+        return ""
+
+
+def set_projects_root(path: str) -> None:
+    if not config.has_section("Paths"):
+        config.add_section("Paths")
+    config.set("Paths", "projects_root", path)
+    _save_config()
+
 # ---------- Host / UNC helpers (read from GUI Settings) ----------
 def _read_photomesh_host() -> str:
     """

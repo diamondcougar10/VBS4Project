@@ -934,6 +934,26 @@ ICON_NAME   = 'icon.ico'
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
+
+def _save_config():
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        config.write(f)
+
+
+def get_projects_root() -> str:
+    try:
+        root = config.get("Paths", "projects_root", fallback="").strip()
+        return root
+    except Exception:
+        return ""
+
+
+def set_projects_root(path: str) -> None:
+    if not config.has_section("Paths"):
+        config.add_section("Paths")
+    config.set("Paths", "projects_root", path)
+    _save_config()
+
 # ----- Host/UNC helpers -----
 def get_host() -> str:
     return _read_photomesh_host()
@@ -2317,6 +2337,16 @@ class MainApp(tk.Tk):
         # allow layout to settle then recompute scale for new content
         self.after(0, self._recompute_scale)
 
+    def change_projects_root(self):
+        new_root = filedialog.askdirectory(title="Choose Projects Root", parent=self)
+        if new_root:
+            set_projects_root(new_root)
+            if hasattr(self, "log_message"):
+                try:
+                    self.log_message(f"Projects root updated: {new_root}")
+                except Exception:
+                    pass
+
     def collect_buttons(self, widget):
         """Recursively collect all enabled Button widgets."""
         buttons = []
@@ -3353,12 +3383,32 @@ class VBS4Panel(tk.Frame):
             messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
             return
 
-        project_path = filedialog.askdirectory(title="Select Project Output Folder", parent=self)
-        if not project_path:
-            messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
-            return
-        # Normalize to UNC style backslashes for PhotoMesh
-        project_path = clean_path(project_path)
+        projects_root = get_projects_root()
+        project_path = ""
+        if projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+            project_path = projects_root
+            if hasattr(self, "log_message"):
+                self.log_message(f"Using saved Projects root: {project_path}")
+        else:
+            if projects_root and hasattr(self, "log_message"):
+                if not os.path.isdir(projects_root):
+                    self.log_message(f"Saved Projects root missing: {projects_root}")
+                elif not os.access(projects_root, os.W_OK):
+                    self.log_message(f"Saved Projects root not writable: {projects_root}")
+            project_path = filedialog.askdirectory(
+                title="Select Project Output Folder (root, will be saved)",
+                parent=self,
+            )
+            if not project_path:
+                messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                return
+            set_projects_root(project_path)
+            if hasattr(self, "log_message"):
+                self.log_message(f"Saved Projects root: {project_path}")
+
+        project_path = os.path.normpath(project_path)
+        project_dir = clean_path(os.path.join(project_path, project_name))
+        os.makedirs(project_dir, exist_ok=True)
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
@@ -3367,14 +3417,14 @@ class VBS4Panel(tk.Frame):
             enforce_photomesh_settings()
             proc = launch_wizard_new_project(
                 project_name=project_name,
-                project_path=project_path,
+                project_path=project_dir,
                 folders=self.image_folder_paths,
                 log=self.log_message,
             )
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
-                self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
+                self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_dir)
             self.log_message("PhotoMesh Wizard launched with --overrideSettings (no preset).")
-            self.start_progress_monitor(project_path)
+            self.start_progress_monitor(project_dir)
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
@@ -3382,7 +3432,7 @@ class VBS4Panel(tk.Frame):
             if messagebox.askyesno(
                 "Open Folder", "Would you like to open the project folder?", parent=self
             ):
-                open_in_explorer(project_path)
+                open_in_explorer(project_dir)
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
@@ -3980,6 +4030,12 @@ class SettingsPanel(tk.Frame):
         inner.bind("<Leave>", lambda e: inner.unbind_all("<MouseWheel>"))
 
         # Add path rows into `inner`
+        self.lbl_projects_root = self._create_path_row(
+            "Change Projects Root",
+            self._on_change_projects_root,
+            get_projects_root(),
+            parent=inner,
+        )
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
             self._on_set_vbs4,
@@ -4163,6 +4219,10 @@ class SettingsPanel(tk.Frame):
         lbl.pack(side="left", fill="x", expand=True)
         frame.pack(fill="x", padx=10, pady=5)
         return lbl
+
+    def _on_change_projects_root(self):
+        self.controller.change_projects_root()
+        self.lbl_projects_root.config(text=get_projects_root() or "[not set]")
 
     def _on_set_vbs4(self):
      path = filedialog.askopenfilename(
