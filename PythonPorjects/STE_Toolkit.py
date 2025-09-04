@@ -1,4 +1,32 @@
 """STE Toolkit utility module."""
+# =============================================================================
+# Project: VBS4Project
+# File: STE_Toolkit.py
+# Purpose: Main GUI toolkit for launching apps, configuring PhotoMesh/Wizard,
+#          managing fusers, paths, and Reality Mesh workflows
+# =============================================================================
+# Table of Contents
+#   1) Metadata & Imports
+#   2) Constants & Globals
+#   3) Logging Configuration
+#   4) Singleton / Process Guard
+#   5) Threading Utilities
+#   6) PhotoMesh Progress Parsing
+#   7) Network / Path Helpers
+#   8) VBS4 / BlueIG / BVI Path Resolution
+#   9) Version & Executable Discovery
+#  10) Executable Finder
+#  11) Reality Mesh Link & UNC Resolution
+#  12) Reality Mesh Dataset Helpers
+#  13) Configuration & App Icon
+#  14) Auto-Launch Config
+#  15) Fuser Config & Control
+#  16) Settings Helpers (Registry & toggles)
+#  17) Generic Command Launch Helpers
+#  18) UI Assets & Background/Logos
+#  19) Help/Tutorials & Document Openers
+#  20) (…remaining UI / menu code and mainloop, if present)
+# =============================================================================
 
 # =============================================================================
 # METADATA & IMPORTS
