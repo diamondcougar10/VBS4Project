@@ -22,7 +22,6 @@ try:
 except Exception:  # pragma: no cover - psutil may not be installed
     psutil = None
 from photomesh_launcher import (
-    launch_photomesh_wizard,
     get_offline_cfg,
     ensure_offline_share_exists,
     can_access_unc,
@@ -3352,13 +3351,16 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            proc = launch_photomesh_wizard(
+            from photomesh_launcher import launch_wizard_new_project
+            proc = launch_wizard_new_project(
                 project_name=project_name,
                 project_path=project_path,
                 folders=self.image_folder_paths,
+                log=self.log_message,
             )
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_path)
+            self.log_message("PhotoMesh Wizard launched with --overrideSettings (no preset).")
             self.start_progress_monitor(project_path)
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
