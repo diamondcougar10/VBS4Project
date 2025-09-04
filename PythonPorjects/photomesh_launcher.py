@@ -11,12 +11,11 @@
 #   5) Utilities (pure helpers, no I/O)
 #   6) File I/O & JSON helpers
 #   7) Wizard Config (read/patch install config)
-#   8) Wizard Presets & Output validation
-#   9) Network / UNC resolution
-#  10) Launch / CLI argument builders
-#  11) GUI / Tkinter handlers
-#  12) Logging & Error handling
-#  13) Main entry point
+#   8) Network / UNC resolution
+#   9) Launch / CLI argument builders
+#  10) GUI / Tkinter handlers
+#  11) Logging & Error handling
+#  12) Main entry point
 # =============================================================================
 
 # region Imports
@@ -26,12 +25,9 @@ import configparser
 import ctypes
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
-from pathlib import Path
 from typing import Iterable
 
 try:  # pragma: no cover - optional dependency
@@ -170,64 +166,6 @@ def apply_minimal_wizard_defaults() -> None:
         # m3d["LAS"] = True
         _save_json(cfg_path, cfg)
         print(f"[Wizard] Ensured Model3D/OBJ/3DML enabled -> {cfg_path}")
-# endregion
-
-# region Wizard Presets & Output validation
-
-def _pm_presets_dir() -> str:
-    """Return the PhotoMesh Wizard presets directory."""
-    appdata = os.environ.get("APPDATA", "")
-    return os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
-
-
-def install_pmpreset(src_path: str, name: str = "STEPRESET") -> str:
-    """Copy *src_path* into the presets dir with a stable *name*."""
-    dst_dir = _pm_presets_dir()
-    os.makedirs(dst_dir, exist_ok=True)
-    dst = os.path.join(dst_dir, f"{name}.PMPreset")
-    shutil.copy2(src_path, dst)
-    return dst
-
-
-def list_output_settings_xml(project_root: str) -> list[str]:
-    """Return Output-Settings.xml paths under Build_* folders (newest first)."""
-    hits: list[tuple[float, str]] = []
-    for b in Path(project_root).glob("Build_*"):
-        for od in b.glob("outputBuild_*"):
-            f = od / "Output-Settings.xml"
-            if f.is_file():
-                hits.append((f.stat().st_mtime, str(f)))
-    hits.sort(reverse=True, key=lambda t: t[0])
-    return [p for _, p in hits]
-
-
-def assert_obj_enabled(output_settings_xml: str) -> None:
-    """Raise RuntimeError if *output_settings_xml* lacks OBJ export."""
-    tree = ET.parse(output_settings_xml)
-    root = tree.getroot()
-    text = ET.tostring(root, encoding="unicode").lower()
-    want = ("model3d" in text) and ("obj" in text)
-    if not want:
-        raise RuntimeError(
-            f"OBJ not enabled according to {output_settings_xml}. "
-            "Please ensure your preset enables OutputProducts->3D Model and Model3DFormats->OBJ."
-        )
-
-
-def assert_preset_settings_name(project_root: str, name: str = "STEPRESET") -> None:
-    """Raise RuntimeError if PresetSettings.xml omits *name*.
-
-    If ``PresetSettings.xml`` is missing under *project_root*, no error is raised.
-    """
-    ps = Path(project_root) / "PresetSettings.xml"
-    if not ps.is_file():
-        return
-    text = ps.read_text(encoding="utf-8", errors="ignore").lower()
-    if name.lower() not in text:
-        raise RuntimeError(
-            f"PresetSettings.xml in {project_root} does not mention preset '{name}'."
-        )
-
 # endregion
 
 # region Network / UNC resolution
@@ -402,7 +340,8 @@ def launch_wizard_new_project(
     project_name: str, project_path: str, folders, log=print
 ) -> subprocess.Popen:
     """
-    Launch Wizard for a new project using preset ``STEPRESET``.
+    Launch Wizard for a new project.
+    - No presets passed.
     - Uses --overrideSettings so Build Settings honor our defaults.
     - *folders*: iterable of image folder paths.
     """
@@ -412,10 +351,8 @@ def launch_wizard_new_project(
         project_name,
         "--projectPath",
         project_path,
-        "--preset",
-        "STEPRESET",
-        "--overrideSettings",
         "--autostart",
+        "--overrideSettings",
     ]
     for f in folders or []:
         args += ["--folder", f]
@@ -638,10 +575,6 @@ __all__ = [
     "open_in_explorer",
     "resolve_network_working_folder_from_cfg",
     "enforce_photomesh_settings",
-    "install_pmpreset",
-    "list_output_settings_xml",
-    "assert_obj_enabled",
-    "assert_preset_settings_name",
     "find_wizard_exe",
     "submit_queue_build",
     "poll_queue_until_done",
