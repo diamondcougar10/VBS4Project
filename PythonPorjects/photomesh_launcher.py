@@ -232,7 +232,11 @@ def assert_preset_settings_name(project_root: str, name: str = "STEPRESET") -> N
 
 # region Network / UNC resolution
 def _read_photomesh_host() -> str:
-    """Resolve the PhotoMesh host from config.ini settings."""
+    """Resolve the PhotoMesh host from config.ini settings.
+
+    The STE toolkit's :func:`set_host` writes the selected host name to all
+    legacy keys checked here, keeping older config readers compatible.
+    """
     try:
         config.read(CONFIG_PATH)
         if config.has_section("Offline"):
@@ -275,7 +279,11 @@ def _is_offline_enabled() -> bool:
 
 
 def get_offline_cfg() -> dict:
-    """Return Offline section settings with defaults applied."""
+    """Return Offline section settings with defaults applied.
+
+    The ``host_name`` value is maintained by ``STE_Toolkit.set_host`` so that
+    older tools reading this config continue to work without changes.
+    """
     try:
         config.read(CONFIG_PATH)
     except Exception:
