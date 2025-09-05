@@ -103,15 +103,6 @@ try:  # Optional atomic write helper
 except Exception:  # pragma: no cover - helper may not exist
     write_config_atomic = None
 
-# --- Resource path resolver -------------------------------------------------
-def resource_path(name: str) -> str:
-    """Return absolute path to bundled resource *name*.
-
-    When frozen with PyInstaller, resources live under ``sys._MEIPASS``.
-    """
-    base = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
-    return os.path.join(base, name)
-
 # --- UI dispatch (thread-safe) ---
 _UI_QUEUE = Queue()
 
@@ -3729,11 +3720,8 @@ class VBS4Panel(tk.Frame):
         try:
             apply_offline_settings()            # Wizard NetworkWorkingFolder + fuser shared_path
             update_fuser_shared_path()          # belt and suspenders
-            pmpreset_path = resource_path("STEPRESET.PMPreset")
-            try:
-                install_pmpreset(pmpreset_path, name="STEPRESET")
-            except FileNotFoundError:
-                self.log_message("Preset missing in this build; launching with defaults.")
+            pmpreset_path = os.path.join(os.path.dirname(__file__), "STEPRESET.PMPreset")
+            install_pmpreset(pmpreset_path, name="STEPRESET")
             proc = launch_wizard_new_project(
                 project_name=project_name,
                 project_path=project_dir,

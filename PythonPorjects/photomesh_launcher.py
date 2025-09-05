@@ -50,20 +50,20 @@ except Exception:  # pragma: no cover - headless/test environments
 
 # region Constants & Configuration
 # Authoritative Wizard locations
-WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard"
+WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
 WIZARD_EXE = rf"{WIZARD_DIR}\\PhotoMeshWizard.exe"
 
 # PhotoMesh Wizard install config (read by Wizard at startup)
 WIZ_CFG_PATHS = [
-    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
 ]
 
 # Accept both modern and legacy Wizard executables / locations
 WIZARD_CANDIDATE_NAMES = ("PhotoMeshWizard.exe", "WizardGUI.exe")
 WIZARD_CANDIDATE_SUBPATHS = (
-    r"Skyline\PhotoMesh\Tools\PhotomeshWizard",
     r"Skyline\PhotoMeshWizard",
+    r"Skyline\PhotoMesh\Tools\PhotomeshWizard",
 )
 
 
