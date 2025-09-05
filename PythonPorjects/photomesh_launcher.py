@@ -339,7 +339,7 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
 # --- Easy Shared Drive Mapping ------------------------------------------------
 
 def list_remote_shares(host: str) -> list[str]:
-    """Return share names available on ``\\\{host}``.
+    r"""Return share names available on ``\\\{host}``.
 
     Uses ``net view`` first, falling back to PowerShell ``Get-SmbShare``. Any
     errors are swallowed and an empty list is returned if the host cannot be
@@ -510,7 +510,7 @@ def unmap_drive(letter: str) -> None:
 
 
 def ensure_mapped_drive_from_cfg(o: dict, preferred: str = "M:") -> str | None:
-    """Map ``\\host\share`` from offline config *o* and return the drive letter."""
+    r"""Map ``\\host\share`` from offline config *o* and return the drive letter."""
     if not is_windows():
         return None
     unc = build_unc_from_cfg(o)
