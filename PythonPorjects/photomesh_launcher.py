@@ -50,20 +50,20 @@ except Exception:  # pragma: no cover - headless/test environments
 
 # region Constants & Configuration
 # Authoritative Wizard locations
-WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMeshWizard"
+WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard"
 WIZARD_EXE = rf"{WIZARD_DIR}\\PhotoMeshWizard.exe"
 
 # PhotoMesh Wizard install config (read by Wizard at startup)
 WIZ_CFG_PATHS = [
-    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
     r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
+    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
 ]
 
 # Accept both modern and legacy Wizard executables / locations
 WIZARD_CANDIDATE_NAMES = ("PhotoMeshWizard.exe", "WizardGUI.exe")
 WIZARD_CANDIDATE_SUBPATHS = (
-    r"Skyline\PhotoMeshWizard",
     r"Skyline\PhotoMesh\Tools\PhotomeshWizard",
+    r"Skyline\PhotoMeshWizard",
 )
 
 
@@ -387,12 +387,23 @@ def _pm_presets_dir() -> str:
     return os.path.join(appdata, "Skyline", "PhotoMesh", "Presets")
 
 
-def install_pmpreset(src_path: str, name: str = "STEPRESET") -> str:
-    """Copy *src_path* into the presets dir with a stable *name*."""
+def install_pmpreset(src_path: str, name: str = "STEPRESET", log=print) -> str:
+    """Copy *src_path* into the presets dir with a stable *name*.
+
+    Parameters
+    ----------
+    src_path:
+        Source preset file path.
+    name:
+        Base name for the installed preset (extension will be .PMPreset).
+    log:
+        Logging function used to report the destination path.
+    """
     dst_dir = _pm_presets_dir()
     os.makedirs(dst_dir, exist_ok=True)
     dst = os.path.join(dst_dir, f"{name}.PMPreset")
     shutil.copy2(src_path, dst)
+    log(f"[Preset] Installed {name} -> {dst}")
     return dst
 
 
@@ -809,7 +820,7 @@ def launch_wizard_new_project(
         if messagebox:
             messagebox.showerror("PhotoMesh Wizard not found", msg)
         raise FileNotFoundError(msg)
-    args = [exe, "--projectName", project_name, "--projectPath", project_path]
+    args = [exe, "--projectName", project_name, "--projectPath", project_path, "--overrideSettings"]
     for f in folders:
         args += ["--folder", f]
     for v in videos:
