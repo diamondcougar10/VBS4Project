@@ -35,7 +35,10 @@ from photomesh_launcher import (
 
 # region Constants & Configuration
 # PhotoMesh Wizard install config (read by Wizard at startup)
-CONFIG_PATH = r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json"
+CONFIG_CANDIDATES = [
+    r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
+]
 # endregion
 
 # region Paths & Environment
@@ -113,8 +116,21 @@ def update_config(path: str) -> None:
 # endregion
 
 # region Main entry point
+def main() -> None:
+    any_ok = False
+    for path in CONFIG_CANDIDATES:
+        if os.path.isfile(path):
+            update_config(path)
+            any_ok = True
+    if not any_ok:
+        print("❌ PhotoMesh Wizard config.json not found in expected locations.")
+        print(
+            "   Please install Skyline PhotoMesh/Wizard or run the Toolkit once to cache the path."
+        )
+
+
 if __name__ == "__main__":
-    update_config(CONFIG_PATH)
+    main()
 # endregion
 
 # =============================================================================
