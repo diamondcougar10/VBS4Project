@@ -1443,19 +1443,12 @@ def enforce_local_fuser_policy():
     Host machine: always 1 fuser.
     Non-host:
       - if 'fuser_computer' checked: 3 fusers
-      - else: 0 fusers (kill all)
+      - else: 0 fusers
+    Works whether Offline Mode is enabled or not.
     """
     try:
-        if not _is_offline_enabled():
-            kill_fusers()
-            return
-
-        if is_host_machine():
-            ensure_fuser_instances(1)
-            return
-
         is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
-        desired = 3 if is_fuser else 0
+        desired = 1 if is_host_machine() else (3 if is_fuser else 0)
         ensure_fuser_instances(desired)
     except Exception as e:
         print(f"[fuser-policy] {e}")
@@ -4643,6 +4636,10 @@ class SettingsPanel(tk.Frame):
             messagebox.showerror("Settings", "Host name cannot be empty.")
             return
         set_host(h)  # writes Offline.host_name, Fusers.working_folder_host, Network.host
+        config['Fusers']['working_folder_host'] = h.strip()
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
+        enforce_local_fuser_policy()  # re-apply counts in case this box is the Host
         apply_offline_settings()  # propagate host change
         pnl = self.controller.panels.get('VBS4')
         if pnl and hasattr(pnl, "log_message"):
@@ -5115,4 +5112,5 @@ if __name__ == "__main__":
     if config['Fusers'].getboolean('fuser_computer', False):
         app.after(50, update_fuser_shared_path)
     app.after(50, app.panels['VBS4'].update_fuser_state)
+    app.after(50, enforce_local_fuser_policy)
     app.mainloop()
