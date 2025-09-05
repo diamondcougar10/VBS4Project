@@ -3566,8 +3566,8 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            apply_minimal_wizard_defaults()
-            enforce_photomesh_settings()
+            apply_offline_settings()            # Wizard NetworkWorkingFolder + fuser shared_path
+            update_fuser_shared_path()          # belt and suspenders
             pmpreset_path = os.path.join(os.path.dirname(__file__), "STEPRESET.PMPreset")
             install_pmpreset(pmpreset_path, name="STEPRESET")
             proc = launch_wizard_new_project(
@@ -4028,15 +4028,13 @@ class SettingsPanel(tk.Frame):
             config["Fusers"]["fuser_computer"] = str(self.fuser_var.get())
             with open(CONFIG_PATH, "w") as f:
                 config.write(f)
-            enforce_local_fuser_policy()
-
             if self.fuser_var.get():
                 # Ensure Fusers host matches the single Host PC Name
                 config["Fusers"]["working_folder_host"] = get_host().strip()
                 with open(CONFIG_PATH, "w") as f:
                     config.write(f)
-                update_fuser_shared_path()
-
+            update_fuser_shared_path()
+            enforce_local_fuser_policy()
             self.controller.panels["VBS4"].update_fuser_state()
 
         toggle_specs = [
@@ -4388,8 +4386,7 @@ class SettingsPanel(tk.Frame):
         if new_share and new_share.lower() != old_share.lower():
             propagate_share_rename_in_config(old_share, new_share)
 
-        if self.off_enabled.get():
-            ensure_offline_share_exists(log=lambda m: print("[Offline]", m))
+        apply_offline_settings()  # sync Wizard, fusers, and ensure share
 
         if self.shared_auto_map.get():
             unc_root = build_unc_from_cfg(o)
@@ -4399,7 +4396,6 @@ class SettingsPanel(tk.Frame):
                 with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                     config.write(f)
 
-        update_fuser_shared_path()
         messagebox.showinfo("Settings", "Offline/Shared settings saved.")
 
     def _test_offline_access(self):
@@ -4477,15 +4473,14 @@ class SettingsPanel(tk.Frame):
         if not h:
             messagebox.showerror("Settings", "Host name cannot be empty.")
             return
-        set_host(h)  # now writes Offline.host_name, Fusers.working_folder_host, Network.host
-        update_fuser_shared_path()   # sync shared path JSON if present
+        set_host(h)  # writes Offline.host_name, Fusers.working_folder_host, Network.host
+        apply_offline_settings()  # propagate host change
         pnl = self.controller.panels.get('VBS4')
         if pnl and hasattr(pnl, "log_message"):
             pnl.log_message(f"Host set to: {h}")
         if pnl and hasattr(pnl, "_update_rm_status"):
             pnl._update_rm_status()
         messagebox.showinfo("Settings", f"Host set to '{h}'.")
-        enforce_local_fuser_policy()
 
     def _browse_rm_local_root(self):
         path = filedialog.askdirectory()
