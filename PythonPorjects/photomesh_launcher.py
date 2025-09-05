@@ -391,6 +391,152 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
             config.write(f)
 
 
+def list_remote_shares(host: str) -> list[str]:
+    r"""Return SMB share names exposed by *host*.
+
+    Prefer ``win32net.NetShareEnum``; if unavailable, fall back to parsing
+    ``net view \\HOST /all`` output. Returned names exclude administrative
+    shares such as ``C$``.
+    """
+    shares: list[str] = []
+    try:  # pragma: no cover - optional dependency
+        import win32net  # type: ignore
+
+        resume = 0
+        while True:
+            data, _, resume = win32net.NetShareEnum(host, 2, resume)
+            for item in data:
+                name = item.get("netname")
+                if name and not name.endswith("$"):
+                    shares.append(name)
+            if resume == 0:
+                break
+        return shares
+    except Exception:
+        pass
+
+    try:
+        out = subprocess.run(
+            ["net", "view", rf"\\\{host}", "/all"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+        import re
+
+        return [m.group(1) for m in re.finditer(r"^\s*(\S+)\s+Disk", out, re.MULTILINE)]
+    except Exception:
+        return []
+
+
+def probe_best_mesh_share(
+    host: str, prefer: list[str] | None = None
+) -> tuple[str, str] | None:
+    r"""Return ``(share_name, unc_root)`` for the most suitable mesh share.
+
+    The search prefers names in ``prefer`` (case-insensitive) and falls back to
+    any share containing a ``Datatarget.txt`` sentinel at its root. If running
+    on *host* and no preferred share exists, ``ensure_offline_share_exists`` is
+    invoked to create it.
+    """
+
+    prefer = prefer or ["SharedMeshDrive", "SharedMesh", "PhotoMesh", "Mesh"]
+    shares = list_remote_shares(host)
+    if not shares:
+        return None
+
+    shares_lower = {s.lower(): s for s in shares}
+    for name in prefer:
+        s = shares_lower.get(name.lower())
+        if s:
+            unc = rf"\\\{host}\{s}"
+            sent = os.path.join(unc, "Datatarget.txt")
+            try:
+                if not os.path.isfile(sent) and os.access(unc, os.W_OK):
+                    with open(sent, "a", encoding="utf-8"):
+                        pass
+            except Exception:
+                pass
+            return s, unc
+
+    for s in shares:
+        unc = rf"\\\{host}\{s}"
+        if os.path.isfile(os.path.join(unc, "Datatarget.txt")):
+            return s, unc
+
+    try:
+        import socket
+
+        if host.lower() in (socket.gethostname().lower(), os.environ.get("COMPUTERNAME", "").lower()):
+            ensure_offline_share_exists()
+            shares = list_remote_shares(host)
+            for name in prefer:
+                s = next((x for x in shares if x.lower() == name.lower()), None)
+                if s:
+                    unc = rf"\\\{host}\{s}"
+                    return s, unc
+    except Exception:
+        pass
+
+    return None
+
+
+def current_mapping(letter: str = "M:") -> str | None:
+    r"""Return the UNC path mapped to *letter*, if any."""
+    try:
+        out = subprocess.run(
+            ["net", "use"], capture_output=True, text=True, check=False
+        ).stdout
+        import re
+
+        pattern = rf"^\s*{re.escape(letter)}\s+(\\\\\\S+)"
+        m = re.search(pattern, out, re.MULTILINE | re.IGNORECASE)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def unmap_drive(letter: str = "M:") -> None:
+    r"""Unmap drive *letter* using ``net use``."""
+    subprocess.run(["net", "use", letter, "/delete", "/yes"], check=False)
+
+
+def map_drive(unc: str, letter: str = "M:") -> bool:
+    r"""Map *unc* to drive *letter* via ``net use`` and return success."""
+    mapped = current_mapping(letter)
+    if mapped and mapped.lower() != unc.lower():
+        unmap_drive(letter)
+    subprocess.run(
+        ["net", "use", letter, unc, "/persistent:yes"],
+        check=False,
+    )
+    target = os.path.join(letter, "")
+    return os.path.isdir(target) and can_access_unc(unc)
+
+
+def resolve_shared_access_path() -> str:
+    r"""Return preferred WorkingFuser path based on configuration."""
+    o = get_offline_cfg()
+    share_unc = build_unc_from_cfg(o)
+    working_unc = resolve_network_working_folder_from_cfg(o)
+
+    try:
+        config.read(CONFIG_PATH)
+    except Exception:
+        pass
+    sd = config.setdefault("SharedDrive", {})
+    mode = sd.get("preferred_mode", "UNC").upper()
+    letter = sd.get("drive_letter", "M:")
+
+    if mode == "DRIVE":
+        mapped = current_mapping(letter)
+        if mapped and mapped.lower() == share_unc.lower() and os.path.isdir(f"{letter}\\"):
+            path = os.path.join(letter, o["working_fuser_subdir"])
+            if can_access_unc(path):
+                return path
+    return working_unc
+
+
 def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
     """Compatibility placeholder for enforcing PhotoMesh settings."""
     del autostart  # compatibility placeholder
@@ -636,6 +782,12 @@ __all__ = [
     "_is_offline_enabled",
     "propagate_share_rename_in_config",
     "open_in_explorer",
+    "list_remote_shares",
+    "probe_best_mesh_share",
+    "map_drive",
+    "unmap_drive",
+    "current_mapping",
+    "resolve_shared_access_path",
     "resolve_network_working_folder_from_cfg",
     "enforce_photomesh_settings",
     "install_pmpreset",
