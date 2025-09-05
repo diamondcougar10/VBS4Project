@@ -71,6 +71,10 @@ from photomesh_launcher import (
     _read_photomesh_host,
     apply_minimal_wizard_defaults,
     launch_wizard_new_project,
+    install_pmpreset,
+    list_output_settings_xml,
+    assert_obj_enabled,
+    assert_preset_settings_name,
 )
 from collections import OrderedDict
 import time
@@ -178,8 +182,8 @@ def _iter_build_outputs(build_root: str):
             continue
 
 
-def wait_for_obj_or_xyz(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10, log=print) -> str | None:
-    """Block until an OBJ export (or offset.xyz sidecar) exists. Return the folder that holds it."""
+def wait_for_obj(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10, log=print) -> str | None:
+    """Block until an OBJ export exists. Return the folder that holds it."""
     start = time.time()
     while time.time() - start < timeout_sec:
         for odir in _iter_build_outputs(build_root):
@@ -188,16 +192,7 @@ def wait_for_obj_or_xyz(build_root: str, timeout_sec: int = 8*3600, poll_sec: in
                 for _root, _dirs, files in os.walk(obj_dir):
                     if any(fn.lower().endswith(".obj") for fn in files):
                         log(f"[watch] OBJ found: {obj_dir}")
-                        assert_obj_enabled(odir)
-                        assert_3dml_enabled(odir)
                         return obj_dir
-            if any(os.path.isfile(os.path.join(odir, name)) for name in ("Output-WKT.txt", "Output-WKT_Models.txt")):
-                xyz = next((f for f in os.listdir(odir) if f.lower().endswith("_offset.xyz")), "")
-                if xyz:
-                    log(f"[watch] offset.xyz found: {os.path.join(odir, xyz)}")
-                    assert_obj_enabled(odir)
-                    assert_3dml_enabled(odir)
-                    return odir
         time.sleep(poll_sec)
     return None
 
@@ -769,76 +764,6 @@ def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
         json_path = find_output_json(start_dir)
     return json_path
 
-def find_offset_xyz(start_dir: str) -> str | None:
-    """Return path to *_offset.xyz* under *start_dir* if found."""
-    for root, _dirs, files in os.walk(start_dir):
-        for f in files:
-            if f.lower().endswith('_offset.xyz'):
-                return os.path.join(root, f)
-    return None
-
-def read_offset_xyz(path: str) -> tuple[float, float, float]:
-    """Parse X, Y, Z floats from an *_offset.xyz* file."""
-    import re
-    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-        txt = f.read()
-    nums = re.findall(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', txt)
-    if len(nums) >= 3:
-        return float(nums[0]), float(nums[1]), float(nums[2])
-    raise ValueError(f'Could not parse XYZ from {path}')
-
-def ensure_origin_json(build_dir: str) -> str | None:
-    """Ensure an Output-CenterPivotOrigin.json exists under *build_dir*.
-
-    If the JSON sidecar is missing but an *_offset.xyz* exists, synthesize the JSON (and embed WKT if a .prj/.wkt file is present next to it). Returns the path to the JSON or ``None`` if nothing found.
-    """
-    j = find_output_json(build_dir)
-    if j and os.path.isfile(j):
-        return j
-    xyz = find_offset_xyz(build_dir)
-    if not xyz:
-        return None
-    x, y, z = read_offset_xyz(xyz)
-    prj = ''
-    xyz_dir = os.path.dirname(xyz)
-    for cand in os.listdir(xyz_dir):
-        if cand.lower().endswith(('.prj', '.wkt')):
-            try:
-                with open(os.path.join(xyz_dir, cand), 'r', encoding='utf-8', errors='ignore') as f:
-                    prj = f.read()
-            except Exception:
-                prj = ''
-            break
-    data = {'Origin': [x, y, z]}
-    if prj:
-        data['WKT'] = prj
-    out = os.path.join(xyz_dir, 'Output-CenterPivotOrigin.json')
-    with open(out, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-    return out
-
-def _assert_product_enabled(output_dir: str, tag: str) -> None:
-    """Raise RuntimeError if *tag* is disabled in Output-Settings.xml."""
-    settings = os.path.join(output_dir, 'Output-Settings.xml')
-    if not os.path.isfile(settings):
-        return
-    try:
-        import xml.etree.ElementTree as ET
-        root = ET.parse(settings).getroot()
-        node = root.find(f'.//{tag}')
-        if node is None or (node.text or '').strip().lower() not in ('true', '1'):
-            raise RuntimeError(f'{tag} not enabled in {settings}')
-    except Exception as exc:
-        raise RuntimeError(f'Failed to parse {settings}: {exc}')
-
-def assert_obj_enabled(output_dir: str) -> None:
-    _assert_product_enabled(output_dir, 'OBJ')
-
-def assert_3dml_enabled(output_dir: str) -> None:
-    _assert_product_enabled(output_dir, '3DML')
-
-
-
 
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
     """Create the project directory structure used by Reality Mesh.
@@ -1053,7 +978,7 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 
 
 def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
-                               origin_json_path: str | None, datasets_base: str,
+                               origin_json_path: str, datasets_base: str,
                                config_path: str) -> str:
     """Create a RealityMesh dataset folder and settings file.
 
@@ -1063,7 +988,7 @@ def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
         Name of the dataset/project.
     source_obj_folder : str
         Path to the OBJ folder output from PhotoMesh.
-    origin_json_path : str | None
+    origin_json_path : str
         Path to the ``Output-CenterPivotOrigin.json`` file used to obtain
         ``offset_x``, ``offset_y`` and ``offset_z`` values.
     datasets_base : str
@@ -1080,14 +1005,6 @@ def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
 
     dataset_folder = os.path.join(datasets_base, project_name)
     os.makedirs(dataset_folder, exist_ok=True)
-
-    if not origin_json_path or not os.path.isfile(origin_json_path):
-        search_root = source_obj_folder
-        if os.path.basename(search_root).lower() == 'obj':
-            search_root = os.path.dirname(search_root)
-        origin_json_path = ensure_origin_json(search_root)
-    if not origin_json_path or not os.path.isfile(origin_json_path):
-        raise FileNotFoundError('Origin JSON or offset.xyz not found')
 
     with open(origin_json_path, 'r', encoding='utf-8') as f:
         origin_data = json.load(f)
@@ -3631,6 +3548,8 @@ class VBS4Panel(tk.Frame):
         try:
             apply_minimal_wizard_defaults()
             enforce_photomesh_settings()
+            pmpreset_path = os.path.join(os.path.dirname(__file__), "STEPRESET.PMPreset")
+            install_pmpreset(pmpreset_path, name="STEPRESET")
             proc = launch_wizard_new_project(
                 project_name=project_name,
                 project_path=project_dir,
@@ -3639,8 +3558,38 @@ class VBS4Panel(tk.Frame):
             )
             if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
                 self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_dir)
-            self.log_message("PhotoMesh Wizard launched with --overrideSettings (no preset).")
+            self.log_message(
+                "PhotoMesh Wizard launched with preset STEPRESET and --overrideSettings."
+            )
             self.start_progress_monitor(project_dir)
+
+            ps_path = os.path.join(project_dir, "PresetSettings.xml")
+            if os.path.isfile(ps_path):
+                try:
+                    assert_preset_settings_name(project_dir, "STEPRESET")
+                    self.log_message("\u2705 Preset STEPRESET confirmed in PresetSettings.xml")
+                    self.preset_check_pending = False
+                except RuntimeError:
+                    raise
+            else:
+                self.log_message(
+                    "\u26a0\ufe0f PresetSettings.xml not found yet; will check again after build starts."
+                )
+                self.preset_check_pending = True
+
+            xmls = list_output_settings_xml(project_dir)
+            if xmls:
+                try:
+                    assert_obj_enabled(xmls[0])
+                    self.log_message("\u2705 OBJ detected in Output-Settings.xml")
+                    self.obj_check_pending = False
+                except RuntimeError:
+                    raise
+            else:
+                self.log_message(
+                    "\u26a0\ufe0f No Output-Settings.xml found yet; will check again after build starts."
+                )
+                self.obj_check_pending = True
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
@@ -3699,25 +3648,10 @@ class VBS4Panel(tk.Frame):
 
         def _pipeline():
             try:
-                self.log_message("Waiting for PhotoMesh to finish (TerraExplorer or OBJ/XYZ).")
-                got_te = [False]
-                result = [None]
-
-                def _wait_te():
-                    got_te[0] = wait_for_terraexplorer_start(log=self.log_message)
-
-                def _wait_obj():
-                    result[0] = wait_for_obj_or_xyz(self.last_build_dir, log=self.log_message)
-
-                t1 = threading.Thread(target=_wait_te, daemon=True)
-                t2 = threading.Thread(target=_wait_obj, daemon=True)
-                t1.start(); t2.start()
-
-                for t in itertools.cycle((t1, t2)):
-                    t.join(timeout=0.5)
-                    if not t1.is_alive() or not t2.is_alive():
-                        break
-
+                self.log_message("Waiting for PhotoMesh to finish (OBJ).")
+                result = wait_for_obj(self.last_build_dir, log=self.log_message)
+                if not result:
+                    raise RuntimeError("Timed out waiting for OBJ export.")
                 self.log_message("Build completion detected.")
             except Exception as exc:
                 self.log_message(f"Failed while waiting for completion: {exc}")
@@ -3907,6 +3841,7 @@ class VBS4Panel(tk.Frame):
     # ------------------------------------------------------------------
     def start_progress_monitor(self, project_path: str):
         """Begin monitoring PhotoMesh render logs under *project_path*."""
+        self.project_root = project_path
         self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
         self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
         self.last_build_dir = os.path.join(project_path, "Build_1", "out")
@@ -3918,6 +3853,28 @@ class VBS4Panel(tk.Frame):
         self.progress_job = self.after(2000, self.update_render_progress)
 
     def update_render_progress(self):
+        if getattr(self, "preset_check_pending", False) and getattr(self, "project_root", ""):
+            ps_path = os.path.join(self.project_root, "PresetSettings.xml")
+            if os.path.isfile(ps_path):
+                try:
+                    assert_preset_settings_name(self.project_root, "STEPRESET")
+                    self.log_message("\u2705 Preset STEPRESET confirmed in PresetSettings.xml")
+                except RuntimeError as e:
+                    self.log_message(str(e))
+                    messagebox.showerror("Preset Not Enabled", str(e), parent=self)
+                self.preset_check_pending = False
+
+        if getattr(self, "obj_check_pending", False) and getattr(self, "project_root", ""):
+            xmls = list_output_settings_xml(self.project_root)
+            if xmls:
+                try:
+                    assert_obj_enabled(xmls[0])
+                    self.log_message("\u2705 OBJ detected in Output-Settings.xml")
+                except RuntimeError as e:
+                    self.log_message(str(e))
+                    messagebox.showerror("OBJ Not Enabled", str(e), parent=self)
+                self.obj_check_pending = False
+
         paths = []
         if self.project_log_folder and os.path.isdir(self.project_log_folder):
             paths += glob.glob(os.path.join(self.project_log_folder, "Out*.log"))
