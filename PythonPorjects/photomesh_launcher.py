@@ -546,9 +546,43 @@ def resolve_shared_access_path() -> str:
 
 
 def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
-    """Compatibility placeholder for enforcing PhotoMesh settings."""
-    del autostart  # compatibility placeholder
-    del log  # no-op; network/host propagation handled elsewhere
+    """
+    Keep Wizard defaults sane and make its NetworkWorkingFolder match our current
+    WorkingFuser UNC. Also ensure the WorkingFuser folder exists on the host
+    share.
+
+    Parameters
+    ----------
+    autostart:
+        Compatibility placeholder (unused but kept for API stability).
+    log:
+        Logging function used to report actions or failures.
+    """
+
+    # 1) Ensure default outputs already handled by apply_minimal_wizard_defaults()
+    apply_minimal_wizard_defaults()  # keeps Model3D/OBJ/3DML on (non-destructive)
+
+    # 2) Compute the canonical UNC
+    o = get_offline_cfg()
+    unc = resolve_network_working_folder_from_cfg(o)  # \\hostOrIp\share\WorkingFuser
+
+    # 3) Ensure folder exists (best effort)
+    try:
+        os.makedirs(unc, exist_ok=True)
+    except Exception as e:  # pragma: no cover - best effort
+        log(f"[Wizard] Cannot create WorkingFuser at {unc}: {e}")
+
+    # 4) Patch all known Wizard config.json paths
+    for cfg_path in WIZ_CFG_PATHS:
+        cfg = _load_json(cfg_path)
+        if not cfg:
+            continue
+        ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+        ui.setdefault("OutputProducts", {}).update({"Model3D": True})
+        ui.setdefault("Model3DFormats", {}).update({"OBJ": True, "3DML": True})
+        cfg["NetworkWorkingFolder"] = unc
+        _save_json(cfg_path, cfg)
+        log(f"[Wizard] NetworkWorkingFolder -> {unc} ({cfg_path})")
 # endregion
 
 # region Launch / CLI argument builders
