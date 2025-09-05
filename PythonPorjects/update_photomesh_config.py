@@ -21,11 +21,6 @@
 # region Imports
 import json
 import os
-
-from photomesh_launcher import (
-    get_offline_cfg,
-    resolve_network_working_folder_from_cfg,
-)
 # endregion
 
 # region Constants & Configuration
@@ -80,10 +75,6 @@ def update_config(path: str) -> None:
     fmts["OBJ"] = True
     # Optional:
     # fmts["LAS"] = True
-
-    config["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(
-        get_offline_cfg()
-    )
 
     try:
         _save_config(path, config)

@@ -29,12 +29,6 @@ import subprocess
 import sys
 import time
 from typing import Iterable
-import re
-
-try:  # pragma: no cover - optional Win32 API
-    import win32api  # type: ignore
-except Exception:  # pragma: no cover - win32api may be absent off Windows
-    win32api = None  # type: ignore
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
@@ -258,7 +252,7 @@ def resolve_network_working_folder_from_cfg(o: dict) -> str:
 
 
 def ensure_offline_share_exists(log=print) -> None:
-    """Ensure the offline share exists, firewall rules allow access, and a sentinel file is present."""
+    """Ensure the offline share exists and firewall rules allow access."""
     o = get_offline_cfg()
     root = o["local_data_root"]
     share = o["share_name"]
@@ -295,7 +289,6 @@ Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' | Where-Object {{$_
         log(
             f"Could not run PowerShell to ensure share: {e}\nPlease share {root} as '{share}' manually."
         )
-    _touch(os.path.join(root, "Datatarget.txt"))
 
 
 def can_access_unc(path: str) -> bool:
@@ -334,192 +327,6 @@ def propagate_share_rename_in_config(old_share: str, new_share: str) -> None:
     if changed:
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
-
-
-# --- Easy Shared Drive Mapping ------------------------------------------------
-
-def list_remote_shares(host: str) -> list[str]:
-    """Return share names available on ``\\\{host}``.
-
-    Uses ``net view`` first, falling back to PowerShell ``Get-SmbShare``. Any
-    errors are swallowed and an empty list is returned if the host cannot be
-    queried. Duplicate names are removed case-insensitively.
-    """
-    if not is_windows():
-        return []
-    names: list[str] = []
-    try:
-        r = subprocess.run(
-            ["cmd", "/c", "net", "view", rf"\\\\{host}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        for line in r.stdout.splitlines():
-            m = re.match(r"^\s{2}([A-Za-z0-9$._-]+)\s", line)
-            if m:
-                names.append(m.group(1))
-    except Exception:
-        pass
-    if not names:
-        try:
-            ps = (
-                f"try{{(Get-SmbShare -CimSession '{host}' | Select-Object -ExpandProperty Name) -join ','}}catch{{''}}"
-            )
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if r.stdout.strip():
-                names.extend([n.strip() for n in r.stdout.strip().split(",") if n.strip()])
-        except Exception:
-            pass
-    seen: set[str] = set()
-    out: list[str] = []
-    for n in names:
-        k = n.lower()
-        if k not in seen:
-            seen.add(k)
-            out.append(n)
-    return out
-
-
-def pick_mesh_share(
-    host: str,
-    share_hint: str,
-    working_subdir: str,
-    sentinels: tuple[str, ...] = ("Datatarget.txt",),
-) -> str | None:
-    """Return the most plausible mesh share name on *host* or ``None``."""
-    candidates: list[str] = []
-    if share_hint:
-        candidates.append(share_hint)
-    candidates += ["SharedMeshDrive", "Mesh", "Shared", "Data"]
-    candidates += list_remote_shares(host)
-
-    tried: set[str] = set()
-    for share in candidates:
-        if not share or share.lower() in tried:
-            continue
-        tried.add(share.lower())
-        unc = rf"\\\\{host}\\{share}"
-        if not can_access_unc(unc):
-            continue
-        try:
-            if any(os.path.isfile(os.path.join(unc, s)) for s in sentinels):
-                return share
-            if os.path.isdir(os.path.join(unc, working_subdir)):
-                return share
-            if os.path.isdir(os.path.join(unc, "WorkingFuser")):
-                return share
-        except Exception:
-            continue
-    return None
-
-
-def auto_fix_share_name(log=print) -> bool:
-    """Attempt to repair the Offline.share_name if the current UNC is unreachable."""
-    o = get_offline_cfg()
-    base = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
-    current_unc = resolve_network_working_folder_from_cfg(o)
-    if can_access_unc(current_unc):
-        return False
-
-    new_share = pick_mesh_share(base, o["share_name"], o["working_fuser_subdir"])
-    if new_share and new_share.lower() != o["share_name"].lower():
-        old_share = o["share_name"]
-        try:
-            config.read(CONFIG_PATH)
-            if "Offline" not in config:
-                config["Offline"] = {}
-            config["Offline"]["share_name"] = new_share
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                config.write(f)
-            propagate_share_rename_in_config(old_share, new_share)
-            log(f"[Offline] Share repaired: {old_share} -> {new_share}")
-            return True
-        except Exception as e:
-            log(f"[Offline] Failed to write repaired share: {e}")
-    return False
-
-
-def _touch(path: str) -> None:
-    """Create *path* if it doesn't exist."""
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a", encoding="utf-8"):
-            pass
-    except Exception:
-        pass
-
-
-def choose_drive_letter(preferred: str = "M:") -> str | None:
-    """Return ``preferred`` or the next free drive letter on Windows."""
-    if not is_windows():
-        return preferred
-    try:
-        used = {
-            d[:2].upper()
-            for d in (win32api.GetLogicalDriveStrings().split("\x00") if win32api else [])
-            if d
-        }
-    except Exception:
-        used = set()
-    pref = preferred.upper()
-    if pref not in used:
-        return pref
-    for c in "MNOPQRSTUVWXYZ":
-        if f"{c}:" not in used:
-            return f"{c}:"
-    return None
-
-
-def map_network_drive(letter: str, unc: str, persistent: bool = True) -> bool:
-    """Map *unc* to drive *letter* for the current user."""
-    if not is_windows():
-        return False
-    try:
-        subprocess.run(
-            ["cmd", "/c", "net", "use", letter, "/delete", "/y"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        args = ["cmd", "/c", "net", "use", letter, unc]
-        args.append("/persistent:yes" if persistent else "/persistent:no")
-        r = subprocess.run(args, capture_output=True, text=True, timeout=15)
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
-def unmap_drive(letter: str) -> None:
-    if not is_windows():
-        return
-    try:
-        subprocess.run(
-            ["cmd", "/c", "net", "use", letter, "/delete", "/y"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        pass
-
-
-def ensure_mapped_drive_from_cfg(o: dict, preferred: str = "M:") -> str | None:
-    """Map ``\\host\share`` from offline config *o* and return the drive letter."""
-    if not is_windows():
-        return None
-    unc = build_unc_from_cfg(o)
-    letter = choose_drive_letter(preferred) or preferred
-    if not can_access_unc(unc):
-        return None
-    if map_network_drive(letter, unc, persistent=True):
-        return letter
-    return None
 
 
 def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
