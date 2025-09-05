@@ -1101,10 +1101,25 @@ def get_host() -> str:
 
 
 def set_host(host: str) -> None:
+    """Persist the single 'Host PC Name' across all places legacy code reads from."""
+    host = host.strip()
+    if not host:
+        return
+
     if "Offline" not in config:
         config["Offline"] = {}
-    config["Offline"]["working_fuser_host"] = host.strip()
-    with open(CONFIG_PATH, "w") as f:
+    if "Fusers" not in config:
+        config["Fusers"] = {}
+    if "Network" not in config:
+        config["Network"] = {}
+
+    # Canonical + backward‑compatible keys:
+    config["Offline"]["working_fuser_host"] = host
+    config["Offline"]["host_name"] = host
+    config["Network"]["host"] = host
+    config["Fusers"]["working_folder_host"] = host  # so fuser toggle doesn't prompt again
+
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
 
 
@@ -4016,12 +4031,10 @@ class SettingsPanel(tk.Frame):
             enforce_local_fuser_policy()
 
             if self.fuser_var.get():
-                host = config["Fusers"].get("working_folder_host", "")
-                host = prompt_hostname(self, host)
-                if host:
-                    config["Fusers"]["working_folder_host"] = host.strip()
-                    with open(CONFIG_PATH, "w") as f:
-                        config.write(f)
+                # Ensure Fusers host matches the single Host PC Name
+                config["Fusers"]["working_folder_host"] = get_host().strip()
+                with open(CONFIG_PATH, "w") as f:
+                    config.write(f)
                 update_fuser_shared_path()
 
             self.controller.panels["VBS4"].update_fuser_state()
@@ -4063,7 +4076,7 @@ class SettingsPanel(tk.Frame):
 
         tk.Label(
             net_frame,
-            text="Network Host Name",
+            text="Host PC Name",
             font=("Helvetica", 14),
             bg="black",
             fg="white",
@@ -4104,7 +4117,6 @@ class SettingsPanel(tk.Frame):
 
         off = get_offline_cfg()
         self.off_enabled = tk.BooleanVar(value=off["enabled"])
-        self.off_host_name = tk.StringVar(value=off["host_name"])
         self.off_host_ip = tk.StringVar(value=off["host_ip"])
         self.off_share_name = tk.StringVar(value=off["share_name"])
         self.off_local_root = tk.StringVar(value=off["local_data_root"])
@@ -4132,10 +4144,16 @@ class SettingsPanel(tk.Frame):
 
         row1 = tk.Frame(grp, bg="black")
         row1.pack(fill="x", pady=4)
-        tk.Label(row1, text="Host Name:", bg="black", fg="white").pack(side="left", padx=(0, 6))
-        tk.Entry(row1, textvariable=self.off_host_name, width=22, bg="#111", fg="white", insertbackground="white").pack(side="left")
-        tk.Label(row1, text="Host IP:", bg="black", fg="white").pack(side="left", padx=(12, 6))
-        tk.Entry(row1, textvariable=self.off_host_ip, width=16, bg="#111", fg="white", insertbackground="white").pack(side="left")
+        # Row now only shows Host IP (host name is set once, above):
+        tk.Label(row1, text="Host IP:", bg="black", fg="white").pack(side="left")
+        tk.Entry(
+            row1,
+            textvariable=self.off_host_ip,
+            width=16,
+            bg="#111",
+            fg="white",
+            insertbackground="white",
+        ).pack(side="left")
 
         row2 = tk.Frame(grp, bg="black")
         row2.pack(fill="x", pady=4)
@@ -4350,7 +4368,8 @@ class SettingsPanel(tk.Frame):
             config["Offline"] = {}
         o = config["Offline"]
         o["enabled"] = str(bool(self.off_enabled.get()))
-        o["host_name"] = self.off_host_name.get().strip()
+        # Keep host_name in sync with the single top-level host field:
+        o["host_name"] = get_host().strip()
         o["host_ip"] = self.off_host_ip.get().strip()
         o["share_name"] = self.off_share_name.get().strip()
         o["local_data_root"] = os.path.normpath(self.off_local_root.get().strip())
@@ -4407,7 +4426,7 @@ class SettingsPanel(tk.Frame):
             messagebox.showerror("Open Working Folder", f"Cannot access:\n{path}\nUse Test Access to diagnose.")
 
     def _auto_find_share(self):
-        host = self.off_host_name.get().strip()
+        host = get_host().strip()
         res = probe_best_mesh_share(host)
         if not res:
             messagebox.showerror("Auto-Find Share", f"No share found on {host}")
@@ -4458,7 +4477,8 @@ class SettingsPanel(tk.Frame):
         if not h:
             messagebox.showerror("Settings", "Host name cannot be empty.")
             return
-        set_host(h)
+        set_host(h)  # now writes Offline.host_name, Fusers.working_folder_host, Network.host
+        update_fuser_shared_path()   # sync shared path JSON if present
         pnl = self.controller.panels.get('VBS4')
         if pnl and hasattr(pnl, "log_message"):
             pnl.log_message(f"Host set to: {h}")
