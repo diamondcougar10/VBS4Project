@@ -36,8 +36,8 @@ from photomesh_launcher import (
 # region Constants & Configuration
 # PhotoMesh Wizard install config (read by Wizard at startup)
 CONFIG_CANDIDATES = [
-    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
 ]
 # endregion
 
