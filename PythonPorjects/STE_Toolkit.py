@@ -65,6 +65,7 @@ from photomesh_launcher import (
     propagate_share_rename_in_config,
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
+    resolve_shared_access_path,
     enforce_photomesh_settings,
     working_share_root,
     working_fuser_unc,
@@ -75,6 +76,10 @@ from photomesh_launcher import (
     list_output_settings_xml,
     assert_obj_enabled,
     assert_preset_settings_name,
+    probe_best_mesh_share,
+    map_drive,
+    unmap_drive,
+    build_unc_from_cfg,
 )
 from collections import OrderedDict
 import time
@@ -4148,11 +4153,59 @@ class SettingsPanel(tk.Frame):
         tk.Label(row4, text="Working Fuser Subdir:", bg="black", fg="white").pack(side="left", padx=(0, 6))
         tk.Entry(row4, textvariable=self.off_work_subdir, width=28, bg="#111", fg="white", insertbackground="white").pack(side="left")
 
+        sd = config["SharedDrive"] if "SharedDrive" in config else {}
+        self.shared_mode = tk.StringVar(value=sd.get("preferred_mode", "UNC"))
+        self.shared_letter = tk.StringVar(value=sd.get("drive_letter", "M:"))
+        self.shared_auto_map = tk.BooleanVar(
+            value=str(sd.get("auto_map_on_save", "True")).lower() in ("1", "true", "yes")
+        )
+
         row5 = tk.Frame(grp, bg="black")
-        row5.pack(fill="x", pady=6)
-        tk.Button(row5, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
-        tk.Button(row5, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
-        tk.Button(row5, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
+        row5.pack(fill="x", pady=4)
+        tk.Label(row5, text="Preferred Access:", bg="black", fg="white").pack(side="left", padx=(0, 6))
+        tk.Radiobutton(
+            row5,
+            text="UNC",
+            variable=self.shared_mode,
+            value="UNC",
+            bg="black",
+            fg="white",
+            selectcolor="black",
+        ).pack(side="left")
+        tk.Radiobutton(
+            row5,
+            text="Drive",
+            variable=self.shared_mode,
+            value="DRIVE",
+            bg="black",
+            fg="white",
+            selectcolor="black",
+        ).pack(side="left", padx=10)
+
+        row6 = tk.Frame(grp, bg="black")
+        row6.pack(fill="x", pady=4)
+        tk.Label(row6, text="Drive Letter:", bg="black", fg="white").pack(side="left", padx=(0, 6))
+        tk.Entry(row6, textvariable=self.shared_letter, width=5, bg="#111", fg="white", insertbackground="white").pack(side="left")
+        tk.Button(row6, text="Map as Drive", bg="#444", fg="white", command=self._map_drive).pack(side="left", padx=8)
+        tk.Button(row6, text="Unmap", bg="#444", fg="white", command=self._unmap_drive).pack(side="left")
+
+        row7 = tk.Frame(grp, bg="black")
+        row7.pack(fill="x", pady=4)
+        tk.Checkbutton(
+            row7,
+            text="Auto-map on Save",
+            variable=self.shared_auto_map,
+            bg="black",
+            fg="white",
+            selectcolor="black",
+        ).pack(side="left")
+        tk.Button(row7, text="Auto-Find Share", bg="#444", fg="white", command=self._auto_find_share).pack(side="left", padx=8)
+
+        row8 = tk.Frame(grp, bg="black")
+        row8.pack(fill="x", pady=6)
+        tk.Button(row8, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
+        tk.Button(row8, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
+        tk.Button(row8, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
 
         # Reality Mesh Local Root
         rm_row = tk.Frame(self, bg="black")
@@ -4304,6 +4357,11 @@ class SettingsPanel(tk.Frame):
         o["working_fuser_subdir"] = self.off_work_subdir.get().strip()
         o["use_ip_unc"] = str(bool(self.off_use_ip_unc.get()))
 
+        sd = config.setdefault("SharedDrive", {})
+        sd["preferred_mode"] = self.shared_mode.get()
+        sd["drive_letter"] = self.shared_letter.get().strip() or "M:"
+        sd["auto_map_on_save"] = str(bool(self.shared_auto_map.get()))
+
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
 
@@ -4314,33 +4372,87 @@ class SettingsPanel(tk.Frame):
         if self.off_enabled.get():
             ensure_offline_share_exists(log=lambda m: print("[Offline]", m))
 
+        if self.shared_auto_map.get():
+            unc_root = build_unc_from_cfg(o)
+            if map_drive(unc_root, sd["drive_letter"]):
+                self.shared_mode.set("DRIVE")
+                sd["preferred_mode"] = "DRIVE"
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    config.write(f)
+
+        update_fuser_shared_path()
         messagebox.showinfo("Settings", "Offline/Shared settings saved.")
 
     def _test_offline_access(self):
-        o = get_offline_cfg()
-        unc = resolve_network_working_folder_from_cfg(o)
-        if can_access_unc(unc):
-            messagebox.showinfo("Offline Access", f"Access OK:\n{unc}\n\nOpening Explorer…")
-            open_in_explorer(unc)
+        path = resolve_shared_access_path()
+        if can_access_unc(path):
+            messagebox.showinfo("Offline Access", f"Access OK:\n{path}\n\nOpening Explorer…")
+            open_in_explorer(path)
         else:
             messagebox.showerror(
                 "Offline Access",
-                f"Cannot access:\n{unc}\n\n"
-                "If this is a local, offline LAN:\n"
-                " • Ensure all PCs are on the same switch\n"
-                " • Static IPs (e.g., 192.168.50.10/24 host)\n"
-                " • Share exists and permissions allow read/write\n"
+                f"Cannot access:\n{path}\n\n",
+                "If this is a local, offline LAN:\n",
+                " • Ensure all PCs are on the same switch\n",
+                " • Static IPs (e.g., 192.168.50.10/24 host)\n",
+                " • Share exists and permissions allow read/write\n",
                 " • Try toggling 'Use IP in UNC' or add host to hosts file",
             )
 
     def _open_working_folder(self):
-        o = get_offline_cfg()
-        unc = resolve_network_working_folder_from_cfg(o)
-        if can_access_unc(unc):
-            open_in_explorer(unc)
+        path = resolve_shared_access_path()
+        if can_access_unc(path):
+            open_in_explorer(path)
         else:
-            messagebox.showerror("Open Working Folder", f"Cannot access:\n{unc}\nUse Test Access to diagnose.")
+            messagebox.showerror("Open Working Folder", f"Cannot access:\n{path}\nUse Test Access to diagnose.")
 
+    def _auto_find_share(self):
+        host = self.off_host_name.get().strip()
+        res = probe_best_mesh_share(host)
+        if not res:
+            messagebox.showerror("Auto-Find Share", f"No share found on {host}")
+            return
+        share, unc = res
+        old = self.off_share_name.get().strip()
+        self.off_share_name.set(share)
+        if "Offline" not in config:
+            config["Offline"] = {}
+        config["Offline"]["share_name"] = share
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
+        if share.lower() != old.lower():
+            propagate_share_rename_in_config(old, share)
+        update_fuser_shared_path()
+        logging.info(f"Auto-Find Share -> {unc}")
+        messagebox.showinfo("Auto-Find Share", f"Using share:\n{unc}")
+
+    def _map_drive(self):
+        o = get_offline_cfg()
+        letter = self.shared_letter.get().strip() or "M:"
+        unc = build_unc_from_cfg(o)
+        if map_drive(unc, letter):
+            self.shared_mode.set("DRIVE")
+            sd = config.setdefault("SharedDrive", {})
+            sd["preferred_mode"] = "DRIVE"
+            sd["drive_letter"] = letter
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                config.write(f)
+            update_fuser_shared_path()
+            logging.info(f"Mapped {letter} to {unc}")
+            messagebox.showinfo("Map Drive", f"Mapped {letter} to {unc}")
+        else:
+            messagebox.showerror("Map Drive", f"Failed to map {letter} to {unc}")
+
+    def _unmap_drive(self):
+        letter = self.shared_letter.get().strip() or "M:"
+        unmap_drive(letter)
+        sd = config.setdefault("SharedDrive", {})
+        sd["preferred_mode"] = "UNC"
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
+        self.shared_mode.set("UNC")
+        logging.info(f"Unmapped {letter}")
+        messagebox.showinfo("Map Drive", f"Unmapped {letter}")
     def _save_host(self):
         h = self.host_var.get().strip()
         if not h:
