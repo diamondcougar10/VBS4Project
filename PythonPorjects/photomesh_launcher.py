@@ -34,6 +34,8 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterable
+import winreg  # for InstallLocation lookup
+import glob
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
@@ -56,6 +58,140 @@ WIZ_CFG_PATHS = [
     r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
     r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
 ]
+
+# Accept both modern and legacy Wizard executables / locations
+WIZARD_CANDIDATE_NAMES = ("PhotoMeshWizard.exe", "WizardGUI.exe")
+WIZARD_CANDIDATE_SUBPATHS = (
+    r"Skyline\PhotoMeshWizard",
+    r"Skyline\PhotoMesh\Tools\PhotomeshWizard",
+)
+
+
+def _cache_wizard_exe(path: str) -> None:
+    """Persist the resolved Wizard EXE to config.ini for next runs."""
+    if "General" not in config:
+        config["General"] = {}
+    config["General"]["photomesh_wizard_exe"] = os.path.normpath(path)
+    _save_config()
+
+
+def _iter_uninstall_install_locations():
+    """Yield InstallLocation folders from Uninstall registry entries that match Skyline/PhotoMesh."""
+    keys = [
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ]
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for key in keys:
+            try:
+                with winreg.OpenKey(hive, key) as root:
+                    subcount = winreg.QueryInfoKey(root)[0]
+                    for i in range(subcount):
+                        try:
+                            subname = winreg.EnumKey(root, i)
+                            with winreg.OpenKey(root, subname) as sub:
+                                disp = ""
+                                loc = ""
+                                try:
+                                    disp, _ = winreg.QueryValueEx(sub, "DisplayName")
+                                except OSError:
+                                    pass
+                                try:
+                                    loc, _ = winreg.QueryValueEx(sub, "InstallLocation")
+                                except OSError:
+                                    pass
+                                dlow = (disp or "").lower()
+                                if ("photomesh" in dlow) or ("photo mesh" in dlow) or ("wizard" in dlow):
+                                    if loc and os.path.isdir(loc):
+                                        yield loc
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+
+
+def _program_files_roots():
+    """Both 64/32-bit Program Files roots (covers C: or non-C: installs)."""
+    seen = set()
+    for env in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(env, "").strip()
+        if base and base not in seen and os.path.isdir(base):
+            seen.add(base)
+            yield base
+
+
+def find_wizard_exe() -> str:
+    """
+    Return the best PhotoMesh Wizard executable path found on this machine.
+    Order:
+      1) config override (General/photomesh_wizard_exe)
+      2) canonical + legacy subpaths in Program Files roots
+      3) Uninstall registry InstallLocation
+      4) recursive search under Program Files roots (Skyline only)
+      5) last-resort hardcoded constant (WIZARD_EXE)
+    """
+    # 1) explicit override
+    cfg = config.get("General", "photomesh_wizard_exe", fallback="").strip()
+    if cfg and os.path.isfile(cfg):
+        return cfg
+
+    # 2) try canonical/legacy subpaths
+    for pf in _program_files_roots():
+        for sub in WIZARD_CANDIDATE_SUBPATHS:
+            base = os.path.join(pf, sub)
+            for name in WIZARD_CANDIDATE_NAMES:
+                cand = os.path.join(base, name)
+                if os.path.isfile(cand):
+                    _cache_wizard_exe(cand)
+                    return cand
+
+    # 3) registry InstallLocation(s)
+    for loc in _iter_uninstall_install_locations():
+        # Look in the location and common subfolder
+        search_roots = [loc, os.path.join(loc, r"Tools\PhotomeshWizard")]
+        for root in search_roots:
+            for name in WIZARD_CANDIDATE_NAMES:
+                cand = os.path.join(root, name)
+                if os.path.isfile(cand):
+                    _cache_wizard_exe(cand)
+                    return cand
+
+    # 4) recursive (Skyline-only) search once
+    best = ""
+    best_mtime = 0.0
+    for pf in _program_files_roots():
+        for root, _dirs, files in os.walk(pf):
+            if "skyline" not in root.lower():
+                continue
+            for name in WIZARD_CANDIDATE_NAMES:
+                if name in files:
+                    cand = os.path.join(root, name)
+                    mtime = 0.0
+                    try:
+                        mtime = os.path.getmtime(cand)
+                    except OSError:
+                        pass
+                    if mtime >= best_mtime:
+                        best_mtime = mtime
+                        best = cand
+    if best:
+        _cache_wizard_exe(best)
+        return best
+
+    # 5) fallback to existing constant (just in case)
+    return WIZARD_EXE if os.path.isfile(WIZARD_EXE) else ""
+
+
+def wizard_config_paths_from_exe(exe_path: str) -> list[str]:
+    """Return likely config.json locations based on the resolved Wizard EXE."""
+    paths = []
+    if exe_path:
+        exe_dir = os.path.dirname(exe_path)
+        paths.append(os.path.join(exe_dir, "config.json"))
+    for p in WIZ_CFG_PATHS:
+        if p not in paths:
+            paths.append(p)
+    return [p for p in paths if os.path.isdir(os.path.dirname(p))]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
@@ -229,7 +365,8 @@ def apply_minimal_wizard_defaults() -> None:
     Ensure install-level Wizard defaults enable 3D model OBJ (+3DML).
     Non-destructive: only sets required keys; no presets touched.
     """
-    for cfg_path in WIZ_CFG_PATHS:
+    exe = find_wizard_exe()
+    for cfg_path in wizard_config_paths_from_exe(exe):
         if not os.path.isfile(cfg_path):
             continue
         cfg = _load_json(cfg_path)
@@ -238,8 +375,6 @@ def apply_minimal_wizard_defaults() -> None:
         m3d = ui.setdefault("Model3DFormats", {})
         m3d["3DML"] = True
         m3d["OBJ"] = True
-        # Optional:
-        # m3d["LAS"] = True
         _save_json(cfg_path, cfg)
         print(f"[Wizard] Ensured Model3D/OBJ/3DML enabled -> {cfg_path}")
 # endregion
@@ -641,7 +776,8 @@ def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
         log(f"[Wizard] Cannot create WorkingFuser at {unc}: {e}")
 
     # 4) Patch all known Wizard config.json paths
-    for cfg_path in WIZ_CFG_PATHS:
+    exe = find_wizard_exe()
+    for cfg_path in wizard_config_paths_from_exe(exe):
         cfg = _load_json(cfg_path)
         if not cfg:
             continue
@@ -655,46 +791,33 @@ def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
 
 # region Launch / CLI argument builders
 def launch_wizard_new_project(
-    project_name: str, project_path: str, folders, log=print
+    project_name: str,
+    project_path: str,
+    folders: Iterable[str],
+    videos: Iterable[str] = (),
+    autostart: bool = True,
+    log=print,
 ) -> subprocess.Popen:
-    """
-    Launch Wizard for a new project using preset ``STEPRESET``.
-    - Uses --overrideSettings so Build Settings honor our defaults.
-    - *folders*: iterable of image folder paths.
-    """
-    args = [
-        WIZARD_EXE,
-        "--projectName",
-        project_name,
-        "--projectPath",
-        project_path,
-        "--preset",
-        "STEPRESET",
-        "--overrideSettings",
-        "--autostart",
-    ]
-    for f in folders or []:
+    exe = find_wizard_exe()
+    if not exe:
+        msg = (
+            "PhotoMesh Wizard executable was not found.\n\n"
+            "Checked Program Files (x64/x86), legacy Tools\\PhotomeshWizard, "
+            "and registry InstallLocation. Please install Skyline PhotoMesh/Wizard "
+            "or set General/photomesh_wizard_exe in config.ini."
+        )
+        if messagebox:
+            messagebox.showerror("PhotoMesh Wizard not found", msg)
+        raise FileNotFoundError(msg)
+    args = [exe, "--projectName", project_name, "--projectPath", project_path]
+    for f in folders:
         args += ["--folder", f]
+    for v in videos:
+        args += ["--video", v]
+    if autostart:
+        args.append("--autostart")
     log(f"[Wizard] {' '.join(args)}")
     return subprocess.Popen(args, close_fds=False)
-
-
-def find_wizard_exe() -> str:
-    """Locate PhotoMesh Wizard executable under Program Files."""
-    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
-        if not base:
-            continue
-        p = os.path.join(base, "Skyline", "PhotoMeshWizard", "PhotoMeshWizard.exe")
-        if os.path.isfile(p):
-            return p
-        p2 = os.path.join(
-            base, "Skyline", "PhotoMesh", "Tools", "PhotomeshWizard", "PhotoMeshWizard.exe"
-        )
-        if os.path.isfile(p2):
-            return p2
-    raise FileNotFoundError("PhotoMesh Wizard executable not found.")
-
-
 def relaunch_self_as_admin() -> None:
     """Relaunch the current script with admin rights (UAC prompt)."""
     if not is_windows():
