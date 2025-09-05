@@ -3819,15 +3819,7 @@ class VBS4Panel(tk.Frame):
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
-        try:
-            # Launch the application directly without opening a file explorer
-            # window first. If no build directory is available, start without
-            # passing a path.
-            self._launch_reality_mesh_app(self.last_build_dir if self.last_build_dir else None)
-        except Exception as exc:
-            self.log_message(f"Launch failed: {exc}")
-            messagebox.showerror("Error", str(exc), parent=self)
-            return
+        
 
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
