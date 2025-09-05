@@ -52,6 +52,8 @@ import socket
 import threading
 import shlex
 import itertools
+from queue import Queue, Empty
+import io
 try:
     import psutil
 except Exception:  # pragma: no cover - psutil may not be installed
@@ -101,6 +103,55 @@ try:  # Optional atomic write helper
     from steup.utils import write_config_atomic  # type: ignore
 except Exception:  # pragma: no cover - helper may not exist
     write_config_atomic = None
+
+# --- UI dispatch (thread-safe) ---
+_UI_QUEUE = Queue()
+
+def post_ui(fn, *args, **kwargs):
+    """Schedule UI work from any background thread."""
+    _UI_QUEUE.put((fn, args, kwargs))
+
+
+def pump_ui_queue(root, interval_ms=33):
+    """Process queued UI work at ~30 FPS without blocking."""
+    try:
+        while True:
+            fn, args, kwargs = _UI_QUEUE.get_nowait()
+            try:
+                fn(*args, **kwargs)
+            except Exception:
+                pass
+    except Empty:
+        pass
+    root.after(interval_ms, pump_ui_queue, root)
+
+# --- Log batching ---
+_log_buf = io.StringIO()
+_log_dirty = False
+
+
+def ui_log_flush(text_widget):
+    global _log_dirty
+    if _log_dirty:
+        text = _log_buf.getvalue()
+        _log_buf.seek(0)
+        _log_buf.truncate(0)
+        text_widget.config(state="normal")
+        text_widget.insert("end", text)
+        text_widget.see("end")
+        text_widget.config(state="disabled")
+        _log_dirty = False
+
+
+def ui_log_schedule_flush(root, text_widget, interval_ms=100):
+    ui_log_flush(text_widget)
+    root.after(interval_ms, ui_log_schedule_flush, root, text_widget)
+
+
+def log_to_console(line: str):
+    global _log_dirty
+    _log_buf.write(line + "\n")
+    _log_dirty = True
 
 # =============================================================================
 # CONSTANTS & GLOBALS
@@ -228,13 +279,17 @@ def wait_for_terraexplorer_start(timeout_sec: int = 8*3600, poll_sec: int = 5, l
 # PHOTOMESH PROGRESS PARSING
 # =============================================================================
 
+_PROGRESS_RE = re.compile(r"Progress:\s*(\d+)%")
+_TILE_RE = re.compile(r"Tile\s+(\d+)\s+of\s+(\d+)")
+
+
 def extract_progress(line: str) -> int | None:
     """Return progress percent from a log line if present."""
     if "Progress:" in line:
-        m = re.search(r"Progress:\s*(\d+)%", line)
+        m = _PROGRESS_RE.search(line)
         if m:
             return int(m.group(1))
-    m = re.search(r"Tile\s+(\d+)\s+of\s+(\d+)", line)
+    m = _TILE_RE.search(line)
     if m:
         done, total = map(int, m.groups())
         if total:
@@ -926,6 +981,7 @@ def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
         encoding="utf-8",
         errors="replace",
         env=env,
+        bufsize=1,
     ) as proc:
         for line in proc.stdout:
             line = line.rstrip("\r\n")
@@ -1530,37 +1586,41 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
     row = tk.Frame(parent, bg=parent_bg, bd=0, highlightthickness=0)
     row.pack(pady=10)
 
-    path = clean_path(get_path_func())
-    ok = bool(path and os.path.exists(path))
-    state, btn_bg = ("normal", "#444444") if ok else ("disabled", "#888888")
-
     button = tk.Button(
         row,
         text=f"Launch {app_name}",
         font=("Helvetica", 24),
-        bg=btn_bg,
+        bg="#888888",
         fg="white",
         width=30,
         height=1,
-        state=state,
+        state="disabled",
         command=launch_func,
         bd=0,
         highlightthickness=0,
     )
     button.pack(side="left")
 
-    if not ok:
-        tk.Button(
-            row,
-            text="?",
-            width=2,
-            font=("Helvetica", 16, "bold"),
-            bg="orange",
-            fg="black",
-            command=set_path_func,
-            bd=0,
-            highlightthickness=0,
-        ).pack(side="left", padx=(6, 0))
+    set_btn = tk.Button(
+        row,
+        text="?",
+        width=2,
+        font=("Helvetica", 16, "bold"),
+        bg="orange",
+        fg="black",
+        command=set_path_func,
+        bd=0,
+        highlightthickness=0,
+    )
+
+    checking_label = tk.Label(
+        row,
+        text="Checking…",
+        font=("Helvetica", 12),
+        bg=parent_bg,
+        fg="white",
+    )
+    checking_label.pack(side="left", padx=(6, 0))
 
     version_label = tk.Label(
         parent,
@@ -1573,6 +1633,26 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
     )
 
     version_label.pack(pady=(0, 6))
+
+    def _resolve_and_enable():
+        path = get_path_func()
+        path = clean_path(path) if path else ""
+        ok = bool(path and os.path.exists(path))
+
+        def _apply():
+            btn_state, btn_bg = ("normal", "#444444") if ok else ("disabled", "#888888")
+            button.config(state=btn_state, bg=btn_bg)
+            if ok:
+                version_label.config(text=f"Version: {get_exe_file_version(path)}")
+                set_btn.pack_forget()
+            else:
+                version_label.config(text="Version: …")
+                set_btn.pack(side="left", padx=(6, 0))
+            checking_label.destroy()
+
+        post_ui(_apply)
+
+    run_in_thread(_resolve_and_enable)
 
     return button, version_label
 
@@ -1756,9 +1836,9 @@ def open_bvi_terrain():
     def _open():
         try:
             urllib.request.urlopen(url, timeout=1)
-            webbrowser.open(url, new=2)
+            post_ui(lambda: webbrowser.open(url, new=2))
         except Exception:
-            messagebox.showinfo("BVI", "Note: BVI must be running")
+            post_ui(messagebox.showinfo, "BVI", "Note: BVI must be running")
 
     run_in_thread(_open)
        
@@ -2165,11 +2245,12 @@ def open_external_map():
     def _check_and_open():
         try:
             urllib.request.urlopen(f"http://{host}:{port}", timeout=1)
-            webbrowser.open(url, new=2)
+            post_ui(lambda: webbrowser.open(url, new=2))
         except Exception:
-            messagebox.showinfo(
+            post_ui(
+                messagebox.showinfo,
                 "External Map",
-                "Note: VBS Map server must be running"
+                "Note: VBS Map server must be running",
             )
 
     run_in_thread(_check_and_open)
@@ -2293,6 +2374,7 @@ def prompt_project_name(parent):
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        pump_ui_queue(self)
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
          # Prevent window resizing
@@ -2663,20 +2745,39 @@ class MainMenu(tk.Frame):
         for widget in self.blueig_frame.winfo_children():
             widget.destroy()
 
-        is_srv  = config["General"].getboolean("is_server", fallback=False)
-        path_ok = bool(get_blueig_install_path())
-        state   = "normal" if (not is_srv and path_ok) else "disabled"
-        bg      = "#444444" if state == "normal" else "#888888"
-
-        tk.Button(
+        btn = tk.Button(
             self.blueig_frame,
             text="Launch BlueIG",
             font=("Helvetica", 24),
-            bg=bg, fg="white",
+            bg="#888888", fg="white",
             width=30, height=1,
-            state=state,
-            command=self.launch_blueig_with_exercise_id if state == "normal" else None
-        ).pack()
+            state="disabled",
+        )
+        btn.pack()
+
+        is_srv = config["General"].getboolean("is_server", fallback=False)
+        if is_srv:
+            return
+
+        checking = tk.Label(
+            self.blueig_frame,
+            text="Checking...",
+            bg=self.blueig_frame.cget("bg"),
+            fg="white",
+        )
+        checking.pack()
+
+        def _resolve():
+            path_ok = bool(get_blueig_install_path())
+
+            def _apply():
+                if path_ok:
+                    btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+                checking.destroy()
+
+            post_ui(_apply)
+
+        run_in_thread(_resolve)
 
     def launch_blueig_with_exercise_id(self):
         panel = self.controller.panels.get("VBS4") if hasattr(self.controller, "panels") else None
@@ -2720,10 +2821,6 @@ class VBS4Panel(tk.Frame):
             font=("Helvetica", 36, "bold"),
             bg="black", fg="white", pady=20
         ).pack(fill="x")
-
-        vbs4_path = get_vbs4_install_path()
-        logging.debug("VBS4 path for button creation: %s", vbs4_path)
-
         self.vbs4_button, self.vbs4_version_label = create_app_button(
             self, "VBS4", get_vbs4_install_path, launch_vbs4,
             lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
@@ -2736,9 +2833,9 @@ class VBS4Panel(tk.Frame):
             lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
         )
 
-        self.update_vbs4_version()
-        self.update_vbs4_button_state()
-        self.update_vbs4_launcher_button_state()
+        self.after(50, self.update_vbs4_version)
+        self.after(50, self.update_vbs4_button_state)
+        self.after(50, self.update_vbs4_launcher_button_state)
 
         self.blueig_frame = tk.Frame(
             self,
@@ -2833,6 +2930,7 @@ class VBS4Panel(tk.Frame):
         self.log_text.pack(fill="both", expand=True)
         self.log_expanded = False
         self.log_text.config(state="disabled")
+        ui_log_schedule_flush(controller, self.log_text)
 
         # Render progress bar
         progress_frame = tk.Frame(
@@ -2924,18 +3022,31 @@ class VBS4Panel(tk.Frame):
         self.blueig_button.pack()
 
     def update_vbs4_version(self):
-        path = get_vbs4_install_path()
-        ver = get_vbs4_version(path)
-        self.vbs4_version_label.config(text=f"Version: {ver}")
-        # The VBS4 Launcher shares the same version as VBS4 itself
-        if hasattr(self, 'vbs4_launcher_version_label'):
-            self.vbs4_launcher_version_label.config(text=f"Version: {ver}")
+        def _work():
+            path = get_vbs4_install_path()
+            ver = get_vbs4_version(path)
+
+            def _apply():
+                self.vbs4_version_label.config(text=f"Version: {ver}")
+                if hasattr(self, 'vbs4_launcher_version_label'):
+                    self.vbs4_launcher_version_label.config(text=f"Version: {ver}")
+
+            post_ui(_apply)
+
+        run_in_thread(_work)
 
     def update_blueig_version(self):
-        path = get_blueig_install_path()
-        ver = get_blueig_version(path)
-        if hasattr(self, "blueig_version_label"):
-            self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
+        def _work():
+            path = get_blueig_install_path()
+            ver = get_blueig_version(path)
+
+            def _apply():
+                if hasattr(self, "blueig_version_label"):
+                    self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
+
+            post_ui(_apply)
+
+        run_in_thread(_work)
 
     def _sanitize_exercise_id(self, s: str) -> str:
         """Lowercase, trim, and allow letters/numbers/dash only."""
@@ -3174,19 +3285,35 @@ class VBS4Panel(tk.Frame):
         self.show_terrain_tutorial()
 
     def update_vbs4_button_state(self):
-        path = get_vbs4_install_path()
-        logging.debug("Updating VBS4 button state. Path: %s", path)
-        if path and os.path.isfile(path):
-            self.vbs4_button.config(state="normal", bg="#444444")
-        else:
-            self.vbs4_button.config(state="disabled", bg="#888888")
+        def _work():
+            path = get_vbs4_install_path()
+            logging.debug("Updating VBS4 button state. Path: %s", path)
+            ok = path and os.path.isfile(path)
+
+            def _apply():
+                if ok:
+                    self.vbs4_button.config(state="normal", bg="#444444")
+                else:
+                    self.vbs4_button.config(state="disabled", bg="#888888")
+
+            post_ui(_apply)
+
+        run_in_thread(_work)
 
     def update_vbs4_launcher_button_state(self):
-        path = get_vbs4_launcher_path()
-        if path and os.path.exists(path):
-            self.vbs4_launcher_button.config(state="normal", bg="#444444")
-        else:
-            self.vbs4_launcher_button.config(state="disabled", bg="#888888")
+        def _work():
+            path = get_vbs4_launcher_path()
+            ok = path and os.path.exists(path)
+
+            def _apply():
+                if ok:
+                    self.vbs4_launcher_button.config(state="normal", bg="#444444")
+                else:
+                    self.vbs4_launcher_button.config(state="disabled", bg="#888888")
+
+            post_ui(_apply)
+
+        run_in_thread(_work)
 
     def update_fuser_state(self):
         is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
@@ -3636,11 +3763,14 @@ class VBS4Panel(tk.Frame):
             def _search_and_launch():
                 found_path = find_terra_explorer()
                 if found_path:
-                    start_explorer(found_path)
+                    post_ui(start_explorer, found_path)
                 else:
-                    messagebox.showwarning(
-                        "TerraExplorer Not Found",
-                        "TerraExplorer is not installed or could not be found.", parent=self
+                    post_ui(
+                        lambda: messagebox.showwarning(
+                            "TerraExplorer Not Found",
+                            "TerraExplorer is not installed or could not be found.",
+                            parent=self,
+                        )
                     )
 
             run_in_thread(_search_and_launch)
@@ -3675,7 +3805,7 @@ class VBS4Panel(tk.Frame):
                 self.log_message("Build completion detected.")
             except Exception as exc:
                 self.log_message(f"Failed while waiting for completion: {exc}")
-                self.after(0, lambda e=exc: messagebox.showerror(
+                post_ui(lambda e=exc: messagebox.showerror(
                     "Build Error", str(e), parent=self))
                 return
 
@@ -3686,9 +3816,9 @@ class VBS4Panel(tk.Frame):
                     self.log_message("Reality Mesh to VBS4 launched.")
                 except Exception as exc:
                     self.log_message(f"Launch failed: {exc}")
-                    messagebox.showerror("Launch Error", str(exc), parent=self)
+                    post_ui(lambda e=exc: messagebox.showerror("Launch Error", str(e), parent=self))
 
-            self.after(0, launch_rm)
+            post_ui(launch_rm)
 
         run_in_thread(_pipeline)
 
@@ -3832,10 +3962,7 @@ class VBS4Panel(tk.Frame):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
 
     def log_message(self, message):
-         self.log_text.config(state="normal")
-         self.log_text.insert(tk.END, f"> {message}\n")
-         self.log_text.see(tk.END)
-         self.log_text.config(state="disabled")
+        post_ui(log_to_console, f"> {message}")
 
     def clear_log(self):
         self.log_text.config(state="normal")
@@ -4385,34 +4512,67 @@ class SettingsPanel(tk.Frame):
         new_share = o["share_name"]
         if new_share and new_share.lower() != old_share.lower():
             propagate_share_rename_in_config(old_share, new_share)
+        working = tk.Toplevel(self)
+        working.title("Working…")
+        tk.Label(working, text="Working…", padx=20, pady=20).pack()
 
-        apply_offline_settings()  # sync Wizard, fusers, and ensure share
+        def _work():
+            try:
+                apply_offline_settings()  # sync Wizard, fusers, and ensure share
 
-        if self.shared_auto_map.get():
-            unc_root = build_unc_from_cfg(o)
-            if map_drive(unc_root, sd["drive_letter"]):
-                self.shared_mode.set("DRIVE")
-                sd["preferred_mode"] = "DRIVE"
-                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                    config.write(f)
+                if self.shared_auto_map.get():
+                    unc_root = build_unc_from_cfg(o)
+                    if map_drive(unc_root, sd["drive_letter"]):
+                        def _apply_map():
+                            self.shared_mode.set("DRIVE")
+                            sd["preferred_mode"] = "DRIVE"
+                            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                                config.write(f)
 
-        messagebox.showinfo("Settings", "Offline/Shared settings saved.")
+                        post_ui(_apply_map)
+
+                def _done(msg="Offline/Shared settings saved."):
+                    working.destroy()
+                    messagebox.showinfo("Settings", msg)
+
+                post_ui(_done)
+            except Exception as exc:
+                def _err():
+                    working.destroy()
+                    messagebox.showerror("Settings", str(exc))
+
+                post_ui(_err)
+
+        run_in_thread(_work)
 
     def _test_offline_access(self):
         path = resolve_shared_access_path()
-        if can_access_unc(path):
-            messagebox.showinfo("Offline Access", f"Access OK:\n{path}\n\nOpening Explorer…")
-            open_in_explorer(path)
-        else:
-            messagebox.showerror(
-                "Offline Access",
-                f"Cannot access:\n{path}\n\n",
-                "If this is a local, offline LAN:\n",
-                " • Ensure all PCs are on the same switch\n",
-                " • Static IPs (e.g., 192.168.50.10/24 host)\n",
-                " • Share exists and permissions allow read/write\n",
-                " • Try toggling 'Use IP in UNC' or add host to hosts file",
-            )
+        working = tk.Toplevel(self)
+        working.title("Working…")
+        tk.Label(working, text="Working…", padx=20, pady=20).pack()
+
+        def _work():
+            ok = can_access_unc(path)
+
+            def _done():
+                working.destroy()
+                if ok:
+                    messagebox.showinfo("Offline Access", f"Access OK:\n{path}\n\nOpening Explorer…")
+                    open_in_explorer(path)
+                else:
+                    messagebox.showerror(
+                        "Offline Access",
+                        f"Cannot access:\n{path}\n\n",
+                        "If this is a local, offline LAN:\n",
+                        " • Ensure all PCs are on the same switch\n",
+                        " • Static IPs (e.g., 192.168.50.10/24 host)\n",
+                        " • Share exists and permissions allow read/write\n",
+                        " • Try toggling 'Use IP in UNC' or add host to hosts file",
+                    )
+
+            post_ui(_done)
+
+        run_in_thread(_work)
 
     def _open_working_folder(self):
         path = resolve_shared_access_path()
@@ -4939,10 +5099,9 @@ if __name__ == "__main__":
         print("STE Toolkit is already running.")
         sys.exit(0)
     start_command_server()
-    # Ensure PhotoMesh Wizard defaults include OBJ output at startup
-    apply_minimal_wizard_defaults()
     app = MainApp()
+    app.after(50, apply_minimal_wizard_defaults)
     if config['Fusers'].getboolean('fuser_computer', False):
-        update_fuser_shared_path()
-    app.panels['VBS4'].update_fuser_state()
+        app.after(50, update_fuser_shared_path)
+    app.after(50, app.panels['VBS4'].update_fuser_state)
     app.mainloop()

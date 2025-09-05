@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import time
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterable
@@ -79,6 +80,8 @@ OFFLINE_ACCESS_HINT = (
 # Shared configuration for network fuser settings
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
+
+_DRIVE_RE = re.compile(r"^\s*(\S+)\s+Disk", re.MULTILINE)
 # endregion
 
 # region Data Models / Types
@@ -430,9 +433,7 @@ def list_remote_shares(host: str) -> list[str]:
             text=True,
             check=False,
         ).stdout
-        import re
-
-        return [m.group(1) for m in re.finditer(r"^\s*(\S+)\s+Disk", out, re.MULTILINE)]
+        return [m.group(1) for m in _DRIVE_RE.finditer(out)]
     except Exception:
         return []
 
@@ -495,10 +496,8 @@ def current_mapping(letter: str = "M:") -> str | None:
         out = subprocess.run(
             ["net", "use"], capture_output=True, text=True, check=False
         ).stdout
-        import re
-
-        pattern = rf"^\s*{re.escape(letter)}\s+(\\\\\\S+)"
-        m = re.search(pattern, out, re.MULTILINE | re.IGNORECASE)
+        pattern = re.compile(rf"^\s*{re.escape(letter)}\s+(\\\\\\S+)", re.MULTILINE | re.IGNORECASE)
+        m = pattern.search(out)
         return m.group(1) if m else None
     except Exception:
         return None
