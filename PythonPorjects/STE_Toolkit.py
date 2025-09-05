@@ -75,9 +75,6 @@ from photomesh_launcher import (
     apply_minimal_wizard_defaults,
     launch_wizard_new_project,
     install_pmpreset,
-    list_output_settings_xml,
-    assert_obj_enabled,
-    assert_preset_settings_name,
     probe_best_mesh_share,
     map_drive,
     unmap_drive,
@@ -839,25 +836,15 @@ def update_vbs4_settings(path: str) -> None:
 # Utilities for creating and processing Reality Mesh datasets.
 
 def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
-    while not os.path.exists(path):
-        time.sleep(poll_interval)
+    return  # no waiting
 
 
 def find_output_json(start_dir: str) -> str | None:
-    """Return path to Output-CenterPivotOrigin.json under *start_dir* if found."""
-    for root, _dirs, files in os.walk(start_dir):
-        if 'Output-CenterPivotOrigin.json' in files:
-            return os.path.join(root, 'Output-CenterPivotOrigin.json')
-    return None
+    return None  # don’t auto-hunt
 
 
 def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
-    """Search *start_dir* repeatedly until the output JSON exists."""
-    json_path = find_output_json(start_dir)
-    while not json_path or not os.path.exists(json_path):
-        time.sleep(poll_interval)
-        json_path = find_output_json(start_dir)
-    return json_path
+    return ""  # never gate on this
 
 
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
@@ -3737,34 +3724,6 @@ class VBS4Panel(tk.Frame):
                 "PhotoMesh Wizard launched with preset STEPRESET and --overrideSettings."
             )
             self.start_progress_monitor(project_dir)
-
-            ps_path = os.path.join(project_dir, "PresetSettings.xml")
-            if os.path.isfile(ps_path):
-                try:
-                    assert_preset_settings_name(project_dir, "STEPRESET")
-                    self.log_message("\u2705 Preset STEPRESET confirmed in PresetSettings.xml")
-                    self.preset_check_pending = False
-                except RuntimeError:
-                    raise
-            else:
-                self.log_message(
-                    "\u26a0\ufe0f PresetSettings.xml not found yet; will check again after build starts."
-                )
-                self.preset_check_pending = True
-
-            xmls = list_output_settings_xml(project_dir)
-            if xmls:
-                try:
-                    assert_obj_enabled(xmls[0])
-                    self.log_message("\u2705 OBJ detected in Output-Settings.xml")
-                    self.obj_check_pending = False
-                except RuntimeError:
-                    raise
-            else:
-                self.log_message(
-                    "\u26a0\ufe0f No Output-Settings.xml found yet; will check again after build starts."
-                )
-                self.obj_check_pending = True
         except Exception as e:
             error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
             self.log_message(error_message)
@@ -3824,29 +3783,20 @@ class VBS4Panel(tk.Frame):
             )
             return
 
+        # Fire-and-forget: launch Reality Mesh immediately after starting PhotoMesh
         def _pipeline():
-            try:
-                self.log_message("Waiting for PhotoMesh to finish (OBJ).")
-                result = wait_for_obj(self.last_build_dir, log=self.log_message)
-                if not result:
-                    raise RuntimeError("Timed out waiting for OBJ export.")
-                self.log_message("Build completion detected.")
-            except Exception as exc:
-                self.log_message(f"Failed while waiting for completion: {exc}")
-                post_ui(lambda e=exc: messagebox.showerror(
-                    "Build Error", str(e), parent=self))
-                return
-
+            # No gating on Output-CenterPivotOrigin.json / OBJ / TerraExplorer
             def launch_rm():
                 try:
-                    self.log_message("Launching Reality Mesh to VBS4…")
-                    self.launch_reality_mesh_to_vbs4()
+                    self.log_message("Launching Reality Mesh to VBS4 (no checks)...")
+                    # Pass a hint path if you want; or None to just open the app
+                    self.post_process_last_build(self.last_build_dir)
                     self.log_message("Reality Mesh to VBS4 launched.")
                 except Exception as exc:
                     self.log_message(f"Launch failed: {exc}")
-                    post_ui(lambda e=exc: messagebox.showerror("Launch Error", str(e), parent=self))
+                    messagebox.showerror("Launch Error", str(exc), parent=self)
 
-            post_ui(launch_rm)
+            self.after(0, launch_rm)
 
         run_in_thread(_pipeline)
 
@@ -3990,10 +3940,14 @@ class VBS4Panel(tk.Frame):
     # ------------------------------------------------------------------
     def start_progress_monitor(self, project_path: str):
         """Begin monitoring PhotoMesh render logs under *project_path*."""
+        # Track the project root (the folder that will contain Build_*)
         self.project_root = project_path
-        self.project_log_folder = os.path.join(project_path, "Build_1", "out", "Log")
-        self.work_folder = os.path.join(project_path, "Build_1", "out", "Work")
-        self.last_build_dir = os.path.join(project_path, "Build_1", "out")
+        self.last_build_dir = project_path  # used later only as a hint/path; no checks
+
+        # Optional log/work paths only if they exist (don't require them)
+        _out = os.path.join(project_path, "Build_1", "out")
+        self.project_log_folder = os.path.join(_out, "Log") if os.path.isdir(os.path.join(_out, "Log")) else None
+        self.work_folder = os.path.join(_out, "Work") if os.path.isdir(os.path.join(_out, "Work")) else None
         # Reset progress indicators
         self.progress_var.set(0)
         self.progress_label.config(text="0%")
@@ -4002,28 +3956,6 @@ class VBS4Panel(tk.Frame):
         self.progress_job = self.after(2000, self.update_render_progress)
 
     def update_render_progress(self):
-        if getattr(self, "preset_check_pending", False) and getattr(self, "project_root", ""):
-            ps_path = os.path.join(self.project_root, "PresetSettings.xml")
-            if os.path.isfile(ps_path):
-                try:
-                    assert_preset_settings_name(self.project_root, "STEPRESET")
-                    self.log_message("\u2705 Preset STEPRESET confirmed in PresetSettings.xml")
-                except RuntimeError as e:
-                    self.log_message(str(e))
-                    messagebox.showerror("Preset Not Enabled", str(e), parent=self)
-                self.preset_check_pending = False
-
-        if getattr(self, "obj_check_pending", False) and getattr(self, "project_root", ""):
-            xmls = list_output_settings_xml(self.project_root)
-            if xmls:
-                try:
-                    assert_obj_enabled(xmls[0])
-                    self.log_message("\u2705 OBJ detected in Output-Settings.xml")
-                except RuntimeError as e:
-                    self.log_message(str(e))
-                    messagebox.showerror("OBJ Not Enabled", str(e), parent=self)
-                self.obj_check_pending = False
-
         paths = []
         if self.project_log_folder and os.path.isdir(self.project_log_folder):
             paths += glob.glob(os.path.join(self.project_log_folder, "Out*.log"))
