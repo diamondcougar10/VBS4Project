@@ -188,11 +188,15 @@ def wait_for_obj_or_xyz(build_root: str, timeout_sec: int = 8*3600, poll_sec: in
                 for _root, _dirs, files in os.walk(obj_dir):
                     if any(fn.lower().endswith(".obj") for fn in files):
                         log(f"[watch] OBJ found: {obj_dir}")
+                        assert_obj_enabled(odir)
+                        assert_3dml_enabled(odir)
                         return obj_dir
             if any(os.path.isfile(os.path.join(odir, name)) for name in ("Output-WKT.txt", "Output-WKT_Models.txt")):
                 xyz = next((f for f in os.listdir(odir) if f.lower().endswith("_offset.xyz")), "")
                 if xyz:
                     log(f"[watch] offset.xyz found: {os.path.join(odir, xyz)}")
+                    assert_obj_enabled(odir)
+                    assert_3dml_enabled(odir)
                     return odir
         time.sleep(poll_sec)
     return None
@@ -765,6 +769,80 @@ def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
         json_path = find_output_json(start_dir)
     return json_path
 
+def find_offset_xyz(start_dir: str) -> str | None:
+    """Return path to *_offset.xyz* under *start_dir* if found."""
+    for root, _dirs, files in os.walk(start_dir):
+        for f in files:
+            if f.lower().endswith('_offset.xyz'):
+                return os.path.join(root, f)
+    return None
+
+def read_offset_xyz(path: str) -> tuple[float, float, float]:
+    """Parse X, Y, Z floats from an *_offset.xyz* file."""
+    import re
+    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+        txt = f.read()
+    nums = re.findall(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', txt)
+    if len(nums) >= 3:
+        return float(nums[0]), float(nums[1]), float(nums[2])
+    raise ValueError(f'Could not parse XYZ from {path}')
+
+def ensure_origin_json(build_dir: str) -> str | None:
+    """Ensure an Output-CenterPivotOrigin.json exists under *build_dir*.
+
+    If the JSON sidecar is missing but an *_offset.xyz* exists, synthesize the JSON (and embed WKT if a .prj/.wkt file is present next to it). Returns the path to the JSON or ``None`` if nothing found.
+    """
+    j = find_output_json(build_dir)
+    if j and os.path.isfile(j):
+        return j
+    xyz = find_offset_xyz(build_dir)
+    if not xyz:
+        return None
+    x, y, z = read_offset_xyz(xyz)
+    prj = ''
+    xyz_dir = os.path.dirname(xyz)
+    for cand in os.listdir(xyz_dir):
+        if cand.lower().endswith(('.prj', '.wkt')):
+            try:
+                with open(os.path.join(xyz_dir, cand), 'r', encoding='utf-8', errors='ignore') as f:
+                    prj = f.read()
+            except Exception:
+                prj = ''
+            break
+    data = {'Origin': [x, y, z]}
+    if prj:
+        data['WKT'] = prj
+    out = os.path.join(xyz_dir, 'Output-CenterPivotOrigin.json')
+    with open(out, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+    return out
+
+def _assert_product_enabled(output_dir: str, tag: str) -> bool:
+    """Return True if *tag* is enabled in Output-Settings.xml."""
+    settings = os.path.join(output_dir, 'Output-Settings.xml')
+    if not os.path.isfile(settings):
+        logging.warning('Missing %s, cannot verify %s output', settings, tag)
+        return False
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.parse(settings).getroot()
+        node = root.find(f'.//{tag}')
+        if node is None or (node.text or '').strip().lower() not in ('true', '1'):
+            logging.warning('%s not enabled in %s', tag, settings)
+            return False
+    except Exception as exc:
+        logging.warning('Failed to parse %s: %s', settings, exc)
+        return False
+    return True
+
+def assert_obj_enabled(output_dir: str) -> bool:
+    return _assert_product_enabled(output_dir, 'OBJ')
+
+def assert_3dml_enabled(output_dir: str) -> bool:
+    return _assert_product_enabled(output_dir, '3DML')
+
+
+
 
 def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
     """Create the project directory structure used by Reality Mesh.
@@ -979,7 +1057,7 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 
 
 def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
-                               origin_json_path: str, datasets_base: str,
+                               origin_json_path: str | None, datasets_base: str,
                                config_path: str) -> str:
     """Create a RealityMesh dataset folder and settings file.
 
@@ -989,7 +1067,7 @@ def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
         Name of the dataset/project.
     source_obj_folder : str
         Path to the OBJ folder output from PhotoMesh.
-    origin_json_path : str
+    origin_json_path : str | None
         Path to the ``Output-CenterPivotOrigin.json`` file used to obtain
         ``offset_x``, ``offset_y`` and ``offset_z`` values.
     datasets_base : str
@@ -1007,16 +1085,27 @@ def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
     dataset_folder = os.path.join(datasets_base, project_name)
     os.makedirs(dataset_folder, exist_ok=True)
 
-    with open(origin_json_path, 'r', encoding='utf-8') as f:
-        origin_data = json.load(f)
-
-    origin = origin_data.get('Origin') or origin_data.get('origin')
-    if isinstance(origin, (list, tuple)) and len(origin) >= 3:
-        offset_x, offset_y, offset_z = origin[:3]
+    offset_x = offset_y = offset_z = 0.0
+    if not origin_json_path or not os.path.isfile(origin_json_path):
+        search_root = source_obj_folder
+        if os.path.basename(search_root).lower() == 'obj':
+            search_root = os.path.dirname(search_root)
+        origin_json_path = ensure_origin_json(search_root)
+    if origin_json_path and os.path.isfile(origin_json_path):
+        try:
+            with open(origin_json_path, 'r', encoding='utf-8') as f:
+                origin_data = json.load(f)
+            origin = origin_data.get('Origin') or origin_data.get('origin')
+            if isinstance(origin, (list, tuple)) and len(origin) >= 3:
+                offset_x, offset_y, offset_z = origin[:3]
+            else:
+                offset_x = origin_data.get('offset_x', 0)
+                offset_y = origin_data.get('offset_y', 0)
+                offset_z = origin_data.get('offset_z', 0)
+        except Exception as exc:
+            logging.warning('Failed to parse %s: %s', origin_json_path, exc)
     else:
-        offset_x = origin_data.get('offset_x', 0)
-        offset_y = origin_data.get('offset_y', 0)
-        offset_z = origin_data.get('offset_z', 0)
+        logging.warning('Origin JSON or offset.xyz not found; using default offsets')
 
     settings_path = os.path.join(dataset_folder, f"{project_name}-settings.txt")
     lines = [
