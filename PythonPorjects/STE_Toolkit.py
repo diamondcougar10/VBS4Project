@@ -82,6 +82,8 @@ from photomesh_launcher import (
     map_drive,
     unmap_drive,
     build_unc_from_cfg,
+    RM_LNK_NAME,
+    RM_INSTALL_SUBDIRS,
 )
 from collections import OrderedDict
 import time
@@ -566,10 +568,6 @@ def find_executable(name, additional_paths=[]):
 # =============================================================================
 # Resolve network shortcuts and local roots for Reality Mesh.
 
-RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
-# Accept either folder spelling (some machines have a typo in the share name)
-RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]  # in preferred order
-
 
 def get_rm_template_from_config() -> str:
     """Read the template from config; keep {host} token if present, normalize slashes."""
@@ -701,29 +699,66 @@ def set_rm_local_root(path: str) -> None:
 
 
 def is_valid_rm_local_root(root: str) -> bool:
-    """Return ``True`` if *root* exists and contains ``Datatarget.txt``."""
+    """
+    Return True if *root* exists and contains the 'Reality Mesh to VBS4.lnk'
+    either directly or somewhere beneath it.
+    """
     if not root:
         return False
     root = os.path.abspath(root)
-    return os.path.isdir(root) and os.path.isfile(os.path.join(root, 'Datatarget.txt'))
+    if not os.path.isdir(root):
+        return False
+
+    direct = os.path.join(root, RM_LNK_NAME)
+    if os.path.isfile(direct):
+        return True
+
+    for sub in RM_INSTALL_SUBDIRS:
+        p = os.path.join(root, sub, RM_LNK_NAME)
+        if os.path.isfile(p):
+            return True
+
+    target_lower = RM_LNK_NAME.lower()
+    try:
+        for dp, _ds, fs in os.walk(root):
+            for f in fs:
+                if f.lower() == target_lower:
+                    return True
+    except Exception:
+        pass
+
+    return False
 
 
 def find_local_rm_shortcut(root: str) -> str:
-    """Locate the Reality Mesh shortcut under *root* if present."""
-    if not is_valid_rm_local_root(root):
+    """
+    Return the full path to 'Reality Mesh to VBS4.lnk' under *root*.
+    Searches direct, common subfolders, then recursively.
+    """
+    if not root:
         return ''
     root = os.path.abspath(root)
-    target = RM_LNK_NAME.lower()
+    if not os.path.isdir(root):
+        return ''
+
+    direct = os.path.join(root, RM_LNK_NAME)
+    if os.path.isfile(direct):
+        return direct
+
     for sub in RM_INSTALL_SUBDIRS:
-        direct = os.path.normpath(os.path.join(root, sub, RM_LNK_NAME))
-        if os.path.isfile(direct):
-            return direct
-        base = os.path.join(root, sub)
-        if os.path.isdir(base):
-            for dp, _ds, fs in os.walk(base):
-                for f in fs:
-                    if f.lower() == target:
-                        return os.path.normpath(os.path.join(dp, f))
+        p = os.path.join(root, sub, RM_LNK_NAME)
+        if os.path.isfile(p):
+            return os.path.normpath(p)
+
+    target_lower = RM_LNK_NAME.lower()
+    try:
+        for dp, _ds, fs in os.walk(root):
+            for f in fs:
+                if f.lower() == target_lower:
+                    return os.path.normpath(os.path.join(dp, f))
+    except Exception:
+        pass
+
     return ''
 
 
@@ -744,7 +779,7 @@ def find_local_rm_link() -> str:  # pragma: no cover - legacy alias
     return find_local_rm_shortcut(get_rm_local_root())
 
 
-def is_valid_rm_root(local_root: str, data_marker: str = 'Datatarget.txt') -> bool:  # pragma: no cover
+def is_valid_rm_root(local_root: str, data_marker: str = RM_LNK_NAME) -> bool:  # pragma: no cover
     return is_valid_rm_local_root(local_root)
 
 
@@ -3841,44 +3876,18 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Error", str(exc), parent=self)
             return
 
-    def _old_launch_reality_mesh_to_vbs4(self):
-        link, source = resolve_active_rm_link()
-        if source == 'INVALID_LOCAL_ROOT':
-            messagebox.showerror(
-                "Reality Mesh",
-                "Reality Mesh Local Root is not under a valid data root (missing Datatarget.txt). "
-                "Please set 'Reality Mesh Local Root' to a folder under your data root."
-            )
-            self.controller.show('Settings')
-            return
-
-        if not link:
-            messagebox.showerror(
-                "Reality Mesh",
-                "Could not locate 'Reality Mesh to VBS4.lnk' in local or UNC paths.",
-            )
-            return
-        self.log_message(f"Launching Reality Mesh via {source}: {link}")
-        try:
-            os.startfile(link)
-        except Exception as e:
-            messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
-        finally:
-            self._update_rm_status()
-
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
         attempted: list[str] = []
-        datatarget = False
         local = ''
         if local_root:
-            datatarget = is_valid_rm_local_root(local_root)
-            if not datatarget:
+            if not is_valid_rm_local_root(local_root):
                 messagebox.showerror(
                     "Reality Mesh",
                     (
-                        f"Reality Mesh local root '{local_root}' is invalid. Expected sentinel file 'Datatarget.txt' "
-                        "in the root (e.g., D:\\SharedMeshDrive\\Datatarget.txt)."
+                        f"Reality Mesh install folder '{local_root}' is invalid.\n\n"
+                        f"Expected to find '{RM_LNK_NAME}' somewhere under this folder.\n"
+                        "Example: D:\\RealityMeshInstall\\Reality Mesh to VBS4.lnk"
                     ),
                 )
                 self.controller.show('Settings')
@@ -3913,7 +3922,7 @@ class VBS4Panel(tk.Frame):
                 msg_parts.extend(attempted)
             if local_root:
                 msg_parts.append(
-                    f"\nSentinel: {'found' if datatarget else 'missing'} at {os.path.normpath(local_root)}"
+                    f"\nLocal install folder: {os.path.normpath(local_root)}"
                 )
             msg_parts.append(f"\nUNC path: {link}")
             if diag:
@@ -3944,7 +3953,7 @@ class VBS4Panel(tk.Frame):
         self.rm_source = source
         if source == 'INVALID_LOCAL_ROOT':
             self.rm_path_label.config(
-                text="⚠ Reality Mesh local root invalid or missing Datatarget.txt.",
+                text="⚠ Reality Mesh install folder invalid or missing Reality Mesh to VBS4.lnk.",
                 fg="#ffb3b3",
             )
             return
@@ -4350,12 +4359,12 @@ class SettingsPanel(tk.Frame):
         tk.Button(row8, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
         tk.Button(row8, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
 
-        # Reality Mesh Local Root
+        # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
         rm_row.grid(row=4, column=0, sticky="ew", padx=10, pady=5)
         tk.Label(
             rm_row,
-            text="Reality Mesh Local Root",
+            text="Reality Mesh Install Folder",
             font=("Helvetica", 20),
             bg="black",
             fg="white",
@@ -4650,14 +4659,16 @@ class SettingsPanel(tk.Frame):
     def _save_rm_local_root(self):
         path = self.rm_local_var.get().strip()
         if path.startswith('\\\\'):
-            messagebox.showerror("Settings", "UNC paths are not supported for the local root.")
+            messagebox.showerror("Settings", "UNC paths are not supported for the local install folder.")
             return
+        # New validation: look for the .lnk, not Datatarget.txt
         if path and not is_valid_rm_local_root(path):
             messagebox.showerror(
                 "Settings",
                 (
-                    f"Reality Mesh local root '{path}' is invalid. Expected sentinel file 'Datatarget.txt' "
-                    "in the root (e.g., D:\\SharedMeshDrive\\Datatarget.txt)."
+                    f"'{path}' does not look like a Reality Mesh install folder.\n\n"
+                    f"Expected to find '{RM_LNK_NAME}' somewhere under this folder.\n"
+                    "Example: D:\\RealityMeshInstall\\Reality Mesh to VBS4.lnk"
                 ),
             )
             return
@@ -4667,7 +4678,7 @@ class SettingsPanel(tk.Frame):
             pnl._update_rm_status()
         messagebox.showinfo(
             "Settings",
-            f"Reality Mesh Local Root set to:\n{path}" if path else "Reality Mesh Local Root cleared.",
+            f"Reality Mesh install folder set to:\n{path}" if path else "Reality Mesh install folder cleared.",
         )
 
     def _create_path_row(self, text, command, initial_path, parent=None):

@@ -74,6 +74,8 @@ OFFLINE_ACCESS_HINT = (
     "read/write permissions, and if name resolution fails, enable use_ip_unc or add "
     "host_name to C:\\Windows\\System32\\drivers\\etc\\hosts."
 )
+RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
+RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]
 # endregion
 
 # region Paths & Environment
@@ -152,6 +154,73 @@ def set_projects_root(path: str) -> None:
         config.add_section("Paths")
     config.set("Paths", "projects_root", path)
     _save_config()
+# endregion
+
+# region Reality Mesh helpers
+
+def is_valid_rm_local_root(root: str) -> bool:
+    """
+    Return True if *root* exists and contains the 'Reality Mesh to VBS4.lnk'
+    either directly or somewhere beneath it. No 'Datatarget.txt' check.
+    """
+    if not root:
+        return False
+    root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        return False
+
+    direct = os.path.join(root, RM_LNK_NAME)
+    if os.path.isfile(direct):
+        return True
+
+    for sub in RM_INSTALL_SUBDIRS:
+        p = os.path.join(root, sub, RM_LNK_NAME)
+        if os.path.isfile(p):
+            return True
+
+    target_lower = RM_LNK_NAME.lower()
+    try:
+        for dp, _ds, fs in os.walk(root):
+            for f in fs:
+                if f.lower() == target_lower:
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
+def find_local_rm_shortcut(root: str) -> str:
+    """
+    Return the full path to 'Reality Mesh to VBS4.lnk' under *root*.
+    Searches direct, common subfolders, then recursively.
+    """
+    if not root:
+        return ''
+    root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        return ''
+
+    direct = os.path.join(root, RM_LNK_NAME)
+    if os.path.isfile(direct):
+        return direct
+
+    for sub in RM_INSTALL_SUBDIRS:
+        p = os.path.join(root, sub, RM_LNK_NAME)
+        if os.path.isfile(p):
+            return os.path.normpath(p)
+
+    target_lower = RM_LNK_NAME.lower()
+    try:
+        for dp, _ds, fs in os.walk(root):
+            for f in fs:
+                if f.lower() == target_lower:
+                    return os.path.normpath(os.path.join(dp, f))
+    except Exception:
+        pass
+
+    return ''
+
 # endregion
 
 # region Wizard Config
@@ -838,6 +907,10 @@ __all__ = [
     "find_wizard_exe",
     "submit_queue_build",
     "poll_queue_until_done",
+    "RM_LNK_NAME",
+    "RM_INSTALL_SUBDIRS",
+    "is_valid_rm_local_root",
+    "find_local_rm_shortcut",
 ]
 
 # =============================================================================
