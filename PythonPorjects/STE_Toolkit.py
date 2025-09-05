@@ -71,8 +71,6 @@ from photomesh_launcher import (
     _read_photomesh_host,
     apply_minimal_wizard_defaults,
     launch_wizard_new_project,
-    auto_fix_share_name,
-    ensure_mapped_drive_from_cfg,
 )
 from collections import OrderedDict
 import time
@@ -1482,10 +1480,6 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
 def apply_offline_settings() -> None:
     """Apply offline configuration changes and refresh dependent systems."""
     enforce_photomesh_settings()
-    changed = auto_fix_share_name()
-    if changed:
-        update_fuser_shared_path()
-
     update_fuser_shared_path()
 
     if _is_offline_enabled():
@@ -4202,8 +4196,6 @@ class SettingsPanel(tk.Frame):
         tk.Button(row5, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
         tk.Button(row5, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
         tk.Button(row5, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
-        tk.Button(row5, text="Auto-Find Share", bg="#444", fg="white", command=self._auto_find_share).pack(side="left", padx=8)
-        tk.Button(row5, text="Map as Drive (M:)", bg="#444", fg="white", command=self._map_shared_drive).pack(side="left")
 
         # Reality Mesh Local Root
         rm_row = tk.Frame(self, bg="black")
@@ -4391,23 +4383,6 @@ class SettingsPanel(tk.Frame):
             open_in_explorer(unc)
         else:
             messagebox.showerror("Open Working Folder", f"Cannot access:\n{unc}\nUse Test Access to diagnose.")
-
-    def _auto_find_share(self):
-        changed = auto_fix_share_name(log=lambda m: print("[Offline]", m))
-        off = get_offline_cfg()
-        self.off_share_name.set(off["share_name"])
-        if changed:
-            messagebox.showinfo("Shared Drive", f"Detected and saved share '{off['share_name']}'.")
-        else:
-            messagebox.showinfo("Shared Drive", "No changes required (share is reachable).")
-        update_fuser_shared_path()
-
-    def _map_shared_drive(self):
-        letter = ensure_mapped_drive_from_cfg(get_offline_cfg(), "M:")
-        if letter:
-            messagebox.showinfo("Shared Drive", f"Mapped to {letter}.")
-        else:
-            messagebox.showerror("Shared Drive", f"Could not map the shared drive.\n\n{OFFLINE_ACCESS_HINT}")
 
     def _save_host(self):
         h = self.host_var.get().strip()
