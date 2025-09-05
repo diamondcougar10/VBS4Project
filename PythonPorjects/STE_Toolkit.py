@@ -1385,7 +1385,8 @@ def count_local_fusers() -> int:
     return len(list_local_fusers())
 
 
-def start_fuser_instance():
+def start_fuser_instance(idx: int) -> bool:
+    """Start *idx*-th fuser via its own shortcut/command."""
     o = get_offline_cfg()
     if o["enabled"]:
         unc = resolve_network_working_folder_from_cfg(o)
@@ -1397,12 +1398,20 @@ def start_fuser_instance():
     if not exe:
         messagebox.showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
         return False
+
+    name = f"LocalFuser{idx}"
+    shared = working_fuser_unc()
+    bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
+
     try:
-        creationflags = 0x00000008  # CREATE_NEW_CONSOLE
-        subprocess.Popen([exe], cwd=os.path.dirname(exe), creationflags=creationflags)
+        if os.path.isfile(bat):
+            cmd = f'start "" "{bat}"'
+        else:
+            cmd = f'start "" "{exe}" "{name}" "{shared}" 0 true'
+        subprocess.run(cmd, shell=True, check=True)
         return True
     except Exception as e:
-        messagebox.showerror("Fuser", f"Failed to start Fuser:\n{e}")
+        messagebox.showerror("Fuser", f"Failed to start {name}:\n{e}")
         return False
 
 
@@ -1434,8 +1443,8 @@ def ensure_fuser_instances(desired: int):
         current = 0
 
     to_start = max(0, desired - current)
-    for _ in range(to_start):
-        start_fuser_instance()
+    for idx in range(current + 1, current + 1 + to_start):
+        start_fuser_instance(idx)
 
 
 def enforce_local_fuser_policy():
@@ -3304,6 +3313,7 @@ class VBS4Panel(tk.Frame):
             self.controller.update_navigation()
 
     def on_oneclick_convert(self):
+        enforce_local_fuser_policy()
         self.one_click_conversion()
 
     def on_launch_reality_mesh(self):
