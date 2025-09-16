@@ -94,12 +94,37 @@ begin
   Result := Base;
 end;
 
+procedure EnsureSmbShare(ShareName, LocalPath: string);
+var
+  RC: Integer;
+  Cmd, EscShare, EscPath: string;
+begin
+  EscShare := ShareName;
+  EscPath := LocalPath;
+  StringChangeEx(EscShare, '''', '''''', True);
+  StringChangeEx(EscPath, '''', '''''', True);
+  Cmd :=
+    '-NoProfile -ExecutionPolicy Bypass -Command ' +
+    '"$ErrorActionPreference=''Stop''; ' +
+    'if (-not (Get-SmbShare -Name ''' + EscShare + ''' -ErrorAction SilentlyContinue)) { ' +
+    '  New-SmbShare -Name ''' + EscShare + ''' -Path ''' + EscPath + ''' -FullAccess ''Everyone'' | Out-Null ' +
+    '}; ' +
+    'Get-NetFirewallRule -DisplayGroup ''File and Printer Sharing'' | ' +
+    '  Where-Object {$_.Profile -like ''*Private*''} | Enable-NetFirewallRule | Out-Null"';
+
+  Exec(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Cmd,
+    '', SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
 procedure SeedConfigIni(AppDir, ShareRoot: string);
 var
   Ini, Base: string;
 begin
   Ini  := AppDir + '\config.ini';
   Base := ForceLayoutUnder(ShareRoot);
+  EnsureSmbShare('SharedMeshDrive', Base);
 
   SetIniString('Offline', 'enabled', 'True', Ini);
   SetIniString('Offline', 'host_name', ExpandConstant('{computername}'), Ini);
