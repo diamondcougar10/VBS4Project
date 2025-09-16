@@ -1724,7 +1724,9 @@ def first_run_setup(master=None) -> None:
         raise RuntimeError("First-run setup cancelled by user.")
 
     selected_root = os.path.normpath(selected_root)
-    share_root = os.path.join(selected_root, "SharedMeshDrive")
+    share_root = selected_root
+    if os.path.basename(share_root).lower() != "sharedmeshdrive":
+        share_root = os.path.join(selected_root, "SharedMeshDrive")
     log_to_console(f"[first-run] Shared drive root: {share_root}")
 
     os.makedirs(share_root, exist_ok=True)

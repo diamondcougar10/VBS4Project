@@ -113,6 +113,7 @@ begin
   SetIniString('SharedDrive', 'drive_letter', 'D:', Ini);
   SetIniString('SharedDrive', 'auto_map_on_save', 'True', Ini);
 
+  SetIniString('General', 'first_run_done', 'True', Ini);
   SetIniString('General', 'reality_mesh_local_root', Base + '\RealityMeshInstall', Ini);
 
   SetIniString('Fusers', 'desired_count', '3', Ini);

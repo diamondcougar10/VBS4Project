@@ -31,6 +31,7 @@ import subprocess
 import sys
 import time
 import re
+import socket
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterable
@@ -569,6 +570,11 @@ def _read_photomesh_host() -> str:
     return "KIT1-1"
 
 
+def get_machine_name() -> str:
+    """Return the current machine name without domain suffix."""
+    return socket.gethostname().split('.')[0].upper()
+
+
 def working_share_root() -> str:
     """UNC to the root share on the host (no hardcoded name)."""
     return rf"\\{_read_photomesh_host()}\SharedMeshDrive"
@@ -663,7 +669,7 @@ if (-not (Get-SmbShare -Name $share)) {{
 Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' | Where-Object {{$_.Profile -like '*Private*'}} | Enable-NetFirewallRule | Out-Null
 """
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [
                 "powershell",
                 "-NoProfile",
@@ -672,13 +678,38 @@ Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' | Where-Object {{$_
                 "-Command",
                 ps,
             ],
+            capture_output=True,
+            text=True,
             check=False,
         )
-        log(f"Offline share ensured: \\\\{o['host_name']}\\{share}  ({root})")
     except Exception as e:
         log(
             f"Could not run PowerShell to ensure share: {e}\nPlease share {root} as '{share}' manually."
         )
+        return
+
+    if completed.returncode != 0:
+        err = completed.stderr.strip() or completed.stdout.strip() or str(completed.returncode)
+        log(f"SMB share creation failed: {err}")
+        return
+
+    check = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            f"Get-SmbShare -Name '{share}' | Out-Null; $LASTEXITCODE",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if check.returncode != 0 or check.stderr.strip():
+        err = check.stderr.strip() or check.stdout.strip() or str(check.returncode)
+        log(f"SMB share '{share}' was not found after creation attempt. {err}")
+        return
+
+    log(f"Offline share ensured: \\\\{get_machine_name()}\\{share}  ({root})")
 
 
 def can_access_unc(path: str) -> bool:
@@ -884,20 +915,19 @@ def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
     unc = resolve_network_working_folder_from_cfg(o)  # \\hostOrIp\share\WorkingFuser
 
     # 3) Ensure folder exists (best effort)
-    share_ready = True
-    if unc and share_unc and not can_access_unc(share_unc):
-        share_ready = False
-        log(
-            "[Wizard] Missing share "
-            f"{share_unc} — skip creating WorkingFuser. "
-            "Use Settings→Offline→Test Access on the host to create/share it."
-        )
-
-    if unc and share_ready:
-        try:
-            os.makedirs(unc, exist_ok=True)
-        except Exception as e:  # pragma: no cover - best effort
-            log(f"[Wizard] Cannot create WorkingFuser at {unc}: {e}")
+    if unc:
+        host_short = o["host_name"].split(".")[0].upper()
+        machine = get_machine_name()
+        if machine == host_short:
+            ensure_offline_share_exists(log=log)
+            try:
+                os.makedirs(unc, exist_ok=True)
+            except Exception as e:  # pragma: no cover - best effort
+                log(f"[Wizard] Host could not create WorkingFuser at {unc}: {e}")
+        elif not can_access_unc(unc):
+            log(
+                f"[Wizard] Skipping WorkingFuser pre-create on non-host; {unc} not reachable yet."
+            )
 
     # 4) Enforce Wizard OBJ-only defaults and WorkingFuser UNC
     enforce_wizard_obj_only_defaults(log=log)
