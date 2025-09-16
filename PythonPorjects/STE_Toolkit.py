@@ -5344,10 +5344,9 @@ if __name__ == "__main__":
 
     if force_first:
         first_done = False
-    elif raw_flag is None:
-        first_done = True
     else:
-        first_done = config['General'].getboolean('first_run_done', fallback=False)
+        # If config is missing or malformed, treat as not done (first_done = False)
+        first_done = config['General'].getboolean('first_run_done', fallback=False) if 'General' in config else False
 
     if force_first or not first_done:
         temp_root = tk.Tk()
