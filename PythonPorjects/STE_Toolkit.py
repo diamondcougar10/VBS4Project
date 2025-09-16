@@ -69,6 +69,7 @@ from photomesh_launcher import (
     resolve_network_working_folder_from_cfg,
     resolve_shared_access_path,
     enforce_photomesh_settings,
+    enforce_wizard_obj_only_defaults,
     working_share_root,
     working_fuser_unc,
     _read_photomesh_host,
@@ -5055,6 +5056,7 @@ if __name__ == "__main__":
     start_command_server()
     app = MainApp()
     app.after(50, apply_minimal_wizard_defaults)
+    app.after(75, lambda: enforce_wizard_obj_only_defaults(log=app.log_message))
     if config['Fusers'].getboolean('fuser_computer', False):
         app.after(50, update_fuser_shared_path)
     app.after(50, app.panels['VBS4'].update_fuser_state)
