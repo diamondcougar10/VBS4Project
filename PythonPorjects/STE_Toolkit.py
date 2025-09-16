@@ -3895,8 +3895,6 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            apply_offline_settings()            # Wizard NetworkWorkingFolder + fuser shared_path
-            update_fuser_shared_path()          # belt and suspenders
             pmpreset_path = _resource_path("STEPRESET.PMPreset")
             try:
                 install_pmpreset(pmpreset_path, name="STEPRESET", log=self.log_message)
@@ -4186,17 +4184,15 @@ class OneClickPanel(tk.Frame):
         btn_frame = tk.Frame(self, bg="black")
         btn_frame.pack(pady=20)
 
-        pb = globals().get("pill_button")
-
         def make_button(text, command):
-            if pb:
-                return pb(btn_frame, text, command)
             return tk.Button(
                 btn_frame,
                 text=text,
                 font=("Helvetica", 24),
                 bg="#444444",
                 fg="white",
+                activebackground="#666666",
+                activeforeground="white",
                 width=30,
                 height=1,
                 command=command,
@@ -4620,7 +4616,7 @@ class OneClickPanel(tk.Frame):
 
         try:
             apply_offline_settings()
-            update_fuser_shared_path()
+            enforce_wizard_obj_only_defaults(log=self.log_message)
             pmpreset_path = _resource_path("STEPRESET.PMPreset")
             try:
                 install_pmpreset(pmpreset_path, name="STEPRESET", log=self.log_message)
@@ -5136,46 +5132,33 @@ class SettingsPanel(tk.Frame):
             font=("Helvetica", 16),
         )
         locs_box.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        # Make row 5 expand and give it more vertical room
-        self.grid_rowconfigure(5, weight=1, minsize=700)
+        self.grid_rowconfigure(5, weight=1, minsize=600)
 
-        # Canvas + vertical scrollbar
         canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0, bd=0)
         vbar = tk.Scrollbar(locs_box, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        vbar.pack(side="right", fill="y")
-
-        # The inner content frame that actually holds the rows
         inner = tk.Frame(canvas, bg="black")
         win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
-        # Ensure the inner frame always matches the canvas width
         def _on_canvas_resize(evt):
             canvas.itemconfig(win_id, width=evt.width)
 
-        canvas.bind("<Configure>", _on_canvas_resize)
-
-        # Give the scrollregion some extra "overscroll" margin at the bottom
-        SCROLL_BOTTOM_PAD = 180  # tweak to taste
-
-        def _update_scrollregion(_evt=None):
+        def _refresh_scrollregion(_=None):
             bbox = canvas.bbox("all")
             if bbox:
-                x0, y0, x1, y1 = bbox
-                # Add bottom padding so the last buttons scroll fully into view
-                canvas.configure(scrollregion=(x0, y0, x1, y1 + SCROLL_BOTTOM_PAD))
+                canvas.configure(scrollregion=bbox)
 
-        inner.bind("<Configure>", _update_scrollregion)
+        canvas.bind("<Configure>", _on_canvas_resize)
+        inner.bind("<Configure>", _refresh_scrollregion)
+        canvas.configure(yscrollcommand=vbar.set)
 
-        # Smooth wheel behavior
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
         def _wheel(evt):
-            # Windows reports delta in multiples of 120
-            step = -1 if evt.delta > 0 else 1
-            canvas.yview_scroll(step, "units")
+            canvas.yview_scroll(int(-1 * (evt.delta / 120)), "units")
 
-        inner.bind("<Enter>", lambda e: inner.bind_all("<MouseWheel>", _wheel))
-        inner.bind("<Leave>", lambda e: inner.unbind_all("<MouseWheel>"))
+        inner.bind("<Enter>", lambda _e: inner.bind_all("<MouseWheel>", _wheel))
+        inner.bind("<Leave>", lambda _e: inner.unbind_all("<MouseWheel>"))
 
         # ---- Add your path rows into `inner` exactly as before ----
         self.lbl_projects_root = self._create_path_row(
@@ -5227,8 +5210,9 @@ class SettingsPanel(tk.Frame):
             parent=inner,
         )
 
-        # Real spacer at bottom so the last row can scroll above the window edge
-        tk.Frame(inner, height=SCROLL_BOTTOM_PAD, bg="black").pack(fill="x")
+        tk.Frame(inner, height=220, bg="black").pack(fill="x")
+
+        self.after_idle(_refresh_scrollregion)
 
         # Back button and tutorial
         tk.Button(
