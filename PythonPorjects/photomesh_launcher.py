@@ -634,8 +634,18 @@ def resolve_network_working_folder_from_cfg(o: dict) -> str:
 def ensure_offline_share_exists(log=print) -> None:
     """Ensure the offline share exists and firewall rules allow access."""
     o = get_offline_cfg()
-    root = o["local_data_root"]
     share = o["share_name"]
+    raw_root = o["local_data_root"]
+    normalized_root = raw_root.replace("/", "\\")
+    trimmed_root = normalized_root
+    if share:
+        tail = f"\\{share}"
+        lower_tail = tail.lower()
+        candidate = normalized_root.rstrip("\\")
+        if candidate.lower().endswith(lower_tail * 2):
+            trimmed_root = candidate[: -len(tail)]
+    root = trimmed_root
+    o["local_data_root"] = root
     try:
         os.makedirs(root, exist_ok=True)
     except Exception as e:
@@ -735,7 +745,7 @@ def list_remote_shares(host: str) -> list[str]:
 
     try:
         out = subprocess.run(
-            ["net", "view", rf"\\\{host}", "/all"],
+            ["net", "view", rf"\\{host}", "/all"],
             capture_output=True,
             text=True,
             check=False,
@@ -870,10 +880,20 @@ def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
 
     # 2) Compute the canonical UNC
     o = get_offline_cfg()
+    share_unc = build_unc_from_cfg(o)
     unc = resolve_network_working_folder_from_cfg(o)  # \\hostOrIp\share\WorkingFuser
 
     # 3) Ensure folder exists (best effort)
-    if unc:
+    share_ready = True
+    if unc and share_unc and not can_access_unc(share_unc):
+        share_ready = False
+        log(
+            "[Wizard] Missing share "
+            f"{share_unc} — skip creating WorkingFuser. "
+            "Use Settings→Offline→Test Access on the host to create/share it."
+        )
+
+    if unc and share_ready:
         try:
             os.makedirs(unc, exist_ok=True)
         except Exception as e:  # pragma: no cover - best effort
