@@ -3895,8 +3895,6 @@ class VBS4Panel(tk.Frame):
         self.log_message(f"Creating mesh for project: {project_name}")
 
         try:
-            apply_offline_settings()            # Wizard NetworkWorkingFolder + fuser shared_path
-            update_fuser_shared_path()          # belt and suspenders
             pmpreset_path = _resource_path("STEPRESET.PMPreset")
             try:
                 install_pmpreset(pmpreset_path, name="STEPRESET", log=self.log_message)
@@ -4186,17 +4184,15 @@ class OneClickPanel(tk.Frame):
         btn_frame = tk.Frame(self, bg="black")
         btn_frame.pack(pady=20)
 
-        pb = globals().get("pill_button")
-
         def make_button(text, command):
-            if pb:
-                return pb(btn_frame, text, command)
             return tk.Button(
                 btn_frame,
                 text=text,
                 font=("Helvetica", 24),
                 bg="#444444",
                 fg="white",
+                activebackground="#666666",
+                activeforeground="white",
                 width=30,
                 height=1,
                 command=command,
@@ -4620,6 +4616,7 @@ class OneClickPanel(tk.Frame):
 
         try:
             apply_offline_settings()
+            enforce_wizard_obj_only_defaults(log=self.log_message)
             update_fuser_shared_path()
             pmpreset_path = _resource_path("STEPRESET.PMPreset")
             try:
