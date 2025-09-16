@@ -75,6 +75,7 @@ from photomesh_launcher import (
     _read_photomesh_host,
     apply_minimal_wizard_defaults,
     launch_wizard_new_project,
+    find_wizard_exe,
     install_pmpreset,
     probe_best_mesh_share,
     map_drive,
@@ -186,6 +187,8 @@ logging.basicConfig(
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # =============================================================================
 # SINGLETON / PROCESS GUARD
@@ -1516,6 +1519,284 @@ def apply_offline_settings() -> None:
             ensure_offline_share_exists()
 
     enforce_local_fuser_policy()
+
+
+INSTALLER_SILENT_FLAGS = {
+    "nightlygit_pmwizard_v1_5_0_photomesh_us.exe": [["/S"], ["/silent"], ["/quiet"]],
+    "realitymesh.core.installerx64.25_1.rm.b1.exe": [["/quiet"], ["/silent"], ["/S"], ["/s"]],
+    "setup.exe": [["/quiet"], ["/silent"], ["/S"], ["/s"]],
+}
+DEFAULT_SILENT_FLAGS = [["/quiet"], ["/silent"], ["/S"], ["/s"]]
+
+
+def is_photomesh_installed() -> bool:
+    """Return True when a PhotoMesh Wizard executable is present locally."""
+
+    candidates = [
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\PhotoMeshWizard.exe",
+        r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\PhotoMeshWizard.exe",
+    ]
+    for cand in candidates:
+        if os.path.isfile(cand):
+            return True
+
+    try:
+        exe = find_wizard_exe()
+    except Exception:
+        exe = ""
+    return bool(exe and os.path.isfile(exe))
+
+
+def _candidate_rm_roots() -> list[str]:
+    """Return potential Reality Mesh install roots for shortcut discovery."""
+
+    roots: list[str] = []
+    try:
+        cfg_root = config.get("General", "reality_mesh_local_root", fallback="").strip()
+        if cfg_root:
+            roots.append(cfg_root)
+    except Exception:
+        pass
+
+    try:
+        local_root = config.get("Offline", "local_data_root", fallback="").strip()
+        if local_root:
+            roots.append(os.path.join(local_root, "RealityMeshInstall"))
+    except Exception:
+        pass
+
+    for env in ("ProgramFiles", "ProgramFiles(x86)"):
+        pf = os.environ.get(env, "").strip()
+        if pf:
+            roots.append(pf)
+            roots.append(os.path.join(pf, "Skyline"))
+            roots.append(os.path.join(pf, "Bentley"))
+
+    programdata = os.environ.get("ProgramData", "").strip()
+    if programdata:
+        roots.append(os.path.join(programdata, "Bentley"))
+
+    seen = set()
+    ordered: list[str] = []
+    for root in roots:
+        norm = os.path.normpath(root)
+        if norm and norm not in seen:
+            seen.add(norm)
+            ordered.append(norm)
+    return ordered
+
+
+def detect_realitymesh_install_root() -> str:
+    """Return the folder containing the Reality Mesh shortcut if found."""
+
+    for root in _candidate_rm_roots():
+        link = find_local_rm_shortcut(root)
+        if link:
+            return os.path.dirname(link)
+    return ""
+
+
+def is_realitymesh_installed() -> bool:
+    """Return True if a Reality Mesh install shortcut is discoverable."""
+
+    return bool(detect_realitymesh_install_root())
+
+
+def _iter_installer_files(root: str) -> list[str]:
+    """Return sorted installer file paths within *root*."""
+
+    if not root or not os.path.isdir(root):
+        return []
+    files: list[str] = []
+    for path in sorted(Path(root).rglob("*")):
+        if path.is_file() and path.suffix.lower() in {".exe", ".msi"}:
+            files.append(str(path))
+    return files
+
+
+def _run_installer(path: str) -> tuple[bool, str]:
+    """Execute installer *path* silently. Returns (success, error_message)."""
+
+    try:
+        if path.lower().endswith(".msi"):
+            cmd = ["msiexec", "/i", path, "/qn", "/norestart"]
+            log_to_console(f"[first-run] msiexec {' '.join(cmd[1:])}")
+            completed = subprocess.run(
+                cmd,
+                check=True,
+                creationflags=NO_WINDOW_FLAG,
+            )
+            return completed.returncode == 0, ""
+
+        base = os.path.basename(path).lower()
+        candidates = INSTALLER_SILENT_FLAGS.get(base, DEFAULT_SILENT_FLAGS)
+        last_error = ""
+        for flags in candidates:
+            cmd = [path, *flags]
+            log_to_console(f"[first-run] {' '.join(cmd)}")
+            try:
+                completed = subprocess.run(
+                    cmd,
+                    check=True,
+                    creationflags=NO_WINDOW_FLAG,
+                )
+                if completed.returncode == 0:
+                    return True, ""
+            except subprocess.CalledProcessError as exc:
+                last_error = f"exit code {exc.returncode}"
+            except Exception as exc:  # pragma: no cover - best effort logging
+                last_error = str(exc)
+        return False, last_error or "unknown error"
+    except FileNotFoundError as exc:
+        return False, str(exc)
+
+
+def maybe_install_prereqs(payload_root: str) -> list[str]:
+    """Install bundled prerequisites when missing. Returns failed installer info."""
+
+    failures: list[str] = []
+    if not sys.platform.startswith("win"):
+        log_to_console("[first-run] Installer automation skipped on non-Windows platform.")
+        return failures
+
+    if not os.path.isdir(payload_root):
+        log_to_console(f"[first-run] Installer payload folder missing: {payload_root}")
+
+    photomesh_dir = os.path.join(payload_root, "Photomesh")
+    reality_dir = os.path.join(payload_root, "RealityMesh")
+
+    if is_photomesh_installed():
+        log_to_console("[first-run] PhotoMesh Wizard detected; skipping bundled installers.")
+    else:
+        if not os.path.isdir(photomesh_dir):
+            log_to_console("[first-run] No PhotoMesh installer payload found.")
+        else:
+            log_to_console("[first-run] Installing PhotoMesh Wizard prerequisites…")
+            for installer in _iter_installer_files(photomesh_dir):
+                ok, err = _run_installer(installer)
+                if not ok:
+                    failures.append(f"{os.path.basename(installer)} ({err})")
+
+    if is_realitymesh_installed():
+        log_to_console("[first-run] Reality Mesh installation detected; skipping bundled installers.")
+    else:
+        if not os.path.isdir(reality_dir):
+            log_to_console("[first-run] No Reality Mesh installer payload found.")
+        else:
+            log_to_console("[first-run] Installing Reality Mesh components…")
+            for installer in _iter_installer_files(reality_dir):
+                ok, err = _run_installer(installer)
+                if not ok:
+                    failures.append(f"{os.path.basename(installer)} ({err})")
+
+    return failures
+
+
+def first_run_setup(master=None) -> None:
+    """Execute the first-run workflow for shared drive + installer configuration."""
+
+    log_to_console("[first-run] Starting first-run configuration flow…")
+    selected_root = filedialog.askdirectory(
+        parent=master,
+        title="Select the drive or root folder for SharedMeshDrive",
+        mustexist=True,
+    )
+    if not selected_root:
+        raise RuntimeError("First-run setup cancelled by user.")
+
+    selected_root = os.path.normpath(selected_root)
+    share_root = os.path.join(selected_root, "SharedMeshDrive")
+    log_to_console(f"[first-run] Shared drive root: {share_root}")
+
+    os.makedirs(share_root, exist_ok=True)
+    subdirs = [
+        "WorkingFuser",
+        "Projects",
+        "RealityMeshInstall",
+        "UnprocessedPhotos",
+        "RealityMeshOutput",
+    ]
+    for sub in subdirs:
+        path = os.path.join(share_root, sub)
+        try:
+            os.makedirs(path, exist_ok=True)
+            log_to_console(f"[first-run] Ensured folder: {path}")
+        except Exception as exc:
+            log_to_console(f"[first-run] Failed to create {path}: {exc}")
+            raise
+
+    host_name = get_machine_name()
+    if "Offline" not in config:
+        config["Offline"] = {}
+    offline = config["Offline"]
+    offline["enabled"] = "True"
+    offline["host_name"] = host_name
+    offline.setdefault("host_ip", offline.get("host_ip", ""))
+    offline["share_name"] = "SharedMeshDrive"
+    offline["local_data_root"] = share_root
+    offline["working_fuser_subdir"] = "WorkingFuser"
+    offline["working_fuser_host"] = host_name
+    if "use_ip_unc" not in offline:
+        offline["use_ip_unc"] = "False"
+
+    if "SharedDrive" not in config:
+        config["SharedDrive"] = {
+            "preferred_mode": "UNC",
+            "drive_letter": "M:",
+            "auto_map_on_save": "True",
+        }
+    else:
+        sd = config["SharedDrive"]
+        sd.setdefault("preferred_mode", "UNC")
+        sd.setdefault("drive_letter", "M:")
+        sd.setdefault("auto_map_on_save", "True")
+
+    _save_config()
+    set_host(host_name)
+
+    unc_root = build_unc_from_cfg(get_offline_cfg())
+    if unc_root:
+        set_projects_root(os.path.join(unc_root, "Projects"))
+
+    apply_offline_settings()
+
+    if unc_root and sys.platform.startswith("win"):
+        try:
+            letter = config["SharedDrive"].get("drive_letter", "M:") if "SharedDrive" in config else "M:"
+            if map_drive(unc_root, letter):
+                log_to_console(f"[first-run] Mapped {unc_root} to {letter}")
+        except Exception as exc:
+            log_to_console(f"[first-run] Drive mapping failed: {exc}")
+
+    bundle_root = getattr(sys, "_MEIPASS", BASE_DIR)
+    installers_root = os.path.join(bundle_root, "installs")
+    failures = maybe_install_prereqs(installers_root)
+
+    try:
+        import update_photomesh_config as upc
+
+        upc.main()
+    except Exception as exc:  # pragma: no cover - best effort logging
+        log_to_console(f"[first-run] Failed updating PhotoMesh config: {exc}")
+
+    detected_rm_root = detect_realitymesh_install_root()
+    share_rm_root = os.path.join(share_root, "RealityMeshInstall")
+    final_rm_root = detected_rm_root or (share_rm_root if is_valid_rm_local_root(share_rm_root) else "")
+    if final_rm_root:
+        set_rm_local_root(final_rm_root)
+    else:
+        log_to_console("[first-run] Reality Mesh install folder not detected; leaving unset.")
+
+    if failures:
+        log_to_console("[first-run] Installer issues: " + "; ".join(failures))
+        if messagebox:
+            messagebox.showwarning(
+                "First-Run Setup",
+                "Some installers reported issues:\n- " + "\n- ".join(failures) +
+                "\n\nYou can retry from the Settings panel.",
+            )
+
+    log_to_console("[first-run] First-run setup completed.")
 
 
 # =============================================================================
@@ -5040,7 +5321,7 @@ def run_command_server(host: str = "", port: int = 9100) -> None:
                 continue
             try:
                 args = shlex.split(data)
-                subprocess.Popen(args, creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.Popen(args, creationflags=NO_WINDOW_FLAG)
                 conn.sendall(b"OK")
             except Exception as e:
                 conn.sendall(f"ERROR: {e}".encode())
@@ -5054,6 +5335,48 @@ if __name__ == "__main__":
         print("STE Toolkit is already running.")
         sys.exit(0)
     start_command_server()
+    force_first = any(arg.lower() == "--first-run-setup" for arg in sys.argv[1:])
+    raw_flag = None
+    try:
+        raw_flag = config['General'].get('first_run_done') if 'General' in config else None
+    except Exception:
+        raw_flag = None
+
+    if force_first:
+        first_done = False
+    elif raw_flag is None:
+        first_done = True
+    else:
+        first_done = config['General'].getboolean('first_run_done', fallback=False)
+
+    if force_first or not first_done:
+        temp_root = tk.Tk()
+        temp_root.withdraw()
+        try:
+            first_run_setup(master=temp_root)
+            if 'General' not in config:
+                config['General'] = {}
+            config['General']['first_run_done'] = 'True'
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
+                config.write(fh)
+        except RuntimeError as exc:
+            if messagebox:
+                messagebox.showinfo("First-Run Setup", str(exc))
+            else:
+                print(f"First-Run Setup: {exc}")
+            log_to_console(f"[first-run] {exc}")
+            sys.exit(0)
+        except Exception as exc:
+            if messagebox:
+                messagebox.showerror("First-Run Setup", f"Setup did not complete:\n{exc}")
+            else:
+                print(f"First-Run Setup failed: {exc}")
+            log_to_console(f"[first-run] Setup failed: {exc}")
+            sys.exit(1)
+        finally:
+            if temp_root.winfo_exists():
+                temp_root.destroy()
+
     app = MainApp()
     app.after(50, apply_minimal_wizard_defaults)
     app.after(75, lambda: enforce_wizard_obj_only_defaults(log=app.panels['VBS4'].log_message))
