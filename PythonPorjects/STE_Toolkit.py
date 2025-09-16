@@ -2847,6 +2847,11 @@ class MainApp(tk.Tk):
 
         enforce_local_fuser_policy()
 
+        try:
+            apply_offline_settings()
+        except Exception as exc:
+            print("[first-run] apply_offline_settings:", exc)
+
         # Start by showing "Main"
         self.current = None
         self.show('Main')
@@ -4859,7 +4864,7 @@ class SettingsPanel(tk.Frame):
         self.controller = controller
 
         self.configure(bg="black")
-        self.grid_rowconfigure(5, weight=1)
+        self.grid_rowconfigure(5, weight=1, minsize=600)
         self.grid_columnconfigure(0, weight=1)
 
         tk.Label(
@@ -5131,14 +5136,18 @@ class SettingsPanel(tk.Frame):
             font=("Helvetica", 16),
         )
         locs_box.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        self.grid_rowconfigure(5, weight=1, minsize=420)
+        self.grid_rowconfigure(5, weight=1, minsize=600)
 
         canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0)
         vbar = tk.Scrollbar(locs_box, orient="vertical", command=canvas.yview)
         inner = tk.Frame(canvas, bg="black")
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
+        def _on_canvas_resize(evt):
+            canvas.itemconfig(win_id, width=evt.width)
+
+        canvas.bind("<Configure>", _on_canvas_resize)
         inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=inner, anchor="nw")
         canvas.configure(yscrollcommand=vbar.set)
 
         canvas.pack(side="left", fill="both", expand=True)
@@ -5199,6 +5208,8 @@ class SettingsPanel(tk.Frame):
             get_oneclick_output_path(),
             parent=inner,
         )
+
+        tk.Frame(inner, height=80, bg="black").pack(fill="x")
 
         # Back button and tutorial
         tk.Button(
