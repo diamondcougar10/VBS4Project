@@ -4864,7 +4864,7 @@ class SettingsPanel(tk.Frame):
         self.controller = controller
 
         self.configure(bg="black")
-        self.grid_rowconfigure(5, weight=1, minsize=600)
+        self.grid_rowconfigure(5, weight=1, minsize=700)
         self.grid_columnconfigure(0, weight=1)
 
         tk.Label(
@@ -5136,30 +5136,48 @@ class SettingsPanel(tk.Frame):
             font=("Helvetica", 16),
         )
         locs_box.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        self.grid_rowconfigure(5, weight=1, minsize=600)
+        # Make row 5 expand and give it more vertical room
+        self.grid_rowconfigure(5, weight=1, minsize=700)
 
-        canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0)
+        # Canvas + vertical scrollbar
+        canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0, bd=0)
         vbar = tk.Scrollbar(locs_box, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        # The inner content frame that actually holds the rows
         inner = tk.Frame(canvas, bg="black")
         win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
+        # Ensure the inner frame always matches the canvas width
         def _on_canvas_resize(evt):
             canvas.itemconfig(win_id, width=evt.width)
 
         canvas.bind("<Configure>", _on_canvas_resize)
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.configure(yscrollcommand=vbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        vbar.pack(side="right", fill="y")
+        # Give the scrollregion some extra "overscroll" margin at the bottom
+        SCROLL_BOTTOM_PAD = 180  # tweak to taste
 
+        def _update_scrollregion(_evt=None):
+            bbox = canvas.bbox("all")
+            if bbox:
+                x0, y0, x1, y1 = bbox
+                # Add bottom padding so the last buttons scroll fully into view
+                canvas.configure(scrollregion=(x0, y0, x1, y1 + SCROLL_BOTTOM_PAD))
+
+        inner.bind("<Configure>", _update_scrollregion)
+
+        # Smooth wheel behavior
         def _wheel(evt):
-            canvas.yview_scroll(int(-1 * (evt.delta / 120)), "units")
+            # Windows reports delta in multiples of 120
+            step = -1 if evt.delta > 0 else 1
+            canvas.yview_scroll(step, "units")
 
         inner.bind("<Enter>", lambda e: inner.bind_all("<MouseWheel>", _wheel))
         inner.bind("<Leave>", lambda e: inner.unbind_all("<MouseWheel>"))
 
-        # Add path rows into `inner`
+        # ---- Add your path rows into `inner` exactly as before ----
         self.lbl_projects_root = self._create_path_row(
             "Change Projects Root",
             self._on_change_projects_root,
@@ -5209,7 +5227,8 @@ class SettingsPanel(tk.Frame):
             parent=inner,
         )
 
-        tk.Frame(inner, height=80, bg="black").pack(fill="x")
+        # Real spacer at bottom so the last row can scroll above the window edge
+        tk.Frame(inner, height=SCROLL_BOTTOM_PAD, bg="black").pack(fill="x")
 
         # Back button and tutorial
         tk.Button(
