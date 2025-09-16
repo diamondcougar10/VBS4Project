@@ -275,6 +275,25 @@ def _save_config() -> None:
         config.write(f)
 
 
+def _ensure_fuser_defaults() -> None:
+    """Ensure ``config.ini`` has sane default fuser counts."""
+    if "Fusers" not in config:
+        config["Fusers"] = {}
+    fusers = config["Fusers"]
+    changed = False
+    if "desired_count" not in fusers:
+        fusers["desired_count"] = "3"
+        changed = True
+    if "host_count" not in fusers:
+        fusers["host_count"] = "1"
+        changed = True
+    if changed:
+        _save_config()
+
+
+_ensure_fuser_defaults()
+
+
 def get_projects_root() -> str:
     """Return the configured projects_root path or an empty string."""
     try:
@@ -290,6 +309,22 @@ def set_projects_root(path: str) -> None:
         config.add_section("Paths")
     config.set("Paths", "projects_root", path)
     _save_config()
+
+
+def get_fuser_counts() -> tuple[int, int]:
+    """Return ``(host_count, desired_count)`` from the configuration."""
+    if "Fusers" not in config:
+        config["Fusers"] = {}
+    fusers = config["Fusers"]
+    try:
+        host_ct = max(0, int(fusers.get("host_count", "1")))
+    except ValueError:
+        host_ct = 1
+    try:
+        desired_ct = max(0, int(fusers.get("desired_count", "3")))
+    except ValueError:
+        desired_ct = 3
+    return host_ct, desired_ct
 # endregion
 
 # region Reality Mesh helpers
@@ -1097,6 +1132,7 @@ __all__ = [
     "RM_INSTALL_SUBDIRS",
     "is_valid_rm_local_root",
     "find_local_rm_shortcut",
+    "get_fuser_counts",
 ]
 
 # =============================================================================

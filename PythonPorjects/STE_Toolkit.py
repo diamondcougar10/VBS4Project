@@ -83,6 +83,7 @@ from photomesh_launcher import (
     build_unc_from_cfg,
     RM_LNK_NAME,
     RM_INSTALL_SUBDIRS,
+    get_fuser_counts,
 )
 from collections import OrderedDict
 import time
@@ -1172,6 +1173,24 @@ def _save_config():
         config.write(f)
 
 
+def _ensure_fuser_defaults() -> None:
+    if "Fusers" not in config:
+        config["Fusers"] = {}
+    fusers = config["Fusers"]
+    changed = False
+    if "desired_count" not in fusers:
+        fusers["desired_count"] = "3"
+        changed = True
+    if "host_count" not in fusers:
+        fusers["host_count"] = "1"
+        changed = True
+    if changed:
+        _save_config()
+
+
+_ensure_fuser_defaults()
+
+
 def get_projects_root() -> str:
     try:
         root = config.get("Paths", "projects_root", fallback="").strip()
@@ -1448,17 +1467,17 @@ def ensure_fuser_instances(desired: int):
 
 
 def enforce_local_fuser_policy():
-    """
-    Host machine: always 1 fuser.
-    Non-host:
-      - if 'fuser_computer' checked: 3 fusers
-      - else: 0 fusers
-    Works whether Offline Mode is enabled or not.
-    """
+    """Apply the configured fuser instance counts on this machine."""
     try:
-        is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
-        desired = 1 if is_host_machine() else (3 if is_fuser else 0)
-        ensure_fuser_instances(desired)
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        host_ct, desired_ct = get_fuser_counts()
+        if is_host_machine():
+            target = host_ct
+        elif is_fuser:
+            target = desired_ct
+        else:
+            target = 0
+        ensure_fuser_instances(target)
     except Exception as e:
         print(f"[fuser-policy] {e}")
 
@@ -2777,12 +2796,19 @@ class MainApp(tk.Tk):
         self.panels = {
             'Main':      MainMenu(self.panels_container, self),
             'VBS4':      VBS4Panel(self.panels_container, self),
+            'OneClick':  OneClickPanel(self.panels_container, self),
             'BVI':       BVIPanel(self.panels_container, self),
             'Settings':  SettingsPanel(self.panels_container, self),
             'Tutorials': TutorialsPanel(self.panels_container, self),
             'Credits':   CreditsPanel(self.panels_container, self),
             'Contact Us': ContactSupportPanel(self.panels_container, self),
         }
+
+        try:
+            log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
+            enforce_photomesh_settings(log=log_fn)
+        except Exception as exc:
+            print(f"[wizard-enforce] {exc}")
 
         # Stack all panels in the same location and raise the active one
         for panel in self.panels.values():
@@ -2793,6 +2819,7 @@ class MainApp(tk.Tk):
         for key, label in [
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
+            ('OneClick', 'One-Click'),
             ('BVI',      'BVI'),
             ('Settings', 'Settings'),
             ('Tutorials','?'),
@@ -2879,6 +2906,9 @@ class MainApp(tk.Tk):
             self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
             self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
             self.update_button_state(panel.blueig_button, 'blueig_path')
+        elif name == "OneClick":
+            panel.update_fuser_state()
+            panel.refresh_rm_status()
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
 
@@ -3012,17 +3042,13 @@ class MainMenu(tk.Frame):
 
         # Other buttons
         for txt, cmd in [
-            ("Launch VBS4", launch_vbs4),
+            ("Launch VBS4 Launcher", launch_vbs4_setup),
             ("Launch BVI", launch_bvi),
             ("Settings", lambda: controller.show("Settings")),
             ("Tutorials", lambda: controller.show("Tutorials")),
             ("Credits", lambda: controller.show("Credits")),
             ("Exit", controller.destroy),
         ]:
-            if txt == "Launch VBS4":
-                self.create_vbs4_button()
-                continue
-
             state = "normal"
             bg    = "#444444"
             if txt == "Launch BVI":
@@ -3030,6 +3056,11 @@ class MainMenu(tk.Frame):
                 if not path or not os.path.isfile(path):
                     state = "disabled"
                     bg    = "#888888"
+            elif txt == "Launch VBS4 Launcher":
+                path = config['General'].get('vbs4_setup_path', '')
+                if not path or not os.path.isfile(path):
+                    state = "disabled"
+                    bg = "#888888"
 
             button = tk.Button(
                 self,
@@ -3041,20 +3072,6 @@ class MainMenu(tk.Frame):
                 state=state
             )
             button.pack(pady=10)
-
-    def create_vbs4_button(self):
-        path = get_vbs4_install_path()
-        state = "normal" if path and os.path.isfile(path) else "disabled"
-        bg = "#444444" if state == "normal" else "#888888"
-        tk.Button(
-            self,
-            text="Launch VBS4",
-            font=("Helvetica", 24),
-            bg=bg, fg="white",
-            width=30, height=1,
-            command=launch_vbs4,
-            state=state
-        ).pack(pady=10, before=self.blueig_frame)
 
     def create_blueig_button(self):
         for widget in self.blueig_frame.winfo_children():
@@ -3101,13 +3118,13 @@ class MainMenu(tk.Frame):
 
     def run_oneclick_conversion(self) -> None:
         """Kick off the full One-Click Terrain pipeline."""
-        panel = self.panels.get('VBS4')
+        panel = self.panels.get('OneClick')
         if panel:
-            panel.one_click_conversion()
+            panel.on_run_oneclick()
 
     def launch_reality_mesh_to_vbs4(self) -> None:
         """Open the Reality Mesh to VBS4 application."""
-        panel = self.panels.get('VBS4')
+        panel = self.panels.get('OneClick')
         if panel:
             panel.launch_reality_mesh_to_vbs4()
 
@@ -3167,35 +3184,6 @@ class VBS4Panel(tk.Frame):
             self.launch_vbs_license_manager,
             lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
         )
-
-        self.oneclick_open = False
-        pb = globals().get("pill_button")
-        if pb:
-            self.btn_oneclick_toggle = pb(
-                self, "One-Click Terrain Options ▲", self.toggle_oneclick
-            )
-        else:
-            self.btn_oneclick_toggle = tk.Button(
-                self,
-                text="One-Click Terrain Options ▲",
-                font=("Helvetica", 24),
-                bg="#444444", fg="white",
-                width=30, height=1,
-                command=self.toggle_oneclick,
-                bd=0,
-                highlightthickness=0,
-            )
-        self.btn_oneclick_toggle.pack(pady=10, ipadx=10, ipady=5)
-        self.btn_oneclick_toggle.bind(
-            "<Enter>",
-            lambda e: self.show_tooltip(e, "Show or hide terrain tools")
-        )
-        self.btn_oneclick_toggle.bind("<Leave>", self.hide_tooltip)
-
-        self.oneclick_slot = tk.Frame(self, bg=self.cget("bg"))
-        # mounted only when expanded
-        self.oneclick_group = None
-        self.update_fuser_state()
 
         tk.Button(
             self,
@@ -3399,8 +3387,8 @@ class VBS4Panel(tk.Frame):
             # don't block launch if saving fails; just continue
             pass
 
-        if hasattr(self.controller, "panels") and "VBS4" in self.controller.panels:
-            pnl = self.controller.panels["VBS4"]
+        if hasattr(self.controller, "panels") and "OneClick" in self.controller.panels:
+            pnl = self.controller.panels["OneClick"]
             if hasattr(pnl, "log_message"):
                 pnl.log_message(f"Host set to: {host_name}")
 
@@ -3506,100 +3494,6 @@ class VBS4Panel(tk.Frame):
     def hide_tooltip(self, event):
         self.tooltip.hide()
 
-    def toggle_oneclick(self):
-        if self.oneclick_open:
-            self._collapse_oneclick()
-        else:
-            self._expand_oneclick()
-
-    def _wrap_autocollapse(self, fn):
-        def _inner(*args, **kwargs):
-            try:
-                return fn(*args, **kwargs)
-            finally:
-                # collapse right after the action so the menu folds back up
-                self.after(10, self._collapse_oneclick)
-        return _inner
-
-    def _expand_oneclick(self):
-        if self.oneclick_group:
-            return
-        self.oneclick_open = True
-        self.btn_oneclick_toggle.config(text="Hide Terrain Options ▼")
-
-        # Ensure the slot is placed directly under the header button
-        if not self.oneclick_slot.winfo_ismapped():
-            self.oneclick_slot.pack(fill="x", pady=(6, 8), after=self.btn_oneclick_toggle)
-
-        self.oneclick_group = tk.Frame(self.oneclick_slot, bg="#333333")
-        self.oneclick_group.pack(fill="x")
-
-        panel = tk.Frame(self.oneclick_group, bg="#333333")
-        panel.pack(fill="x", padx=0, pady=0)
-
-        pb = globals().get("pill_button")
-        if pb:
-            pb(panel, "One-Click Conversion",
-               self._wrap_autocollapse(self.on_oneclick_convert)).pack(pady=8, ipadx=10, ipady=5)
-            pb(panel, "Launch Reality Mesh to VBS4",
-               self._wrap_autocollapse(self.on_launch_reality_mesh)).pack(pady=8, ipadx=10, ipady=5)
-            pb(panel, "One-Click Terrain Tutorial",
-               self._wrap_autocollapse(self.on_open_oct_tutorial)).pack(pady=8, ipadx=10, ipady=5)
-        else:
-            tk.Button(panel, text="One-Click Conversion",
-                      command=self._wrap_autocollapse(self.on_oneclick_convert),
-                      font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
-                      highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
-            tk.Button(panel, text="Launch Reality Mesh to VBS4",
-                      command=self._wrap_autocollapse(self.on_launch_reality_mesh),
-                      font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
-                      highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
-            tk.Button(panel, text="One-Click Terrain Tutorial",
-                      command=self._wrap_autocollapse(self.on_open_oct_tutorial),
-                      font=("Helvetica", 20), bg="#444444", fg="white", bd=0,
-                      highlightthickness=0).pack(pady=8, ipadx=10, ipady=5)
-
-        try:
-            panel.winfo_children()[0].focus_set()
-        except Exception:
-            pass
-        if hasattr(self.controller, "update_navigation"):
-            self.controller.update_navigation()
-
-    def _collapse_oneclick(self):
-        if not self.oneclick_group and not self.oneclick_open:
-            return
-        self.oneclick_open = False
-        self.btn_oneclick_toggle.config(text="One-Click Terrain Options ▲")
-
-        if self.oneclick_group:
-            try:
-                self.oneclick_group.pack_forget()
-                self.oneclick_group.destroy()
-            except Exception:
-                pass
-            self.oneclick_group = None
-
-        if self.oneclick_slot.winfo_ismapped():
-            self.oneclick_slot.pack_forget()
-
-        try:
-            self.btn_oneclick_toggle.focus_set()
-        except Exception:
-            pass
-        if hasattr(self.controller, "update_navigation"):
-            self.controller.update_navigation()
-
-    def on_oneclick_convert(self):
-        enforce_local_fuser_policy()
-        self.one_click_conversion()
-
-    def on_launch_reality_mesh(self):
-     self.launch_reality_mesh_to_vbs4()
-
-    def on_open_oct_tutorial(self):
-        self.show_terrain_tutorial()
-
     def update_vbs4_button_state(self):
         def _work():
             path = get_vbs4_install_path()
@@ -3630,21 +3524,6 @@ class VBS4Panel(tk.Frame):
             post_ui(_apply)
 
         run_in_thread(_work)
-
-    def update_fuser_state(self):
-        is_fuser = config['Fusers'].getboolean('fuser_computer', fallback=False)
-        tip = "This pc is being used as a fuser" if is_fuser else "Show or hide terrain tools"
-        state = "disabled" if is_fuser else "normal"
-        bg = "#888888" if is_fuser else "#444444"
-
-        self.btn_oneclick_toggle.config(state=state, bg=bg, text="One-Click Terrain Options")
-        self.btn_oneclick_toggle.bind("<Enter>", lambda e: self.show_tooltip(e, tip))
-        self.btn_oneclick_toggle.bind("<Leave>", self.hide_tooltip)
-
-        if is_fuser and self.oneclick_open:
-            self._collapse_oneclick()
-
-        enforce_local_fuser_policy()
 
     def set_file_location(self, app_name, config_key, button):
         path = filedialog.askopenfilename(
@@ -4107,9 +3986,6 @@ class VBS4Panel(tk.Frame):
    
     def post_process_last_build(self, build_root: str | None = None) -> None:
         """Launch the external Reality Mesh to VBS4 application."""
-        if self.oneclick_open:
-            self._collapse_oneclick()
-
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
@@ -4280,6 +4156,631 @@ class VBS4Panel(tk.Frame):
 
         self.progress_job = self.after(2000, self.update_render_progress)
 
+
+class OneClickPanel(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+        set_wallpaper(self)
+        set_background(controller, self)
+        controller.create_tutorial_button(self)
+
+        self.configure(bg="black")
+
+        tk.Label(
+            self,
+            text="One-Click Terrain",
+            font=("Helvetica", 36, "bold"),
+            bg="black",
+            fg="white",
+            pady=20,
+        ).pack(fill="x")
+
+        btn_frame = tk.Frame(self, bg="black")
+        btn_frame.pack(pady=20)
+
+        pb = globals().get("pill_button")
+
+        def make_button(text, command):
+            if pb:
+                return pb(btn_frame, text, command)
+            return tk.Button(
+                btn_frame,
+                text=text,
+                font=("Helvetica", 24),
+                bg="#444444",
+                fg="white",
+                width=30,
+                height=1,
+                command=command,
+                bd=0,
+                highlightthickness=0,
+            )
+
+        self.oneclick_button = make_button(
+            "Run One-Click Conversion",
+            self.on_run_oneclick,
+        )
+        self.oneclick_button.pack(pady=10, ipadx=10, ipady=5)
+
+        self.rm_button = make_button(
+            "Launch Reality Mesh to VBS4",
+            self.launch_reality_mesh_to_vbs4,
+        )
+        self.rm_button.pack(pady=10, ipadx=10, ipady=5)
+
+        self.tutorial_button = make_button(
+            "One-Click Terrain Tutorial",
+            self.show_terrain_tutorial,
+        )
+        self.tutorial_button.pack(pady=10, ipadx=10, ipady=5)
+
+        tk.Button(
+            self,
+            text="Back",
+            font=("Helvetica", 24),
+            bg="#444444",
+            fg="white",
+            width=30,
+            height=1,
+            command=lambda: controller.show("Main"),
+            bd=0,
+            highlightthickness=0,
+        ).pack(pady=(10, 0))
+
+        status_frame = tk.Frame(self, bg="black")
+        status_frame.pack(fill="x", padx=20, pady=(10, 0))
+        self.rm_path_label = tk.Label(
+            status_frame,
+            text="",
+            font=("Helvetica", 12),
+            bg="black",
+            fg="white",
+            justify="left",
+            wraplength=900,
+        )
+        self.rm_path_label.pack(anchor="w")
+
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
+
+        tk.Label(
+            self.log_frame,
+            text="Activity Log",
+            font=("Helvetica", 16, "bold"),
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(anchor="w")
+
+        self.log_text = tk.Text(
+            self.log_frame,
+            height=3,
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            wrap="word",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.config(state="disabled")
+        self.log_expanded = False
+        ui_log_schedule_flush(controller, self.log_text)
+
+        progress_frame = tk.Frame(
+            self.log_frame,
+            bg=self.log_frame.cget("bg"),
+            bd=0,
+            highlightthickness=0,
+        )
+        progress_frame.pack(fill="x", pady=(5, 0))
+
+        self.progress_var = tk.IntVar(value=0)
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Green.Horizontal.TProgressbar",
+            troughcolor=self.log_frame.cget("bg"),
+            background="#00aa00",
+        )
+        self.progress_bar = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            maximum=100,
+            orient="horizontal",
+            mode="determinate",
+            style="Green.Horizontal.TProgressbar",
+        )
+        self.progress_bar.pack(side="left", fill="x", expand=True)
+
+        self.progress_label = tk.Label(
+            progress_frame,
+            text="0%",
+            font=("Helvetica", 12),
+            bg=progress_frame.cget("bg"),
+            fg="white",
+            width=5,
+            bd=0,
+            highlightthickness=0,
+        )
+        self.progress_label.pack(side="right", padx=(5, 0))
+
+        button_frame = tk.Frame(
+            self.log_frame,
+            bg=self.log_frame.cget("bg"),
+            bd=0,
+            highlightthickness=0,
+        )
+        button_frame.pack(fill="x", pady=5)
+
+        self.toggle_log_button = tk.Button(
+            button_frame,
+            text="Expand Log",
+            command=self.toggle_log,
+            bg="#555",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.toggle_log_button.pack(side="left")
+
+        tk.Button(
+            button_frame,
+            text="Clear Log",
+            command=self.clear_log,
+            bg="#555",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="right")
+
+        self.progress_job = None
+        self.project_log_folder = None
+        self.work_folder = None
+        self.last_build_dir = None
+        self.image_folder_paths: list[str] = []
+        self.rm_source: str | None = None
+
+        self.update_fuser_state()
+        self.refresh_rm_status()
+
+    def refresh_rm_status(self):
+        self.after(0, self._update_rm_status)
+
+    def update_fuser_state(self):
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        host_ct, desired_ct = get_fuser_counts()
+        is_host = is_host_machine()
+        disable = is_fuser and not is_host and desired_ct > 1
+
+        for btn in (self.oneclick_button, self.rm_button):
+            btn.config(state="disabled" if disable else "normal")
+            btn.config(bg="#888888" if disable else "#444444")
+
+        if disable:
+            tip = (
+                "This PC is configured to run multiple fusers. "
+                "Reduce Fusers/desired_count to 1 or 0 to enable One-Click."
+            )
+            self.log_message(tip)
+        enforce_local_fuser_policy()
+
+    def log_message(self, message):
+        post_ui(log_to_console, f"> {message}")
+
+    def clear_log(self):
+        self.log_text.config(state="normal")
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state="disabled")
+
+    def toggle_log(self):
+        if self.log_expanded:
+            self.log_text.config(height=3)
+            self.toggle_log_button.config(text="Expand Log")
+            self.log_expanded = False
+        else:
+            self.log_text.config(height=15)
+            self.toggle_log_button.config(text="Collapse Log")
+            self.log_expanded = True
+
+    def set_progress(self, value: int):
+        self.progress_var.set(value)
+        self.progress_label.config(text=f"{value}%")
+
+    def start_progress_monitor(self, project_path: str):
+        self.project_root = project_path
+        self.last_build_dir = project_path
+
+        _out = os.path.join(project_path, "Build_1", "out")
+        log_dir = os.path.join(_out, "Log")
+        work_dir = os.path.join(_out, "Work")
+        self.project_log_folder = log_dir if os.path.isdir(log_dir) else None
+        self.work_folder = work_dir if os.path.isdir(work_dir) else None
+
+        self.progress_var.set(0)
+        self.progress_label.config(text="0%")
+        if self.progress_job:
+            self.after_cancel(self.progress_job)
+        self.progress_job = self.after(2000, self.update_render_progress)
+
+    def update_render_progress(self):
+        paths: list[str] = []
+        if self.project_log_folder and os.path.isdir(self.project_log_folder):
+            paths += glob.glob(os.path.join(self.project_log_folder, "Out*.log"))
+            paths += glob.glob(os.path.join(self.project_log_folder, "Run*.log"))
+        if self.work_folder and os.path.isdir(self.work_folder):
+            paths += glob.glob(os.path.join(self.work_folder, "*.out"))
+
+        latest = max(paths, key=os.path.getmtime) if paths else None
+        percent = None
+        if latest:
+            try:
+                with open(latest, "r", errors="ignore") as f:
+                    for line in reversed(f.readlines()):
+                        percent = extract_progress(line)
+                        if percent is not None:
+                            break
+            except Exception:
+                pass
+
+        if percent is not None:
+            self.progress_var.set(percent)
+            self.progress_label.config(text=f"{percent}%")
+            if percent >= 100:
+                self.progress_job = None
+                return
+
+        self.progress_job = self.after(2000, self.update_render_progress)
+
+    def select_imagery(self):
+        folders: list[str] = []
+
+        folder_window = tk.Toplevel(self)
+        apply_app_icon(folder_window)
+        folder_window.title("Select Imagery Folders")
+        folder_window.geometry("700x500")
+        folder_window.resizable(False, False)
+        folder_window.transient(self)
+        folder_window.grab_set()
+        folder_window.attributes("-topmost", True)
+        folder_window.configure(bg=self.cget("bg"))
+
+        if os.path.exists(prompt_box_image_path):
+            img = Image.open(prompt_box_image_path).resize(
+                (801, 506), Image.Resampling.LANCZOS
+            )
+            ph = ImageTk.PhotoImage(img)
+            bg_label = tk.Label(folder_window, image=ph, borderwidth=0)
+            bg_label.image = ph
+            bg_label.place(relwidth=1, relheight=1)
+
+        tk.Label(
+            folder_window,
+            text="Selected Imagery Folders:",
+            font=("Helvetica", 14, "bold"),
+            bg=folder_window.cget("bg"),
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(pady=(20, 5))
+
+        folder_listbox = tk.Listbox(
+            folder_window,
+            width=80,
+            height=10,
+            bg="#1e1e1e",
+            fg="white",
+            selectbackground="#444",
+            bd=0,
+            highlightthickness=0,
+        )
+        folder_listbox.pack(pady=10)
+
+        def refresh_listbox():
+            folder_listbox.delete(0, tk.END)
+            for folder in folders:
+                folder_listbox.insert(tk.END, folder)
+
+        def add_folder():
+            selected = filedialog.askdirectory(
+                title="Select DCIM or base imagery folder",
+                parent=folder_window,
+            )
+            if selected:
+                found = get_image_folders_recursively(clean_path(selected))
+                folders.extend(found)
+                refresh_listbox()
+                return
+
+            input_path = simpledialog.askstring(
+                "Network Path",
+                "Enter network folder path:",
+                parent=folder_window,
+            )
+            if not input_path:
+                return
+            path = clean_path(input_path)
+            if os.path.isdir(path):
+                selected = filedialog.askdirectory(
+                    title="Select DCIM or base imagery folder",
+                    initialdir=path,
+                    parent=folder_window,
+                )
+                if selected:
+                    found = get_image_folders_recursively(clean_path(selected))
+                    folders.extend(found)
+            else:
+                messagebox.showerror(
+                    "Invalid Path",
+                    f"The path '{input_path}' does not exist.",
+                    parent=folder_window,
+                )
+            refresh_listbox()
+
+        def remove_folder():
+            selected_indices = folder_listbox.curselection()
+            for index in reversed(selected_indices):
+                del folders[index]
+            refresh_listbox()
+
+        def finish_selection():
+            if not folders:
+                messagebox.showwarning(
+                    "No Selection", "No folder selected.", parent=folder_window
+                )
+                return
+
+            norm_folders = [clean_path(f) for f in folders]
+            self.image_folder_paths = norm_folders
+            self.image_folder_path = ';'.join(norm_folders)
+            if SHOW_SELECTION_TOAST:
+                messagebox.showinfo(
+                    "Imagery Selected",
+                    f"Selected imagery folders:\n{', '.join(self.image_folder_paths)}",
+                    parent=folder_window,
+                )
+            else:
+                self.log_message(
+                    f"Imagery selected: {', '.join(self.image_folder_paths)}"
+                )
+            folder_window.destroy()
+
+        def cancel_selection():
+            folder_window.destroy()
+
+        button_bar = tk.Frame(folder_window, bg=folder_window.cget("bg"))
+        button_bar.pack(pady=20)
+
+        def styled_btn(label, command):
+            return tk.Button(
+                button_bar,
+                text=label,
+                command=command,
+                font=("Helvetica", 14, "bold"),
+                bg="#444",
+                fg="white",
+                activebackground="#666",
+                width=18,
+                height=2,
+                bd=0,
+            )
+
+        styled_btn("➕ Add Folder", add_folder).pack(side=tk.LEFT, padx=10)
+        styled_btn("❌ Remove Selected", remove_folder).pack(side=tk.LEFT, padx=10)
+        styled_btn("✅ Finish", finish_selection).pack(side=tk.LEFT, padx=10)
+        styled_btn("Cancel", cancel_selection).pack(side=tk.LEFT, padx=10)
+
+        folder_window.wait_window()
+
+    def create_mesh(self):
+        if not self.image_folder_paths:
+            self.select_imagery()
+            if not self.image_folder_paths:
+                return
+
+        project_name = prompt_project_name(self)
+        if not project_name:
+            messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
+            return
+
+        projects_root = get_projects_root()
+        project_path = ""
+        if projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+            project_path = projects_root
+            self.log_message(f"Using saved Projects root: {project_path}")
+        else:
+            if projects_root:
+                if not os.path.isdir(projects_root):
+                    self.log_message(f"Saved Projects root missing: {projects_root}")
+                elif not os.access(projects_root, os.W_OK):
+                    self.log_message(f"Saved Projects root not writable: {projects_root}")
+            project_path = filedialog.askdirectory(
+                title="Select Project Output Folder (root, will be saved)",
+                parent=self,
+            )
+            if not project_path:
+                messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                return
+            set_projects_root(project_path)
+            self.log_message(f"Saved Projects root: {project_path}")
+
+        project_path = os.path.normpath(project_path)
+        project_dir = clean_path(os.path.join(project_path, project_name))
+        os.makedirs(project_dir, exist_ok=True)
+
+        self.log_message(f"Creating mesh for project: {project_name}")
+
+        try:
+            apply_offline_settings()
+            update_fuser_shared_path()
+            pmpreset_path = _resource_path("STEPRESET.PMPreset")
+            try:
+                install_pmpreset(pmpreset_path, name="STEPRESET", log=self.log_message)
+            except FileNotFoundError:
+                self.log_message("[Preset] STEPRESET.PMPreset not bundled; launching with defaults.")
+            proc = launch_wizard_new_project(
+                project_name=project_name,
+                project_path=project_dir,
+                folders=self.image_folder_paths,
+                log=self.log_message,
+            )
+            if hasattr(self, "detach_wizard_on_photomesh_start_by_pid") and proc:
+                self.detach_wizard_on_photomesh_start_by_pid(proc.pid, project_dir)
+            self.log_message(
+                "PhotoMesh Wizard launched with preset STEPRESET and --overrideSettings."
+            )
+            self.start_progress_monitor(project_dir)
+        except Exception as e:
+            error_message = f"Failed to start PhotoMesh Wizard.\nError: {str(e)}"
+            self.log_message(error_message)
+            messagebox.showerror("Launch Error", error_message, parent=self)
+            if messagebox.askyesno(
+                "Open Folder", "Would you like to open the project folder?", parent=self
+            ):
+                open_in_explorer(project_dir)
+
+    def one_click_conversion(self):
+        self.log_message("Starting One-Click Terrain Conversion...")
+        self.log_message("Prompting user to select imagery folders...")
+        self.select_imagery()
+
+        if not self.image_folder_paths:
+            self.log_message("Imagery folder selection failed or cancelled.")
+            return
+
+        self.log_message("Launching PhotoMesh Wizard...")
+        self.create_mesh()
+
+        if not getattr(self, "last_build_dir", None):
+            self.log_message("Mesh creation did not start properly.")
+            messagebox.showerror("Error", "Unable to determine build directory.", parent=self)
+            return
+
+        def _pipeline():
+            def launch_rm():
+                try:
+                    self.log_message("Launching Reality Mesh to VBS4 (no checks)...")
+                    self.post_process_last_build(self.last_build_dir)
+                    self.log_message("Reality Mesh to VBS4 launched.")
+                except Exception as exc:
+                    self.log_message(f"Launch failed: {exc}")
+                    messagebox.showerror("Launch Error", str(exc), parent=self)
+
+            self.after(0, launch_rm)
+
+        run_in_thread(_pipeline)
+
+    def on_run_oneclick(self):
+        enforce_local_fuser_policy()
+        self.one_click_conversion()
+
+    def post_process_last_build(self, build_root: str | None = None) -> None:
+        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        if build_root:
+            self.last_build_dir = build_root
+        if os.path.isfile(sys_settings_path):
+            try:
+                shutil.copy2(sys_settings_path, os.path.join(BASE_DIR, 'RealityMeshSystemSettings.txt'))
+            except Exception:
+                pass
+        self.launch_reality_mesh_to_vbs4()
+
+    def launch_reality_mesh_to_vbs4(self):
+        local_root = get_rm_local_root().strip()
+        attempted: list[str] = []
+        local = ''
+        if local_root:
+            if not is_valid_rm_local_root(local_root):
+                messagebox.showerror(
+                    "Reality Mesh",
+                    (
+                        f"Reality Mesh install folder '{local_root}' is invalid.\n\n"
+                        f"Expected to find '{RM_LNK_NAME}' somewhere under this folder.\n"
+                        "Example: D:\\RealityMeshInstall\\Reality Mesh to VBS4.lnk"
+                    ),
+                )
+                self.controller.show('Settings')
+                return
+            attempted = [
+                os.path.normpath(os.path.join(local_root, sub, RM_LNK_NAME))
+                for sub in RM_INSTALL_SUBDIRS
+            ]
+            local = find_local_rm_shortcut(local_root)
+
+        if local:
+            self.log_message(f"Launching Reality Mesh via LOCAL: {local}")
+            try:
+                os.startfile(local)
+            except Exception as e:
+                messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+            return
+
+        tpl = get_rm_template_from_config()
+        link = resolve_unc(tpl)
+        if not os.path.isfile(link):
+            diag = _diagnose_missing_unc(link)
+            listing = ''
+            install_dir = ''
+            if local_root:
+                install_dir = os.path.join(local_root, 'RealityMeshInstall')
+                if os.path.isdir(install_dir):
+                    listing = _list_dir_safe(install_dir)
+            msg_parts = ["Could not locate 'Reality Mesh to VBS4.lnk'."]
+            if attempted:
+                msg_parts.append("\nLocal attempts:")
+                msg_parts.extend(attempted)
+            if local_root:
+                msg_parts.append(
+                    f"\nLocal install folder: {os.path.normpath(local_root)}"
+                )
+            msg_parts.append(f"\nUNC path: {link}")
+            if diag:
+                msg_parts.append(f"\n{diag}")
+            if listing:
+                msg_parts.append(
+                    f"\nContents of {os.path.normpath(install_dir)}:\n{listing}"
+                )
+            messagebox.showerror("Reality Mesh", "\n".join(msg_parts))
+            self.refresh_rm_status()
+            return
+
+        self.log_message(f"Launching Reality Mesh via UNC: {link}")
+        try:
+            os.startfile(link)
+        except Exception as e:
+            messagebox.showerror("Reality Mesh", f"Failed to launch:\n{e}")
+        finally:
+            self.refresh_rm_status()
+
+    def _update_rm_status(self):
+        if not hasattr(self, "rm_path_label"):
+            return
+        link, source = resolve_active_rm_link()
+        prev = getattr(self, 'rm_source', None)
+        if source != prev and source in ('LOCAL', 'UNC'):
+            self.log_message(f"Reality Mesh link source: {source}")
+        self.rm_source = source
+        if source == 'INVALID_LOCAL_ROOT':
+            self.rm_path_label.config(
+                text="⚠ Reality Mesh install folder invalid or missing Reality Mesh to VBS4.lnk.",
+                fg="#ffb3b3",
+            )
+            return
+        if link:
+            self.rm_path_label.config(
+                text=f"RM link ({source}): {link}",
+                fg="#ddd",
+            )
+        else:
+            self.rm_path_label.config(
+                text="⚠ Reality Mesh link not found (LOCAL/UNC). Check Settings.",
+                fg="#ffb3b3",
+            )
+
+    def show_terrain_tutorial(self):
+        messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
+
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -4392,7 +4893,10 @@ class SettingsPanel(tk.Frame):
                     config.write(f)
             update_fuser_shared_path()
             enforce_local_fuser_policy()
-            self.controller.panels["VBS4"].update_fuser_state()
+            if "OneClick" in self.controller.panels:
+                oc_panel = self.controller.panels["OneClick"]
+                oc_panel.update_fuser_state()
+                oc_panel.refresh_rm_status()
 
         toggle_specs = [
             ("Fullscreen Mode", self.fullscreen_var, self._on_fullscreen_toggle),
@@ -4898,7 +5402,7 @@ class SettingsPanel(tk.Frame):
             )
             return
         set_rm_local_root(path)
-        pnl = self.controller.panels.get('VBS4')
+        pnl = self.controller.panels.get('OneClick')
         if pnl and hasattr(pnl, '_update_rm_status'):
             pnl._update_rm_status()
         messagebox.showinfo(
@@ -5378,9 +5882,9 @@ if __name__ == "__main__":
 
     app = MainApp()
     app.after(50, apply_minimal_wizard_defaults)
-    app.after(75, lambda: enforce_wizard_obj_only_defaults(log=app.panels['VBS4'].log_message))
+    app.after(75, lambda: enforce_wizard_obj_only_defaults(log=app.panels['OneClick'].log_message))
     if config['Fusers'].getboolean('fuser_computer', False):
         app.after(50, update_fuser_shared_path)
-    app.after(50, app.panels['VBS4'].update_fuser_state)
+    app.after(50, app.panels['OneClick'].update_fuser_state)
     app.after(50, enforce_local_fuser_policy)
     app.mainloop()
