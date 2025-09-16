@@ -15,6 +15,10 @@ PrivilegesRequired=admin
 [Files]
 Source: "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\dist\STE_Toolkit\*"; \
     DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\installs\Photomesh\*"; \
+    DestDir: "{app}\installs\Photomesh"; Flags: recursesubdirs createallsubdirs
+Source: "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\installs\RealityMesh\*"; \
+    DestDir: "{app}\installs\RealityMesh"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
