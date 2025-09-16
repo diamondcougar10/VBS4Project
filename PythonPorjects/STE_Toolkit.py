@@ -3017,7 +3017,19 @@ class MainApp(tk.Tk):
                 self.panels['BVI'].update_bvi_version()
         else:
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
-   
+
+    def run_oneclick_conversion(self) -> None:
+        """Kick off the full One-Click Terrain pipeline."""
+        panel = self.panels.get('OneClick')
+        if panel:
+            panel.on_run_oneclick()
+
+    def launch_reality_mesh_to_vbs4(self) -> None:
+        """Open the Reality Mesh to VBS4 application."""
+        panel = self.panels.get('OneClick')
+        if panel:
+            panel.launch_reality_mesh_to_vbs4()
+
 # ─── ---------------- MAINMENU PANEL --------------------------------- ──────────
 
 class MainMenu(tk.Frame):
@@ -3122,18 +3134,6 @@ class MainMenu(tk.Frame):
         panel = self.controller.panels.get("VBS4") if hasattr(self.controller, "panels") else None
         if panel and hasattr(panel, "launch_blueig_with_exercise_id"):
             panel.launch_blueig_with_exercise_id()
-
-    def run_oneclick_conversion(self) -> None:
-        """Kick off the full One-Click Terrain pipeline."""
-        panel = self.panels.get('OneClick')
-        if panel:
-            panel.on_run_oneclick()
-
-    def launch_reality_mesh_to_vbs4(self) -> None:
-        """Open the Reality Mesh to VBS4 application."""
-        panel = self.panels.get('OneClick')
-        if panel:
-            panel.launch_reality_mesh_to_vbs4()
 
     def open_url(self, url: str) -> None:
         """Open a web URL in the default browser."""
@@ -4181,63 +4181,61 @@ class OneClickPanel(tk.Frame):
             pady=20,
         ).pack(fill="x")
 
-        btn_frame = tk.Frame(self, bg="black")
+        parent_bg = self.cget("bg")
+
+        btn_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
         btn_frame.pack(pady=20)
+
+        pb = None  # ignore globals().get("pill_button")
 
         def make_button(text, command):
             return tk.Button(
                 btn_frame,
                 text=text,
                 font=("Helvetica", 24),
-                bg="#444444",
-                fg="white",
-                activebackground="#666666",
-                activeforeground="white",
-                width=30,
-                height=1,
+                bg="#444444", fg="white",
+                activebackground="#666666", activeforeground="white",
+                width=30, height=1,
                 command=command,
-                bd=0,
-                highlightthickness=0,
+                bd=0, highlightthickness=0,
+                relief="flat", overrelief="flat",
+                takefocus=False,
             )
 
         self.oneclick_button = make_button(
             "Run One-Click Conversion",
             self.on_run_oneclick,
         )
-        self.oneclick_button.pack(pady=10, ipadx=10, ipady=5)
+        self.oneclick_button.pack(pady=10)
 
         self.rm_button = make_button(
             "Launch Reality Mesh to VBS4",
             self.launch_reality_mesh_to_vbs4,
         )
-        self.rm_button.pack(pady=10, ipadx=10, ipady=5)
+        self.rm_button.pack(pady=10)
 
         self.tutorial_button = make_button(
             "One-Click Terrain Tutorial",
             self.show_terrain_tutorial,
         )
-        self.tutorial_button.pack(pady=10, ipadx=10, ipady=5)
+        self.tutorial_button.pack(pady=10)
 
         tk.Button(
-            self,
-            text="Back",
+            self, text="Back",
             font=("Helvetica", 24),
-            bg="#444444",
-            fg="white",
-            width=30,
-            height=1,
+            bg="#444444", fg="white",
+            width=30, height=1,
             command=lambda: controller.show("Main"),
-            bd=0,
-            highlightthickness=0,
+            bd=0, highlightthickness=0,
         ).pack(pady=(10, 0))
 
-        status_frame = tk.Frame(self, bg="black")
+        status_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
         status_frame.pack(fill="x", padx=20, pady=(10, 0))
         self.rm_path_label = tk.Label(
             status_frame,
             text="",
             font=("Helvetica", 12),
-            bg="black",
+            bg=parent_bg,
             fg="white",
             justify="left",
             wraplength=900,
