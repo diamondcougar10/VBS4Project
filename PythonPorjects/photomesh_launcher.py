@@ -377,6 +377,63 @@ def apply_minimal_wizard_defaults() -> None:
         m3d["OBJ"] = True
         _save_json(cfg_path, cfg)
         print(f"[Wizard] Ensured Model3D/OBJ/3DML enabled -> {cfg_path}")
+
+
+def enforce_wizard_obj_only_defaults(log=print) -> None:
+    """
+    Wizard 1.5.1: Force OBJ-only so Output-PivotOrigin.json has real values.
+    Also set NetworkWorkingFolder to the current WorkingFuser UNC.
+    """
+
+    try:
+        offline_cfg = get_offline_cfg()
+        working_unc = resolve_network_working_folder_from_cfg(offline_cfg)
+    except Exception:
+        working_unc = ""
+
+    cfg_paths = [
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
+        r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    ]
+
+    for base in filter(None, (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"))):
+        p1 = os.path.join(base, r"Skyline\PhotoMesh\Tools\PhotomeshWizard\config.json")
+        p2 = os.path.join(base, r"Skyline\PhotoMeshWizard\config.json")
+        for candidate in (p1, p2):
+            if candidate not in cfg_paths:
+                cfg_paths.append(candidate)
+
+    try:
+        exe_path = find_wizard_exe()
+    except Exception:
+        exe_path = ""
+    if exe_path:
+        for derived in wizard_config_paths_from_exe(exe_path):
+            if derived not in cfg_paths:
+                cfg_paths.append(derived)
+
+    for path in cfg_paths:
+        if not os.path.isfile(path):
+            continue
+        try:
+            cfg = _load_json(path) or {}
+            ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
+            ui.setdefault("OutputProducts", {}).update({"Model3D": True})
+            fmts = ui.setdefault("Model3DFormats", {})
+            fmts["OBJ"] = True
+            fmts["3DML"] = False
+            fmts["SLPK"] = False
+            ui.setdefault("VerticalDatum", "Ellipsoid")
+
+            if working_unc:
+                cfg["NetworkWorkingFolder"] = working_unc
+
+            _save_json(path, cfg)
+            log(f"[Wizard 1.5.1] OBJ-only + WorkingFolder set -> {path}")
+        except PermissionError:
+            log(f"[Wizard 1.5.1] No permission to write {path}. Run as Administrator.")
+        except Exception as exc:
+            log(f"[Wizard 1.5.1] Failed updating {path}: {exc}")
 # endregion
 
 # region Wizard Presets & Output validation
@@ -781,23 +838,14 @@ def enforce_photomesh_settings(autostart: bool = True, log=print) -> None:
     unc = resolve_network_working_folder_from_cfg(o)  # \\hostOrIp\share\WorkingFuser
 
     # 3) Ensure folder exists (best effort)
-    try:
-        os.makedirs(unc, exist_ok=True)
-    except Exception as e:  # pragma: no cover - best effort
-        log(f"[Wizard] Cannot create WorkingFuser at {unc}: {e}")
+    if unc:
+        try:
+            os.makedirs(unc, exist_ok=True)
+        except Exception as e:  # pragma: no cover - best effort
+            log(f"[Wizard] Cannot create WorkingFuser at {unc}: {e}")
 
-    # 4) Patch all known Wizard config.json paths
-    exe = find_wizard_exe()
-    for cfg_path in wizard_config_paths_from_exe(exe):
-        cfg = _load_json(cfg_path)
-        if not cfg:
-            continue
-        ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-        ui.setdefault("OutputProducts", {}).update({"Model3D": True})
-        ui.setdefault("Model3DFormats", {}).update({"OBJ": True, "3DML": True})
-        cfg["NetworkWorkingFolder"] = unc
-        _save_json(cfg_path, cfg)
-        log(f"[Wizard] NetworkWorkingFolder -> {unc} ({cfg_path})")
+    # 4) Enforce Wizard OBJ-only defaults and WorkingFuser UNC
+    enforce_wizard_obj_only_defaults(log=log)
 # endregion
 
 # region Launch / CLI argument builders
@@ -809,6 +857,9 @@ def launch_wizard_new_project(
     autostart: bool = True,
     log=print,
 ) -> subprocess.Popen:
+    # Ensure defaults are correct for 1.5.1 before any GUI shows
+    enforce_wizard_obj_only_defaults(log=log)
+
     exe = find_wizard_exe()
     if not exe:
         msg = (
@@ -1034,6 +1085,7 @@ __all__ = [
     "resolve_shared_access_path",
     "resolve_network_working_folder_from_cfg",
     "enforce_photomesh_settings",
+    "enforce_wizard_obj_only_defaults",
     "install_pmpreset",
     "list_output_settings_xml",
     "assert_obj_enabled",

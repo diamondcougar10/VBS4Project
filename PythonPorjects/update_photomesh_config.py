@@ -1,7 +1,7 @@
 # =============================================================================
 # Project: VBS4Project
 # File: update_photomesh_config.py
-# Purpose: Apply minimal defaults to PhotoMesh Wizard config
+# Purpose: Enforce OBJ-only defaults and WorkingFuser UNC in Wizard config
 # =============================================================================
 # Table of Contents
 #   1) Imports
@@ -35,9 +35,11 @@ from photomesh_launcher import (
 
 # region Constants & Configuration
 # PhotoMesh Wizard install config (read by Wizard at startup)
-CONFIG_CANDIDATES = [
+CONFIGS = [
     r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     r"C:\\Program Files\\Skyline\\PhotoMeshWizard\\config.json",
+    r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
+    r"C:\\Program Files (x86)\\Skyline\\PhotoMeshWizard\\config.json",
 ]
 # endregion
 
@@ -67,40 +69,48 @@ def _save_config(path: str, config: dict) -> None:
 # endregion
 
 # region Wizard Config
-def update_config(path: str) -> None:
-    """Enable 3D model OBJ and 3DML flags in install-level Wizard config."""
+def update_config(path: str) -> bool:
+    """Force OBJ-only defaults and update NetworkWorkingFolder for Wizard 1.5.1."""
     try:
         config = _load_config(path)
     except FileNotFoundError:
-        print(f"❌ File not found: {path}")
-        return
+        return False
     except PermissionError as exc:
-        print(f"❌ Permission denied reading file: {exc}")
-        return
+        print(f"[Wizard 1.5.1] Permission denied reading {path}: {exc}")
+        print("Run this updater as Administrator.")
+        return False
     except json.JSONDecodeError as exc:
-        print(f"❌ Failed to parse JSON: {exc}")
-        return
+        print(f"[Wizard 1.5.1] Failed to parse {path}: {exc}")
+        return False
 
     ui = config.setdefault("DefaultPhotoMeshWizardUI", {})
     ui.setdefault("OutputProducts", {}).update({"Model3D": True})
     fmts = ui.setdefault("Model3DFormats", {})
-    fmts["3DML"] = True
     fmts["OBJ"] = True
-    # Optional:
-    # fmts["LAS"] = True
+    fmts["3DML"] = False
+    fmts["SLPK"] = False
+    ui.setdefault("VerticalDatum", "Ellipsoid")
 
-    config["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(
-        get_offline_cfg()
-    )
+    try:
+        config["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(
+            get_offline_cfg()
+        )
+    except Exception:
+        pass
 
     try:
         _save_config(path, config)
-        print("✅ config.json updated successfully.")
-    except PermissionError as exc:
-        print(f"❌ Permission denied writing file: {exc}")
-        print("Please run this script as Administrator.")
+    except PermissionError:
+        print(
+            f"[Wizard 1.5.1] Permission denied writing {path}. Run as Administrator."
+        )
+        return False
     except Exception as exc:
-        print(f"❌ Failed to update config: {exc}")
+        print(f"[Wizard 1.5.1] Failed updating {path}: {exc}")
+        return False
+
+    print(f"[Wizard 1.5.1] Updated -> {path}")
+    return True
 # endregion
 
 # region Network / UNC resolution
@@ -118,15 +128,13 @@ def update_config(path: str) -> None:
 # region Main entry point
 def main() -> None:
     any_ok = False
-    for path in CONFIG_CANDIDATES:
-        if os.path.isfile(path):
-            update_config(path)
+    for path in CONFIGS:
+        if not os.path.isfile(path):
+            continue
+        if update_config(path):
             any_ok = True
     if not any_ok:
-        print("❌ PhotoMesh Wizard config.json not found in expected locations.")
-        print(
-            "   Please install Skyline PhotoMesh/Wizard or run the Toolkit once to cache the path."
-        )
+        print("No PhotoMesh Wizard config.json found in standard locations.")
 
 
 if __name__ == "__main__":
