@@ -4864,7 +4864,7 @@ class SettingsPanel(tk.Frame):
         self.controller = controller
 
         self.configure(bg="black")
-        self.grid_rowconfigure(5, weight=1, minsize=700)
+        self.grid_rowconfigure(6, weight=1, minsize=800)
         self.grid_columnconfigure(0, weight=1)
 
         tk.Label(
@@ -5137,7 +5137,7 @@ class SettingsPanel(tk.Frame):
         )
         locs_box.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
         # Make row 5 expand and give it more vertical room
-        self.grid_rowconfigure(5, weight=1, minsize=700)
+        self.grid_rowconfigure(6, weight=1, minsize=800)
 
         # Canvas + vertical scrollbar
         canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0, bd=0)
