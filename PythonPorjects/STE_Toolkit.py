@@ -4161,7 +4161,6 @@ class VBS4Panel(tk.Frame):
 
         self.progress_job = self.after(2000, self.update_render_progress)
 
-
 class OneClickPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
@@ -4183,52 +4182,29 @@ class OneClickPanel(tk.Frame):
 
         parent_bg = self.cget("bg")
 
-        btn_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
-        btn_frame.pack(pady=20)
-
-        pb = None  # ignore globals().get("pill_button")
-
-        def make_button(text, command):
-            return tk.Button(
-                btn_frame,
-                text=text,
-                font=("Helvetica", 24),
-                bg="#444444", fg="white",
-                activebackground="#666666", activeforeground="white",
-                width=30, height=1,
-                command=command,
-                bd=0, highlightthickness=0,
-                relief="flat", overrelief="flat",
-                takefocus=False,
-            )
-
-        self.oneclick_button = make_button(
-            "Run One-Click Conversion",
-            self.on_run_oneclick,
+        # --- Main actions ----------------------------------------------------
+        self.oneclick_button = self.make_button(
+            "Run One-Click Conversion", self.on_run_oneclick
         )
-        self.oneclick_button.pack(pady=10)
+        self.oneclick_button.pack(pady=15)
 
-        self.rm_button = make_button(
-            "Launch Reality Mesh to VBS4",
-            self.launch_reality_mesh_to_vbs4,
+        self.rm_button = self.make_button(
+            "Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4
         )
-        self.rm_button.pack(pady=10)
+        self.rm_button.pack(pady=15)
 
-        self.tutorial_button = make_button(
-            "One-Click Terrain Tutorial",
-            self.show_terrain_tutorial,
+        self.tutorial_button = self.make_button(
+            "One-Click Terrain Tutorial", self.show_terrain_tutorial
         )
-        self.tutorial_button.pack(pady=10)
+        self.tutorial_button.pack(pady=15)
 
-        tk.Button(
-            self, text="Back",
-            font=("Helvetica", 24),
-            bg="#444444", fg="white",
-            width=30, height=1,
-            command=lambda: controller.show("Main"),
-            bd=0, highlightthickness=0,
-        ).pack(pady=(10, 0))
+        # NEW: Back button (same style, placed beneath the others)
+        self.back_button = self.make_button(
+            "Back", lambda: controller.show("Main")
+        )
+        self.back_button.pack(pady=(15, 0))
 
+        # --- Status line (RM link source/path) -------------------------------
         status_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
         status_frame.pack(fill="x", padx=20, pady=(10, 0))
         self.rm_path_label = tk.Label(
@@ -4242,6 +4218,7 @@ class OneClickPanel(tk.Frame):
         )
         self.rm_path_label.pack(anchor="w")
 
+        # --- Log area --------------------------------------------------------
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
         self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
@@ -4269,11 +4246,9 @@ class OneClickPanel(tk.Frame):
         self.log_expanded = False
         ui_log_schedule_flush(controller, self.log_text)
 
+        # --- Progress bar ----------------------------------------------------
         progress_frame = tk.Frame(
-            self.log_frame,
-            bg=self.log_frame.cget("bg"),
-            bd=0,
-            highlightthickness=0,
+            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
         )
         progress_frame.pack(fill="x", pady=(5, 0))
 
@@ -4307,11 +4282,9 @@ class OneClickPanel(tk.Frame):
         )
         self.progress_label.pack(side="right", padx=(5, 0))
 
+        # --- Log controls ----------------------------------------------------
         button_frame = tk.Frame(
-            self.log_frame,
-            bg=self.log_frame.cget("bg"),
-            bd=0,
-            highlightthickness=0,
+            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
         )
         button_frame.pack(fill="x", pady=5)
 
@@ -4335,6 +4308,37 @@ class OneClickPanel(tk.Frame):
             bd=0,
             highlightthickness=0,
         ).pack(side="right")
+
+        # --- State -----------------------------------------------------------
+        self.progress_job = None
+        self.project_log_folder = None
+        self.work_folder = None
+        self.last_build_dir = None
+        self.image_folder_paths: list[str] = []
+        self.rm_source: str | None = None
+
+        self.update_fuser_state()
+        self.refresh_rm_status()
+
+    def make_button(self, text, command):
+        """Return a main-action button styled like the other panels."""
+        return tk.Button(
+            self,
+            text=text,
+            font=("Helvetica", 24),
+            bg="#444444",
+            fg="white",
+            activebackground="#666666",
+            activeforeground="white",
+            width=30,
+            height=1,
+            command=command,
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+            overrelief="flat",
+            takefocus=False,
+        )
 
         self.progress_job = None
         self.project_log_folder = None
