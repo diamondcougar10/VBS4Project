@@ -4025,20 +4025,23 @@ class VBS4Panel(tk.Frame):
             )
             return
 
-        # Fire-and-forget: launch Reality Mesh immediately after starting PhotoMesh
         def _pipeline():
-            # No gating on Output-CenterPivotOrigin.json / OBJ / TerraExplorer
-            def launch_rm():
-                try:
-                    self.log_message("Launching Reality Mesh to VBS4 (no checks)...")
-                    # Pass a hint path if you want; or None to just open the app
-                    self.post_process_last_build(self.last_build_dir)
-                    self.log_message("Reality Mesh to VBS4 launched.")
-                except Exception as exc:
-                    self.log_message(f"Launch failed: {exc}")
-                    messagebox.showerror("Launch Error", str(exc), parent=self)
-
-            self.after(0, launch_rm)
+            # Wait until PhotoMesh has actually exported OBJ tiles before launching RM.
+            build_root = self.last_build_dir  # project root that contains Build_* folders
+            self.log_message(
+                "Waiting for PhotoMesh build to complete (watching for OBJ output)…"
+            )
+            obj_dir = wait_for_obj(build_root, log=self.log_message)
+            if obj_dir:
+                self.log_message(
+                    f"PhotoMesh build complete (OBJ found at: {obj_dir}). Launching Reality Mesh…"
+                )
+                # Kick off post-processing / launch RM now that OBJ is present
+                self.post_process_last_build(build_root)
+            else:
+                self.log_message(
+                    "Timeout or failure while waiting for OBJ. Reality Mesh will NOT be launched."
+                )
 
         run_in_thread(_pipeline)
 
@@ -4734,16 +4737,22 @@ class OneClickPanel(tk.Frame):
             return
 
         def _pipeline():
-            def launch_rm():
-                try:
-                    self.log_message("Launching Reality Mesh to VBS4 (no checks)...")
-                    self.post_process_last_build(self.last_build_dir)
-                    self.log_message("Reality Mesh to VBS4 launched.")
-                except Exception as exc:
-                    self.log_message(f"Launch failed: {exc}")
-                    messagebox.showerror("Launch Error", str(exc), parent=self)
-
-            self.after(0, launch_rm)
+            # Wait until PhotoMesh has actually exported OBJ tiles before launching RM.
+            build_root = self.last_build_dir  # project root that contains Build_* folders
+            self.log_message(
+                "Waiting for PhotoMesh build to complete (watching for OBJ output)…"
+            )
+            obj_dir = wait_for_obj(build_root, log=self.log_message)
+            if obj_dir:
+                self.log_message(
+                    f"PhotoMesh build complete (OBJ found at: {obj_dir}). Launching Reality Mesh…"
+                )
+                # Kick off post-processing / launch RM now that OBJ is present
+                self.post_process_last_build(build_root)
+            else:
+                self.log_message(
+                    "Timeout or failure while waiting for OBJ. Reality Mesh will NOT be launched."
+                )
 
         run_in_thread(_pipeline)
 

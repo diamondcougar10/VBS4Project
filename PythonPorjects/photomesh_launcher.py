@@ -466,18 +466,29 @@ def enforce_wizard_obj_only_defaults(log=print) -> None:
         try:
             cfg = _load_json(path) or {}
             ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
-            ui.setdefault("OutputProducts", {}).update({"Model3D": True})
+
+            # 1) Ensure Model3D output is enabled (OBJ enforced below)
+            op = ui.setdefault("OutputProducts", {})
+            op["Model3D"] = True
+
+            # 2) Disable Ortho without clobbering unrelated OutputProducts keys.
+            for ortho_key in ("Orthophoto", "2DOrtho", "Ortho", "OrthoMap"):
+                op.setdefault(ortho_key, False)
+                op[ortho_key] = False
+
+            # 3) OBJ-only model formats
             fmts = ui.setdefault("Model3DFormats", {})
             fmts["OBJ"] = True
             fmts["3DML"] = False
             fmts["SLPK"] = False
+
             ui.setdefault("VerticalDatum", "Ellipsoid")
 
             if working_unc:
                 cfg["NetworkWorkingFolder"] = working_unc
 
             _save_json(path, cfg)
-            log(f"[Wizard 1.5.1] OBJ-only + WorkingFolder set -> {path}")
+            log(f"[Wizard 1.5.1] OBJ-only/Ortho-off + WorkingFolder set -> {path}")
         except PermissionError:
             log(f"[Wizard 1.5.1] No permission to write {path}. Run as Administrator.")
         except Exception as exc:
