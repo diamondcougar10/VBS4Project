@@ -2933,7 +2933,7 @@ class MainApp(tk.Tk):
         panel.tkraise()
         self.current = name
         if name == "VBS4":
-            self.update_button_state(panel.vbs4_button, 'vbs4_path')
+            panel.update_vbs4_version()
             self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
             self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
             self.update_button_state(panel.blueig_button, 'blueig_path')
@@ -3186,22 +3186,6 @@ class VBS4Panel(tk.Frame):
         ).pack(fill="x")
 
         # --- Main actions ----------------------------------------------------
-        self.vbs4_button = self.make_button(
-            "Launch VBS4", launch_vbs4
-        )
-        self.vbs4_button.pack(pady=15)
-
-        self.vbs4_version_label = tk.Label(
-            self,
-            text=f"Version: {get_vbs4_version(get_vbs4_install_path())}",
-            font=("Helvetica", 16),
-            bg="black",
-            fg="white",
-            bd=0,
-            highlightthickness=0,
-        )
-        self.vbs4_version_label.pack(pady=(0, 15))
-
         self.vbs4_launcher_button = self.make_button(
             "Launch VBS4 Launcher", launch_vbs4_setup
         )
@@ -3209,7 +3193,7 @@ class VBS4Panel(tk.Frame):
 
         self.vbs4_launcher_version_label = tk.Label(
             self,
-            text=f"Version: {get_vbs4_version(config['General'].get('vbs4_setup_path', ''))}",
+            text="Version: Unknown",
             font=("Helvetica", 16),
             bg="black",
             fg="white",
@@ -3329,7 +3313,6 @@ class VBS4Panel(tk.Frame):
         ).pack(side="right")
 
         self.update_vbs4_version()
-        self.update_vbs4_launcher_version()
         self.update_button_states()
 
     def make_button(self, text, command):
@@ -3352,20 +3335,23 @@ class VBS4Panel(tk.Frame):
         )
 
     def update_vbs4_version(self):
-        vbs4_path = get_vbs4_install_path()
-        version = get_vbs4_version(vbs4_path)
-        self.vbs4_version_label.config(text=f"Version: {version}")
+        """Set the launcher version label using the VBS4.exe file version."""
 
-    def update_vbs4_launcher_version(self):
-        launcher_path = config['General'].get('vbs4_setup_path', '')
-        version = get_vbs4_version(launcher_path)
-        self.vbs4_launcher_version_label.config(text=f"Version: {version}")
+        def _work():
+            vbs4_path = get_vbs4_install_path()
+            ver = get_vbs4_version(vbs4_path) if vbs4_path else "Unknown"
+
+            def _apply():
+                if hasattr(self, "vbs4_version_label") and self.vbs4_version_label:
+                    self.vbs4_version_label.config(text=f"Version: {ver}")
+                if hasattr(self, "vbs4_launcher_version_label"):
+                    self.vbs4_launcher_version_label.config(text=f"Version: {ver}")
+
+            post_ui(_apply)
+
+        run_in_thread(_work)
 
     def update_button_states(self):
-        self.vbs4_button.config(
-            state="normal" if get_vbs4_install_path() else "disabled",
-            bg="#444444" if get_vbs4_install_path() else "#888888"
-        )
         self.vbs4_launcher_button.config(
             state="normal" if config['General'].get('vbs4_setup_path', '') else "disabled",
             bg="#444444" if config['General'].get('vbs4_setup_path', '') else "#888888"
@@ -3540,6 +3526,9 @@ class VBS4Panel(tk.Frame):
         self.tooltip.hide()
 
     def update_vbs4_button_state(self):
+        if not hasattr(self, "vbs4_button"):
+            return
+
         def _work():
             path = get_vbs4_install_path()
             logging.debug("Updating VBS4 button state. Path: %s", path)
@@ -3583,7 +3572,8 @@ class VBS4Panel(tk.Frame):
             button.config(state="normal", bg="#444444")
             if app_name == "VBS4":
                 self.update_vbs4_version()
-                self.update_vbs4_button_state()
+                if hasattr(self, "vbs4_button"):
+                    self.update_vbs4_button_state()
         else:
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")
     
@@ -5588,17 +5578,19 @@ class SettingsPanel(tk.Frame):
         self.lbl_projects_root.config(text=get_projects_root() or "[not set]")
 
     def _on_set_vbs4(self):
-     path = filedialog.askopenfilename(
-        title="Select VBS4 Executable",
-        filetypes=[("Executable Files", "*.exe")]
-     )
-     if path and os.path.exists(path):
-        path = os.path.normpath(path)
-        config['General']['vbs4_path'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
-        self.lbl_vbs4.config(text=path)
-        self.controller.panels['VBS4'].update_vbs4_button_state()
+        path = filedialog.askopenfilename(
+            title="Select VBS4 Executable",
+            filetypes=[("Executable Files", "*.exe")]
+        )
+        if path and os.path.exists(path):
+            path = os.path.normpath(path)
+            config['General']['vbs4_path'] = path
+            with open(CONFIG_PATH, 'w') as f:
+                config.write(f)
+            self.lbl_vbs4.config(text=path)
+            vbs4_panel = self.controller.panels.get('VBS4')
+            if vbs4_panel:
+                vbs4_panel.update_vbs4_version()
 
     def _on_set_vbs4_setup(self):
      path = filedialog.askopenfilename(
