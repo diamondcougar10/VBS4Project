@@ -472,10 +472,27 @@ def get_blueig_install_path() -> str:
 
 
 def get_ares_manager_path() -> str:
-    """Return saved ARES Manager path if it exists, else empty string."""
-    path = config['General'].get('bvi_manager_path', '')
+    """Return ARES Manager path; try to auto-discover if not in config."""
+    path = config['General'].get('bvi_manager_path', '').strip()
     if path and os.path.isfile(path):
         return path
+
+    candidates = [
+        r"C:\\Program Files\\ARES",
+        r"C:\\Program Files (x86)\\ARES",
+        r"D:\\Program Files\\ARES",
+        r"D:\\ARES",
+    ]
+    found = find_executable("ares.manager.exe", additional_paths=candidates)
+    if not found:
+        found = find_executable("ARES.Manager.exe", additional_paths=candidates)
+
+    if found:
+        config['General']['bvi_manager_path'] = clean_path(found)
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
+        return found
+
     return ''
 
 # =============================================================================
@@ -1916,13 +1933,18 @@ def get_image_folders_recursively(base_folder):
 
     return image_folders
 
-def create_app_button(parent, app_name, get_path_func, launch_func, set_path_func):
-    """Create a MainMenu-style button and version label without opaque backgrounds."""
+def create_app_button(parent, app_name, get_path_func, action_func, set_path_func,
+                      version_func=None):
+    """
+    Create a launcher button with a version label and a small [⚙] button to set the path.
+    If version_func is provided, it will be used to compute the version string instead of
+    the default EXE FileVersion.
+    """
 
-    parent_bg = parent.cget("bg") if hasattr(parent, "cget") else None
+    parent_bg = parent.cget("bg")
 
-    row = tk.Frame(parent, bg=parent_bg, bd=0, highlightthickness=0)
-    row.pack(pady=10)
+    row = tk.Frame(parent, bg=parent_bg)
+    row.pack(pady=(10, 0), fill="x")
 
     button = tk.Button(
         row,
@@ -1933,7 +1955,7 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
         width=30,
         height=1,
         state="disabled",
-        command=launch_func,
+        command=lambda: action_func() if button.cget("state") == "normal" else None,
         bd=0,
         highlightthickness=0,
     )
@@ -1941,7 +1963,7 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
 
     set_btn = tk.Button(
         row,
-        text="?",
+        text="⚙",
         width=2,
         font=("Helvetica", 16, "bold"),
         bg="orange",
@@ -1964,12 +1986,11 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
         parent,
         text="Version: …",
         font=("Helvetica", 16),
-        bg="black",        # force black background
-        fg="white",        # white text
+        bg="black",
+        fg="white",
         bd=0,
         highlightthickness=0,
     )
-
     version_label.pack(pady=(0, 6))
 
     def _resolve_and_enable():
@@ -1981,7 +2002,8 @@ def create_app_button(parent, app_name, get_path_func, launch_func, set_path_fun
             btn_state, btn_bg = ("normal", "#444444") if ok else ("disabled", "#888888")
             button.config(state=btn_state, bg=btn_bg)
             if ok:
-                version_label.config(text=f"Version: {get_exe_file_version(path)}")
+                ver = (version_func(path) if version_func else get_exe_file_version(path))
+                version_label.config(text=f"Version: {ver}")
                 set_btn.pack_forget()
             else:
                 version_label.config(text="Version: …")
@@ -4802,8 +4824,12 @@ class BVIPanel(tk.Frame):
           .pack(fill='x')
 
         self.bvi_button, self.bvi_version_label = create_app_button(
-            self, "BVI", get_ares_manager_path, launch_bvi,
-            lambda: self.set_file_location("BVI", "bvi_manager_path", self.bvi_button)
+            self,
+            "BVI",
+            get_ares_manager_path,
+            launch_bvi,
+            lambda: self.set_file_location("BVI", "bvi_manager_path", self.bvi_button),
+            version_func=get_bvi_version,
         )
         self.update_bvi_version()
 
@@ -4853,6 +4879,8 @@ class BVIPanel(tk.Frame):
                 self.update_vbs4_version()
             elif app_name == "BlueIG":
                 self.update_blueig_version()
+            elif app_name == "BVI":
+                self.bvi_version_label.config(text=f"Version: {get_bvi_version(path)}")
         else:
             messagebox.showerror("Error", f"Invalid {app_name} path selected.")    
 
