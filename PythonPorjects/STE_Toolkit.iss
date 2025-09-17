@@ -32,8 +32,8 @@ Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
 Name: "{userdesktop}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"; Tasks: desktopicon
 
 [Tasks]
-Name: desktopicon; Description: "Create a &desktop icon"; Flags: checked
-Name: firewall;    Description: "Allow STE Toolkit through Windows Firewall"; Flags: checked
+Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: checkedonce
+Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
 ; Launch Toolkit when finished
