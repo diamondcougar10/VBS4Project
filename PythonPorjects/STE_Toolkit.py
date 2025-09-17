@@ -1423,6 +1423,18 @@ def count_local_fusers() -> int:
     return len(list_local_fusers())
 
 
+# --- Fuser constants / helpers ---------------------------------------------
+MIN_LOCAL_FUSERS = 1
+MAX_LOCAL_FUSERS = 3
+
+
+def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
+    """Clamp desired local fuser count according to machine role."""
+
+    lower = MIN_LOCAL_FUSERS if is_fuser_computer else 0
+    return max(lower, min(MAX_LOCAL_FUSERS, int(n)))
+
+
 def start_fuser_instance(idx: int) -> bool:
     """Start *idx*-th fuser via its own shortcut/command."""
     o = get_offline_cfg()
@@ -1472,6 +1484,9 @@ def ensure_fuser_instances(desired: int):
     Scale local PhotoMeshFuser.exe processes to exactly 'desired'.
     If too few → spawn more; if too many → kill extras.
     """
+    is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+    desired = _clamp_fusers(desired, is_fuser)
+
     current = count_local_fusers()
     if current == desired:
         return
@@ -1499,6 +1514,17 @@ def enforce_local_fuser_policy():
         ensure_fuser_instances(target)
     except Exception as e:
         print(f"[fuser-policy] {e}")
+
+
+def relaunch_fusers():
+    """Restart local fusers to match the configured target count."""
+
+    try:
+        kill_fusers()
+        enforce_local_fuser_policy()
+    except Exception as e:
+        print(f"[fuser-relaunch] {e}")
+
 
 # Update the shared fuser path in the JSON config. If *project_path* is a UNC
 # path, derive the host from it; otherwise fall back to the local machine name.
@@ -4221,6 +4247,11 @@ class OneClickPanel(tk.Frame):
         )
         self.rm_button.pack(pady=15)
 
+        self.relaunch_fusers_button = self.make_button(
+            "Relaunch Fusers", self.relaunch_fusers
+        )
+        self.relaunch_fusers_button.pack(pady=15)
+
         self.tutorial_button = self.make_button(
             "One-Click Terrain Tutorial", self.show_terrain_tutorial
         )
@@ -4398,6 +4429,17 @@ class OneClickPanel(tk.Frame):
             )
             self.log_message(tip)
         enforce_local_fuser_policy()
+
+    def relaunch_fusers(self):
+        try:
+            self.log_message("Relaunching fusers …")
+            relaunch = globals().get("relaunch_fusers")
+            if callable(relaunch):
+                relaunch()
+            running = count_local_fusers()
+            self.log_message(f"Fusers relaunched. Running: {running}")
+        except Exception as e:
+            self.log_message(f"Failed to relaunch fusers: {e}")
 
     def log_message(self, message):
         post_ui(log_to_console, f"> {message}")
@@ -4998,13 +5040,34 @@ class SettingsPanel(tk.Frame):
             config["Fusers"]["fuser_computer"] = str(self.fuser_var.get())
             with open(CONFIG_PATH, "w") as f:
                 config.write(f)
+
             if self.fuser_var.get():
                 # Ensure Fusers host matches the single Host PC Name
                 config["Fusers"]["working_folder_host"] = get_host().strip()
-                with open(CONFIG_PATH, "w") as f:
-                    config.write(f)
+                n = simpledialog.askinteger(
+                    "Local Fusers",
+                    "How many local fusers should this computer run? (1–3)",
+                    minvalue=1,
+                    maxvalue=3,
+                    parent=self,
+                )
+                if n is None:
+                    try:
+                        n = int(config["Fusers"].get("desired_count", "3") or 3)
+                    except Exception:
+                        n = 3
+                n = _clamp_fusers(n, True)
+                config["Fusers"]["desired_count"] = str(n)
+            else:
+                # When turning off leave desired_count unchanged; policy will stop local fusers.
+                pass
+
+            with open(CONFIG_PATH, "w") as f:
+                config.write(f)
+
             update_fuser_shared_path()
             enforce_local_fuser_policy()
+            self._refresh_fuser_counter_row()
             if "OneClick" in self.controller.panels:
                 oc_panel = self.controller.panels["OneClick"]
                 oc_panel.update_fuser_state()
@@ -5040,9 +5103,57 @@ class SettingsPanel(tk.Frame):
             )
             chk.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
 
+        # --- Local fuser controls -----------------------------------------
+        frow = tk.Frame(self, bg="black")
+        frow.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+
+        self.fuser_count_label = tk.Label(
+            frow,
+            text="Local fusers: 0 running / 0 desired",
+            font=("Helvetica", 14),
+            bg="black",
+            fg="white",
+        )
+        self.fuser_count_label.pack(side="left")
+
+        def _bump(delta: int):
+            is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+            try:
+                current = int(config["Fusers"].get("desired_count", "3") or 3)
+            except Exception:
+                current = 3
+            newv = _clamp_fusers(current + delta, is_fuser)
+            config["Fusers"]["desired_count"] = str(newv)
+            with open(CONFIG_PATH, "w") as f:
+                config.write(f)
+            ensure_fuser_instances(newv)
+            self._refresh_fuser_counter_row()
+
+        tk.Button(
+            frow,
+            text="–",
+            bg="#444",
+            fg="white",
+            command=lambda: _bump(-1),
+            bd=0,
+            width=3,
+        ).pack(side="left", padx=8)
+
+        tk.Button(
+            frow,
+            text="+",
+            bg="#444",
+            fg="white",
+            command=lambda: _bump(1),
+            bd=0,
+            width=3,
+        ).pack(side="left")
+
+        self._refresh_fuser_counter_row()
+
         # --- Network Host -----------------------------------------------
         net_frame = tk.Frame(self, bg="black")
-        net_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+        net_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
         tk.Label(
@@ -5084,7 +5195,7 @@ class SettingsPanel(tk.Frame):
             padx=10,
             pady=10,
         )
-        grp.grid(row=3, column=0, sticky="ew", padx=10, pady=10)
+        grp.grid(row=4, column=0, sticky="ew", padx=10, pady=10)
 
         off = get_offline_cfg()
         self.off_enabled = tk.BooleanVar(value=off["enabled"])
@@ -5198,7 +5309,7 @@ class SettingsPanel(tk.Frame):
 
         # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
-        rm_row.grid(row=4, column=0, sticky="ew", padx=10, pady=5)
+        rm_row.grid(row=5, column=0, sticky="ew", padx=10, pady=5)
         tk.Label(
             rm_row,
             text="Reality Mesh Install Folder",
@@ -5240,8 +5351,8 @@ class SettingsPanel(tk.Frame):
             fg="white",
             font=("Helvetica", 16),
         )
-        locs_box.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        # Make row 5 expand and give it more vertical room
+        locs_box.grid(row=6, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        # Make row 6 expand and give it more vertical room
         self.grid_rowconfigure(6, weight=1, minsize=800)
 
         # Canvas + vertical scrollbar
@@ -5347,7 +5458,7 @@ class SettingsPanel(tk.Frame):
             command=lambda: controller.show("Main"),
             bd=0,
             highlightthickness=0,
-        ).grid(row=6, column=0, pady=10)
+        ).grid(row=7, column=0, pady=10)
 
     def _browse_local_root(self):
         p = filedialog.askdirectory(
@@ -5444,6 +5555,22 @@ class SettingsPanel(tk.Frame):
             post_ui(_done)
 
         run_in_thread(_work)
+
+    def _refresh_fuser_counter_row(self):
+        if not hasattr(self, "fuser_count_label"):
+            return
+
+        running = count_local_fusers()
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        try:
+            desired_raw = int(config["Fusers"].get("desired_count", "3") or 3)
+        except Exception:
+            desired_raw = 3
+        desired = _clamp_fusers(desired_raw, is_fuser)
+        suffix = "" if is_fuser else "  (fuser computer is OFF)"
+        self.fuser_count_label.config(
+            text=f"Local fusers: {running} running / {desired} desired{suffix}"
+        )
 
     def _open_working_folder(self):
         path = resolve_shared_access_path()
