@@ -518,8 +518,10 @@ def get_bvi_version(file_path: str) -> str:
         ver = get_exe_file_version(file_path)
         if ver != "Unknown":
             return ver
-    match = re.search(r'ARES-dev-release-v(\d+\.\d+\.\d+)', file_path)
+    # Match patterns like .../ARES-dev-release-v1.2.3/..., ...\ARES-dev-release-v1.2.3..., etc.
+    match = re.search(r'ARES[-_ ]*dev[-_ ]*release[-_ ]*v[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
+
 
 #==============================================================================
 # EXECUTABLE FINDER
