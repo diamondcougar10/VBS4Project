@@ -3169,87 +3169,87 @@ class MainMenu(tk.Frame):
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        self.config(bg="black")
+        self.controller = controller
         set_wallpaper(self)
         set_background(controller, self)
-        self.controller = controller
         controller.create_tutorial_button(self)
-        self.create_battlespaces_button()
-        self.create_vbs4_folder_button()
-        self.tooltip = Tooltip(self)
+
+        self.configure(bg="black")
 
         tk.Label(
             self,
             text="VBS4 / BlueIG",
             font=("Helvetica", 36, "bold"),
-            bg="black", fg="white", pady=20
+            bg="black",
+            fg="white",
+            pady=20,
         ).pack(fill="x")
-        self.vbs4_button, self.vbs4_version_label = create_app_button(
-            self, "VBS4", get_vbs4_install_path, launch_vbs4,
-            lambda: self.set_file_location("VBS4", "vbs4_path", self.vbs4_button)
+
+        # --- Main actions ----------------------------------------------------
+        self.vbs4_button = self.make_button(
+            "Launch VBS4", launch_vbs4
         )
+        self.vbs4_button.pack(pady=15)
 
-        self.vbs4_launcher_button, self.vbs4_launcher_version_label = create_app_button(
-            self, "VBS4 Launcher",
-            lambda: config['General'].get('vbs4_setup_path', ''),
-            launch_vbs4_setup,
-            lambda: self.set_file_location("VBS4 Launcher", "vbs4_setup_path", self.vbs4_launcher_button)
-        )
-
-        self.after(50, self.update_vbs4_version)
-        self.after(50, self.update_vbs4_button_state)
-        self.after(50, self.update_vbs4_launcher_button_state)
-
-        self.blueig_frame = tk.Frame(
+        self.vbs4_version_label = tk.Label(
             self,
-            bg="#333333",
+            text=f"Version: {get_vbs4_version(get_vbs4_install_path())}",
+            font=("Helvetica", 16),
+            bg="black",
+            fg="white",
             bd=0,
             highlightthickness=0,
         )
-        self.blueig_frame.pack(pady=10)
-        self.create_blueig_button()
+        self.vbs4_version_label.pack(pady=(0, 15))
 
-        self.vbs_license_button, _ = create_app_button(
-            self, "VBS License Manager",
-            lambda: config['General'].get('vbs_license_manager_path', ''),
-            self.launch_vbs_license_manager,
-            lambda: self.set_file_location("VBS License Manager", "vbs_license_manager_path", self.vbs_license_button)
+        self.vbs4_launcher_button = self.make_button(
+            "Launch VBS4 Launcher", launch_vbs4_setup
         )
+        self.vbs4_launcher_button.pack(pady=15)
 
-        tk.Button(
+        self.vbs4_launcher_version_label = tk.Label(
             self,
-            text="External Map",
-            font=("Helvetica", 24),
-            bg="#444444", fg="white",
-            width=30, height=1,
-            command=open_external_map,
+            text=f"Version: {get_vbs4_version(config['General'].get('vbs4_setup_path', ''))}",
+            font=("Helvetica", 16),
+            bg="black",
+            fg="white",
             bd=0,
             highlightthickness=0,
-        ).pack(pady=10)
+        )
+        self.vbs4_launcher_version_label.pack(pady=(0, 15))
 
-        tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 24),
-            bg="#444444", fg="white",
-            width=30, height=1,
-            command=lambda: controller.show("Main"),
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=10)
+        self.blueig_button = self.make_button(
+            "Launch BlueIG", self.launch_blueig_with_exercise_id
+        )
+        self.blueig_button.pack(pady=15)
 
-               # Log Window
-            # Log Window
+        self.vbs_license_button = self.make_button(
+            "Launch VBS License Manager", self.launch_vbs_license_manager
+        )
+        self.vbs_license_button.pack(pady=15)
+
+        self.external_map_button = self.make_button(
+            "External Map", open_external_map
+        )
+        self.external_map_button.pack(pady=15)
+
+        self.back_button = self.make_button(
+            "Back", lambda: controller.show("Main")
+        )
+        self.back_button.pack(pady=(15, 0))
+
+        # --- Log area --------------------------------------------------------
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        # Keep the activity log anchored to the bottom so control buttons
-        # remain accessible even in fullscreen mode.
         self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
         tk.Label(
-            self.log_frame, text="Activity Log",
+            self.log_frame,
+            text="Activity Log",
             font=("Helvetica", 16, "bold"),
-            bg=self.log_frame.cget("bg"), fg="white",
-            bd=0, highlightthickness=0,
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            bd=0,
+            highlightthickness=0,
         ).pack(anchor="w")
 
         self.log_text = tk.Text(
@@ -3262,16 +3262,13 @@ class VBS4Panel(tk.Frame):
             highlightthickness=0,
         )
         self.log_text.pack(fill="both", expand=True)
-        self.log_expanded = False
         self.log_text.config(state="disabled")
+        self.log_expanded = False
         ui_log_schedule_flush(controller, self.log_text)
 
-        # Render progress bar
+        # --- Progress bar ----------------------------------------------------
         progress_frame = tk.Frame(
-            self.log_frame,
-            bg=self.log_frame.cget("bg"),
-            bd=0,
-            highlightthickness=0,
+            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
         )
         progress_frame.pack(fill="x", pady=(5, 0))
 
@@ -3305,12 +3302,9 @@ class VBS4Panel(tk.Frame):
         )
         self.progress_label.pack(side="right", padx=(5, 0))
 
-        self.progress_job = None
-        self.project_log_folder = None
-        self.work_folder = None
-        self.last_build_dir = None
-
-        button_frame = tk.Frame(self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0)
+        button_frame = tk.Frame(
+            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
+        )
         button_frame.pack(fill="x", pady=5)
 
         self.toggle_log_button = tk.Button(
@@ -3334,59 +3328,78 @@ class VBS4Panel(tk.Frame):
             highlightthickness=0,
         ).pack(side="right")
 
-    def create_blueig_button(self):
-        # Clear out any existing widgets
-        for widget in self.blueig_frame.winfo_children():
-            widget.destroy()
+        self.update_vbs4_version()
+        self.update_vbs4_launcher_version()
+        self.update_button_states()
 
-        is_srv  = config["General"].getboolean("is_server", fallback=False)
-        path_ok = bool(get_blueig_install_path())
-        state   = "normal" if (not is_srv and path_ok) else "disabled"
-        bg      = "#444444" if state == "normal" else "#888888"
-
-        self.blueig_button = tk.Button(
-            self.blueig_frame,
-            text="Launch BlueIG",
+    def make_button(self, text, command):
+        return tk.Button(
+            self,
+            text=text,
             font=("Helvetica", 24),
-            bg=bg, fg="white",
-            width=30, height=1,
-            state=state,
-            command=self.launch_blueig_with_exercise_id if state == "normal" else None
+            bg="#444444",
+            fg="white",
+            activebackground="#666666",
+            activeforeground="white",
+            width=30,
+            height=1,
+            command=command,
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+            overrelief="flat",
+            takefocus=False,
         )
-        self.blueig_button.pack()
 
     def update_vbs4_version(self):
-        def _work():
-            path = get_vbs4_install_path()
-            ver = get_vbs4_version(path)
+        vbs4_path = get_vbs4_install_path()
+        version = get_vbs4_version(vbs4_path)
+        self.vbs4_version_label.config(text=f"Version: {version}")
 
-            def _apply():
-                self.vbs4_version_label.config(text=f"Version: {ver}")
-                if hasattr(self, 'vbs4_launcher_version_label'):
-                    self.vbs4_launcher_version_label.config(text=f"Version: {ver}")
+    def update_vbs4_launcher_version(self):
+        launcher_path = config['General'].get('vbs4_setup_path', '')
+        version = get_vbs4_version(launcher_path)
+        self.vbs4_launcher_version_label.config(text=f"Version: {version}")
 
-            post_ui(_apply)
+    def update_button_states(self):
+        self.vbs4_button.config(
+            state="normal" if get_vbs4_install_path() else "disabled",
+            bg="#444444" if get_vbs4_install_path() else "#888888"
+        )
+        self.vbs4_launcher_button.config(
+            state="normal" if config['General'].get('vbs4_setup_path', '') else "disabled",
+            bg="#444444" if config['General'].get('vbs4_setup_path', '') else "#888888"
+        )
+        self.blueig_button.config(
+            state="normal" if get_blueig_install_path() else "disabled",
+            bg="#444444" if get_blueig_install_path() else "#888888"
+        )
+        self.vbs_license_button.config(
+            state="normal" if config['General'].get('vbs_license_manager_path', '') else "disabled",
+            bg="#444444" if config['General'].get('vbs_license_manager_path', '') else "#888888"
+        )
 
-        run_in_thread(_work)
+    def log_message(self, message):
+        post_ui(log_to_console, f"> {message}")
 
-    def update_blueig_version(self):
-        def _work():
-            path = get_blueig_install_path()
-            ver = get_blueig_version(path)
+    def clear_log(self):
+        self.log_text.config(state="normal")
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state="disabled")
 
-            def _apply():
-                if hasattr(self, "blueig_version_label"):
-                    self.blueig_version_label.config(text=f"BlueIG Version: {ver}")
+    def toggle_log(self):
+        if self.log_expanded:
+            self.log_text.config(height=3)
+            self.toggle_log_button.config(text="Expand Log")
+            self.log_expanded = False
+        else:
+            self.log_text.config(height=15)
+            self.toggle_log_button.config(text="Collapse Log")
+            self.log_expanded = True
 
-            post_ui(_apply)
-
-        run_in_thread(_work)
-
-    def _sanitize_exercise_id(self, s: str) -> str:
-        """Lowercase, trim, and allow letters/numbers/dash only."""
-        import re
-        s = (s or "").strip().lower()
-        return re.sub(r"[^a-z0-9\-]+", "-", s)
+    def set_progress(self, value: int):
+        self.progress_var.set(value)
+        self.progress_label.config(text=f"{value}%")
 
     def launch_blueig_with_exercise_id(self):
         exe = config["General"].get("blueig_path", "").strip()
@@ -3397,7 +3410,6 @@ class VBS4Panel(tk.Frame):
             )
             return
 
-        # Ask user for Exercise ID
         raw_id = simpledialog.askstring(
             "Exercise ID",
             "Enter Exercise ID (e.g., destroyer):",
@@ -3410,12 +3422,10 @@ class VBS4Panel(tk.Frame):
             messagebox.showerror("Invalid ID", "Exercise ID cannot be empty.")
             return
 
-        # Persist host as exercise-<id>
         host_name = f"exercise-{exercise_id}"
         try:
-            set_host(host_name)  # uses your existing config helpers
+            set_host(host_name)
         except Exception:
-            # don't block launch if saving fails; just continue
             pass
 
         if hasattr(self.controller, "panels") and "OneClick" in self.controller.panels:
@@ -3423,7 +3433,6 @@ class VBS4Panel(tk.Frame):
             if hasattr(pnl, "log_message"):
                 pnl.log_message(f"Host set to: {host_name}")
 
-        # Build CLI args
         scenario = f"Exercise-{exercise_id}"
         args = [
             exe,
@@ -3440,6 +3449,11 @@ class VBS4Panel(tk.Frame):
                 sys.exit(0)
         except Exception as e:
             messagebox.showerror("Launch Failed", f"Couldn't launch BlueIG:\n{e}")
+
+    def _sanitize_exercise_id(self, s: str) -> str:
+        import re
+        s = (s or "").strip().lower()
+        return re.sub(r"[^a-z0-9\-]+", "-", s)
 
     def launch_vbs_license_manager(self):
         vbs_license_manager_path = config['General'].get('vbs_license_manager_path', '')
@@ -4814,75 +4828,147 @@ class OneClickPanel(tk.Frame):
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        self.controller = controller
         set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
-        tk.Label(self, text="BVI",
-                 font=("Helvetica",36,"bold"),
-                 bg='black', fg='white', pady=20) \
-          .pack(fill='x')
+        self.configure(bg="black")
 
-        self.bvi_button, self.bvi_version_label = create_app_button(
+        tk.Label(
             self,
-            "BVI",
-            get_ares_manager_path,
-            launch_bvi,
-            lambda: self.set_file_location("BVI", "bvi_manager_path", self.bvi_button),
-            version_func=get_bvi_version,
+            text="BVI",
+            font=("Helvetica", 36, "bold"),
+            bg="black",
+            fg="white",
+            pady=20,
+        ).pack(fill="x")
+
+        # --- Main actions ----------------------------------------------------
+        self.bvi_button = self.make_button(
+            "Launch BVI", launch_bvi
         )
+        self.bvi_button.pack(pady=15)
+
+        self.version_label = tk.Label(
+            self,
+            text=f"Version: {get_bvi_version(get_ares_manager_path())}",
+            font=("Helvetica", 16),
+            bg="black",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.version_label.pack(pady=(0, 15))
+
+        self.open_terrain_button = self.make_button(
+            "Open Terrain", open_bvi_terrain
+        )
+        self.open_terrain_button.pack(pady=15)
+
+        self.back_button = self.make_button(
+            "Back", lambda: controller.show("Main")
+        )
+        self.back_button.pack(pady=(15, 0))
+
+        # --- Log area --------------------------------------------------------
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
+
+        tk.Label(
+            self.log_frame,
+            text="Activity Log",
+            font=("Helvetica", 16, "bold"),
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(anchor="w")
+
+        self.log_text = tk.Text(
+            self.log_frame,
+            height=3,
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            wrap="word",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.config(state="disabled")
+        self.log_expanded = False
+        ui_log_schedule_flush(controller, self.log_text)
+
+        # --- Log controls ----------------------------------------------------
+        button_frame = tk.Frame(
+            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
+        )
+        button_frame.pack(fill="x", pady=5)
+
+        self.toggle_log_button = tk.Button(
+            button_frame,
+            text="Expand Log",
+            command=self.toggle_log,
+            bg="#555",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.toggle_log_button.pack(side="left")
+
+        tk.Button(
+            button_frame,
+            text="Clear Log",
+            command=self.clear_log,
+            bg="#555",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="right")
+
         self.update_bvi_version()
 
-        tk.Button(
+    def make_button(self, text, command):
+        return tk.Button(
             self,
-            text="Open Terrain",
+            text=text,
             font=("Helvetica", 24),
             bg="#444444",
             fg="white",
+            activebackground="#666666",
+            activeforeground="white",
             width=30,
             height=1,
-            command=open_bvi_terrain,
+            command=command,
             bd=0,
             highlightthickness=0,
-        ).pack(pady=10)
-
-        tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 24),
-            bg="#444444",
-            fg="white",
-            width=30,
-            height=1,
-            command=lambda: controller.show('Main'),
-            bd=0,
-            highlightthickness=0,
-        ).pack(pady=10)
+            relief="flat",
+            overrelief="flat",
+            takefocus=False,
+        )
 
     def update_bvi_version(self):
         bvi_path = get_ares_manager_path()
         version = get_bvi_version(bvi_path)
-        self.bvi_version_label.config(text=f"Version: {version}")
+        self.version_label.config(text=f"Version: {version}")
 
-    def set_file_location(self, app_name, config_key, button):
-        path = filedialog.askopenfilename(
-            title=f"Select {app_name} Executable",
-            filetypes=[("Executable Files", "*.exe")]
-        )
-        if path and os.path.exists(path):
-            config['General'][config_key] = clean_path(path)
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
-            button.config(state="normal", bg="#444444")
-            if app_name == "VBS4":
-                self.update_vbs4_version()
-            elif app_name == "BlueIG":
-                self.update_blueig_version()
-            elif app_name == "BVI":
-                self.bvi_version_label.config(text=f"Version: {get_bvi_version(path)}")
+    def log_message(self, message):
+        post_ui(log_to_console, f"> {message}")
+
+    def clear_log(self):
+        self.log_text.config(state="normal")
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state="disabled")
+
+    def toggle_log(self):
+        if self.log_expanded:
+            self.log_text.config(height=3)
+            self.toggle_log_button.config(text="Expand Log")
+            self.log_expanded = False
         else:
-            messagebox.showerror("Error", f"Invalid {app_name} path selected.")    
+            self.log_text.config(height=15)
+            self.toggle_log_button.config(text="Collapse Log")
+            self.log_expanded = True
 
 # ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 class SettingsPanel(tk.Frame):
