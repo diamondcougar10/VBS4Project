@@ -5842,6 +5842,52 @@ class Tooltip:
             self.tw.destroy()
             self.tw = None
 
+
+def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 4000) -> None:
+    """Display a short-lived notification near the bottom of the parent window."""
+    if parent is None:
+        return
+
+    try:
+        toast = tk.Toplevel(parent)
+        toast.wm_overrideredirect(True)
+        toast.attributes("-topmost", True)
+
+        label = tk.Label(
+            toast,
+            text=message,
+            bg="#333333",
+            fg="white",
+            font=("Helvetica", 12),
+            padx=16,
+            pady=10,
+            wraplength=420,
+            justify="center",
+        )
+        label.pack()
+
+        parent.update_idletasks()
+        toast.update_idletasks()
+
+        px = parent.winfo_rootx()
+        py = parent.winfo_rooty()
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        tw = toast.winfo_width()
+        th = toast.winfo_height()
+
+        if pw <= 1 or ph <= 1:
+            x = px + 40
+            y = py + 40
+        else:
+            x = px + max(0, (pw - tw) // 2)
+            y = py + max(0, ph - th - 40)
+
+        toast.geometry(f"+{x}+{y}")
+        toast.after(max(1000, duration_ms), toast.destroy)
+    except Exception as exc:
+        print(f"[toast] {exc}")
+
 def run_command_server(host: str = "", port: int = 9100) -> None:
     """Listen for incoming command strings and execute them."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -5870,52 +5916,37 @@ if __name__ == "__main__":
         print("STE Toolkit is already running.")
         sys.exit(0)
     start_command_server()
-    force_first = any(arg.lower() == "--first-run-setup" for arg in sys.argv[1:])
-    raw_flag = None
     try:
-        raw_flag = config['General'].get('first_run_done') if 'General' in config else None
-    except Exception:
-        raw_flag = None
+        apply_offline_settings()
+    except Exception as exc:
+        print(f"[startup] apply_offline_settings: {exc}")
 
-    if force_first:
-        first_done = False
-    else:
-        # If config is missing or malformed, treat as not done (first_done = False)
-        first_done = config['General'].getboolean('first_run_done', fallback=False) if 'General' in config else False
+    try:
+        update_fuser_shared_path()
+    except Exception as exc:
+        print(f"[startup] update_fuser_shared_path: {exc}")
 
-    if force_first or not first_done:
-        temp_root = tk.Tk()
-        temp_root.withdraw()
-        try:
-            first_run_setup(master=temp_root)
-            if 'General' not in config:
-                config['General'] = {}
-            config['General']['first_run_done'] = 'True'
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
-                config.write(fh)
-        except RuntimeError as exc:
-            if messagebox:
-                messagebox.showinfo("First-Run Setup", str(exc))
-            else:
-                print(f"First-Run Setup: {exc}")
-            log_to_console(f"[first-run] {exc}")
-            sys.exit(0)
-        except Exception as exc:
-            if messagebox:
-                messagebox.showerror("First-Run Setup", f"Setup did not complete:\n{exc}")
-            else:
-                print(f"First-Run Setup failed: {exc}")
-            log_to_console(f"[first-run] Setup failed: {exc}")
-            sys.exit(1)
-        finally:
-            if temp_root.winfo_exists():
-                temp_root.destroy()
+    if not config.has_section('General'):
+        config.add_section('General')
+    should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
 
     app = MainApp()
     app.after(50, apply_minimal_wizard_defaults)
     app.after(75, lambda: enforce_wizard_obj_only_defaults(log=app.panels['OneClick'].log_message))
-    if config['Fusers'].getboolean('fuser_computer', False):
-        app.after(50, update_fuser_shared_path)
+    app.after(50, update_fuser_shared_path)
     app.after(50, app.panels['OneClick'].update_fuser_state)
     app.after(50, enforce_local_fuser_policy)
+
+    if should_prompt_settings:
+        def _show_first_run_toast():
+            try:
+                app.show('Settings')
+            except Exception as exc:
+                print(f"[startup] show Settings: {exc}")
+            show_info_toast(app, "Review settings (host name, drive letter, RM install path)")
+            config['General']['first_run_done'] = 'True'
+            _save_config()
+
+        app.after(250, _show_first_run_toast)
+
     app.mainloop()
