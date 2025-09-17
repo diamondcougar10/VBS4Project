@@ -313,18 +313,26 @@ def set_projects_root(path: str) -> None:
 
 
 def get_fuser_counts() -> tuple[int, int]:
-    """Return ``(host_count, desired_count)`` from the configuration."""
+    """
+    Returns ``(host_count, desired_count)`` from the configuration, clamped to 0..3.
+    Host count is used on the host machine; desired count is used on fuser PCs.
+    """
     if "Fusers" not in config:
         config["Fusers"] = {}
     fusers = config["Fusers"]
-    try:
-        host_ct = max(0, int(fusers.get("host_count", "1")))
-    except ValueError:
-        host_ct = 1
-    try:
-        desired_ct = max(0, int(fusers.get("desired_count", "3")))
-    except ValueError:
-        desired_ct = 3
+
+    def _to_int(value: str, default: int) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    host_ct = _to_int(fusers.get("host_count", "1"), 1)
+    desired_ct = _to_int(fusers.get("desired_count", "3"), 3)
+
+    host_ct = max(0, min(3, host_ct))
+    desired_ct = max(0, min(3, desired_ct))
+
     return host_ct, desired_ct
 # endregion
 
