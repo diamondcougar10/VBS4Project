@@ -136,25 +136,18 @@ begin
   Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
               Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
   if Ran and (RC = 0) then
-  begin
-    Log(Format('SMB share ensured (PowerShell): %s -> %s', [ShareName, LocalPath]));
     Exit;
-  end;
 
   { 2) Fallback to net share (cmd) silently }
   Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
-  Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Ran and (RC = 0) then
-    Log(Format('SMB share ensured (net share): %s -> %s', [ShareName, LocalPath]))
-  else
-    Log(Format('SMB share creation skipped or failed (rc=%d) for %s', [RC, LocalPath]));
+  Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
 function GetPrimaryIPv4(): string;
 var
   PS, TmpFile: string;
   RC: Integer;
-  S: AnsiString;  // use AnsiString buffer for LoadStringFromFile
+  S: AnsiString;
 begin
   Result := '';
   TmpFile := ExpandConstant('{tmp}\host_ip.txt');
@@ -169,7 +162,7 @@ begin
   if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
   begin
     if (RC = 0) and LoadStringFromFile(TmpFile, S) then
-      Result := Trim(string(S)); // cast AnsiString -> string
+      Result := Trim(string(S));
   end;
 
   DeleteFile(TmpFile);
@@ -186,30 +179,32 @@ begin
 
   EnsureSmbShare(SHARE_NAME, Base);
 
-  SetIniString('Offline', 'enabled', 'True',          Ini);
-  SetIniString('Offline', 'host_name', HostName,      Ini);
-  SetIniString('Offline', 'host_ip',   HostIP,        Ini);
-  SetIniString('Offline', 'share_name',SHARE_NAME,    Ini);
-  SetIniString('Offline', 'local_data_root', Base,    Ini);
+  { --- Offline / Shared settings: pre-seed everything (incl. Host IP) --- }
+  SetIniString('Offline', 'enabled', 'True',                  Ini);
+  SetIniString('Offline', 'host_name', HostName,              Ini);
+  SetIniString('Offline', 'host_ip',   HostIP,                Ini);  { << auto-set IP }
+  SetIniString('Offline', 'share_name',SHARE_NAME,            Ini);
+  SetIniString('Offline', 'local_data_root', Base,            Ini);
   SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
-  SetIniString('Offline', 'working_fuser_host', HostName, Ini);
-  SetIniString('Offline', 'use_ip_unc', 'True',       Ini);
+  SetIniString('Offline', 'working_fuser_host', HostName,     Ini);
+  SetIniString('Offline', 'use_ip_unc', 'True',               Ini);
 
-  SetIniString('SharedDrive', 'preferred_mode', 'UNC', Ini);
-  SetIniString('SharedDrive', 'drive_letter',   'M:',  Ini);
-  SetIniString('SharedDrive', 'auto_map_on_save','True', Ini);
+  SetIniString('SharedDrive', 'preferred_mode', 'UNC',        Ini);
+  SetIniString('SharedDrive', 'drive_letter',   'M:',         Ini);
+  SetIniString('SharedDrive', 'auto_map_on_save','True',      Ini);
 
-  SetIniString('General', 'first_run_done', 'True', Ini);
-  SetIniString('General', 'first_run_mode', 'HOST', Ini);
+  { --- General flags so Toolkit bootstraps without any Settings visit --- }
+  SetIniString('General', 'first_run_done', 'True',           Ini);
+  SetIniString('General', 'first_run_mode', 'HOST',           Ini);
   SetIniString('General', 'reality_mesh_local_root', AddBackslash(Base) + 'RealityMeshInstall', Ini);
 
   if GetIniString('General', 'reality_mesh_to_vbs4', '', Ini) = '' then
     SetIniString('General', 'reality_mesh_to_vbs4', '\\{host}\SharedMeshDrive\RealityMeshInstall\' + RM_LINK_NAME, Ini);
 
-  SetIniString('Fusers', 'desired_count', '3',        Ini);
-  SetIniString('Fusers', 'host_count',    '1',        Ini);
-  SetIniString('Fusers', 'fuser_computer','True',     Ini);
-  SetIniString('Fusers', 'working_folder_host', HostName, Ini);
+  SetIniString('Fusers', 'desired_count', '3',                Ini);
+  SetIniString('Fusers', 'host_count',    '1',                Ini);
+  SetIniString('Fusers', 'fuser_computer','True',             Ini);
+  SetIniString('Fusers', 'working_folder_host', HostName,     Ini);
 
   Result := Base;
 end;
@@ -222,7 +217,7 @@ begin
   SetIniString('Offline', 'enabled', 'True',          Ini);
   SetIniString('Offline', 'host_name',  '',           Ini);
   SetIniString('Offline', 'host_ip',    '',           Ini);
-  SetIniString('Offline', 'share_name', SHARE_NAME,   Ini);
+  SetIniString('Offline', 'share_name', 'SharedMeshDrive',   Ini);
   SetIniString('Offline', 'local_data_root', '',      Ini);
   SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
   SetIniString('Offline', 'use_ip_unc', 'True',       Ini);
@@ -266,10 +261,6 @@ var
   RC: Integer;
 begin
   Result := Exec(Exe, Args, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Result then
-    Log(Format('Ran %s (%s) -> rc=%d', [Exe, Args, RC]))
-  else
-    Log(Format('Failed launching %s (%s)', [Exe, Args]));
 end;
 
 procedure RunAllInstallers(const Dir, TargetDir: string);
@@ -277,11 +268,7 @@ var
   FindRec: TFindRec;
   FilePath, Params: string;
 begin
-  if not DirExists(Dir) then
-  begin
-    Log('Installer payload missing: ' + Dir);
-    Exit;
-  end;
+  if not DirExists(Dir) then Exit;
 
   if (TargetDir <> '') and (not DirExists(TargetDir)) then
     ForceDirectories(TargetDir);
@@ -367,21 +354,20 @@ procedure InitializeWizard;
 var
   i: Integer;
 begin
-  // Single-select radios, "no selection" not allowed
+  { Single-select radios, no “select all”: }
   ModePage := CreateInputOptionPage(
     wpWelcome,
     'Choose Setup Mode',
     'Pick how this installer should configure your system.',
     'Select one option below.',
-    False,  // AllowMultipleSelection -> radios
-    False   // AllowNoSelection       -> must pick one
+    False,  { AllowMultipleSelection -> radios }
+    False   { AllowNoSelection       -> must pick one }
   );
   ModePage.Add('First-Time Setup (Host)');
   ModePage.Add('First-Time Setup (User)');
   ModePage.Add('Update/Repair');
-  ModePage.Values[0] := True;  // default to Host
+  ModePage.Values[0] := True;  { default to Host }
 
-  // Descriptive text under the radios
   ModeDesc := TNewStaticText.Create(WizardForm);
   ModeDesc.Parent   := ModePage.Surface;
   ModeDesc.AutoSize := False;
@@ -393,12 +379,10 @@ begin
 
   RefreshModeDescription;
 
-  // Keep description synced when a radio is clicked
   for i := 0 to ModePage.Surface.ControlCount - 1 do
     if ModePage.Surface.Controls[i] is TNewRadioButton then
       TNewRadioButton(ModePage.Surface.Controls[i]).OnClick := @ModeRadioClicked;
 
-  // Host-only page: where to create the SharedMeshDrive folder
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
     'Choose Shared Drive Root',
@@ -413,7 +397,6 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  // Show the shared-root page ONLY for Host
   if Assigned(SharedRootPage) and (PageID = SharedRootPage.ID) then
     Result := SelectedMode() <> imHost;
 end;
@@ -424,19 +407,16 @@ var
 begin
   Result := True;
 
-  // Guard: must have exactly one selection (single-select page guarantees it)
   if Assigned(ModePage) and (CurPageID = ModePage.ID) then
   begin
     if ModePage.SelectedValueIndex < 0 then
     begin
-      MsgBox('Please select exactly one setup mode (Host, User, or Update/Repair).',
-             mbError, MB_OK);
+      MsgBox('Please select exactly one setup mode (Host, User, or Update/Repair).', mbError, MB_OK);
       Result := False;
       Exit;
     end;
   end;
 
-  // Validate Host's shared-root selection
   if Assigned(SharedRootPage) and (CurPageID = SharedRootPage.ID) then
   begin
     Candidate := Trim(SharedRootPage.Values[0]);
@@ -468,28 +448,24 @@ begin
           HostRoot := SharedRoot
         else
           HostRoot := 'D:\';
+
+        { Seed config (includes host_ip auto-detection) BEFORE we ever launch the app }
         Base := SeedConfigIni_Host(AppDir, HostRoot);
 
         NeedPhotoMesh   := not HasPhotoMeshWizard();
         NeedRealityMesh := not HasShareRealityMesh(Base);
 
         if NeedPhotoMesh then
-        begin
-          Log('PhotoMesh Wizard not detected; running Photomesh installers.');
-          RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '');
-        end
+          RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '')
         else
           Log('PhotoMesh Wizard present; skipping Photomesh installers.');
 
         if NeedRealityMesh then
-        begin
-          Log('Reality Mesh not found under share; running RealityMesh installers.');
-          RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'), AddBackslash(Base) + 'RealityMeshInstall');
-        end
+          RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'), AddBackslash(Base) + 'RealityMeshInstall')
         else
           Log('Reality Mesh found under share; skipping RealityMesh installers.');
 
-        { Map M: to \\<this-IP>\SharedMeshDrive silently (optional) }
+        { Optionally map M: to \\<this-IP>\SharedMeshDrive silently }
         Ip := GetPrimaryIPv4();
         if Ip <> '' then
         begin
@@ -499,14 +475,12 @@ begin
       end;
 
       imUser:
-      begin
         SeedConfigIni_User(AppDir);
-      end;
 
       imUpdate:
-      begin
-        { No layout/shares; leave config in place. }
-      end;
+        begin
+          { No layout/shares; leave config in place. }
+        end;
     end;
 
     if SelectedMode() = imHost then
@@ -514,7 +488,7 @@ begin
       if HostRoot = '' then
         HostRoot := 'D:\';
       RMTarget := AddBackslash(BuildShareBase(HostRoot)) + 'RealityMeshInstall\' + RM_LINK_NAME;
-      { No-op if existing; created by the installers or present already. }
+      { Created by installers or present already (no-op here). }
     end;
   end;
 end;
@@ -523,7 +497,6 @@ procedure CurInstallFinished;
 var
   RC: Integer;
 begin
-  { Wizard config hardening / OBJ-only flips happen here, silently }
   if FileExists(ExpandConstant('{app}\update_photomesh_config.exe')) then
     Exec(ExpandConstant('{app}\update_photomesh_config.exe'), '', '{app}', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
