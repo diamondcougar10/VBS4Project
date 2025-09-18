@@ -461,55 +461,99 @@ def get_vbs4_install_path() -> str:
     logging.warning("VBS4 path not found")
     return ""
 
-def get_vbs4_launcher_path():
-    # First, check the config file
-    path = config['General'].get('vbs4_setup_path', '').strip()
-    if path and os.path.isfile(path):
-        logging.info("VBS4 Launcher path found in config: %s", path)
-        return path
+def get_vbs4_launcher_path() -> str:
+    """
+    Return the best path to the VBS4 launcher (VBSLauncher.exe or VBS4Launcher.exe).
 
-    # If not in config, try to find it
-    possible_paths = [
-        r"C:\BISIM\VBS4",
-        r"C:\Builds\VBS4",
-        r"C:\Builds",
-        r"C:\Bohemia Interactive Simulations"
-    ]
+    Strategy:
+      1) Respect a valid path already saved in config.
+      2) Prefer a launcher that sits next to the discovered VBS4.exe.
+      3) Search common VBS roots for either filename.
+      4) As a last resort, scan C:\ recursively for either filename.
+      5) Among all candidates, prefer highest FileVersion then newest mtime.
 
-    for base_path in possible_paths:
-        if os.path.isdir(base_path):
-            # Look for VBS4 directories. Some installations may place the
-            # version number directly under the VBS4 folder.  Allow
-            # numeric names as well as those prefixed with "VBS4".
-            vbs4_dirs = [
-                d for d in os.listdir(base_path)
-                if d.startswith("VBS4") or re.match(r"^[0-9]", d)
-            ]
-            vbs4_dirs.sort(reverse=True)  # Sort in descending order to get the latest version first
-            
-            for vbs4_dir in vbs4_dirs:
-                full_path = os.path.join(base_path, vbs4_dir, "VBSLauncher.exe")
-                if os.path.isfile(full_path):
-                    logging.info("VBS4 Launcher path found: %s", full_path)
-                    # Save the found path to config
-                    config['General']['vbs4_setup_path'] = full_path
-                    with open(CONFIG_PATH, 'w') as f:
-                        config.write(f)
-                    return full_path
+    The chosen path is saved to config['General']['vbs4_setup_path'].
+    """
 
-    # If not found in the usual locations, try to find it relative to VBS4.exe
+    def _save_and_return(p: str) -> str:
+        if p:
+            config['General']['vbs4_setup_path'] = os.path.normpath(p)
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+                config.write(f)
+            try:
+                # keep Settings UI in sync if the app is running
+                refresh_settings_panel_from_config()
+            except Exception:
+                pass
+        return p
+
+    # 0) If config already points to a valid file, use it
+    cfg_path = config['General'].get('vbs4_setup_path', '').strip()
+    if cfg_path and os.path.isfile(cfg_path):
+        logging.info("VBS4 Launcher (from config): %s", cfg_path)
+        return cfg_path
+
+    launcher_names = ("VBSLauncher.exe", "VBS4Launcher.exe", "VBSLauncher.bat", "VBS4Launcher.bat")
+
+    # 1) Prefer same folder as discovered VBS4.exe
     vbs4_exe = get_vbs4_install_path()
     if vbs4_exe:
         base = os.path.dirname(vbs4_exe)
-        launcher_path = os.path.join(base, 'VBSLauncher.exe')
-        if os.path.isfile(launcher_path):
-            logging.info("VBS4 Launcher path found relative to VBS4.exe: %s", launcher_path)
-            config['General']['vbs4_setup_path'] = launcher_path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
-            return launcher_path
+        for name in launcher_names:
+            cand = os.path.join(base, name)
+            if os.path.isfile(cand):
+                logging.info("VBS4 Launcher (next to VBS4.exe): %s", cand)
+                return _save_and_return(cand)
 
-    logging.warning("VBS4 Launcher path not found")
+    # 2) Search common roots for either name
+    roots = [
+        r"C:\\BISIM\\VBS4",
+        r"C:\\Builds\\VBS4",
+        r"C:\\Builds",
+        r"C:\\Bohemia Interactive Simulations",
+        r"C:\\Program Files\\Bohemia Interactive Simulations",
+    ]
+    if vbs4_exe:
+        roots.insert(0, os.path.dirname(vbs4_exe))
+
+    def _iter_candidates(search_roots):
+        seen = set()
+        for root in search_roots:
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _dirs, files in os.walk(root):
+                for name in launcher_names:
+                    if name in files:
+                        p = os.path.normpath(os.path.join(dirpath, name))
+                        if p not in seen:
+                            seen.add(p)
+                            yield p
+
+    def _rank(p: str):
+        ver = _exe_version_tuple(p) or ()
+        mtime = 0.0
+        try:
+            mtime = os.path.getmtime(p)
+        except Exception:
+            pass
+        # Prefer real .exe over .bat, then versioned, then newest
+        is_exe = 1 if p.lower().endswith('.exe') else 0
+        has_ver = 1 if ver else 0
+        return (is_exe, has_ver, ver, mtime)
+
+    # 2a) Try common roots first
+    candidates = sorted(_iter_candidates(roots), key=_rank, reverse=True)
+    if candidates:
+        logging.info("VBS4 Launcher (common roots): %s", candidates[0])
+        return _save_and_return(candidates[0])
+
+    # 3) Last resort: walk the entire C:\ drive (may take time on first run)
+    candidates = sorted(_iter_candidates([r"C:\\" ]), key=_rank, reverse=True)
+    if candidates:
+        logging.info("VBS4 Launcher (C:\\ scan): %s", candidates[0])
+        return _save_and_return(candidates[0])
+
+    logging.warning("VBS4 Launcher not found")
     return ''
 
 
@@ -2279,7 +2323,7 @@ def prompt_for_exe(app_name, config_key):
         messagebox.showerror("Error", f"Invalid {app_name} path selected.")
         return False
 
-def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
+def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: str) -> str:
     path = clean_path(config['General'].get(config_key, '').strip())
     # 1) Try what we already have in config
     if path and os.path.isfile(path):
@@ -2292,14 +2336,18 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
             path = get_vbs4_install_path()
         elif candidate == 'blueig.exe':
             path = get_blueig_install_path()
-        elif candidate == 'vbslauncher.exe':
+        elif candidate in ('vbslauncher.exe', 'vbs4launcher.exe'):
             path = get_vbs4_launcher_path()
         else:
             path = find_executable(exe_name)
     else:
-        # exe_name might be a list of possible names
+        # exe_name provided as a list – try each name
         for name in exe_name:
-            path = find_executable(name)
+            low = name.lower()
+            if low in ('vbslauncher.exe', 'vbs4launcher.exe'):
+                path = get_vbs4_launcher_path()
+            else:
+                path = find_executable(name)
             if path:
                 break
 
@@ -2311,13 +2359,14 @@ def ensure_executable(config_key: str, exe_name: str, prompt_title: str) -> str:
                 config.write(f)
         return path
 
-      # 3) Fallback: prompt the user (must pass BOTH arguments!)
+    # 3) Fallback: prompt the user (must pass BOTH arguments!)
     if not prompt_for_exe(prompt_title, config_key):  # Changed from exe_name to prompt_title
         raise FileNotFoundError(f"No executable selected for '{config_key}'.")
 
     # prompt_for_exe wrote the new path into config
     path = config['General'][config_key]
     return path
+
 
 # BVI (ARES Manager)
 
