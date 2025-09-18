@@ -5702,7 +5702,7 @@ class SettingsPanel(tk.Frame):
         self._settings_canvas.bind("<Configure>", _on_canvas_resize)
 
         # Maintain scrollregion with a bit of bottom pad so last row is fully visible
-        _SCROLLER_BOTTOM_PAD = 180
+        _SCROLLER_BOTTOM_PAD = 300
         def _update_scrollregion(_evt=None):
             bbox = self._settings_canvas.bbox("all")
             if bbox:
@@ -5789,6 +5789,10 @@ class SettingsPanel(tk.Frame):
 
         # Spacer so the last row can scroll above the bottom edge
         tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
+
+        self._settings_inner.update_idletasks()
+        self._settings_canvas.yview_moveto(0)
+        self._settings_canvas.configure(scrollregion=self._settings_canvas.bbox("all"))
 
         # Back button and tutorial
         tk.Button(
