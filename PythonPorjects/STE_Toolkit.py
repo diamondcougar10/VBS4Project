@@ -25,7 +25,7 @@
 #  17) Generic Command Launch Helpers
 #  18) UI Assets & Background/Logos
 #  19) Help/Tutorials & Document Openers
-#  20) (…remaining UI / menu code and mainloop, if present)
+#  20) (Update or add any other UI here)
 # =============================================================================
 
 # =============================================================================
@@ -206,7 +206,6 @@ def run_hidden(cmd: list[str] | str, check=False, cwd=None, shell=False, env=Non
         text=text,
     )
 
-
 def get_primary_ipv4() -> str:
     """Return the primary non-loopback IPv4 without using visible shells."""
     try:
@@ -217,7 +216,6 @@ def get_primary_ipv4() -> str:
         return ip
     except Exception:
         return ""
-
 
 def ensure_sharedmesh_share(local_root: str, share_name: str = "SharedMeshDrive", log=None) -> bool:
     """Share local_root as \\\\<this-pc>\\<share_name> silently. Returns True on success."""
@@ -469,7 +467,7 @@ def get_vbs4_launcher_path() -> str:
       1) Respect a valid path already saved in config.
       2) Prefer a launcher that sits next to the discovered VBS4.exe.
       3) Search common VBS roots for either filename.
-      4) As a last resort, scan C:\ recursively for either filename.
+      4) As a last resort, scan C:\\ recursively for either filename.
       5) Among all candidates, prefer highest FileVersion then newest mtime.
 
     The chosen path is saved to config['General']['vbs4_setup_path'].
