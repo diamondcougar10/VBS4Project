@@ -878,7 +878,7 @@ def probe_best_mesh_share(
     for name in prefer:
         s = shares_lower.get(name.lower())
         if s:
-            unc = rf"\\\{host}\{s}"
+            unc = rf"\\{host}\{s}"
             sent = os.path.join(unc, "Datatarget.txt")
             try:
                 if not os.path.isfile(sent) and os.access(unc, os.W_OK):
@@ -889,7 +889,7 @@ def probe_best_mesh_share(
             return s, unc
 
     for s in shares:
-        unc = rf"\\\{host}\{s}"
+        unc = rf"\\{host}\{s}"
         if os.path.isfile(os.path.join(unc, "Datatarget.txt")):
             return s, unc
 
@@ -902,7 +902,7 @@ def probe_best_mesh_share(
             for name in prefer:
                 s = next((x for x in shares if x.lower() == name.lower()), None)
                 if s:
-                    unc = rf"\\\{host}\{s}"
+                    unc = rf"\\{host}\{s}"
                     return s, unc
     except Exception:
         pass
