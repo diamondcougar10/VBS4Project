@@ -148,28 +148,29 @@ begin
   else
     Log(Format('SMB share creation skipped or failed (rc=%d) for %s', [RC, LocalPath]));
 end;
-
 function GetPrimaryIPv4(): string;
 var
   PS, TmpFile: string;
   RC: Integer;
+  S: AnsiString;  // ← must be AnsiString for LoadStringFromFile
 begin
   Result := '';
   TmpFile := ExpandConstant('{tmp}\host_ip.txt');
 
-  { Ask PowerShell to select a non-loopback/non-APIPA IPv4 and write it to a file. }
   PS :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
     '"$ip = (Get-NetIPAddress -AddressFamily IPv4 | ' +
     '  Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
     '  Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress); ' +
-    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline"';
+    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';   // force ASCII
 
   if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
   begin
-    if (RC = 0) and LoadStringFromFile(TmpFile, Result) then
-      Result := Trim(Result);
+    if (RC = 0) and LoadStringFromFile(TmpFile, S) then
+      Result := Trim(string(S)); // cast AnsiString → string
   end;
+
+  DeleteFile(TmpFile);
 end;
 
 function SeedConfigIni_Host(AppDir, Root: string): string;
@@ -330,8 +331,7 @@ begin
   else
     Result := imUpdate;
 end;
-
-procedure UpdateModeDescription;
+procedure RefreshModeDescription;
 var
   S: string;
 begin
@@ -348,7 +348,13 @@ begin
   ModeDesc.Caption := S;
 end;
 
+procedure ModeRadioClicked(Sender: TObject);
+begin
+  RefreshModeDescription;
+end;
 procedure InitializeWizard;
+var
+  i: Integer;  // <-- locals must be declared here
 begin
   ModePage := CreateInputOptionPage(
     wpWelcome,
@@ -370,10 +376,15 @@ begin
   ModeDesc.Width := ModePage.SurfaceWidth;
   ModeDesc.Height := ScaleY(56);
   ModeDesc.WordWrap := True;
-  UpdateModeDescription();
 
-  ModePage.OnClick := @UpdateModeDescription;
+  RefreshModeDescription;  // set initial text
 
+  // Wire all radios on the page to our click handler
+  for i := 0 to ModePage.Surface.ControlCount - 1 do
+    if ModePage.Surface.Controls[i] is TNewRadioButton then
+      TNewRadioButton(ModePage.Surface.Controls[i]).OnClick := @ModeRadioClicked;
+
+  // Create the "Shared drive root" page (needed by ShouldSkipPage / NextButtonClick)
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
     'Choose Shared Drive Root',
