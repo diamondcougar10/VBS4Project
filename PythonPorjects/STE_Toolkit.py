@@ -3683,122 +3683,6 @@ class VBS4Panel(tk.Frame):
             self.toggle_log_button.config(text="Collapse Log")
             self.log_expanded = True
 
-
-class ScrollFrame(tk.Frame):
-    """A reusable scrollable frame with consistent styling."""
-
-    def __init__(self, parent, **kwargs):
-        kwargs.setdefault("bg", "black")
-        super().__init__(parent, **kwargs)
-
-        self.canvas = tk.Canvas(self, highlightthickness=0, bd=0, bg="black")
-        self.vbar = tk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.vbar.set)
-
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.vbar.pack(side="right", fill="y")
-
-        self.content = tk.Frame(self.canvas, bg="black")
-        self._win_id = self.canvas.create_window((0, 0), window=self.content, anchor="nw")
-
-        self.content.bind("<Configure>", self._on_content_configure)
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-
-        self.canvas.configure(takefocus=True)
-        self.content.configure(takefocus=True)
-
-        self._hover_refcount = 0
-        self._mousewheel_bound = False
-
-        for widget in (self, self.canvas, self.content, self.vbar):
-            widget.bind("<Enter>", self._on_enter, add="+")
-            widget.bind("<Leave>", self._on_leave, add="+")
-
-        for sequence, handler in (
-            ("<Prior>", self._on_page_up),
-            ("<Next>", self._on_page_down),
-            ("<Up>", self._on_arrow_up),
-            ("<Down>", self._on_arrow_down),
-        ):
-            self.canvas.bind(sequence, handler, add="+")
-            self.content.bind(sequence, handler, add="+")
-
-    def _on_content_configure(self, _event=None):
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
-    def _on_canvas_configure(self, event):
-        self.canvas.itemconfig(self._win_id, width=event.width)
-
-    def _on_enter(self, _event=None):
-        self._hover_refcount += 1
-        if self._hover_refcount == 1:
-            self._bind_scroll_events()
-
-    def _on_leave(self, _event=None):
-        self._hover_refcount = max(0, self._hover_refcount - 1)
-        if self._hover_refcount == 0:
-            self._unbind_scroll_events()
-
-    def _bind_scroll_events(self):
-        if self._mousewheel_bound:
-            return
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-4>", self._on_linux_scroll_up)
-        self.canvas.bind_all("<Button-5>", self._on_linux_scroll_down)
-        self.canvas.bind_all("<Prior>", self._on_page_up)
-        self.canvas.bind_all("<Next>", self._on_page_down)
-        self.canvas.bind_all("<Up>", self._on_arrow_up)
-        self.canvas.bind_all("<Down>", self._on_arrow_down)
-        self._mousewheel_bound = True
-
-    def _unbind_scroll_events(self):
-        if not self._mousewheel_bound:
-            return
-        self.canvas.unbind_all("<MouseWheel>")
-        self.canvas.unbind_all("<Button-4>")
-        self.canvas.unbind_all("<Button-5>")
-        self.canvas.unbind_all("<Prior>")
-        self.canvas.unbind_all("<Next>")
-        self.canvas.unbind_all("<Up>")
-        self.canvas.unbind_all("<Down>")
-        self._mousewheel_bound = False
-
-    def _on_mousewheel(self, event):
-        delta = event.delta
-        if delta == 0:
-            return "break"
-        steps = -1 if delta > 0 else 1
-        self.canvas.yview_scroll(steps, "units")
-        return "break"
-
-    def _on_linux_scroll_up(self, _event):
-        self.canvas.yview_scroll(-1, "units")
-        return "break"
-
-    def _on_linux_scroll_down(self, _event):
-        self.canvas.yview_scroll(1, "units")
-        return "break"
-
-    def _on_page_up(self, _event):
-        self.canvas.yview_scroll(-1, "pages")
-        return "break"
-
-    def _on_page_down(self, _event):
-        self.canvas.yview_scroll(1, "pages")
-        return "break"
-
-    def _on_arrow_up(self, _event):
-        self.canvas.yview_scroll(-1, "units")
-        return "break"
-
-    def _on_arrow_down(self, _event):
-        self.canvas.yview_scroll(1, "units")
-        return "break"
-
-    def recompute(self):
-        self.content.update_idletasks()
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
     def set_progress(self, value: int):
         self.progress_var.set(value)
         self.progress_label.config(text=f"{value}%")
@@ -5795,60 +5679,99 @@ class SettingsPanel(tk.Frame):
             font=("Helvetica", 16),
         )
         locs_box.grid(row=6, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        self.locs_scroll = ScrollFrame(locs_box)
-        self.locs_scroll.pack(side="left", fill="both", expand=True)
+        # Make row 6 expand and give it more vertical room
+        self.grid_rowconfigure(6, weight=1, minsize=800)
 
-        # ---- Add your path rows into the scrollable content exactly as before ----
+        # Canvas + vertical scrollbar
+        canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0, bd=0)
+        vbar = tk.Scrollbar(locs_box, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        # The inner content frame that actually holds the rows
+        inner = tk.Frame(canvas, bg="black")
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        # Ensure the inner frame always matches the canvas width
+        def _on_canvas_resize(evt):
+            canvas.itemconfig(win_id, width=evt.width)
+
+        canvas.bind("<Configure>", _on_canvas_resize)
+
+        # Give the scrollregion some extra "overscroll" margin at the bottom
+        SCROLL_BOTTOM_PAD = 180  # tweak to taste
+
+        def _update_scrollregion(_evt=None):
+            bbox = canvas.bbox("all")
+            if bbox:
+                x0, y0, x1, y1 = bbox
+                # Add bottom padding so the last buttons scroll fully into view
+                canvas.configure(scrollregion=(x0, y0, x1, y1 + SCROLL_BOTTOM_PAD))
+
+        inner.bind("<Configure>", _update_scrollregion)
+
+        # Smooth wheel behavior
+        def _wheel(evt):
+            # Windows reports delta in multiples of 120
+            step = -1 if evt.delta > 0 else 1
+            canvas.yview_scroll(step, "units")
+
+        inner.bind("<Enter>", lambda e: inner.bind_all("<MouseWheel>", _wheel))
+        inner.bind("<Leave>", lambda e: inner.unbind_all("<MouseWheel>"))
+
+        # ---- Add your path rows into `inner` exactly as before ----
         self.lbl_projects_root = self._create_path_row(
             "Change Projects Root",
             self._on_change_projects_root,
             get_projects_root(),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
             self._on_set_vbs4,
             get_vbs4_install_path(),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_vbs4_setup = self._create_path_row(
             "Set VBS4 Setup Launcher Location",
             self._on_set_vbs4_setup,
             config["General"].get("vbs4_setup_path", ""),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_blueig = self._create_path_row(
             "Set BlueIG Install Location",
             self._on_set_blueig,
             get_blueig_install_path(),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_ares = self._create_path_row(
             "Set ARES Manager Location",
             self._on_set_ares,
             get_ares_manager_path(),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_browser = self._create_path_row(
             "Pick Default Browser",
             self._on_set_browser,
             get_default_browser(),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_vbs_license = self._create_path_row(
             "Set VBS License Manager Location",
             self._on_set_vbs_license_manager,
             config["General"].get("vbs_license_manager_path", ""),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
         self.lbl_oneclick = self._create_path_row(
             "Set One-Click Output Folder",
             self._on_set_oneclick,
             get_oneclick_output_path(),
-            parent=self.locs_scroll.content,
+            parent=inner,
         )
 
-        tk.Frame(self.locs_scroll.content, height=180, bg="black").pack(fill="x")
+        # Real spacer at bottom so the last row can scroll above the window edge
+        tk.Frame(inner, height=SCROLL_BOTTOM_PAD, bg="black").pack(fill="x")
 
         # Back button and tutorial
         tk.Button(
@@ -5906,9 +5829,6 @@ class SettingsPanel(tk.Frame):
             self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
 
         self._refresh_fuser_counter_row()
-
-        if hasattr(self, "locs_scroll"):
-            self.locs_scroll.recompute()
 
     def _browse_local_root(self):
         p = filedialog.askdirectory(
