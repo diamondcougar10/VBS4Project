@@ -1,7 +1,12 @@
 ; ===================== STE Mission Planning Toolkit Installer =====================
-; Creates the SharedMeshDrive layout, runs prerequisite installers when required,
-; and seeds config.ini for a zero-touch first launch.
-; ==============================================================================
+; Three modes:
+;  - First-Time Setup (Host): create SharedMeshDrive, share via SMB, seed config by IP,
+;    (optionally) map M:, and run PhotoMesh + RealityMesh installers.
+;  - First-Time Setup (User): regular install; DO NOT create share or drive; DO NOT seed host;
+;    leave host name/IP blank so the Toolkit UI can point to the Host later.
+;  - Update/Repair: do not touch layout/shares; just replace EXE and repair config.
+; All helper shells run hidden. Config seed writes to {app}\config.ini.
+; ================================================================================
 
 #define AppName "STE Mission Planning Toolkit"
 #define AppVersion "1.0"
@@ -23,7 +28,7 @@ ArchitecturesInstallIn64BitMode=x64
 ; 1) Your application (PyInstaller dist)
 Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
-; 2) Third-party installers (ALWAYS stage; runtime decides whether to run)
+; 2) Third-party installers — always stage; runtime decides whether to run
 Source: "installs\Photomesh\*";  DestDir: "{tmp}\PhotomeshInstalls";  Flags: recursesubdirs createallsubdirs
 Source: "installs\RealityMesh\*"; DestDir: "{tmp}\RealityMeshInstalls"; Flags: recursesubdirs createallsubdirs
 
@@ -32,8 +37,8 @@ Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
 Name: "{userdesktop}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: checkedonce
-Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
+Name: desktopicon; Description: "Create a &desktop icon"; Flags: unchecked
+Name: firewall;    Description: "Allow STE Toolkit through Windows Firewall"; Flags: unchecked
 
 [Run]
 ; Launch Toolkit when finished
@@ -42,7 +47,7 @@ Filename: "{app}\STE_Toolkit.exe"; Description: "Launch STE Mission Planning Too
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
 [Registry]
-; Always run as admin (compat layer) — keep as single line
+; Always run as admin (compat layer)
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\STE_Toolkit.exe"; ValueData: "~ RUNASADMIN"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Code]
@@ -50,9 +55,13 @@ const
   SHARE_NAME   = 'SharedMeshDrive';
   RM_LINK_NAME = 'Reality Mesh to VBS4.lnk';
 
+type
+  TInstallMode = (imHost, imUser, imUpdate);
+
 var
   ModePage: TInputOptionWizardPage;
   SharedRootPage: TInputDirWizardPage;
+  ModeDesc: TNewStaticText;
   SharedRoot: string;
 
 function FileExists2(const P: string): Boolean;
@@ -79,10 +88,12 @@ end;
 
 function BuildShareBase(const Root: string): string;
 var
-  Normalized: string; StartPos: Integer;
+  Normalized: string;
+  StartPos: Integer;
 begin
   Normalized := Trim(TrimTrailingSlash(Root));
-  if Normalized = '' then Normalized := 'D:\';
+  if Normalized = '' then
+    Normalized := 'D:\';
   StartPos := Length(Normalized) - Length(SHARE_NAME) + 1;
   if (StartPos >= 1) and
      (CompareText(Copy(Normalized, StartPos, Length(SHARE_NAME)), SHARE_NAME) = 0) and
@@ -106,249 +117,149 @@ begin
   Result := Base;
 end;
 
-procedure EnsureSmbShareCmd(const ShareName, LocalPath: string);
+procedure EnsureSmbShare(const ShareName, LocalPath: string);
 var
   RC: Integer;
+  Cmd: string;
+  Ran: Boolean;
 begin
-  if (ShareName = '') or (LocalPath = '') then Exit;
-  Exec(ExpandConstant('{cmd}'),
-       '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"',
-       '', SW_HIDE, ewWaitUntilTerminated, RC);
-  Log(Format('[share] net share rc=%d (%s -> %s)', [RC, ShareName, LocalPath]));
+  if LocalPath = '' then
+    Exit;
+
+  { 1) Try PowerShell silently }
+  Cmd :=
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
+    '"$ErrorActionPreference=''Stop''; ' +
+    'if (-not (Get-SmbShare -Name ''' + ShareName + ''' -ErrorAction SilentlyContinue)) { ' +
+    '  New-SmbShare -Name ''' + ShareName + ''' -Path ''' + LocalPath + ''' -FullAccess ''Everyone'' | Out-Null ' +
+    '}"';
+  Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+  if Ran and (RC = 0) then begin
+    Log(Format('SMB share ensured (PowerShell): %s -> %s', [ShareName, LocalPath]));
+    Exit;
+  end;
+
+  { 2) Fallback to net share (cmd) silently }
+  Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
+  Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+  if Ran and (RC = 0) then
+    Log(Format('SMB share ensured (net share): %s -> %s', [ShareName, LocalPath]))
+  else
+    Log(Format('SMB share creation skipped or failed (rc=%d) for %s', [RC, LocalPath]));
 end;
 
-function DetermineDriveLetter(const Base, Ini: string): string;
-var Drive, Existing: string;
+function GetPrimaryIPv4(): string;
+var
+  PS, TmpFile: string;
+  RC: Integer;
 begin
-  Drive := ExtractFileDrive(Base);
-  if (Length(Drive) = 2) and (Drive[2] = ':') then Result := UpperCase(Drive)
-  else begin
-    Existing := GetIniString('SharedDrive', 'drive_letter', '', Ini);
-    if Existing <> '' then Result := Existing else Result := 'D:';
+  Result := '';
+  TmpFile := ExpandConstant('{tmp}\host_ip.txt');
+
+  { Ask PowerShell to select a non-loopback/non-APIPA IPv4 and write it to a file. }
+  PS :=
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
+    '"$ip = (Get-NetIPAddress -AddressFamily IPv4 | ' +
+    '  Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
+    '  Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress); ' +
+    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline"';
+
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+  begin
+    if (RC = 0) and LoadStringFromFile(TmpFile, Result) then
+      Result := Trim(Result);
   end;
 end;
 
 function SeedConfigIni_Host(AppDir, Root: string): string;
 var
-  Ini, Base, DriveLetter, Template, HostName: string;
+  Ini, Base, HostName, HostIP: string;
 begin
-  Ini := AddBackslash(AppDir) + 'config.ini';
-  Base := ForceLayoutUnder(Root);
+  Ini      := AddBackslash(AppDir) + 'config.ini';
+  Base     := ForceLayoutUnder(Root);
   HostName := ExpandConstant('{computername}');
+  HostIP   := GetPrimaryIPv4();
 
-  SetIniString('Offline', 'enabled', 'True',  Ini);
-  SetIniString('Offline', 'host_name', HostName, Ini);
-  SetIniString('Offline', 'host_ip', '',      Ini);
-  SetIniString('Offline', 'share_name', SHARE_NAME,          Ini);
-  SetIniString('Offline', 'local_data_root', Base,           Ini);
-  SetIniString('Offline', 'working_fuser_subdir', 'WorkingFuser', Ini);
-  SetIniString('Offline', 'working_fuser_host', HostName,    Ini);
-  SetIniString('Offline', 'use_ip_unc', 'True',              Ini);
+  EnsureSmbShare(SHARE_NAME, Base);
 
-  DriveLetter := DetermineDriveLetter(Base, Ini);
-  SetIniString('SharedDrive', 'preferred_mode', 'DRIVE',     Ini);
-  SetIniString('SharedDrive', 'drive_letter',  DriveLetter,  Ini);
-  SetIniString('SharedDrive', 'auto_map_on_save', 'True',    Ini);
+  SetIniString('Offline', 'enabled', 'True',          Ini);
+  SetIniString('Offline', 'host_name', HostName,      Ini);
+  SetIniString('Offline', 'host_ip',   HostIP,        Ini);
+  SetIniString('Offline', 'share_name',SHARE_NAME,    Ini);
+  SetIniString('Offline', 'local_data_root', Base,    Ini);
+  SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
+  SetIniString('Offline', 'working_fuser_host', HostName, Ini);
+  SetIniString('Offline', 'use_ip_unc', 'True',       Ini);  { use \\<IP>\share }
 
-  SetIniString('General', 'first_run_done', 'True',          Ini);
+  SetIniString('SharedDrive', 'preferred_mode', 'UNC', Ini); { default to UNC/IP }
+  SetIniString('SharedDrive', 'drive_letter',   'M:',  Ini);
+  SetIniString('SharedDrive', 'auto_map_on_save','True', Ini);
+
+  SetIniString('General', 'first_run_done', 'True', Ini);
+  SetIniString('General', 'first_run_mode', 'HOST', Ini);
   SetIniString('General', 'reality_mesh_local_root', AddBackslash(Base) + 'RealityMeshInstall', Ini);
 
-  if GetIniString('General', 'reality_mesh_to_vbs4', '', Ini) = '' then begin
-    Template := '\\{host}\SharedMeshDrive\RealityMeshInstall\' + RM_LINK_NAME;
-    SetIniString('General', 'reality_mesh_to_vbs4', Template, Ini);
-  end;
+  if GetIniString('General', 'reality_mesh_to_vbs4', '', Ini) = '' then
+    SetIniString('General', 'reality_mesh_to_vbs4', '\\{host}\SharedMeshDrive\RealityMeshInstall\' + RM_LINK_NAME, Ini);
 
-  SetIniString('Fusers', 'desired_count', '3',  Ini);
-  SetIniString('Fusers', 'host_count',   '1',   Ini);
-  SetIniString('Fusers', 'fuser_computer', 'False', Ini);
+  SetIniString('Fusers', 'desired_count', '3',        Ini);
+  SetIniString('Fusers', 'host_count',    '1',        Ini);
+  SetIniString('Fusers', 'fuser_computer','True',     Ini);
   SetIniString('Fusers', 'working_folder_host', HostName, Ini);
 
   Result := Base;
 end;
 
-procedure SeedConfigIni_User(const AppDir: string);
+procedure SeedConfigIni_User(AppDir: string);
 var
   Ini: string;
 begin
-  { Minimal config for non-host machines; user will fill paths in Settings later }
   Ini := AddBackslash(AppDir) + 'config.ini';
+  SetIniString('Offline', 'enabled', 'True',          Ini);
+  SetIniString('Offline', 'host_name',  '',           Ini);   { blank on user PCs }
+  SetIniString('Offline', 'host_ip',    '',           Ini);   { will be set in UI }
+  SetIniString('Offline', 'share_name', SHARE_NAME,   Ini);
+  SetIniString('Offline', 'local_data_root', '',      Ini);   { no local layout }
+  SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
+  SetIniString('Offline', 'use_ip_unc', 'True',       Ini);
+
+  SetIniString('SharedDrive', 'preferred_mode', 'UNC', Ini);
+  SetIniString('SharedDrive', 'drive_letter',   'M:',  Ini);
+  SetIniString('SharedDrive', 'auto_map_on_save','True', Ini);
 
   SetIniString('General', 'first_run_done', 'True', Ini);
+  SetIniString('General', 'first_run_mode', 'USER', Ini);
 
-  SetIniString('Offline', 'enabled', 'True',       Ini);
-  SetIniString('Offline', 'host_name', '',         Ini);
-  SetIniString('Offline', 'host_ip', '',           Ini);
-  SetIniString('Offline', 'share_name', SHARE_NAME, Ini);
-  SetIniString('Offline', 'local_data_root', 'D:\\SharedMeshDrive',   Ini);
-  SetIniString('Offline', 'working_fuser_subdir', 'WorkingFuser', Ini);
-  SetIniString('Offline', 'use_ip_unc', 'True',    Ini);
-
-  SetIniString('SharedDrive', 'preferred_mode', 'DRIVE', Ini);
-  SetIniString('SharedDrive', 'drive_letter',  'M:',    Ini);
-  SetIniString('SharedDrive', 'auto_map_on_save', 'True', Ini);
-end;
-
-function SelectedRoot(): string;
-begin
-  if SharedRoot <> '' then Result := SharedRoot
-  else if Assigned(SharedRootPage) then Result := Trim(SharedRootPage.Values[0])
-  else Result := '';
-  if Result = '' then Result := 'D:\';
-end;
-
-function GetExistingLocalDataRoot(const AppDir: string): string;
-var Ini, LocalRoot, RMRoot: string;
-begin
-  Ini := AddBackslash(AppDir) + 'config.ini';
-  LocalRoot := GetIniString('Offline', 'local_data_root', '', Ini);
-  if LocalRoot <> '' then begin Result := LocalRoot; Exit; end;
-
-  RMRoot := GetIniString('General', 'reality_mesh_local_root', '', Ini);
-  if RMRoot <> '' then Result := ExtractFileDir(RMRoot) else Result := '';
-end;
-
-function DetermineShareRoot(const AppDir: string; IsFirstTimeHost: Boolean): string;
-begin
-  if IsFirstTimeHost then Result := SelectedRoot()
-  else begin
-    Result := GetExistingLocalDataRoot(AppDir);
-    if Result = '' then Result := SelectedRoot();
-  end;
-  if Result = '' then Result := 'D:\';
-end;
-
-function FindRealityMeshLinkInDir(const Root: string; var Found: string): Boolean;
-var Rec: TFindRec; Path: string;
-begin
-  Result := False; Found := '';
-  if not DirExists(Root) then Exit;
-
-  if FileExists(AddBackslash(Root) + RM_LINK_NAME) then begin
-    Found := AddBackslash(Root) + RM_LINK_NAME; Result := True; Exit;
-  end;
-
-  if FindFirst(AddBackslash(Root) + '*', Rec) then
-  try
-    repeat
-      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then begin
-        if (Rec.Name <> '.') and (Rec.Name <> '..') then begin
-          Path := AddBackslash(Root) + Rec.Name;
-          if FindRealityMeshLinkInDir(Path, Found) then begin Result := True; Exit; end;
-        end;
-      end else if CompareText(Rec.Name, RM_LINK_NAME) = 0 then begin
-        Found := AddBackslash(Root) + Rec.Name; Result := True; Exit;
-      end;
-    until not FindNext(Rec);
-  finally
-    FindClose(Rec);
-  end;
+  SetIniString('Fusers', 'desired_count', '0',        Ini);
+  SetIniString('Fusers', 'host_count',    '1',        Ini);
+  SetIniString('Fusers', 'fuser_computer','False',    Ini);
 end;
 
 function HasShareRealityMesh(const Base: string): Boolean;
-var Found: string;
+var
+  Rec: TFindRec;
+  Found: Boolean;
 begin
-  Result :=
-    FindRealityMeshLinkInDir(AddBackslash(Base) + 'RealityMeshInstall', Found) or
-    FindRealityMeshLinkInDir(AddBackslash(Base) + 'ReailityMeshInstall', Found);
-end;
-
-function FindRealityMeshExecutableInDir(const Root: string; var Found: string): Boolean;
-var Rec: TFindRec; Path, LowerName, Ext: string;
-begin
-  Result := False; Found := '';
-  if not DirExists(Root) then Exit;
-
-  if FindFirst(AddBackslash(Root) + '*', Rec) then
+  Result := False;
+  Found := False;
+  if FindFirst(AddBackslash(Base) + 'RealityMeshInstall\*', Rec) then
   try
     repeat
-      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then begin
-        if (Rec.Name <> '.') and (Rec.Name <> '..') then begin
-          Path := AddBackslash(Root) + Rec.Name;
-          if FindRealityMeshExecutableInDir(Path, Found) then begin Result := True; Exit; end;
-        end;
-      end else begin
-        Ext := LowerCase(ExtractFileExt(Rec.Name));
-        if Ext = '.exe' then begin
-          LowerName := LowerCase(Rec.Name);
-          if (Pos('realitymeshtovbs4', LowerName) > 0) or
-             (Pos('reality mesh to vbs4', LowerName) > 0) or
-             (Pos('realitymesh', LowerName) > 0) then begin
-            Found := AddBackslash(Root) + Rec.Name; Result := True; Exit;
-          end;
-        end;
+      if (CompareText(Rec.Name, RM_LINK_NAME) = 0) then begin
+        Found := True;
+        Break;
       end;
     until not FindNext(Rec);
   finally
     FindClose(Rec);
   end;
+  Result := Found;
 end;
 
-procedure CreateShortcutViaPowerShell(const Target, ShortcutPath: string);
-var RC: Integer; Cmd, EscTarget, EscShortcut, EscWorking: string;
-begin
-  if (Target = '') or (ShortcutPath = '') then Exit;
-
-  EscTarget := Target;
-  EscShortcut := ShortcutPath;
-  EscWorking := ExtractFileDir(Target);
-  StringChangeEx(EscTarget,   '''', '''''', True);
-  StringChangeEx(EscShortcut, '''', '''''', True);
-  StringChangeEx(EscWorking,  '''', '''''', True);
-
-  Cmd :=
-    '-NoProfile -ExecutionPolicy Bypass -Command ' +
-    '"$ws = New-Object -ComObject WScript.Shell; ' +
-    '$lnk = $ws.CreateShortcut(''' + EscShortcut + '''); ' +
-    '$lnk.TargetPath = ''' + EscTarget + '''; ';
-  if EscWorking <> '' then Cmd := Cmd + '$lnk.WorkingDirectory = ''' + EscWorking + '''; ';
-  Cmd := Cmd + '$lnk.Save()"';
-
-  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
-    Log(Format('Shortcut creation rc=%d: %s', [RC, ShortcutPath]))
-  else
-    Log('PowerShell not launched for shortcut creation.');
-end;
-
-procedure EnsureRealityMeshShortcut(const Base: string);
-var InstallDir, LegacyDir, ShortcutPath, Source, Target: string;
-begin
-  if Base = '' then Exit;
-
-  InstallDir   := AddBackslash(Base) + 'RealityMeshInstall';
-  LegacyDir    := AddBackslash(Base) + 'ReailityMeshInstall';
-  ForceDirectories(InstallDir);
-  ShortcutPath := InstallDir + '\' + RM_LINK_NAME;
-
-  if FileExists(ShortcutPath) then Exit;
-
-  if FindRealityMeshLinkInDir(InstallDir, Source) then begin
-    if CompareText(Source, ShortcutPath) <> 0 then
-      if not FileCopy(Source, ShortcutPath, False) then
-        Log('Failed to copy Reality Mesh shortcut from install directory.');
-    Exit;
-  end;
-
-  if FindRealityMeshLinkInDir(LegacyDir, Source) then begin
-    if FileCopy(Source, ShortcutPath, False) then
-      Log('Copied Reality Mesh shortcut from legacy install folder.')
-    else
-      Log('Failed to copy Reality Mesh shortcut from legacy folder.');
-    Exit;
-  end;
-
-  Target := '';
-  if not FindRealityMeshExecutableInDir(InstallDir, Target) then
-    if not FindRealityMeshExecutableInDir(LegacyDir, Target) then
-      Target := '';
-
-  if Target <> '' then
-    CreateShortcutViaPowerShell(Target, ShortcutPath)
-  else
-    Log('Reality Mesh executable not located; shortcut not created.');
-end;
-
-function TryExec(const Exe, Args: string): Boolean;
-var RC: Integer;
+function TryExecHidden(const Exe, Args: string): Boolean;
+var
+  RC: Integer;
 begin
   Result := Exec(Exe, Args, '', SW_HIDE, ewWaitUntilTerminated, RC);
   if Result then
@@ -379,29 +290,29 @@ begin
         Params   := '/i "' + FilePath + '" /qn /norestart ALLUSERS=1';
         if TargetDir <> '' then
           Params := Params + ' TARGETDIR="' + TargetDir + '"';
-        TryExec(ExpandConstant('{sys}\msiexec.exe'), Params);
+        TryExecHidden(ExpandConstant('{sys}\msiexec.exe'), Params);
       end;
     until not FindNext(FindRec);
   finally
     FindClose(FindRec);
   end;
 
-  { EXE payloads — try common silent flags; add INSTALLDIR if supported }
+  { EXE payloads — try silent switches; add INSTALLDIR when supported }
   if FindFirst(Dir + '\*.exe', FindRec) then
   try
     repeat
       if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then begin
         FilePath := Dir + '\' + FindRec.Name;
-
-        if not TryExec(FilePath, '/quiet /norestart') then
-        if not TryExec(FilePath, '/verysilent /norestart') then
-        if not TryExec(FilePath, '/S') then
-        if not TryExec(FilePath, '/s') then
-          Log('No known silent switch worked for: ' + FilePath);
-
-        if (TargetDir <> '') then begin
-          if not TryExec(FilePath, '/quiet /norestart INSTALLDIR="' + TargetDir + '"') then
-            TryExec(FilePath, '/verysilent /norestart INSTALLDIR="' + TargetDir + '"');
+        if TargetDir <> '' then begin
+          if not TryExecHidden(FilePath, '/quiet /norestart INSTALLDIR="' + TargetDir + '"') then
+            if not TryExecHidden(FilePath, '/verysilent /norestart INSTALLDIR="' + TargetDir + '"') then
+              if not TryExecHidden(FilePath, '/S') then
+                TryExecHidden(FilePath, '/s');
+        end else begin
+          if not TryExecHidden(FilePath, '/quiet /norestart') then
+            if not TryExecHidden(FilePath, '/verysilent /norestart') then
+              if not TryExecHidden(FilePath, '/S') then
+                TryExecHidden(FilePath, '/s');
         end;
       end;
     until not FindNext(FindRec);
@@ -410,38 +321,58 @@ begin
   end;
 end;
 
-{ ---------------------- Mode helpers ---------------------- }
-function IsHostMode: Boolean;
+function SelectedMode(): TInstallMode;
 begin
-  Result := Assigned(ModePage) and ModePage.Values[0];
+  if ModePage.SelectedValueIndex = 0 then
+    Result := imHost
+  else if ModePage.SelectedValueIndex = 1 then
+    Result := imUser
+  else
+    Result := imUpdate;
 end;
 
-function IsUserMode: Boolean;
+procedure UpdateModeDescription;
+var
+  S: string;
 begin
-  Result := Assigned(ModePage) and ModePage.Values[1];
+  case SelectedMode() of
+    imHost:
+      S := 'HOST: Creates "SharedMeshDrive" on a local drive, shares it over the LAN (\\<IP>\SharedMeshDrive), ' +
+           'seeds config with your PC name and IP, and installs PhotoMesh + Reality Mesh payloads into the shared structure.';
+    imUser:
+      S := 'USER: Regular install without creating a shared drive. Does not map or share anything. ' +
+           'Host/IP is left blank in settings so you can point to the Host later.';
+    imUpdate:
+      S := 'UPDATE/REPAIR: Replaces the Toolkit binaries and repairs config. No sharing, drive layout, or third-party installs.';
+  end;
+  ModeDesc.Caption := S;
 end;
 
-function IsUpdateMode: Boolean;
-begin
-  Result := Assigned(ModePage) and ModePage.Values[2];
-end;
-
-{ ---------------------- Wizard UI ------------------------- }
 procedure InitializeWizard;
 begin
   ModePage := CreateInputOptionPage(
     wpWelcome,
     'Choose Setup Mode',
     'Pick how this installer should configure your system.',
-    '• First-Time Setup (Host): creates the shared folder tree and installs prerequisites.'#13#10 +
-    '• First-Time Setup (User / Non-Host): no drive/share setup; you will point to the host later in Settings.'#13#10 +
-    '• Update/Repair: updates the Toolkit only.',
+    'Select one option below.',
     False, False
   );
-  ModePage.Add('First-Time Setup (Host)');        { index 0 }
-  ModePage.Add('First-Time Setup (User / Non-Host)'); { index 1 }
-  ModePage.Add('Update/Repair');                  { index 2 }
+  ModePage.Add('First-Time Setup (Host)');
+  ModePage.Add('First-Time Setup (User)');
+  ModePage.Add('Update/Repair');
   ModePage.Values[0] := True;
+
+  ModeDesc := TNewStaticText.Create(WizardForm);
+  ModeDesc.Parent := ModePage.Surface;
+  ModeDesc.AutoSize := False;
+  ModeDesc.Left := 0;
+  ModeDesc.Top := ModePage.SurfaceHeight - ScaleY(60);
+  ModeDesc.Width := ModePage.SurfaceWidth;
+  ModeDesc.Height := ScaleY(56);
+  ModeDesc.WordWrap := True;
+  UpdateModeDescription();
+
+  ModePage.OnClick := @UpdateModeDescription;
 
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
@@ -458,14 +389,15 @@ function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if Assigned(SharedRootPage) and (PageID = SharedRootPage.ID) then
-    Result := not IsHostMode;   { show only for Host mode }
+    Result := SelectedMode() <> imHost;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
-var Candidate: string;
+var
+  Candidate: string;
 begin
   Result := True;
-  if Assigned(SharedRootPage) and (CurPageID = SharedRootPage.ID) and IsHostMode then begin
+  if Assigned(SharedRootPage) and (CurPageID = SharedRootPage.ID) then begin
     Candidate := Trim(SharedRootPage.Values[0]);
     if Candidate = '' then begin
       MsgBox('Please choose a drive or folder.', mbError, MB_OK);
@@ -476,53 +408,73 @@ begin
   end;
 end;
 
-{ ---------------------- Install steps --------------------- }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  AppDir, Root, Base, RMTarget: string;
+  AppDir, Base, RMTarget, HostRoot, Cmd, Ip: string;
   NeedPhotoMesh, NeedRealityMesh: Boolean;
+  RC: Integer;
 begin
   if CurStep = ssInstall then begin
     AppDir := ExpandConstant('{app}');
+    HostRoot := '';
 
-    if IsHostMode then begin
-      Root := DetermineShareRoot(AppDir, True);
-      Base := SeedConfigIni_Host(AppDir, Root);
-      EnsureSmbShareCmd(SHARE_NAME, Base);
+    case SelectedMode() of
+      imHost:
+      begin
+        if SharedRoot <> '' then
+          HostRoot := SharedRoot
+        else
+          HostRoot := 'D:\';
+        Base := SeedConfigIni_Host(AppDir, HostRoot);
 
-      NeedPhotoMesh   := not HasPhotoMeshWizard();
-      NeedRealityMesh := not HasShareRealityMesh(Base);
+        NeedPhotoMesh   := not HasPhotoMeshWizard();
+        NeedRealityMesh := not HasShareRealityMesh(Base);
 
-      if NeedPhotoMesh then begin
-        Log('PhotoMesh Wizard not detected; running Photomesh installers.');
-        RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '');
-      end else
-        Log('PhotoMesh Wizard present; skipping Photomesh installers.');
+        if NeedPhotoMesh then begin
+          Log('PhotoMesh Wizard not detected; running Photomesh installers.');
+          RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '');
+        end else
+          Log('PhotoMesh Wizard present; skipping Photomesh installers.');
 
-      if NeedRealityMesh then begin
-        Log('Reality Mesh not found under share; running RealityMesh installers.');
-        RMTarget := AddBackslash(Base) + 'RealityMeshInstall';
-        RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'), RMTarget);
-      end else
-        Log('Reality Mesh found under share; skipping RealityMesh installers.');
+        if NeedRealityMesh then begin
+          Log('Reality Mesh not found under share; running RealityMesh installers.');
+          RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'), AddBackslash(Base) + 'RealityMeshInstall');
+        end else
+          Log('Reality Mesh found under share; skipping RealityMesh installers.');
 
-      EnsureRealityMeshShortcut(Base);
-    end
-    else if IsUserMode then begin
-      { User/non-host: no drive/share creation, no prereq installers }
-      SeedConfigIni_User(AppDir);
-      Log('User/Non-Host mode: skipped drive/share setup and prereq installers.');
-    end
-    else begin
-      { Update/Repair: leave shared layout untouched; do not run prereqs }
-      Log('Update/Repair mode: Toolkit updated, shared layout unchanged.');
+        { Map M: to \\<this-IP>\SharedMeshDrive silently (optional) }
+        Ip := GetPrimaryIPv4();
+        if Ip <> '' then begin
+          Cmd := '/C "net use M: \\' + Ip + '\\' + SHARE_NAME + ' /persistent:yes"';
+          Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+        end;
+      end;
+
+      imUser:
+      begin
+        SeedConfigIni_User(AppDir);
+      end;
+
+      imUpdate:
+      begin
+        { No layout/shares; leave config in place. }
+      end;
+    end;
+
+    if SelectedMode() = imHost then begin
+      if HostRoot = '' then
+        HostRoot := 'D:\';
+      RMTarget := AddBackslash(BuildShareBase(HostRoot)) + 'RealityMeshInstall\' + RM_LINK_NAME;
+      { No-op if existing; created by the installers or present already. }
     end;
   end;
 end;
 
 procedure CurInstallFinished;
-var RC: Integer;
+var
+  RC: Integer;
 begin
+  { Wizard config hardening / OBJ-only flips happen here, silently }
   if FileExists(ExpandConstant('{app}\update_photomesh_config.exe')) then
     Exec(ExpandConstant('{app}\update_photomesh_config.exe'), '', '{app}', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
