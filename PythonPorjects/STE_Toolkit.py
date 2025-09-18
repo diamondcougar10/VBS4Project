@@ -2900,7 +2900,6 @@ class MainApp(tk.Tk):
         global APP_INSTANCE
         APP_INSTANCE = self
         pump_ui_queue(self)
-        bootstrap_first_run_if_needed(log=self.log_message)
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
          # Prevent window resizing
@@ -2939,12 +2938,17 @@ class MainApp(tk.Tk):
         # track live scale & throttle id
         self._live_scale = None
         self._cfg_job = None
+        def log_message(msg):
+            print(f"> {msg}")  # Or use post_ui(log_to_console, f"> {msg}") if you want UI logging
+        self.log_message = log_message
 
         def _on_configure(event=None):
             # throttle rapid resize events
             if self._cfg_job is not None:
                 self.after_cancel(self._cfg_job)
             self._cfg_job = self.after(25, self._recompute_scale)
+
+        bootstrap_first_run_if_needed(log=self.log_message)
 
         def _recompute_scale():
             self._cfg_job = None
