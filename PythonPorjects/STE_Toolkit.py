@@ -5676,100 +5676,119 @@ class SettingsPanel(tk.Frame):
             fg="white",
             font=("Helvetica", 16),
         )
-        locs_box.grid(row=6, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        # Make row 6 expand and give it more vertical room
+        # Row 6 expands for the scroller; keep Back button at row 7 non‑scrolling
         self.grid_rowconfigure(6, weight=1, minsize=800)
+        locs_box.grid(row=6, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         # Canvas + vertical scrollbar
-        canvas = tk.Canvas(locs_box, bg="black", highlightthickness=0, bd=0)
-        vbar = tk.Scrollbar(locs_box, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
+        self._settings_canvas = tk.Canvas(
+            locs_box, bg="black", highlightthickness=0, bd=0
+        )
+        vbar = tk.Scrollbar(locs_box, orient="vertical",
+                            command=self._settings_canvas.yview)
+        self._settings_canvas.configure(yscrollcommand=vbar.set)
+        self._settings_canvas.pack(side="left", fill="both", expand=True)
         vbar.pack(side="right", fill="y")
 
-        # The inner content frame that actually holds the rows
-        inner = tk.Frame(canvas, bg="black")
-        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        # Inner frame to hold the path rows
+        self._settings_inner = tk.Frame(self._settings_canvas, bg="black")
+        win_id = self._settings_canvas.create_window(
+            (0, 0), window=self._settings_inner, anchor="nw"
+        )
 
-        # Ensure the inner frame always matches the canvas width
+        # Keep inner frame width equal to visible canvas width
         def _on_canvas_resize(evt):
-            canvas.itemconfig(win_id, width=evt.width)
+            self._settings_canvas.itemconfig(win_id, width=evt.width)
+        self._settings_canvas.bind("<Configure>", _on_canvas_resize)
 
-        canvas.bind("<Configure>", _on_canvas_resize)
-
-        # Give the scrollregion some extra "overscroll" margin at the bottom
-        SCROLL_BOTTOM_PAD = 180  # tweak to taste
-
+        # Maintain scrollregion with a bit of bottom pad so last row is fully visible
+        _SCROLLER_BOTTOM_PAD = 180
         def _update_scrollregion(_evt=None):
-            bbox = canvas.bbox("all")
+            bbox = self._settings_canvas.bbox("all")
             if bbox:
                 x0, y0, x1, y1 = bbox
-                # Add bottom padding so the last buttons scroll fully into view
-                canvas.configure(scrollregion=(x0, y0, x1, y1 + SCROLL_BOTTOM_PAD))
+                self._settings_canvas.configure(
+                    scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD)
+                )
+        self._settings_inner.bind("<Configure>", _update_scrollregion)
 
-        inner.bind("<Configure>", _update_scrollregion)
+        # Smooth wheel behavior (Windows/macOS: <MouseWheel>, X11: Button-4/5)
+        def _on_mousewheel(evt):
+            if evt.delta:  # Windows / macOS
+                # delta is a multiple of 120 on Windows; sign only on macOS
+                step = int(-1 * (evt.delta / 120)) if evt.delta else 0
+                if step != 0:
+                    self._settings_canvas.yview_scroll(step, "units")
+            elif getattr(evt, "num", None) in (4, 5):  # X11
+                self._settings_canvas.yview_scroll(-1 if evt.num == 4 else 1, "units")
 
-        # Smooth wheel behavior
-        def _wheel(evt):
-            # Windows reports delta in multiples of 120
-            step = -1 if evt.delta > 0 else 1
-            canvas.yview_scroll(step, "units")
+        def _bind_wheel(_):
+            # Bind on enter so wheel scrolling applies while hovered
+            self._settings_inner.bind_all("<MouseWheel>", _on_mousewheel)
+            self._settings_inner.bind_all("<Button-4>", _on_mousewheel)
+            self._settings_inner.bind_all("<Button-5>", _on_mousewheel)
 
-        inner.bind("<Enter>", lambda e: inner.bind_all("<MouseWheel>", _wheel))
-        inner.bind("<Leave>", lambda e: inner.unbind_all("<MouseWheel>"))
+        def _unbind_wheel(_):
+            # Unbind on leave so we don't hijack wheel in other panels
+            self._settings_inner.unbind_all("<MouseWheel>")
+            self._settings_inner.unbind_all("<Button-4>")
+            self._settings_inner.unbind_all("<Button-5>")
 
-        # ---- Add your path rows into `inner` exactly as before ----
+        self._settings_inner.bind("<Enter>", _bind_wheel)
+        self._settings_inner.bind("<Leave>", _unbind_wheel)
+
+        # ---- Add the existing path rows into `self._settings_inner` exactly as before ----
         self.lbl_projects_root = self._create_path_row(
             "Change Projects Root",
             self._on_change_projects_root,
             get_projects_root(),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
             self._on_set_vbs4,
             get_vbs4_install_path(),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_vbs4_setup = self._create_path_row(
             "Set VBS4 Setup Launcher Location",
             self._on_set_vbs4_setup,
             config["General"].get("vbs4_setup_path", ""),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_blueig = self._create_path_row(
             "Set BlueIG Install Location",
             self._on_set_blueig,
             get_blueig_install_path(),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_ares = self._create_path_row(
             "Set ARES Manager Location",
             self._on_set_ares,
             get_ares_manager_path(),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_browser = self._create_path_row(
             "Pick Default Browser",
             self._on_set_browser,
             get_default_browser(),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_vbs_license = self._create_path_row(
             "Set VBS License Manager Location",
             self._on_set_vbs_license_manager,
             config["General"].get("vbs_license_manager_path", ""),
-            parent=inner,
+            parent=self._settings_inner,
         )
         self.lbl_oneclick = self._create_path_row(
             "Set One-Click Output Folder",
             self._on_set_oneclick,
             get_oneclick_output_path(),
-            parent=inner,
+            parent=self._settings_inner,
         )
 
-        # Real spacer at bottom so the last row can scroll above the window edge
-        tk.Frame(inner, height=SCROLL_BOTTOM_PAD, bg="black").pack(fill="x")
+        # Spacer so the last row can scroll above the bottom edge
+        tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
 
         # Back button and tutorial
         tk.Button(
