@@ -1,5 +1,5 @@
 {
-  "shared_path": "",
+  "shared_path": "\\\\192.168.10.201\\SharedMeshDrive\\WorkingFuser",
   "fusers": {
     "localhost": [
       {

@@ -697,7 +697,7 @@ except Exception as e:  # pragma: no cover - best effort migration
 
 def build_unc_from_cfg(o: dict) -> str:
     """
-    Build UNC \\<IP>\share from Offline config, always preferring host_ip.
+    Build UNC \\\\<IP>\\share from Offline config, always preferring host_ip.
     Returns an empty string if no host_ip is configured.
     """
 
@@ -714,7 +714,7 @@ def working_fuser_unc_from_cfg(o: dict) -> str:
 
 
 def resolve_network_working_folder_from_cfg(o: dict) -> str:
-    """Returns UNC for WorkingFuser (\\<IP>\share\WorkingFuser)."""
+    r"""Returns UNC for WorkingFuser (\\\\<IP>\\share\WorkingFuser)."""
 
     unc = build_unc_from_cfg(o)
     if not unc:
@@ -772,7 +772,7 @@ def ensure_offline_share_via_cmd(log=print) -> None:
             creationflags=NO_WINDOW_FLAG,
         )
         log(
-            f"Offline share ensured via CMD: \{get_machine_name()}\{share}  ({root})"
+            f"Offline share ensured via CMD: \\{get_machine_name()}\\{share}  ({root})"
         )
     except Exception as e:
         log(f"Could not create SMB share via cmd: {e}")
