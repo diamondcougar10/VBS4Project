@@ -222,7 +222,7 @@ def get_primary_ipv4() -> str:
 
 
 def ensure_sharedmesh_share(local_root: str, share_name: str = "SharedMeshDrive", log=None) -> bool:
-    """Share local_root as \\\\<this-pc>\\<share_name> silently. Returns True on success."""
+    """Share local_root as \\<this-pc>\<share_name> silently. Returns True on success."""
     if not local_root or not os.path.isdir(local_root):
         if log:
             log(f"[Share] Invalid root: {local_root}")
