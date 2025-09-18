@@ -49,6 +49,9 @@ except Exception:  # pragma: no cover - headless/test environments
     messagebox = None
 # endregion
 
+# Hide consoles for child processes on Windows
+NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # region Constants & Configuration
 # Authoritative Wizard locations
 WIZARD_DIR = r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard"
@@ -696,7 +699,7 @@ def ensure_offline_share_via_cmd(log=print) -> None:
         subprocess.run(
             ["cmd", "/C", f'net share {share}="{root}" /GRANT:Everyone,FULL'],
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=NO_WINDOW_FLAG,
         )
         subprocess.run(
             [
@@ -705,7 +708,7 @@ def ensure_offline_share_via_cmd(log=print) -> None:
                 'netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes',
             ],
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=NO_WINDOW_FLAG,
         )
         log(
             f"Offline share ensured via CMD: \{get_machine_name()}\{share}  ({root})"
@@ -787,6 +790,7 @@ def list_remote_shares(host: str) -> list[str]:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=NO_WINDOW_FLAG,
         ).stdout
         return [m.group(1) for m in _DRIVE_RE.finditer(out)]
     except Exception:
@@ -849,7 +853,11 @@ def current_mapping(letter: str = "M:") -> str | None:
     r"""Return the UNC path mapped to *letter*, if any."""
     try:
         out = subprocess.run(
-            ["net", "use"], capture_output=True, text=True, check=False
+            ["net", "use"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=NO_WINDOW_FLAG,
         ).stdout
         pattern = re.compile(rf"^\s*{re.escape(letter)}\s+(\\\\\\S+)", re.MULTILINE | re.IGNORECASE)
         m = pattern.search(out)
@@ -860,7 +868,11 @@ def current_mapping(letter: str = "M:") -> str | None:
 
 def unmap_drive(letter: str = "M:") -> None:
     r"""Unmap drive *letter* using ``net use``."""
-    subprocess.run(["net", "use", letter, "/delete", "/yes"], check=False)
+    subprocess.run(
+        ["net", "use", letter, "/delete", "/yes"],
+        check=False,
+        creationflags=NO_WINDOW_FLAG,
+    )
 
 
 def map_drive(unc: str, letter: str = "M:") -> bool:
@@ -871,6 +883,7 @@ def map_drive(unc: str, letter: str = "M:") -> bool:
     subprocess.run(
         ["net", "use", letter, unc, "/persistent:yes"],
         check=False,
+        creationflags=NO_WINDOW_FLAG,
     )
     target = os.path.join(letter, "")
     return os.path.isdir(target) and can_access_unc(unc)
@@ -1005,20 +1018,21 @@ def run_exe_as_admin_blocking(
     """Run elevated process and wait for completion via PowerShell Start-Process."""
     args = args or []
     argline = " ".join([f'"{a}"' for a in args])
+    command = (
+        f'Start-Process "{exe_path}" -ArgumentList "{argline}" '
+        "-Verb RunAs -Wait"
+    )
     ps = [
         "powershell",
         "-NoProfile",
+        "-WindowStyle",
+        "Hidden",
         "-ExecutionPolicy",
         "Bypass",
-        "Start-Process",
-        f'"{exe_path}"',
-        "-ArgumentList",
-        f'"{argline}"',
-        "-Verb",
-        "RunAs",
-        "-Wait",
+        "-Command",
+        command,
     ]
-    subprocess.run(ps, check=True, cwd=cwd or None)
+    subprocess.run(ps, check=True, cwd=cwd or None, creationflags=NO_WINDOW_FLAG)
 
 
 def launch_photomesh_admin() -> None:

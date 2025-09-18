@@ -997,16 +997,21 @@ def write_project_settings(settings_path: str, data: dict, data_folder: str) -> 
 
 
 def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None) -> None:
-    """Run the Reality Mesh PowerShell script via a project-specific batch file."""
-    batch_path = os.path.join(os.path.dirname(settings_path), 'RealityMeshProcess.bat')
+    """Run the Reality Mesh PowerShell script silently (no visible console)."""
+    if not os.path.isfile(ps_script):
+        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
 
-    with open(batch_path, 'w', encoding='utf-8') as f:
-        f.write(
-            f'start "" powershell -executionpolicy bypass "{ps_script}" "{settings_path}" 1\n'
-        )
-
-    log_func(f'Created batch file {batch_path}')
-    subprocess.run(batch_path, check=True)
+    cmd = [
+        "powershell",
+        "-NoProfile",
+        "-WindowStyle", "Hidden",
+        "-ExecutionPolicy", "Bypass",
+        "-File", ps_script,
+        settings_path,
+        "1",
+    ]
+    log_func(f"[processor] {' '.join(cmd)} (hidden)")
+    subprocess.run(cmd, check=True, creationflags=NO_WINDOW_FLAG)
 
 
 def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
@@ -1020,13 +1025,15 @@ def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
     if not os.path.isfile(ps_script):
         raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
     cmd = [
-        'powershell',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', ps_script,
+        "powershell",
+        "-NoProfile",
+        "-WindowStyle", "Hidden",
+        "-ExecutionPolicy", "Bypass",
+        "-File", ps_script,
         target_ip,
         settings_path,
     ]
-    log_func('Running: ' + ' '.join(cmd))
+    log_func('Running (hidden): ' + ' '.join(cmd))
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     with subprocess.Popen(
@@ -1038,6 +1045,7 @@ def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
         errors="replace",
         env=env,
         bufsize=1,
+        creationflags=NO_WINDOW_FLAG,
     ) as proc:
         for line in proc.stdout:
             line = line.rstrip("\r\n")
