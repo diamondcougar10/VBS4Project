@@ -41,7 +41,7 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
-; Launch Toolkit when finished
+; Launch Toolkit when finished (user can uncheck on finish page)
 Filename: "{app}\STE_Toolkit.exe"; Description: "Launch STE Mission Planning Toolkit now"; Flags: nowait postinstall skipifsilent
 ; Optional firewall rule
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
@@ -59,10 +59,10 @@ type
   TInstallMode = (imHost, imUser, imUpdate);
 
 var
-  ModePage: TInputOptionWizardPage;
+  ModePage:       TInputOptionWizardPage;
   SharedRootPage: TInputDirWizardPage;
-  ModeDesc: TNewStaticText;
-  SharedRoot: string;
+  ModeDesc:       TNewStaticText;
+  SharedRoot:     string;
 
 function FileExists2(const P: string): Boolean;
 begin
@@ -80,7 +80,8 @@ end;
 function TrimTrailingSlash(Path: string): string;
 begin
   Result := Path;
-  while (Result <> '') and (Result[Length(Result)] = '\') do begin
+  while (Result <> '') and (Result[Length(Result)] = '\') do
+  begin
     if (Length(Result) = 3) and (Result[2] = ':') then Break;
     SetLength(Result, Length(Result) - 1);
   end;
@@ -123,8 +124,7 @@ var
   Cmd: string;
   Ran: Boolean;
 begin
-  if LocalPath = '' then
-    Exit;
+  if LocalPath = '' then Exit;
 
   { 1) Try PowerShell silently }
   Cmd :=
@@ -135,7 +135,8 @@ begin
     '}"';
   Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
               Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Ran and (RC = 0) then begin
+  if Ran and (RC = 0) then
+  begin
     Log(Format('SMB share ensured (PowerShell): %s -> %s', [ShareName, LocalPath]));
     Exit;
   end;
@@ -148,11 +149,12 @@ begin
   else
     Log(Format('SMB share creation skipped or failed (rc=%d) for %s', [RC, LocalPath]));
 end;
+
 function GetPrimaryIPv4(): string;
 var
   PS, TmpFile: string;
   RC: Integer;
-  S: AnsiString;  // ← must be AnsiString for LoadStringFromFile
+  S: AnsiString;  // use AnsiString buffer for LoadStringFromFile
 begin
   Result := '';
   TmpFile := ExpandConstant('{tmp}\host_ip.txt');
@@ -162,12 +164,12 @@ begin
     '"$ip = (Get-NetIPAddress -AddressFamily IPv4 | ' +
     '  Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
     '  Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress); ' +
-    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';   // force ASCII
+    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';
 
   if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
   begin
     if (RC = 0) and LoadStringFromFile(TmpFile, S) then
-      Result := Trim(string(S)); // cast AnsiString → string
+      Result := Trim(string(S)); // cast AnsiString -> string
   end;
 
   DeleteFile(TmpFile);
@@ -191,9 +193,9 @@ begin
   SetIniString('Offline', 'local_data_root', Base,    Ini);
   SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
   SetIniString('Offline', 'working_fuser_host', HostName, Ini);
-  SetIniString('Offline', 'use_ip_unc', 'True',       Ini);  { use \\<IP>\share }
+  SetIniString('Offline', 'use_ip_unc', 'True',       Ini);
 
-  SetIniString('SharedDrive', 'preferred_mode', 'UNC', Ini); { default to UNC/IP }
+  SetIniString('SharedDrive', 'preferred_mode', 'UNC', Ini);
   SetIniString('SharedDrive', 'drive_letter',   'M:',  Ini);
   SetIniString('SharedDrive', 'auto_map_on_save','True', Ini);
 
@@ -218,10 +220,10 @@ var
 begin
   Ini := AddBackslash(AppDir) + 'config.ini';
   SetIniString('Offline', 'enabled', 'True',          Ini);
-  SetIniString('Offline', 'host_name',  '',           Ini);   { blank on user PCs }
-  SetIniString('Offline', 'host_ip',    '',           Ini);   { will be set in UI }
+  SetIniString('Offline', 'host_name',  '',           Ini);
+  SetIniString('Offline', 'host_ip',    '',           Ini);
   SetIniString('Offline', 'share_name', SHARE_NAME,   Ini);
-  SetIniString('Offline', 'local_data_root', '',      Ini);   { no local layout }
+  SetIniString('Offline', 'local_data_root', '',      Ini);
   SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
   SetIniString('Offline', 'use_ip_unc', 'True',       Ini);
 
@@ -247,7 +249,8 @@ begin
   if FindFirst(AddBackslash(Base) + 'RealityMeshInstall\*', Rec) then
   try
     repeat
-      if (CompareText(Rec.Name, RM_LINK_NAME) = 0) then begin
+      if (CompareText(Rec.Name, RM_LINK_NAME) = 0) then
+      begin
         Found := True;
         Break;
       end;
@@ -274,7 +277,8 @@ var
   FindRec: TFindRec;
   FilePath, Params: string;
 begin
-  if not DirExists(Dir) then begin
+  if not DirExists(Dir) then
+  begin
     Log('Installer payload missing: ' + Dir);
     Exit;
   end;
@@ -286,7 +290,8 @@ begin
   if FindFirst(Dir + '\*.msi', FindRec) then
   try
     repeat
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then begin
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+      begin
         FilePath := Dir + '\' + FindRec.Name;
         Params   := '/i "' + FilePath + '" /qn /norestart ALLUSERS=1';
         if TargetDir <> '' then
@@ -302,14 +307,18 @@ begin
   if FindFirst(Dir + '\*.exe', FindRec) then
   try
     repeat
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then begin
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+      begin
         FilePath := Dir + '\' + FindRec.Name;
-        if TargetDir <> '' then begin
+        if TargetDir <> '' then
+        begin
           if not TryExecHidden(FilePath, '/quiet /norestart INSTALLDIR="' + TargetDir + '"') then
             if not TryExecHidden(FilePath, '/verysilent /norestart INSTALLDIR="' + TargetDir + '"') then
               if not TryExecHidden(FilePath, '/S') then
                 TryExecHidden(FilePath, '/s');
-        end else begin
+        end
+        else
+        begin
           if not TryExecHidden(FilePath, '/quiet /norestart') then
             if not TryExecHidden(FilePath, '/verysilent /norestart') then
               if not TryExecHidden(FilePath, '/S') then
@@ -331,6 +340,7 @@ begin
   else
     Result := imUpdate;
 end;
+
 procedure RefreshModeDescription;
 var
   S: string;
@@ -352,39 +362,43 @@ procedure ModeRadioClicked(Sender: TObject);
 begin
   RefreshModeDescription;
 end;
+
 procedure InitializeWizard;
 var
-  i: Integer;  // <-- locals must be declared here
+  i: Integer;
 begin
+  // Single-select radios, "no selection" not allowed
   ModePage := CreateInputOptionPage(
     wpWelcome,
     'Choose Setup Mode',
     'Pick how this installer should configure your system.',
     'Select one option below.',
-    False, False
+    False,  // AllowMultipleSelection -> radios
+    False   // AllowNoSelection       -> must pick one
   );
   ModePage.Add('First-Time Setup (Host)');
   ModePage.Add('First-Time Setup (User)');
   ModePage.Add('Update/Repair');
-  ModePage.Values[0] := True;
+  ModePage.Values[0] := True;  // default to Host
 
+  // Descriptive text under the radios
   ModeDesc := TNewStaticText.Create(WizardForm);
-  ModeDesc.Parent := ModePage.Surface;
+  ModeDesc.Parent   := ModePage.Surface;
   ModeDesc.AutoSize := False;
-  ModeDesc.Left := 0;
-  ModeDesc.Top := ModePage.SurfaceHeight - ScaleY(60);
-  ModeDesc.Width := ModePage.SurfaceWidth;
-  ModeDesc.Height := ScaleY(56);
+  ModeDesc.Left     := 0;
+  ModeDesc.Top      := ModePage.SurfaceHeight - ScaleY(60);
+  ModeDesc.Width    := ModePage.SurfaceWidth;
+  ModeDesc.Height   := ScaleY(56);
   ModeDesc.WordWrap := True;
 
-  RefreshModeDescription;  // set initial text
+  RefreshModeDescription;
 
-  // Wire all radios on the page to our click handler
+  // Keep description synced when a radio is clicked
   for i := 0 to ModePage.Surface.ControlCount - 1 do
     if ModePage.Surface.Controls[i] is TNewRadioButton then
       TNewRadioButton(ModePage.Surface.Controls[i]).OnClick := @ModeRadioClicked;
 
-  // Create the "Shared drive root" page (needed by ShouldSkipPage / NextButtonClick)
+  // Host-only page: where to create the SharedMeshDrive folder
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
     'Choose Shared Drive Root',
@@ -399,6 +413,7 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
+  // Show the shared-root page ONLY for Host
   if Assigned(SharedRootPage) and (PageID = SharedRootPage.ID) then
     Result := SelectedMode() <> imHost;
 end;
@@ -408,9 +423,25 @@ var
   Candidate: string;
 begin
   Result := True;
-  if Assigned(SharedRootPage) and (CurPageID = SharedRootPage.ID) then begin
+
+  // Guard: must have exactly one selection (single-select page guarantees it)
+  if Assigned(ModePage) and (CurPageID = ModePage.ID) then
+  begin
+    if ModePage.SelectedValueIndex < 0 then
+    begin
+      MsgBox('Please select exactly one setup mode (Host, User, or Update/Repair).',
+             mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
+
+  // Validate Host's shared-root selection
+  if Assigned(SharedRootPage) and (CurPageID = SharedRootPage.ID) then
+  begin
     Candidate := Trim(SharedRootPage.Values[0]);
-    if Candidate = '' then begin
+    if Candidate = '' then
+    begin
       MsgBox('Please choose a drive or folder.', mbError, MB_OK);
       Result := False;
       Exit;
@@ -425,7 +456,8 @@ var
   NeedPhotoMesh, NeedRealityMesh: Boolean;
   RC: Integer;
 begin
-  if CurStep = ssInstall then begin
+  if CurStep = ssInstall then
+  begin
     AppDir := ExpandConstant('{app}');
     HostRoot := '';
 
@@ -441,22 +473,27 @@ begin
         NeedPhotoMesh   := not HasPhotoMeshWizard();
         NeedRealityMesh := not HasShareRealityMesh(Base);
 
-        if NeedPhotoMesh then begin
+        if NeedPhotoMesh then
+        begin
           Log('PhotoMesh Wizard not detected; running Photomesh installers.');
           RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '');
-        end else
+        end
+        else
           Log('PhotoMesh Wizard present; skipping Photomesh installers.');
 
-        if NeedRealityMesh then begin
+        if NeedRealityMesh then
+        begin
           Log('Reality Mesh not found under share; running RealityMesh installers.');
           RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'), AddBackslash(Base) + 'RealityMeshInstall');
-        end else
+        end
+        else
           Log('Reality Mesh found under share; skipping RealityMesh installers.');
 
         { Map M: to \\<this-IP>\SharedMeshDrive silently (optional) }
         Ip := GetPrimaryIPv4();
-        if Ip <> '' then begin
-          Cmd := '/C "net use M: \\' + Ip + '\\' + SHARE_NAME + ' /persistent:yes"';
+        if Ip <> '' then
+        begin
+          Cmd := '/C "net use M: \\' + Ip + '\' + SHARE_NAME + ' /persistent:yes"';
           Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
         end;
       end;
@@ -472,7 +509,8 @@ begin
       end;
     end;
 
-    if SelectedMode() = imHost then begin
+    if SelectedMode() = imHost then
+    begin
       if HostRoot = '' then
         HostRoot := 'D:\';
       RMTarget := AddBackslash(BuildShareBase(HostRoot)) + 'RealityMeshInstall\' + RM_LINK_NAME;
