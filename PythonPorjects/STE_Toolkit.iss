@@ -106,35 +106,15 @@ begin
   Result := Base;
 end;
 
-procedure EnsureSmbShare(const ShareName, LocalPath: string);
+procedure EnsureSmbShareCmd(const ShareName, LocalPath: string);
 var
-  RC: Integer; Cmd, EscShare, EscPath: string; Ran: Boolean;
+  RC: Integer;
 begin
-  if LocalPath = '' then Exit;
-
-  EscShare := ShareName; EscPath := LocalPath;
-  StringChangeEx(EscShare, '''', '''''', True);
-  StringChangeEx(EscPath,  '''', '''''', True);
-
-  Cmd :=
-    '-NoProfile -ExecutionPolicy Bypass -Command ' +
-    '"$ErrorActionPreference=''Stop''; ' +
-    'if (-not (Get-SmbShare -Name ''' + EscShare + ''' -ErrorAction SilentlyContinue)) { ' +
-    '  New-SmbShare -Name ''' + EscShare + ''' -Path ''' + EscPath + ''' -FullAccess ''Everyone'' | Out-Null ' +
-    '}"';
-  Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-              Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Ran and (RC = 0) then begin
-    Log(Format('SMB share ensured (PowerShell): %s -> %s', [ShareName, LocalPath]));
-    Exit;
-  end;
-
-  Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
-  Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Ran and (RC = 0) then
-    Log(Format('SMB share ensured (net share): %s -> %s', [ShareName, LocalPath]))
-  else
-    Log(Format('SMB share creation skipped or failed (rc=%d) for %s', [RC, LocalPath]));
+  if (ShareName = '') or (LocalPath = '') then Exit;
+  Exec(ExpandConstant('{cmd}'),
+       '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
+  Log(Format('[share] net share rc=%d (%s -> %s)', [RC, ShareName, LocalPath]));
 end;
 
 function DetermineDriveLetter(const Base, Ini: string): string;
@@ -156,8 +136,6 @@ begin
   Base := ForceLayoutUnder(Root);
   HostName := ExpandConstant('{computername}');
 
-  EnsureSmbShare(SHARE_NAME, Base);
-
   SetIniString('Offline', 'enabled', 'True',  Ini);
   SetIniString('Offline', 'host_name', HostName, Ini);
   SetIniString('Offline', 'host_ip', '',      Ini);
@@ -165,7 +143,7 @@ begin
   SetIniString('Offline', 'local_data_root', Base,           Ini);
   SetIniString('Offline', 'working_fuser_subdir', 'WorkingFuser', Ini);
   SetIniString('Offline', 'working_fuser_host', HostName,    Ini);
-  SetIniString('Offline', 'use_ip_unc', 'False',             Ini);
+  SetIniString('Offline', 'use_ip_unc', 'True',              Ini);
 
   DriveLetter := DetermineDriveLetter(Base, Ini);
   SetIniString('SharedDrive', 'preferred_mode', 'DRIVE',     Ini);
@@ -190,23 +168,24 @@ end;
 
 procedure SeedConfigIni_User(const AppDir: string);
 var
-  Ini, HostName: string;
+  Ini: string;
 begin
   { Minimal config for non-host machines; user will fill paths in Settings later }
   Ini := AddBackslash(AppDir) + 'config.ini';
-  HostName := ExpandConstant('{computername}');
 
   SetIniString('General', 'first_run_done', 'True', Ini);
 
   SetIniString('Offline', 'enabled', 'True',       Ini);
-  SetIniString('Offline', 'host_name', HostName,   Ini);
+  SetIniString('Offline', 'host_name', '',         Ini);
   SetIniString('Offline', 'host_ip', '',           Ini);
   SetIniString('Offline', 'share_name', SHARE_NAME, Ini);
-  SetIniString('Offline', 'local_data_root', '',   Ini);   { unknown on user box }
+  SetIniString('Offline', 'local_data_root', 'D:\\SharedMeshDrive',   Ini);
   SetIniString('Offline', 'working_fuser_subdir', 'WorkingFuser', Ini);
-  SetIniString('Offline', 'use_ip_unc', 'False',   Ini);
+  SetIniString('Offline', 'use_ip_unc', 'True',    Ini);
 
-  { Leave SharedDrive mapping unset; user can map later in Settings }
+  SetIniString('SharedDrive', 'preferred_mode', 'DRIVE', Ini);
+  SetIniString('SharedDrive', 'drive_letter',  'M:',    Ini);
+  SetIniString('SharedDrive', 'auto_map_on_save', 'True', Ini);
 end;
 
 function SelectedRoot(): string;
@@ -509,6 +488,7 @@ begin
     if IsHostMode then begin
       Root := DetermineShareRoot(AppDir, True);
       Base := SeedConfigIni_Host(AppDir, Root);
+      EnsureSmbShareCmd(SHARE_NAME, Base);
 
       NeedPhotoMesh   := not HasPhotoMeshWizard();
       NeedRealityMesh := not HasShareRealityMesh(Base);
