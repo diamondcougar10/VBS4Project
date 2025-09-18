@@ -19,7 +19,6 @@
 # =============================================================================
 
 # region Imports
-import json
 import os
 import sys
 
@@ -30,6 +29,8 @@ if BASE_DIR not in sys.path:
 from photomesh_launcher import (
     get_offline_cfg,
     resolve_network_working_folder_from_cfg,
+    _load_json,
+    _save_json,
 )
 # endregion
 
@@ -54,36 +55,18 @@ CONFIGS = [
 # endregion
 
 # region File I/O & JSON helpers
-def _load_config(path: str) -> dict:
-    """Load JSON configuration from *path*."""
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save_config(path: str, config: dict) -> None:
-    """Write JSON *config* to *path* atomically."""
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4)
-    os.replace(tmp, path)
+# Shared via photomesh_launcher._load_json/_save_json
 # endregion
 
 # region Wizard Config
 def update_config(path: str) -> bool:
     """Force OBJ-only defaults and update NetworkWorkingFolder for Wizard 1.5.1."""
-    try:
-        config = _load_config(path)
-    except FileNotFoundError:
-        return False
-    except PermissionError as exc:
-        print(f"[Wizard 1.5.1] Permission denied reading {path}: {exc}")
-        print("Run this updater as Administrator.")
-        return False
-    except json.JSONDecodeError as exc:
-        print(f"[Wizard 1.5.1] Failed to parse {path}: {exc}")
+    if not os.path.isfile(path):
         return False
 
-    ui = config.setdefault("DefaultPhotoMeshWizardUI", {})
+    cfg = _load_json(path) or {}
+
+    ui = cfg.setdefault("DefaultPhotoMeshWizardUI", {})
     ui.setdefault("OutputProducts", {}).update({"Model3D": True})
     fmts = ui.setdefault("Model3DFormats", {})
     fmts["OBJ"] = True
@@ -91,19 +74,19 @@ def update_config(path: str) -> bool:
     fmts["SLPK"] = False
     ui.setdefault("VerticalDatum", "Ellipsoid")
 
+    unc = ""
     try:
-        config["NetworkWorkingFolder"] = resolve_network_working_folder_from_cfg(
-            get_offline_cfg()
-        )
+        unc = resolve_network_working_folder_from_cfg(get_offline_cfg())
     except Exception:
-        pass
+        unc = ""
+    if unc:
+        cfg["NetworkWorkingFolder"] = unc
 
     try:
-        _save_config(path, config)
-    except PermissionError:
-        print(
-            f"[Wizard 1.5.1] Permission denied writing {path}. Run as Administrator."
-        )
+        _save_json(path, cfg)
+    except PermissionError as exc:
+        print(f"[Wizard 1.5.1] Permission denied writing {path}: {exc}")
+        print("Run this updater as Administrator.")
         return False
     except Exception as exc:
         print(f"[Wizard 1.5.1] Failed updating {path}: {exc}")

@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Iterable
 import winreg  # for InstallLocation lookup
 import glob
+import logging
 
 try:  # pragma: no cover - optional dependency
     import requests  # type: ignore
@@ -51,6 +52,48 @@ except Exception:  # pragma: no cover - headless/test environments
 
 # Hide consoles for child processes on Windows
 NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def get_primary_ipv4() -> str:
+    """Return primary IPv4 without showing any console."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return ""
+
+
+def migrate_hostname_to_ip_once():
+    """
+    One-time migration: if host_ip is blank and host_name exists,
+    try to resolve hostname -> ip and persist. Set use_ip_unc=True.
+    """
+
+    o = get_offline_cfg()
+    if "Offline" not in config:
+        config["Offline"] = {}
+    offline = config["Offline"]
+
+    ip = (o.get("host_ip") or "").strip()
+    hn = (o.get("host_name") or "").strip()
+    changed = False
+    if not ip and hn:
+        try:
+            resolved = socket.gethostbyname(hn)
+            if resolved and resolved != "127.0.0.1":
+                offline["host_ip"] = resolved
+                changed = True
+        except Exception:
+            pass
+    if offline.get("use_ip_unc", "True") != "True":
+        offline["use_ip_unc"] = "True"
+        changed = True
+    if changed:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
 
 # region Constants & Configuration
 # Authoritative Wizard locations
@@ -210,9 +253,9 @@ OFFLINE_ACCESS_HINT = (
     "Cannot access the shared working folder.\n\n"
     "Connect all PCs to the same switch, assign static IPs (e.g., host 192.168.50.10, "
     "clients 192.168.50.11-13, mask 255.255.255.0), ensure the same Workgroup "
-    "(e.g., WORKGROUP), share the local_data_root on the host as share_name with "
-    "read/write permissions, and if name resolution fails, enable use_ip_unc or add "
-    "host_name to C:\\Windows\\System32\\drivers\\etc\\hosts."
+    "(e.g., WORKGROUP), and share the local_data_root on the host as share_name "
+    "with read/write permissions. Set the Host IP in Settings so UNC paths use "
+    "the correct address."
 )
 RM_LNK_NAME = "Reality Mesh to VBS4.lnk"
 RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]
@@ -602,13 +645,13 @@ def get_machine_name() -> str:
 
 
 def working_share_root() -> str:
-    """UNC to the root share on the host (no hardcoded name)."""
-    return rf"\\{_read_photomesh_host()}\SharedMeshDrive"
+    """UNC to the root share on the host (IP-based)."""
+    return build_unc_from_cfg(get_offline_cfg())
 
 
 def working_fuser_unc() -> str:
     """UNC path to the WorkingFuser subfolder."""
-    return os.path.join(working_share_root(), "WorkingFuser")
+    return resolve_network_working_folder_from_cfg(get_offline_cfg())
 
 
 def _is_offline_enabled() -> bool:
@@ -636,31 +679,49 @@ def get_offline_cfg() -> dict:
     return {
         "enabled": o.getboolean("enabled", False),
         "host_name": o.get("host_name", "KIT-HOST").strip(),
-        "host_ip": o.get("host_ip", "192.168.50.10").strip(),
+        "host_ip": o.get("host_ip", "").strip(),
         "share_name": o.get("share_name", "SharedMeshDrive").strip(),
         "local_data_root": os.path.normpath(
             o.get("local_data_root", r"D:\\SharedMeshDrive")
         ),
         "working_fuser_subdir": o.get("working_fuser_subdir", "WorkingFuser").strip(),
-        "use_ip_unc": o.getboolean("use_ip_unc", False),
+        "use_ip_unc": o.getboolean("use_ip_unc", True),
     }
 
 
+try:
+    migrate_hostname_to_ip_once()
+except Exception as e:  # pragma: no cover - best effort migration
+    logging.warning(f"[migrate] hostname->ip skipped: {e}")
+
+
 def build_unc_from_cfg(o: dict) -> str:
-    """Build a UNC path to the shared drive from offline config dict *o*."""
-    host = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
-    return rf"\\\\{host}\\{o['share_name']}"
+    """
+    Build UNC \\<IP>\share from Offline config, always preferring host_ip.
+    Returns an empty string if no host_ip is configured.
+    """
+
+    ip = (o.get("host_ip") or "").strip()
+    share = (o.get("share_name") or "SharedMeshDrive").strip()
+    if not ip:
+        return ""
+    return rf"\\{ip}\{share}"
 
 
 def working_fuser_unc_from_cfg(o: dict) -> str:
     """Return UNC path to WorkingFuser based on offline config dict *o*."""
-    return os.path.join(build_unc_from_cfg(o), o["working_fuser_subdir"])
+    return resolve_network_working_folder_from_cfg(o)
 
 
 def resolve_network_working_folder_from_cfg(o: dict) -> str:
-    """Resolve the network working folder UNC from config dict *o*."""
-    base = o["host_ip"] if o.get("use_ip_unc") else o["host_name"]
-    return rf"\\{base}\{o['share_name']}\{o['working_fuser_subdir']}"
+    """Returns UNC for WorkingFuser (\\<IP>\share\WorkingFuser)."""
+
+    unc = build_unc_from_cfg(o)
+    if not unc:
+        return ""
+    sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip()
+    combined = os.path.normpath(os.path.join(unc, sub))
+    return combined.replace("/", "\\")
 
 
 def _resolve_share_root_from_offline(o: dict) -> tuple[str, str]:

@@ -1332,6 +1332,7 @@ def bootstrap_first_run_if_needed(log=None):
             ip = get_primary_ipv4()
             if ip:
                 o['host_ip'] = ip
+        o['use_ip_unc'] = 'True'
         root = o.get('local_data_root') or ''
         if root:
             ensure_sharedmesh_share(root, "SharedMeshDrive", log=log or (lambda m: None))
@@ -1658,6 +1659,8 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     path = resolve_network_working_folder_from_cfg(get_offline_cfg())
     if project_path and project_path.startswith('\\'):
         path = project_path
+    if not path:
+        return
 
     try:
         with open(cfg_path, 'r') as f:
@@ -1671,6 +1674,7 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     try:
         with open(cfg_path, 'w') as f:
             json.dump(data, f, indent=2)
+        logging.info(f"[fuser] shared_path -> {path}")
     except Exception as e:
         logging.error("Failed to update fuser config: %s", e)
 
@@ -1693,7 +1697,12 @@ def apply_offline_settings() -> None:
     if _is_offline_enabled():
         o = get_offline_cfg()
         local_name = get_machine_name()
-        if local_name.upper() == o["host_name"].split('.')[0].upper():
+        host_short = o["host_name"].split('.')[0].upper() if o.get("host_name") else ""
+        host_ip = (o.get("host_ip") or "").strip()
+        local_ip = get_primary_ipv4()
+        if host_ip and local_ip and host_ip == local_ip:
+            ensure_offline_share_exists()
+        elif host_short and local_name.upper() == host_short:
             ensure_offline_share_exists()
 
     enforce_local_fuser_policy()
@@ -5317,38 +5326,55 @@ class SettingsPanel(tk.Frame):
         net_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
-        tk.Label(net_frame, text="Host PC Name", font=("Helvetica", 14), bg="black", fg="white") \
-            .grid(row=0, column=0, columnspan=3, sticky="w")
+        tk.Label(
+            net_frame,
+            text="Host IP",
+            font=("Helvetica", 14),
+            bg="black",
+            fg="white",
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
 
         host_row = tk.Frame(net_frame, bg="black")
-        host_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 10))
-        self.host_var = tk.StringVar(value=get_host())
+        host_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 10))
 
-        entry = tk.Entry(
+        self.host_ip_var = tk.StringVar(
+            value=config.get("Offline", "host_ip", fallback="")
+        )
+
+        tk.Entry(
             host_row,
-            textvariable=self.host_var,
+            textvariable=self.host_ip_var,
             font=("Consolas", 12),
             bg="#111111",
             fg="white",
             insertbackground="white",
             bd=0,
-        )
-        entry.pack(side="left", fill="x", expand=True)
+        ).pack(side="left", fill="x", expand=True)
 
-        def _fill_pc_name():
-            import platform
+        def _use_my_ip():
+            ip = get_primary_ipv4()
+            if ip:
+                self.host_ip_var.set(ip)
 
-            pc = platform.node().strip()
-            if pc:
-                self.host_var.set(pc)
+        tk.Button(
+            host_row,
+            text="Use my IP",
+            command=_use_my_ip,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
 
-        tk.Button(host_row, text="Set as Host", command=_fill_pc_name,
-                  font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
-            .pack(side="left", padx=8)
-
-        tk.Button(host_row, text="Save", command=self._save_host,
-                  font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
-            .pack(side="left", padx=8)
+        tk.Button(
+            host_row,
+            text="Save",
+            command=self._save_host_ip,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
 
         # Provide a “Share Now” action to (re)publish the folder silently
         def _share_now():
@@ -5648,15 +5674,15 @@ class SettingsPanel(tk.Frame):
     def reload_from_config(self):
         """Synchronize all Settings inputs with the persisted configuration."""
 
-        self.host_var.set(get_host())
-
         off = get_offline_cfg()
+        if hasattr(self, "host_ip_var"):
+            self.host_ip_var.set(off["host_ip"])
         self.off_enabled.set(bool(off["enabled"]))
         self.off_host_ip.set(off["host_ip"])
         self.off_share_name.set(off["share_name"])
         self.off_local_root.set(off["local_data_root"])
         self.off_work_subdir.set(off["working_fuser_subdir"])
-        self.off_use_ip_unc.set(bool(off["use_ip_unc"]))
+        self.off_use_ip_unc.set(True)
 
         sd = config["SharedDrive"] if "SharedDrive" in config else {}
         preferred = str(sd.get("preferred_mode", "UNC")).upper()
@@ -5710,7 +5736,8 @@ class SettingsPanel(tk.Frame):
         o["share_name"] = self.off_share_name.get().strip()
         o["local_data_root"] = os.path.normpath(self.off_local_root.get().strip())
         o["working_fuser_subdir"] = self.off_work_subdir.get().strip()
-        o["use_ip_unc"] = str(bool(self.off_use_ip_unc.get()))
+        o["use_ip_unc"] = "True"
+        self.off_use_ip_unc.set(True)
 
         sd = config.setdefault("SharedDrive", {})
         sd["preferred_mode"] = self.shared_mode.get()
@@ -5733,7 +5760,7 @@ class SettingsPanel(tk.Frame):
 
                 if self.shared_auto_map.get():
                     unc_root = build_unc_from_cfg(o)
-                    if map_drive(unc_root, sd["drive_letter"]):
+                    if unc_root and map_drive(unc_root, sd["drive_letter"]):
                         def _apply_map():
                             self.shared_mode.set("DRIVE")
                             sd["preferred_mode"] = "DRIVE"
@@ -5758,6 +5785,12 @@ class SettingsPanel(tk.Frame):
 
     def _test_offline_access(self):
         path = resolve_shared_access_path()
+        if not path:
+            messagebox.showinfo(
+                "Test Access",
+                "Host IP is not configured. Set it above to test the shared folder.",
+            )
+            return
         working = tk.Toplevel(self)
         working.title("Working…")
         tk.Label(working, text="Working…", padx=20, pady=20).pack()
@@ -5778,7 +5811,7 @@ class SettingsPanel(tk.Frame):
                         " • Ensure all PCs are on the same switch\n",
                         " • Static IPs (e.g., 192.168.50.10/24 host)\n",
                         " • Share exists and permissions allow read/write\n",
-                        " • Try toggling 'Use IP in UNC' or add host to hosts file",
+                        " • Confirm the Host IP above matches the host PC",
                     )
 
             post_ui(_done)
@@ -5809,7 +5842,11 @@ class SettingsPanel(tk.Frame):
             messagebox.showerror("Open Working Folder", f"Cannot access:\n{path}\nUse Test Access to diagnose.")
 
     def _auto_find_share(self):
-        host = get_host().strip()
+        o = get_offline_cfg()
+        host = (o.get("host_ip") or "").strip() or get_host().strip()
+        if not host:
+            messagebox.showerror("Auto-Find Share", "Host IP or name is not configured.")
+            return
         res = probe_best_mesh_share(host)
         if not res:
             messagebox.showerror("Auto-Find Share", f"No share found on {host}")
@@ -5832,6 +5869,12 @@ class SettingsPanel(tk.Frame):
         o = get_offline_cfg()
         letter = self.shared_letter.get().strip() or "M:"
         unc = build_unc_from_cfg(o)
+        if not unc:
+            messagebox.showerror(
+                "Map Drive",
+                "Host IP is not set. Please enter it above before mapping.",
+            )
+            return
         if map_drive(unc, letter):
             self.shared_mode.set("DRIVE")
             sd = config.setdefault("SharedDrive", {})
@@ -5855,29 +5898,25 @@ class SettingsPanel(tk.Frame):
         self.shared_mode.set("UNC")
         logging.info(f"Unmapped {letter}")
         messagebox.showinfo("Map Drive", f"Unmapped {letter}")
-    def _save_host(self):
-        h = self.host_var.get().strip()
-        if not h:
-            messagebox.showerror("Settings", "Host name cannot be empty.")
-            return
-        set_host(h)  # updates Offline.host_name + related fields
-        o = config.setdefault('Offline', {})
-        if not o.get('host_ip'):
-            ip = get_primary_ipv4()
-            if ip:
-                o['host_ip'] = ip
-        sd = config.setdefault('SharedDrive', {})
-        sd['preferred_mode'] = 'UNC'
+    def _save_host_ip(self):
+        ip = self.host_ip_var.get().strip()
+        if "Offline" not in config:
+            config["Offline"] = {}
+        offline = config["Offline"]
+        offline["host_ip"] = ip
+        offline["use_ip_unc"] = "True"
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
-        enforce_local_fuser_policy()
-        apply_offline_settings()
-        pnl = self.controller.panels.get('VBS4')
-        if pnl and hasattr(pnl, "log_message"):
-            pnl.log_message(f"Host set to: {h}")
-        if pnl and hasattr(pnl, "_update_rm_status"):
-            pnl._update_rm_status()
-        messagebox.showinfo("Settings", f"Host set to '{h}'.")
+
+        if hasattr(self, "off_host_ip"):
+            self.off_host_ip.set(ip)
+
+        try:
+            apply_offline_settings()
+            update_fuser_shared_path()
+            messagebox.showinfo("Settings", f"Host IP set to: {ip or '[blank]'}")
+        except Exception as exc:
+            messagebox.showerror("Settings", str(exc))
 
     def _browse_rm_local_root(self):
         path = filedialog.askdirectory()
