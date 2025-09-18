@@ -26,8 +26,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
 
+from STE_Toolkit import build_unc_from_cfg, get_offline_cfg
 from photomesh_launcher import (
-    get_offline_cfg,
     resolve_network_working_folder_from_cfg,
     _load_json,
     _save_json,
@@ -74,13 +74,49 @@ def update_config(path: str) -> bool:
     fmts["SLPK"] = False
     ui.setdefault("VerticalDatum", "Ellipsoid")
 
-    unc = ""
-    try:
-        unc = resolve_network_working_folder_from_cfg(get_offline_cfg())
-    except Exception:
-        unc = ""
-    if unc:
-        cfg["NetworkWorkingFolder"] = unc
+    offline = get_offline_cfg()
+    root_unc = build_unc_from_cfg(offline)
+    wf_unc = ""
+    if root_unc:
+        subdir = (offline.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+        wf_unc = os.path.join(root_unc, subdir).replace("/", "\\")
+    else:
+        try:
+            wf_unc = resolve_network_working_folder_from_cfg(offline)
+        except Exception:
+            wf_unc = ""
+
+    if wf_unc:
+        cfg["NetworkWorkingFolder"] = wf_unc
+
+    if root_unc:
+        projects_unc = os.path.join(root_unc, "Projects").replace("/", "\\")
+        for key in ("ProjectsRoot", "ProjectsRootFolder", "ProjectsRootPath"):
+            if key in cfg:
+                cfg[key] = projects_unc
+        paths = cfg.get("Paths")
+        if isinstance(paths, dict):
+            for key in ("ProjectsRoot", "ProjectRoot", "ProjectsFolder"):
+                if key in paths:
+                    paths[key] = projects_unc
+
+    host_ip = (offline.get("host_ip") or "").strip()
+    host_name = (offline.get("host_name") or "").strip()
+
+    def _rewrite(value):
+        if isinstance(value, dict):
+            return {k: _rewrite(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [_rewrite(v) for v in value]
+        if isinstance(value, str) and host_ip:
+            newv = value.replace("{host}", host_ip)
+            if host_name:
+                newv = newv.replace(f"\\\\{host_name}\\", f"\\\\{host_ip}\\")
+                newv = newv.replace(f"//{host_name}/", f"//{host_ip}/")
+            return newv
+        return value
+
+    cfg = _rewrite(cfg)
 
     try:
         _save_json(path, cfg)

@@ -68,7 +68,6 @@ from photomesh_launcher import (
     propagate_share_rename_in_config,
     open_in_explorer,
     resolve_network_working_folder_from_cfg,
-    resolve_shared_access_path,
     enforce_photomesh_settings,
     enforce_wizard_obj_only_defaults,
     working_share_root,
@@ -81,7 +80,6 @@ from photomesh_launcher import (
     probe_best_mesh_share,
     map_drive,
     unmap_drive,
-    build_unc_from_cfg,
     RM_LNK_NAME,
     RM_INSTALL_SUBDIRS,
     get_fuser_counts,
@@ -674,8 +672,11 @@ def get_rm_template_from_config() -> str:
 
 
 def _subst_host(template: str) -> str:
-    """Replace the {host} token with the configured host without altering UNC prefix."""
-    return template.replace("{host}", get_host())
+    """Replace the {host} token with the configured host IP (fallback to name)."""
+
+    host_ip = get_host_ip()
+    replacement = host_ip or get_host()
+    return template.replace("{host}", replacement)
 
 
 def _first_missing_segment(path: str) -> str:
@@ -735,7 +736,9 @@ def _try_link_under(base_dir: str) -> str:
 
 def _candidate_install_roots() -> list[str]:
     """Return possible install roots for both spellings under \\host\\SharedMeshDrive\\…"""
-    root = working_share_root()
+    root = resolve_shared_access_path()
+    if not root:
+        return []
     return [os.path.join(root, subdir) for subdir in RM_INSTALL_SUBDIRS]
 
 
@@ -1292,6 +1295,53 @@ def set_projects_root(path: str) -> None:
     _save_config()
 
 # ----- Host/UNC helpers -----
+def get_host_ip() -> str:
+    """Return the configured host IP (blank when unset)."""
+
+    try:
+        return config.get("Offline", "host_ip", fallback="").strip()
+    except Exception:
+        return ""
+
+
+def set_host_ip(ip: str) -> None:
+    """Persist *ip* to Offline.host_ip and refresh dependent systems."""
+
+    trimmed = ip.strip()
+    if "Offline" not in config:
+        config["Offline"] = {}
+    offline = config["Offline"]
+    offline["host_ip"] = trimmed
+    if trimmed:
+        offline["use_ip_unc"] = "True"
+    else:
+        offline["use_ip_unc"] = offline.get("use_ip_unc", "True")
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        config.write(f)
+
+    apply_offline_settings()
+    update_fuser_shared_path()
+
+
+def build_unc_from_cfg(o: dict | None = None) -> str:
+    """Return ``\\\\<ip>\\<share>`` based on Offline config (IP only)."""
+
+    if o is None:
+        o = get_offline_cfg()
+    ip = (o.get("host_ip") or "").strip()
+    share = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+    if not ip:
+        return ""
+    return f"\\\\{ip}\\{share}"
+
+
+def resolve_shared_access_path() -> str:
+    """Return the root UNC path for the shared mesh drive using the host IP."""
+
+    unc = build_unc_from_cfg()
+    return unc or ""
+
+
 def get_host() -> str:
     return _read_photomesh_host()
 
@@ -1326,6 +1376,9 @@ def bootstrap_first_run_if_needed(log=None):
     o = config.setdefault('Offline', {})
     general = config.setdefault('General', {})
     mode = general.get('first_run_mode', '').upper()
+
+    if "use_ip_unc" not in o or not o.get("use_ip_unc"):
+        o['use_ip_unc'] = 'True'
 
     if mode == 'HOST':
         if not o.get('host_ip'):
@@ -1368,8 +1421,9 @@ def refresh_settings_panel_from_config() -> None:
 
 
 def resolve_unc(template: str) -> str:
-    """Replace {host} token with current host and normalize slashes."""
-    host = get_host()
+    """Replace {host} token with host IP (fallback to host name) and normalize."""
+
+    host = get_host_ip() or get_host()
     path = template.replace("{host}", host)
     return os.path.normpath(path)
 
@@ -1644,50 +1698,60 @@ def relaunch_fusers():
 # Update the shared fuser path in the JSON config. If *project_path* is a UNC
 # path, derive the host from it; otherwise fall back to the local machine name.
 def update_fuser_shared_path(project_path: str | None = None) -> None:
-    # If no project path is supplied only update when this machine is marked as
-    # a fuser computer
-    if not _is_offline_enabled():
-        return
-    if project_path is None and not config['Fusers'].getboolean('fuser_computer', False):
+    """Persist the shared WorkingFuser UNC using the configured host IP."""
+
+    o = get_offline_cfg()
+    config.setdefault("Fusers", {})
+
+    if project_path and project_path.startswith("\\"):
+        unc_path = os.path.normpath(project_path)
+    else:
+        unc_root = build_unc_from_cfg(o)
+        if not unc_root:
+            return
+        wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+        unc_path = os.path.join(unc_root, wf_sub)
+
+    unc_path = unc_path.replace("/", "\\")
+    if not unc_path:
         return
 
-    config_file = config['Fusers'].get('config_path', 'fuser_config.json')
-    cfg_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
+    fuser_cfg = config["Fusers"]
+    fuser_cfg["shared_working_unc"] = unc_path
 
-    stored_host = config['Fusers'].get('working_folder_host', '').strip()
+    host_ip = (o.get("host_ip") or "").strip()
+    if not host_ip and unc_path.startswith("\\"):
+        parts = unc_path.strip("\\").split("\\")
+        if parts:
+            host_ip = parts[0]
+    if host_ip:
+        fuser_cfg["working_folder_host"] = host_ip
 
-    path = resolve_network_working_folder_from_cfg(get_offline_cfg())
-    if project_path and project_path.startswith('\\'):
-        path = project_path
-    if not path:
-        return
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        config.write(f)
+
+    config_file = fuser_cfg.get("config_path", "fuser_config.json")
+    cfg_path = (
+        os.path.join(BASE_DIR, config_file)
+        if not os.path.isabs(config_file)
+        else config_file
+    )
 
     try:
-        with open(cfg_path, 'r') as f:
+        with open(cfg_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         data = {}
 
-    data.setdefault('fusers', {'localhost': [{'name': 'LocalFuser'}]})
-    data['shared_path'] = path
+    data.setdefault("fusers", {"localhost": [{"name": "LocalFuser"}]})
+    data["shared_path"] = unc_path
 
     try:
-        with open(cfg_path, 'w') as f:
+        with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        logging.info(f"[fuser] shared_path -> {path}")
+        logging.info(f"[fuser] shared_path -> {unc_path}")
     except Exception as e:
         logging.error("Failed to update fuser config: %s", e)
-
-    host = stored_host
-    if path.startswith('\\'):
-        parts = path.strip('\\').split('\\')
-        if parts:
-            host = parts[0]
-
-    if stored_host != host and host:
-        config['Fusers']['working_folder_host'] = host
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
 
 def apply_offline_settings() -> None:
     """Apply offline configuration changes and refresh dependent systems."""
@@ -4003,8 +4067,10 @@ class VBS4Panel(tk.Frame):
                 name = fuser.get('name')
                 path = fuser.get('shared_path') or default_path
                 machine_name = fuser.get('machine_name') or self.resolve_machine_name(ip)
-                if not path and machine_name:
-                    path = rf'\\{machine_name}\\SharedMeshDrive\\WorkingFuser'
+                if not path:
+                    share = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+                    subdir = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+                    path = rf'\\{ip}\\{share}\\{subdir}'
                 if not path:
                     self.log_message(f"No shared path for {name} on {ip}")
                     continue
@@ -5213,7 +5279,22 @@ class SettingsPanel(tk.Frame):
 
             if self.fuser_var.get():
                 # Ensure Fusers host matches the single Host PC Name
-                config["Fusers"]["working_folder_host"] = get_host().strip()
+                ip = get_host_ip()
+                if not ip:
+                    ip = get_primary_ipv4()
+                    if ip:
+                        self.host_ip_var.set(ip)
+                        try:
+                            set_host_ip(ip)
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        set_host_ip(ip)
+                    except Exception:
+                        pass
+
+                config["Fusers"]["working_folder_host"] = ip or get_host().strip()
                 n = simpledialog.askinteger(
                     "Local Fusers",
                     "How many local fusers should this computer run? (1–3)",
@@ -5410,7 +5491,6 @@ class SettingsPanel(tk.Frame):
 
         off = get_offline_cfg()
         self.off_enabled = tk.BooleanVar(value=off["enabled"])
-        self.off_host_ip = tk.StringVar(value=off["host_ip"])
         self.off_share_name = tk.StringVar(value=off["share_name"])
         self.off_local_root = tk.StringVar(value=off["local_data_root"])
         self.off_work_subdir = tk.StringVar(value=off["working_fuser_subdir"])
@@ -5434,19 +5514,6 @@ class SettingsPanel(tk.Frame):
             fg="white",
             selectcolor="black",
         ).pack(side="left", padx=10)
-
-        row1 = tk.Frame(grp, bg="black")
-        row1.pack(fill="x", pady=4)
-        # Row now only shows Host IP (host name is set once, above):
-        tk.Label(row1, text="Host IP:", bg="black", fg="white").pack(side="left")
-        tk.Entry(
-            row1,
-            textvariable=self.off_host_ip,
-            width=16,
-            bg="#111",
-            fg="white",
-            insertbackground="white",
-        ).pack(side="left")
 
         row2 = tk.Frame(grp, bg="black")
         row2.pack(fill="x", pady=4)
@@ -5678,11 +5745,10 @@ class SettingsPanel(tk.Frame):
         if hasattr(self, "host_ip_var"):
             self.host_ip_var.set(off["host_ip"])
         self.off_enabled.set(bool(off["enabled"]))
-        self.off_host_ip.set(off["host_ip"])
         self.off_share_name.set(off["share_name"])
         self.off_local_root.set(off["local_data_root"])
         self.off_work_subdir.set(off["working_fuser_subdir"])
-        self.off_use_ip_unc.set(True)
+        self.off_use_ip_unc.set(bool(off["use_ip_unc"]))
 
         sd = config["SharedDrive"] if "SharedDrive" in config else {}
         preferred = str(sd.get("preferred_mode", "UNC")).upper()
@@ -5732,12 +5798,16 @@ class SettingsPanel(tk.Frame):
         o["enabled"] = str(bool(self.off_enabled.get()))
         # Keep host_name in sync with the single top-level host field:
         o["host_name"] = get_host().strip()
-        o["host_ip"] = self.off_host_ip.get().strip()
+        ip = self.host_ip_var.get().strip()
+        o["host_ip"] = ip
         o["share_name"] = self.off_share_name.get().strip()
         o["local_data_root"] = os.path.normpath(self.off_local_root.get().strip())
         o["working_fuser_subdir"] = self.off_work_subdir.get().strip()
-        o["use_ip_unc"] = "True"
-        self.off_use_ip_unc.set(True)
+        if ip:
+            o["use_ip_unc"] = "True"
+        else:
+            o["use_ip_unc"] = o.get("use_ip_unc", "True")
+        self.off_use_ip_unc.set(str(o["use_ip_unc"]).lower() in ("1", "true", "yes"))
 
         sd = config.setdefault("SharedDrive", {})
         sd["preferred_mode"] = self.shared_mode.get()
@@ -5900,20 +5970,8 @@ class SettingsPanel(tk.Frame):
         messagebox.showinfo("Map Drive", f"Unmapped {letter}")
     def _save_host_ip(self):
         ip = self.host_ip_var.get().strip()
-        if "Offline" not in config:
-            config["Offline"] = {}
-        offline = config["Offline"]
-        offline["host_ip"] = ip
-        offline["use_ip_unc"] = "True"
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
-
-        if hasattr(self, "off_host_ip"):
-            self.off_host_ip.set(ip)
-
         try:
-            apply_offline_settings()
-            update_fuser_shared_path()
+            set_host_ip(ip)
             messagebox.showinfo("Settings", f"Host IP set to: {ip or '[blank]'}")
         except Exception as exc:
             messagebox.showerror("Settings", str(exc))
