@@ -61,6 +61,7 @@ except Exception:  # pragma: no cover - psutil may not be installed
 from photomesh_launcher import (
     get_offline_cfg,
     ensure_offline_share_exists,
+    ensure_offline_share_via_cmd,
     can_access_unc,
     OFFLINE_ACCESS_HINT,
     _is_offline_enabled,
@@ -1186,6 +1187,10 @@ ICON_NAME   = 'icon.ico'
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
+# Global handle to the running MainApp instance so background helpers can
+# synchronize UI state (e.g., refresh Settings fields after config updates).
+APP_INSTANCE = None
+
 
 def _save_config():
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -1250,6 +1255,34 @@ def set_host(host: str) -> None:
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
+
+    refresh_settings_panel_from_config()
+
+
+def refresh_settings_panel_from_config() -> None:
+    """Update the Settings panel UI to reflect the latest config.ini values."""
+
+    app = APP_INSTANCE
+    if not app or not hasattr(app, "panels"):
+        return
+
+    def _apply():
+        try:
+            panel = app.panels.get("Settings")
+        except Exception:
+            return
+        if panel and hasattr(panel, "reload_from_config"):
+            panel.reload_from_config()
+
+    try:
+        post_ui(_apply)
+    except Exception:
+        try:
+            _apply()
+        except Exception as exc:  # pragma: no cover - best effort logging only
+            logging.getLogger(__name__).warning(
+                "[settings-sync] Failed to refresh settings panel: %s", exc
+            )
 
 
 def resolve_unc(template: str) -> str:
@@ -1792,33 +1825,30 @@ def first_run_setup(master=None) -> None:
             raise
 
     host_name = get_machine_name()
+    host_ip = get_local_ip()
+    log_to_console(f"[first-run] Host resolved as {host_name} ({host_ip})")
     if "Offline" not in config:
         config["Offline"] = {}
     offline = config["Offline"]
     offline["enabled"] = "True"
     offline["host_name"] = host_name
-    offline.setdefault("host_ip", offline.get("host_ip", ""))
+    offline["host_ip"] = host_ip
     offline["share_name"] = "SharedMeshDrive"
     offline["local_data_root"] = share_root
     offline["working_fuser_subdir"] = "WorkingFuser"
     offline["working_fuser_host"] = host_name
-    if "use_ip_unc" not in offline:
-        offline["use_ip_unc"] = "False"
+    offline["use_ip_unc"] = "True"
 
-    if "SharedDrive" not in config:
-        config["SharedDrive"] = {
-            "preferred_mode": "UNC",
-            "drive_letter": "M:",
-            "auto_map_on_save": "True",
-        }
-    else:
-        sd = config["SharedDrive"]
-        sd.setdefault("preferred_mode", "UNC")
-        sd.setdefault("drive_letter", "M:")
-        sd.setdefault("auto_map_on_save", "True")
+    sd = config.setdefault("SharedDrive", {})
+    sd["preferred_mode"] = "DRIVE"
+    sd.setdefault("drive_letter", "M:")
+    sd.setdefault("auto_map_on_save", "True")
 
     _save_config()
+    refresh_settings_panel_from_config()
     set_host(host_name)
+
+    ensure_offline_share_via_cmd(log=log_to_console)
 
     unc_root = build_unc_from_cfg(get_offline_cfg())
     if unc_root:
@@ -1863,6 +1893,32 @@ def first_run_setup(master=None) -> None:
             )
 
     log_to_console("[first-run] First-run setup completed.")
+
+
+def first_run_setup_user(master=None) -> None:
+    """Configure first-run defaults for non-host machines."""
+
+    log_to_console("[first-run] Starting first-run USER configuration (no sharing)…")
+
+    if "Offline" not in config:
+        config["Offline"] = {}
+    offline = config["Offline"]
+    offline["enabled"] = "True"
+    offline["host_name"] = ""
+    offline["host_ip"] = ""
+    offline["share_name"] = "SharedMeshDrive"
+    offline["local_data_root"] = r"D:\\SharedMeshDrive"
+    offline["working_fuser_subdir"] = "WorkingFuser"
+    offline["use_ip_unc"] = "True"
+
+    sd = config.setdefault("SharedDrive", {})
+    sd["preferred_mode"] = "DRIVE"
+    sd.setdefault("drive_letter", "M:")
+    sd.setdefault("auto_map_on_save", "True")
+
+    _save_config()
+    refresh_settings_panel_from_config()
+    log_to_console("[first-run] User configuration saved. Set the host later from Settings.")
 
 
 # =============================================================================
@@ -2760,6 +2816,8 @@ def prompt_project_name(parent):
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        global APP_INSTANCE
+        APP_INSTANCE = self
         pump_ui_queue(self)
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
@@ -3079,6 +3137,14 @@ class MainApp(tk.Tk):
         panel = self.panels.get('OneClick')
         if panel:
             panel.launch_reality_mesh_to_vbs4()
+
+    def destroy(self):
+        global APP_INSTANCE
+        try:
+            super().destroy()
+        finally:
+            if APP_INSTANCE is self:
+                APP_INSTANCE = None
 
 # ─── ---------------- MAINMENU PANEL --------------------------------- ──────────
 
@@ -5184,10 +5250,82 @@ class SettingsPanel(tk.Frame):
             insertbackground="white",
             bd=0,
         ).pack(side="left", fill="x", expand=True)
+
+        def _on_set_as_host():
+            host = get_machine_name()
+            ip = get_local_ip()
+            self.host_var.set(host)
+
+            set_host(host)
+
+            offline_cfg = config.setdefault("Offline", {})
+            offline_cfg["host_name"] = host
+            offline_cfg["host_ip"] = ip
+            offline_cfg["use_ip_unc"] = "True"
+            offline_cfg.setdefault("share_name", "SharedMeshDrive")
+            offline_cfg.setdefault(
+                "local_data_root",
+                offline_cfg.get("local_data_root", r"D:\SharedMeshDrive"),
+            )
+            offline_cfg.setdefault("working_fuser_subdir", "WorkingFuser")
+
+            shared_cfg = config.setdefault("SharedDrive", {})
+            shared_cfg["preferred_mode"] = "DRIVE"
+            shared_cfg.setdefault("drive_letter", "M:")
+            shared_cfg.setdefault("auto_map_on_save", "True")
+
+            _save_config()
+
+            mapped = False
+            unc = ""
+            letter = shared_cfg.get("drive_letter", "M:")
+            try:
+                ensure_offline_share_via_cmd(log=log_to_console)
+                unc = build_unc_from_cfg(get_offline_cfg())
+                if unc and map_drive(unc, letter):
+                    mapped = True
+                    self.shared_mode.set("DRIVE")
+                    self.shared_letter.set(letter)
+                apply_offline_settings()
+                update_fuser_shared_path()
+                enforce_local_fuser_policy()
+                pnl = self.controller.panels.get('VBS4')
+                if pnl and hasattr(pnl, "log_message"):
+                    pnl.log_message(f"Host set to: {host}")
+                if pnl and hasattr(pnl, "_update_rm_status"):
+                    pnl._update_rm_status()
+                if messagebox:
+                    lines = [
+                        f"Host set to {host}",
+                        f"IP recorded as {ip}",
+                        "Share ensured via CMD",
+                    ]
+                    if mapped:
+                        lines.append(f"Mapped {letter} to {unc}")
+                    else:
+                        lines.append("Drive mapping failed; verify credentials.")
+                    messagebox.showinfo("Host", "\n".join(lines))
+            except Exception as exc:
+                log_to_console(f"[settings] Set-as-host failed: {exc}")
+                if messagebox:
+                    messagebox.showerror(
+                        "Host",
+                        f"Failed to set host/share/map:\n{exc}",
+                    )
+
         tk.Button(
             host_row,
             text="Save",
             command=self._save_host,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
+        tk.Button(
+            host_row,
+            text="Set as host",
+            command=_on_set_as_host,
             font=("Helvetica", 12),
             bg="#444444",
             fg="white",
@@ -5468,6 +5606,50 @@ class SettingsPanel(tk.Frame):
             bd=0,
             highlightthickness=0,
         ).grid(row=7, column=0, pady=10)
+
+    def reload_from_config(self):
+        """Synchronize all Settings inputs with the persisted configuration."""
+
+        self.host_var.set(get_host())
+
+        off = get_offline_cfg()
+        self.off_enabled.set(bool(off["enabled"]))
+        self.off_host_ip.set(off["host_ip"])
+        self.off_share_name.set(off["share_name"])
+        self.off_local_root.set(off["local_data_root"])
+        self.off_work_subdir.set(off["working_fuser_subdir"])
+        self.off_use_ip_unc.set(bool(off["use_ip_unc"]))
+
+        sd = config["SharedDrive"] if "SharedDrive" in config else {}
+        preferred = str(sd.get("preferred_mode", "UNC")).upper()
+        self.shared_mode.set("DRIVE" if preferred == "DRIVE" else "UNC")
+        self.shared_letter.set(sd.get("drive_letter", "M:"))
+        auto_map = str(sd.get("auto_map_on_save", "True")).lower() in ("1", "true", "yes", "on")
+        self.shared_auto_map.set(auto_map)
+
+        if hasattr(self, "rm_local_var"):
+            self.rm_local_var.set(get_rm_local_root())
+
+        # Update common path labels so they reflect any background changes.
+        if hasattr(self, "lbl_projects_root"):
+            self.lbl_projects_root.config(text=get_projects_root() or "[not set]")
+        if hasattr(self, "lbl_vbs4"):
+            self.lbl_vbs4.config(text=get_vbs4_install_path() or "[not set]")
+        general = config["General"] if "General" in config else {}
+        if hasattr(self, "lbl_vbs4_setup"):
+            self.lbl_vbs4_setup.config(general.get("vbs4_setup_path", ""))
+        if hasattr(self, "lbl_blueig"):
+            self.lbl_blueig.config(text=get_blueig_install_path() or "[not set]")
+        if hasattr(self, "lbl_ares"):
+            self.lbl_ares.config(text=get_ares_manager_path() or "[not set]")
+        if hasattr(self, "lbl_browser"):
+            self.lbl_browser.config(text=get_default_browser() or "[not set]")
+        if hasattr(self, "lbl_vbs_license"):
+            self.lbl_vbs_license.config(general.get("vbs_license_manager_path", ""))
+        if hasattr(self, "lbl_oneclick"):
+            self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
+
+        self._refresh_fuser_counter_row()
 
     def _browse_local_root(self):
         p = filedialog.askdirectory(

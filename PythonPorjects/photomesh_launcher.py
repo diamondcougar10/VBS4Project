@@ -660,11 +660,11 @@ def resolve_network_working_folder_from_cfg(o: dict) -> str:
     return rf"\\{base}\{o['share_name']}\{o['working_fuser_subdir']}"
 
 
-def ensure_offline_share_exists(log=print) -> None:
-    """Ensure the offline share exists and firewall rules allow access."""
-    o = get_offline_cfg()
-    share = o["share_name"]
-    raw_root = o["local_data_root"]
+def _resolve_share_root_from_offline(o: dict) -> tuple[str, str]:
+    """Return ``(share_name, local_root)`` normalized for SMB sharing."""
+
+    share = o.get("share_name") or "SharedMeshDrive"
+    raw_root = o.get("local_data_root") or r"D:\SharedMeshDrive"
     normalized_root = raw_root.replace("/", "\\")
     trimmed_root = normalized_root
     if share:
@@ -673,67 +673,51 @@ def ensure_offline_share_exists(log=print) -> None:
         candidate = normalized_root.rstrip("\\")
         if candidate.lower().endswith(lower_tail * 2):
             trimmed_root = candidate[: -len(tail)]
-    root = trimmed_root
-    o["local_data_root"] = root
+    return share, os.path.normpath(trimmed_root)
+
+
+def ensure_offline_share_via_cmd(log=print) -> None:
+    """
+    Ensure the Offline share exists using CMD tools only:
+      - ``net share`` to create/update the share
+      - enable the "File and Printer Sharing" firewall group
+    """
+
+    o = get_offline_cfg()
+    share, root = _resolve_share_root_from_offline(o)
+
     try:
         os.makedirs(root, exist_ok=True)
     except Exception as e:
         log(f"Failed to create {root}: {e}")
         return
 
-    ps = fr"""
-$ErrorActionPreference='SilentlyContinue'
-$share='{share}'
-$path='{root}'
-if (-not (Get-SmbShare -Name $share)) {{
-  New-SmbShare -Name $share -Path $path -FullAccess 'Everyone' | Out-Null
-}}
-# Enable file & printer sharing rules on Private profile
-Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' | Where-Object {{$_.Profile -like '*Private*'}} | Enable-NetFirewallRule | Out-Null
-"""
     try:
-        completed = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps,
-            ],
-            capture_output=True,
-            text=True,
+        subprocess.run(
+            ["cmd", "/C", f'net share {share}="{root}" /GRANT:Everyone,FULL'],
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        subprocess.run(
+            [
+                "cmd",
+                "/C",
+                'netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes',
+            ],
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        log(
+            f"Offline share ensured via CMD: \{get_machine_name()}\{share}  ({root})"
         )
     except Exception as e:
-        log(
-            f"Could not run PowerShell to ensure share: {e}\nPlease share {root} as '{share}' manually."
-        )
-        return
+        log(f"Could not create SMB share via cmd: {e}")
 
-    if completed.returncode != 0:
-        err = completed.stderr.strip() or completed.stdout.strip() or str(completed.returncode)
-        log(f"SMB share creation failed: {err}")
-        return
 
-    check = subprocess.run(
-        [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            f"Get-SmbShare -Name '{share}' | Out-Null; $LASTEXITCODE",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if check.returncode != 0 or check.stderr.strip():
-        err = check.stderr.strip() or check.stdout.strip() or str(check.returncode)
-        log(f"SMB share '{share}' was not found after creation attempt. {err}")
-        return
+def ensure_offline_share_exists(log=print) -> None:
+    """Ensure the offline share exists and firewall rules allow access."""
 
-    log(f"Offline share ensured: \\\\{get_machine_name()}\\{share}  ({root})")
-
+    ensure_offline_share_via_cmd(log=log)
 
 def can_access_unc(path: str) -> bool:
     """Return True if *path* is an accessible directory."""
@@ -1179,6 +1163,7 @@ __all__ = [
     "working_share_root",
     "working_fuser_unc",
     "get_offline_cfg",
+    "ensure_offline_share_via_cmd",
     "ensure_offline_share_exists",
     "can_access_unc",
     "OFFLINE_ACCESS_HINT",
