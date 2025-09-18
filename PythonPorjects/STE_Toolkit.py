@@ -84,7 +84,6 @@ from photomesh_launcher import (
     RM_INSTALL_SUBDIRS,
     get_fuser_counts,
 )
-from collections import OrderedDict
 import time
 import glob
 import tempfile
@@ -216,29 +215,6 @@ def get_primary_ipv4() -> str:
         return ip
     except Exception:
         return ""
-
-def ensure_sharedmesh_share(local_root: str, share_name: str = "SharedMeshDrive", log=None) -> bool:
-    """Share local_root as \\\\<this-pc>\\<share_name> silently. Returns True on success."""
-    if not local_root or not os.path.isdir(local_root):
-        if log:
-            log(f"[Share] Invalid root: {local_root}")
-        return False
-    cmd = ['cmd.exe', '/c', f'net share {share_name}="{local_root}" /GRANT:Everyone,FULL']
-    try:
-        result = run_hidden(cmd, capture_output=True)
-        ok = result.returncode == 0
-        if log:
-            log(f"[Share] {'OK' if ok else 'Failed'}: {' '.join(cmd)}")
-            if result.stdout:
-                log(result.stdout.strip())
-            if result.stderr:
-                log(result.stderr.strip())
-        return ok
-    except Exception as exc:
-        if log:
-            log(f"[Share] Exception: {exc}")
-        return False
-
 
 NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
 
@@ -963,199 +939,6 @@ def update_vbs4_settings(path: str) -> None:
         f.writelines(lines)
 
 
-# =============================================================================
-# REALITY MESH DATASET HELPERS
-# =============================================================================
-# Utilities for creating and processing Reality Mesh datasets.
-
-def wait_for_file(path: str, poll_interval: float = 5.0) -> None:
-    return  # no waiting
-
-
-def find_output_json(start_dir: str) -> str | None:
-    return None  # don’t auto-hunt
-
-
-def wait_for_output_json(start_dir: str, poll_interval: float = 5.0) -> str:
-    return ""  # never gate on this
-
-
-def create_project_folder(build_dir: str, project_name: str, dataset_root: str | None = None) -> tuple[str, str]:
-    """Create the project directory structure used by Reality Mesh.
-
-    A folder named ``<project_name>_<timestamp>`` is created under
-    ``dataset_root`` when provided or ``build_dir`` otherwise.  A ``data``
-    subfolder is also ensured inside the project folder.
-    """
-
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    base = dataset_root if dataset_root else build_dir
-    if base:
-        os.makedirs(base, exist_ok=True)
-    proj_folder = os.path.join(base, f"{project_name}_{ts}")
-
-    os.makedirs(proj_folder, exist_ok=True)
-    data_folder = os.path.join(proj_folder, 'data')
-    os.makedirs(data_folder, exist_ok=True)
-    return proj_folder, data_folder
-
-
-
-
-def _copytree_progress(src: str, dst: str, progress_cb=None) -> None:
-    """Recursively copy *src* to *dst* reporting progress."""
-    files = []
-    for root, _, filenames in os.walk(src):
-        for f in filenames:
-            files.append(os.path.join(root, f))
-
-    total = len(files)
-    copied = 0
-    for root, _, filenames in os.walk(src):
-        rel = os.path.relpath(root, src)
-        dest_dir = os.path.join(dst, rel)
-        os.makedirs(dest_dir, exist_ok=True)
-        for f in filenames:
-            shutil.copy2(os.path.join(root, f), os.path.join(dest_dir, f))
-            copied += 1
-            if progress_cb and total:
-                progress_cb(int(copied / total * 100))
-
-
-def copy_tiles(build_dir: str, data_folder: str, progress_cb=None) -> None:
-    """Copy raw tile data from *build_dir* into *data_folder*."""
-    for name in ('Tiles', 'OBJ'):
-        src = os.path.join(build_dir, name)
-        if os.path.isdir(src):
-            dst = os.path.join(data_folder, name)
-            if os.path.exists(dst):
-                shutil.rmtree(dst)
-            _copytree_progress(src, dst, progress_cb)
-            break
-
-
-def _parse_offset_coordsys(wkt: str) -> str:
-    zone = ''
-    hemi = ''
-    m = re.search(r"UTM zone\s*(\d+),\s*(Northern|Southern)", wkt)
-    if m:
-        zone = m.group(1)
-        hemi = 'N' if m.group(2).startswith('Northern') else 'S'
-    return f"UTM zone:{zone} hemi:{hemi} horiz_units:Meters vert_units:Meters"
-
-
-def write_project_settings(settings_path: str, data: dict, data_folder: str) -> None:
-    """Write the Reality Mesh settings file for *data*.
-
-    ``data_folder`` is ensured to exist and used for the ``source_Directory``
-    setting.  The same path is also written under a ``[BiSimOneClickPath]``
-    section.
-    """
-
-    defaults = OrderedDict([
-        ("export_format", "OBJ"),
-        ("center_pivot_to_project", "true"),
-        ("orthocam_Resolution", "0.05"),
-        ("orthocam_Render_Lowest", "1"),
-        ("tin_to_dem_Resolution", "0.5"),
-        ("sel_Area_Size", "0.5"),
-        ("tile_scheme", "/Tile_%d_%d_L%d"),
-        ("collision", "true"),
-        ("visualLODs", "true"),
-        ("project_vdatum", "WGS84_ellipsoid"),
-        ("offset_models", "-0.2"),
-        ("csf_options", "2 0.5 false 0.65 2 500"),
-        ("faceThresh", "500"),
-        ("lodThresh", "5"),
-        ("tileSize", "100"),
-        ("srfResolution", "0.5"),
-    ])
-
-    project_name = data.get('project_name', 'project')
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    origin = data.get('Origin', [0, 0, 0])
-    wkt = data.get('WKT', '')
-
-    settings = OrderedDict()
-    settings['project_name'] = f"{project_name} ({timestamp})"
-    os.makedirs(data_folder, exist_ok=True)
-    settings['source_Directory'] = data_folder
-    settings['offset_coordsys'] = _parse_offset_coordsys(wkt) + '(centerpointoforigin)'
-    settings['offset_hdatum'] = 'WGS84'
-    settings['offset_vdatum'] = 'WGS84_ellipsoid'
-    settings['offset_x'] = f"{origin[0]}(centerpointoforigin)"
-    settings['offset_y'] = f"{origin[1]}(centerpointoforigin)"
-    settings['offset_z'] = f"{origin[2]}(centerpointoforigin)"
-    settings.update(defaults)
-
-    with open(settings_path, 'w', encoding='utf-8') as f:
-        for key, value in settings.items():
-            f.write(f"{key}={value}\n")
-        f.write("\n[BiSimOneClickPath]\n")
-        f.write(f"path={data_folder}\n")
-
-
-def run_processor(ps_script: str, settings_path: str, log_func=lambda msg: None) -> None:
-    """Run the Reality Mesh PowerShell script silently (no visible console)."""
-    if not os.path.isfile(ps_script):
-        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
-
-    cmd = [
-        "powershell",
-        "-NoProfile",
-        "-WindowStyle", "Hidden",
-        "-ExecutionPolicy", "Bypass",
-        "-File", ps_script,
-        settings_path,
-        "1",
-    ]
-    log_func(f"[processor] {' '.join(cmd)} (hidden)")
-    subprocess.run(cmd, check=True, creationflags=NO_WINDOW_FLAG)
-
-
-def run_remote_processor(ps_script: str, target_ip: str, settings_path: str,
-                         log_func=lambda msg: None,
-                         progress_cb=lambda p: None) -> None:
-    """Execute *ps_script* on *target_ip* passing it *settings_path*.
-
-    Output from the PowerShell process is streamed back and parsed for
-    progress updates using :func:`extract_progress`.
-    """
-    if not os.path.isfile(ps_script):
-        raise FileNotFoundError(f'PowerShell script not found: {ps_script}')
-    cmd = [
-        "powershell",
-        "-NoProfile",
-        "-WindowStyle", "Hidden",
-        "-ExecutionPolicy", "Bypass",
-        "-File", ps_script,
-        target_ip,
-        settings_path,
-    ]
-    log_func('Running (hidden): ' + ' '.join(cmd))
-    env = os.environ.copy()
-    env["PYTHONIOENCODING"] = "utf-8"
-    with subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        bufsize=1,
-        creationflags=NO_WINDOW_FLAG,
-    ) as proc:
-        for line in proc.stdout:
-            line = line.rstrip("\r\n")
-            log_func(line)
-            percent = extract_progress(line)
-            if percent is not None:
-                progress_cb(percent)
-        proc.wait()
-        if proc.returncode != 0:
-            raise subprocess.CalledProcessError(proc.returncode, cmd)
-
 
 def get_distribution_paths() -> list[str]:
     """Return a list of remote VBS4 install paths for terrain distribution."""
@@ -1201,86 +984,6 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
             log_func(f'Failed to copy to {dest}: {e}')
 
 
-def create_realitymesh_dataset(project_name: str, source_obj_folder: str,
-                               origin_json_path: str, datasets_base: str,
-                               config_path: str) -> str:
-    """Create a RealityMesh dataset folder and settings file.
-
-    Parameters
-    ----------
-    project_name : str
-        Name of the dataset/project.
-    source_obj_folder : str
-        Path to the OBJ folder output from PhotoMesh.
-    origin_json_path : str
-        Path to the ``Output-CenterPivotOrigin.json`` file used to obtain
-        ``offset_x``, ``offset_y`` and ``offset_z`` values.
-    datasets_base : str
-        Root folder where RealityMesh datasets should be stored.
-    config_path : str
-        Path to the global ``config.ini`` that will receive/contain the
-        ``[BiSimOneClickPath]`` section.
-
-    Returns
-    -------
-    str
-        The full path to the newly created dataset project folder.
-    """
-
-    dataset_folder = os.path.join(datasets_base, project_name)
-    os.makedirs(dataset_folder, exist_ok=True)
-
-    with open(origin_json_path, 'r', encoding='utf-8') as f:
-        origin_data = json.load(f)
-
-    origin = origin_data.get('Origin') or origin_data.get('origin')
-    if isinstance(origin, (list, tuple)) and len(origin) >= 3:
-        offset_x, offset_y, offset_z = origin[:3]
-    else:
-        offset_x = origin_data.get('offset_x', 0)
-        offset_y = origin_data.get('offset_y', 0)
-        offset_z = origin_data.get('offset_z', 0)
-
-    settings_path = os.path.join(dataset_folder, f"{project_name}-settings.txt")
-    lines = [
-        f"project_name={project_name}",
-        f"source_Directory={source_obj_folder}",
-        "offset_coordsys=UTM zone:11 hemi:N horiz_units:Meters vert_units:Meters",
-        "offset_hdatum=WGS84",
-        "offset_vdatum=WGS84_ellipsoid",
-        f"offset_x={offset_x}",
-        f"offset_y={offset_y}",
-        f"offset_z={offset_z}",
-        "orthocam_Resolution=0.25",
-        "orthocam_Render_Lowest=1",
-        "tin_to_dem_Resolution=0.5",
-        "sel_Area_Size=0.5",
-        "tile_scheme=/Tile_%d_%d_L%d",
-        "collision=true",
-        "visualLODs=true",
-        "project_vdatum=WGS84_ellipsoid",
-        "offset_models=-0.2",
-        "csf_options=2 0.5 false 0.65 2 500",
-        "faceThresh=500",
-        "lodThresh=5",
-        "tileSize=100",
-        "srfResolution=0.5",
-        "",
-        "[BiSimOneClickPath]",
-        f"path={dataset_folder}"
-    ]
-    with open(settings_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
-
-    cfg = configparser.ConfigParser()
-    cfg.read(config_path)
-    if 'BiSimOneClickPath' not in cfg:
-        cfg['BiSimOneClickPath'] = {}
-    cfg['BiSimOneClickPath']['path'] = dataset_folder
-    with open(config_path, 'w') as cfg_file:
-        cfg.write(cfg_file)
-
-    return dataset_folder
 
 # =============================================================================
 # CONFIGURATION & APP ICON
@@ -1428,9 +1131,7 @@ def bootstrap_first_run_if_needed(log=None):
             if ip:
                 o['host_ip'] = ip
         o['use_ip_unc'] = 'True'
-        root = o.get('local_data_root') or ''
-        if root:
-            ensure_sharedmesh_share(root, "SharedMeshDrive", log=log or (lambda m: None))
+        ensure_offline_share_exists(log=log or (lambda m: None))
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
     # USER mode intentionally leaves host blank
@@ -2568,7 +2269,6 @@ VBS4_HTML = r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm"
 BlueIG_HTML = r"C:\Builds\BlueIG\Blue IG 24.2 YYMEA_General\docs\Blue_IG_EN.htm"
 SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\Wiki\SQF_Reference.html"
 SUPPORT_SITE = "https://bisimulations.com/support/"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STE_SMTP_KIT_GUIDE = os.path.join(BASE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
 
 # ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
@@ -2804,8 +2504,6 @@ def set_oneclick_output_path(path: str) -> None:
 # FILE DIALOG / EXE SELECTION HELPERS
 # =============================================================================
 # Prompts for choosing executables and directories.
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def set_vbs4_install_path():
     """Open a file dialog to choose VBS4.exe, then save it in config.ini."""
@@ -5506,17 +5204,13 @@ class SettingsPanel(tk.Frame):
 
         # Provide a “Share Now” action to (re)publish the folder silently
         def _share_now():
+            # Canonical share creator from photomesh_launcher.py
+            ensure_offline_share_exists(log=self.controller.log)
             o = get_offline_cfg()
             root = o.get("local_data_root") or ""
-            log_fn = None
-            if hasattr(self.controller, "panels"):
-                pnl = self.controller.panels.get("VBS4")
-                if pnl and hasattr(pnl, "log_message"):
-                    log_fn = pnl.log_message
-            ok = ensure_sharedmesh_share(root, "SharedMeshDrive", log=log_fn)
             messagebox.showinfo(
                 "Share",
-                f"{'Shared' if ok else 'Failed to share'}: {root if root else 'No folder configured'}",
+                f"Shared (or already shared): {root if root else 'No folder configured'}",
             )
 
         tk.Button(net_frame, text="Share Folder Now", command=_share_now,
