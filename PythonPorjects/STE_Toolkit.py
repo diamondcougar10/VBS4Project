@@ -190,7 +190,61 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# --- Hidden subprocess helper (no visible console windows) ---
+CREATE_NO_WINDOW = 0x08000000
+
+
+def run_hidden(cmd: list[str] | str, check=False, cwd=None, shell=False, env=None, capture_output=False, text=True):
+    """Run a command without showing a console window."""
+    return subprocess.run(
+        cmd,
+        check=check,
+        cwd=cwd,
+        shell=shell,
+        env=env,
+        creationflags=CREATE_NO_WINDOW,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.PIPE if capture_output else None,
+        text=text,
+    )
+
+
+def get_primary_ipv4() -> str:
+    """Return the primary non-loopback IPv4 without using visible shells."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return ""
+
+
+def ensure_sharedmesh_share(local_root: str, share_name: str = "SharedMeshDrive", log=None) -> bool:
+    """Share local_root as \\<this-pc>\<share_name> silently. Returns True on success."""
+    if not local_root or not os.path.isdir(local_root):
+        if log:
+            log(f"[Share] Invalid root: {local_root}")
+        return False
+    cmd = ['cmd.exe', '/c', f'net share {share_name}="{local_root}" /GRANT:Everyone,FULL']
+    try:
+        result = run_hidden(cmd, capture_output=True)
+        ok = result.returncode == 0
+        if log:
+            log(f"[Share] {'OK' if ok else 'Failed'}: {' '.join(cmd)}")
+            if result.stdout:
+                log(result.stdout.strip())
+            if result.stderr:
+                log(result.stderr.strip())
+        return ok
+    except Exception as exc:
+        if log:
+            log(f"[Share] Exception: {exc}")
+        return False
+
+
+NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
 
 # =============================================================================
 # SINGLETON / PROCESS GUARD
@@ -1265,6 +1319,25 @@ def set_host(host: str) -> None:
         config.write(f)
 
     refresh_settings_panel_from_config()
+
+
+def bootstrap_first_run_if_needed(log=None):
+    """Host: ensure IP present and share exists. User: leave blanks."""
+    o = config.setdefault('Offline', {})
+    general = config.setdefault('General', {})
+    mode = general.get('first_run_mode', '').upper()
+
+    if mode == 'HOST':
+        if not o.get('host_ip'):
+            ip = get_primary_ipv4()
+            if ip:
+                o['host_ip'] = ip
+        root = o.get('local_data_root') or ''
+        if root:
+            ensure_sharedmesh_share(root, "SharedMeshDrive", log=log or (lambda m: None))
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            config.write(f)
+    # USER mode intentionally leaves host blank
 
 
 def refresh_settings_panel_from_config() -> None:
@@ -2827,6 +2900,7 @@ class MainApp(tk.Tk):
         global APP_INSTANCE
         APP_INSTANCE = self
         pump_ui_queue(self)
+        bootstrap_first_run_if_needed(log=self.log_message)
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
          # Prevent window resizing
@@ -5239,17 +5313,14 @@ class SettingsPanel(tk.Frame):
         net_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
-        tk.Label(
-            net_frame,
-            text="Host PC Name",
-            font=("Helvetica", 14),
-            bg="black",
-            fg="white",
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        tk.Label(net_frame, text="Host PC Name", font=("Helvetica", 14), bg="black", fg="white") \
+            .grid(row=0, column=0, columnspan=3, sticky="w")
+
         host_row = tk.Frame(net_frame, bg="black")
-        host_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 10))
+        host_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 10))
         self.host_var = tk.StringVar(value=get_host())
-        tk.Entry(
+
+        entry = tk.Entry(
             host_row,
             textvariable=self.host_var,
             font=("Consolas", 12),
@@ -5257,88 +5328,35 @@ class SettingsPanel(tk.Frame):
             fg="white",
             insertbackground="white",
             bd=0,
-        ).pack(side="left", fill="x", expand=True)
+        )
+        entry.pack(side="left", fill="x", expand=True)
 
-        def _on_set_as_host():
-            host = get_machine_name()
-            ip = get_local_ip()
-            self.host_var.set(host)
+        def _fill_pc_name():
+            import platform
 
-            set_host(host)
+            pc = platform.node().strip()
+            if pc:
+                self.host_var.set(pc)
 
-            offline_cfg = config.setdefault("Offline", {})
-            offline_cfg["host_name"] = host
-            offline_cfg["host_ip"] = ip
-            offline_cfg["use_ip_unc"] = "True"
-            offline_cfg.setdefault("share_name", "SharedMeshDrive")
-            offline_cfg.setdefault(
-                "local_data_root",
-                offline_cfg.get("local_data_root", r"D:\SharedMeshDrive"),
-            )
-            offline_cfg.setdefault("working_fuser_subdir", "WorkingFuser")
+        tk.Button(host_row, text="Set as Host", command=_fill_pc_name,
+                  font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
+            .pack(side="left", padx=8)
 
-            shared_cfg = config.setdefault("SharedDrive", {})
-            shared_cfg["preferred_mode"] = "DRIVE"
-            shared_cfg.setdefault("drive_letter", "M:")
-            shared_cfg.setdefault("auto_map_on_save", "True")
+        tk.Button(host_row, text="Save", command=self._save_host,
+                  font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
+            .pack(side="left", padx=8)
 
-            _save_config()
+        # Provide a “Share Now” action to (re)publish the folder silently
+        def _share_now():
+            o = get_offline_cfg()
+            root = o.get("local_data_root") or ""
+            ok = ensure_sharedmesh_share(root, "SharedMeshDrive", log=lambda m: self.log_message(m))
+            tk.messagebox.showinfo("Share", f"{'Shared' if ok else 'Failed to share'}: {root}")
 
-            mapped = False
-            unc = ""
-            letter = shared_cfg.get("drive_letter", "M:")
-            try:
-                ensure_offline_share_via_cmd(log=log_to_console)
-                unc = build_unc_from_cfg(get_offline_cfg())
-                if unc and map_drive(unc, letter):
-                    mapped = True
-                    self.shared_mode.set("DRIVE")
-                    self.shared_letter.set(letter)
-                apply_offline_settings()
-                update_fuser_shared_path()
-                enforce_local_fuser_policy()
-                pnl = self.controller.panels.get('VBS4')
-                if pnl and hasattr(pnl, "log_message"):
-                    pnl.log_message(f"Host set to: {host}")
-                if pnl and hasattr(pnl, "_update_rm_status"):
-                    pnl._update_rm_status()
-                if messagebox:
-                    lines = [
-                        f"Host set to {host}",
-                        f"IP recorded as {ip}",
-                        "Share ensured via CMD",
-                    ]
-                    if mapped:
-                        lines.append(f"Mapped {letter} to {unc}")
-                    else:
-                        lines.append("Drive mapping failed; verify credentials.")
-                    messagebox.showinfo("Host", "\n".join(lines))
-            except Exception as exc:
-                log_to_console(f"[settings] Set-as-host failed: {exc}")
-                if messagebox:
-                    messagebox.showerror(
-                        "Host",
-                        f"Failed to set host/share/map:\n{exc}",
-                    )
+        tk.Button(net_frame, text="Share Folder Now", command=_share_now,
+                  font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
+            .grid(row=2, column=0, sticky="w", pady=(0, 6))
 
-        tk.Button(
-            host_row,
-            text="Save",
-            command=self._save_host,
-            font=("Helvetica", 12),
-            bg="#444444",
-            fg="white",
-            bd=0,
-        ).pack(side="left", padx=8)
-        tk.Button(
-            host_row,
-            text="Set as host",
-            command=_on_set_as_host,
-            font=("Helvetica", 12),
-            bg="#444444",
-            fg="white",
-            bd=0,
-        ).pack(side="left", padx=8)
 
         # --- Offline / Shared Drive ------------------------------------
         grp = tk.LabelFrame(
@@ -5830,12 +5848,18 @@ class SettingsPanel(tk.Frame):
         if not h:
             messagebox.showerror("Settings", "Host name cannot be empty.")
             return
-        set_host(h)  # writes Offline.host_name, Fusers.working_folder_host, Network.host
-        config['Fusers']['working_folder_host'] = h.strip()
+        set_host(h)  # updates Offline.host_name + related fields
+        o = config.setdefault('Offline', {})
+        if not o.get('host_ip'):
+            ip = get_primary_ipv4()
+            if ip:
+                o['host_ip'] = ip
+        sd = config.setdefault('SharedDrive', {})
+        sd['preferred_mode'] = 'UNC'
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
-        enforce_local_fuser_policy()  # re-apply counts in case this box is the Host
-        apply_offline_settings()  # propagate host change
+        enforce_local_fuser_policy()
+        apply_offline_settings()
         pnl = self.controller.panels.get('VBS4')
         if pnl and hasattr(pnl, "log_message"):
             pnl.log_message(f"Host set to: {h}")
