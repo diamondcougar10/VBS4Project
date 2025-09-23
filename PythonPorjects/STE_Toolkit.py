@@ -2812,7 +2812,9 @@ class MainApp(tk.Tk):
                               command=self.destroy)
         close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
 
-        self.content = tk.Frame(self)
+        # Set dark background to prevent white flashes during scroll
+        self.configure(bg="black")
+        self.content = tk.Frame(self, bg="black", bd=0, highlightthickness=0)
         self.content.pack(expand=True, fill="both")
 
         nav = tk.Frame(self.content, bg='#333333')
@@ -2897,7 +2899,8 @@ class MainApp(tk.Tk):
 
     def apply_scale(self, scale: float) -> None:
         """Scale fonts and widgets proportionally using Tk scaling."""
-        self.tk.call('tk', 'scaling', self.base_scaling * scale)
+        snapped = round(scale * 4) / 4.0
+        self.tk.call('tk', 'scaling', self.base_scaling * snapped)
 
     def toggle_fullscreen(self):
         """Toggle fullscreen while maintaining aspect ratio."""
@@ -2932,6 +2935,9 @@ class MainApp(tk.Tk):
         # Create the outer canvas (the viewport) with proper background
         self.viewport_canvas = tk.Canvas(self.content, highlightthickness=0, bg='black')
         self.viewport_canvas.pack(side='right', expand=True, fill='both')
+        
+        # Configure pixel-based scrolling to prevent sub-pixel artifacts
+        self.viewport_canvas.configure(yscrollincrement=1)
 
         # Create an overlay scrollbar (so background shows behind where a dedicated
         # column used to be). We place it inside the canvas so the canvas spans
@@ -2942,6 +2948,10 @@ class MainApp(tk.Tk):
         # Initialize scroll state tracking to prevent background updates during scroll
         self._scroll_active = False
         self._scroll_timer = None
+        
+        # Wheel event batching for smooth scrolling
+        self._wheel_accum = 0
+        self._wheel_job = None
         
         # Optional background image (single shared) drawn behind panels.
         self._bg_image_src = None
@@ -3003,9 +3013,9 @@ class MainApp(tk.Tk):
             self._last_bg_size = new_size
             # Delay background update to avoid interference with scrolling
             self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
-            # Also resize current panel wallpaper (scrolling background)
-            if getattr(self, 'current', None) and self.current in self.panels:
-                self.after_idle(lambda: self._apply_panel_wallpaper(self.panels[self.current]))
+            # Disable per-panel wallpaper update to prevent dual background overdraw
+            # if getattr(self, 'current', None) and self.current in self.panels:
+            #     self.after_idle(lambda: self._apply_panel_wallpaper(self.panels[self.current]))
         
         # Re-evaluate scrollability
         self._update_scrollability()
@@ -3019,7 +3029,7 @@ class MainApp(tk.Tk):
         self._update_scrollability()
 
     def _on_mousewheel(self, event):
-        """Handle mouse wheel scrolling on the viewport canvas."""
+        """Handle mouse wheel scrolling on the viewport canvas with batching."""
         # Prevent scrolling if another scrollable widget has focus
         focused = self.focus_get()
         if focused and hasattr(focused, 'master'):
@@ -3030,26 +3040,41 @@ class MainApp(tk.Tk):
                     return  # Don't handle scroll if focus is in another scrollable area
                 parent = getattr(parent, 'master', None)
         
-        if self._scrollbar_shown:
-            # Handle different scroll event types
-            if hasattr(event, 'delta') and event.delta:  # Windows/macOS MouseWheel
-                scroll_amount = int(-1 * (event.delta / 120))
-            elif hasattr(event, 'num'):  # Linux Button events
-                scroll_amount = -1 if event.num == 4 else 1 if event.num == 5 else 0
-            else:
-                scroll_amount = 0
-                
-            if abs(scroll_amount) > 0:
+        if not self._scrollbar_shown:
+            return
+        
+        # Handle both Windows/macOS delta and Linux button events    
+        delta = 0
+        if hasattr(event, 'delta') and event.delta:
+            delta = event.delta
+        elif hasattr(event, 'num'):
+            # Linux scroll events: Button-4 = scroll up, Button-5 = scroll down
+            delta = -120 if event.num == 4 else 120 if event.num == 5 else 0
+            
+        # Accumulate wheel delta for batching
+        self._wheel_accum += delta
+        
+        if self._wheel_job is not None:
+            return
+        
+        def _flush():
+            steps = int(self._wheel_accum / 120)
+            if steps:
                 # Mark scroll as active to prevent background updates
                 self._scroll_active = True
                 if self._scroll_timer:
                     self.after_cancel(self._scroll_timer)
                 
-                # Perform the scroll
-                self.viewport_canvas.yview_scroll(scroll_amount, "units")
+                # 1 px per step (yscrollincrement=1). Use *2 or *3 for faster feel.
+                self.viewport_canvas.yview_scroll(-steps, "units")
                 
                 # Reset scroll state after a delay
                 self._scroll_timer = self.after(100, self._reset_scroll_state)
+                
+            self._wheel_accum = 0
+            self._wheel_job = None
+        
+        self._wheel_job = self.after(8, _flush)
     
     def _reset_scroll_state(self):
         """Reset scroll state to allow background updates again."""
@@ -3103,6 +3128,11 @@ class MainApp(tk.Tk):
         if hasattr(self, '_scroll_timer') and self._scroll_timer:
             self.after_cancel(self._scroll_timer)
             self._scroll_timer = None
+        # Reset wheel batching state
+        self._wheel_accum = 0
+        if hasattr(self, '_wheel_job') and self._wheel_job:
+            self.after_cancel(self._wheel_job)
+            self._wheel_job = None
             
         # Hide all panels then show the requested one
         for p in self.panels.values():
@@ -3121,7 +3151,8 @@ class MainApp(tk.Tk):
         # Reset viewport scroll position on panel switches
         self._reset_viewport_scroll()
         # Update canvas window size to match this panel
-        self.after(1, lambda p=panel: (self._resize_canvas_to_panel(p), self._apply_panel_wallpaper(p)))
+        # Disable per-panel wallpaper to prevent dual background overdraw during scroll
+        self.after(1, lambda p=panel: self._resize_canvas_to_panel(p))
         
         if name == "VBS4":
             panel.update_vbs4_version()
@@ -5272,7 +5303,7 @@ class SettingsPanel(tk.Frame):
         self.controller = controller
 
         self.configure(bg="black")
-        self.grid_rowconfigure(7, weight=1, minsize=800)
+        self.grid_rowconfigure(7, weight=1, minsize=400)
         self.grid_columnconfigure(0, weight=1)
 
         # Unified header (app title + panel title)
@@ -5656,7 +5687,7 @@ class SettingsPanel(tk.Frame):
             highlightthickness=0,
         )
         # Row 6 expands for the scroller; keep Back button at row 7 non‑scrolling
-        self.grid_rowconfigure(6, weight=1, minsize=800)
+        self.grid_rowconfigure(6, weight=1, minsize=600)
         locs_box.grid(row=6, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         # Canvas + vertical scrollbar
@@ -5666,6 +5697,10 @@ class SettingsPanel(tk.Frame):
         self._settings_scrollbar = tk.Scrollbar(locs_box, orient="vertical",
                             command=self._settings_canvas.yview)
         self._settings_canvas.configure(yscrollcommand=self._settings_scrollbar.set)
+        
+        # Configure pixel-based scrolling to prevent sub-pixel artifacts
+        self._settings_canvas.configure(yscrollincrement=1)
+        
         self._settings_canvas.pack(side="left", fill="both", expand=True)
         
         # Only show the Settings panel scrollbar when in windowed mode
@@ -5677,6 +5712,10 @@ class SettingsPanel(tk.Frame):
         win_id = self._settings_canvas.create_window(
             (0, 0), window=self._settings_inner, anchor="nw"
         )
+        
+        # Wheel event batching for smooth settings scrolling
+        self._set_wheel_accum = 0
+        self._set_wheel_job = None
 
         # Keep inner frame width equal to visible canvas width
         def _on_canvas_resize(evt):
@@ -5684,7 +5723,7 @@ class SettingsPanel(tk.Frame):
         self._settings_canvas.bind("<Configure>", _on_canvas_resize)
 
         # Maintain scrollregion with a bit of bottom pad so last row is fully visible
-        _SCROLLER_BOTTOM_PAD = 300
+        _SCROLLER_BOTTOM_PAD = 50
         def _update_scrollregion(_evt=None):
             bbox = self._settings_canvas.bbox("all")
             if bbox:
@@ -5694,15 +5733,31 @@ class SettingsPanel(tk.Frame):
                 )
         self._settings_inner.bind("<Configure>", _update_scrollregion)
 
-        # Smooth wheel behavior (Windows/macOS: <MouseWheel>, X11: Button-4/5)
+        # Smooth wheel behavior with batching (Windows/macOS: <MouseWheel>, X11: Button-4/5)
         def _on_mousewheel(evt):
-            if evt.delta:  # Windows / macOS
-                # delta is a multiple of 120 on Windows; sign only on macOS
-                step = int(-1 * (evt.delta / 120)) if evt.delta else 0
-                if step != 0:
-                    self._settings_canvas.yview_scroll(step, "units")
-            elif getattr(evt, "num", None) in (4, 5):  # X11
-                self._settings_canvas.yview_scroll(-1 if evt.num == 4 else 1, "units")
+            # Handle both Windows/macOS delta and Linux button events
+            delta = 0
+            if hasattr(evt, 'delta') and evt.delta:
+                delta = evt.delta
+            elif hasattr(evt, 'num'):
+                # Linux scroll events: Button-4 = scroll up, Button-5 = scroll down
+                delta = -120 if evt.num == 4 else 120 if evt.num == 5 else 0
+            
+            # Accumulate wheel delta for batching
+            self._set_wheel_accum += delta
+            
+            if self._set_wheel_job is not None:
+                return
+            
+            def _flush():
+                steps = int(self._set_wheel_accum / 120)
+                if steps:
+                    # 1 px per step (yscrollincrement=1). Use *2 or *3 for faster feel.
+                    self._settings_canvas.yview_scroll(-steps, "units")
+                self._set_wheel_accum = 0
+                self._set_wheel_job = None
+            
+            self._set_wheel_job = self.after(8, _flush)
 
         def _bind_wheel(evt):
             # Bind specifically to the settings canvas and inner frame, not globally
@@ -5784,9 +5839,16 @@ class SettingsPanel(tk.Frame):
         # Spacer so the last row can scroll above the bottom edge
         tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
 
+        # Force update of layout and scroll region to ensure all items are visible
         self._settings_inner.update_idletasks()
+        self._settings_canvas.update_idletasks()
         self._settings_canvas.yview_moveto(0)
-        self._settings_canvas.configure(scrollregion=self._settings_canvas.bbox("all"))
+        
+        # Manually update scroll region to ensure all content is accessible
+        bbox = self._settings_canvas.bbox("all")
+        if bbox:
+            x0, y0, x1, y1 = bbox
+            self._settings_canvas.configure(scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD))
 
         # Back button and tutorial
         tk.Button(
