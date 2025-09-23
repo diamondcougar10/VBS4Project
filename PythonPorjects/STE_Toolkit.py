@@ -2218,28 +2218,7 @@ def set_background(window, widget=None):
         except Exception:
             pass
 
-    # logos
-    if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
-        return
-    window._logos_placed = True
-
-    def place_logos():
-        coords = [
-            (int(screen_width * 0.125),  int(screen_height * 0.02), logo_STE_path,   (70, 70)),
-            (int(screen_width * 0.1875), int(screen_height * 0.02), logo_AFC_army,   (60, 70)),
-            (int(screen_width * 0.2375), int(screen_height * 0.02), logo_first_army, (45, 75)),
-            (int(screen_width * 0.83125), int(screen_height * 0.02), logo_us_army_path, (200, 76)),
-        ]
-        for x,y,path,(w,h) in coords:
-            if os.path.exists(path):
-                img   = Image.open(path).convert("RGBA").resize((w,h), Image.Resampling.LANCZOS)
-                ph    = ImageTk.PhotoImage(img)
-                lbl2  = tk.Label(window, image=ph, bg="black")
-                lbl2.image = ph
-                lbl2.place(x=x, y=y)
-
-    # Use after() to ensure the window is fully initialized
-    window.after(100, place_logos)
+    # (Floating logos removed; now handled by fixed header bar in MainApp.)
 
 def set_wallpaper(window):
     if not os.path.exists(background_image_path):
@@ -2806,6 +2785,62 @@ class MainApp(tk.Tk):
 
         set_background(self)
 
+        # Fixed header bar (always visible, not inside scrollable canvas)
+        self.header_bar = tk.Frame(self, bg="black", height=120)
+        self.header_bar.pack(side="top", fill="x")
+
+        # Left logo group
+        self._logo_cache = {}
+        def _load_logo(path, size):
+            if not os.path.exists(path):
+                return None
+            key = (path, size)
+            if key in self._logo_cache:
+                return self._logo_cache[key]
+            try:
+                img = Image.open(path).convert("RGBA").resize(size, Image.Resampling.LANCZOS)
+                ph = ImageTk.PhotoImage(img)
+                self._logo_cache[key] = ph
+                return ph
+            except Exception:
+                return None
+
+        left_logo_frame = tk.Frame(self.header_bar, bg="black")
+        left_logo_frame.pack(side="left", padx=10)
+        for path, size in [
+            (logo_STE_path, (70,70)),
+            (logo_AFC_army, (60,70)),
+            (logo_first_army, (45,75)),
+        ]:
+            ph = _load_logo(path, size)
+            if ph:
+                tk.Label(left_logo_frame, image=ph, bg="black").pack(side="left", padx=5, pady=5)
+
+        right_logo_frame = tk.Frame(self.header_bar, bg="black")
+        right_logo_frame.pack(side="right", padx=10)
+        ph_us = _load_logo(logo_us_army_path, (200,76))
+        if ph_us:
+            tk.Label(right_logo_frame, image=ph_us, bg="black").pack(side="right", padx=5, pady=5)
+
+        center_frame = tk.Frame(self.header_bar, bg="black")
+        center_frame.pack(expand=True, fill="both")
+        self.header_title = tk.Label(center_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"), bg="black", fg="white")
+        self.header_title.pack(pady=(10,0))
+        self.header_subtitle = tk.Label(center_frame, text="Home", font=("Helvetica", 20, "bold"), bg="black", fg="white")
+        self.header_subtitle.pack(pady=(0,10))
+
+        # Mapping panel names to subtitles
+        self._panel_subtitles = {
+            'Main': 'Home',
+            'VBS4': 'VBS4 / BlueIG',
+            'OneClick': 'One-Click Terrain',
+            'BVI': 'BVI',
+            'Settings': 'Settings',
+            'Tutorials': 'Tutorials  ❓',
+            'Credits': 'Credits',
+            'Contact Us': 'Contact Support',
+        }
+
         close_btn = tk.Button(self, text="✕",
                               font=("Helvetica",12,"bold"),
                               bg="red", fg="white", bd=0,
@@ -3123,6 +3158,12 @@ class MainApp(tk.Tk):
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
         panel = self.panels[name]
+        # Update subtitle in fixed header
+        try:
+            subtitle = self._panel_subtitles.get(name, name)
+            self.header_subtitle.config(text=subtitle)
+        except Exception:
+            pass
         # Reset scroll state before panel switch to prevent conflicts
         self._scroll_active = False
         if hasattr(self, '_scroll_timer') and self._scroll_timer:
@@ -3384,13 +3425,7 @@ class MainMenu(tk.Frame):
         set_background(controller, self)
         controller.create_tutorial_button(self)   # <— keeps the “?” button
         self.controller = controller
-
-        tk.Label(
-            self,
-            text="STE Mission Planning Toolkit",
-            font=("Helvetica", 36, "bold"),
-            bg="black", fg="white", pady=20
-        ).pack(fill="x")
+        # Removed internal header label; fixed global header bar is used now.
 
         # BlueIG Frame (dynamic)
         # Use a darker gray background so the surrounding area of the
@@ -3493,14 +3528,7 @@ class VBS4Panel(tk.Frame):
         self.controller = controller
         set_background(controller, self)
         controller.create_tutorial_button(self)
-
-        self.configure(bg="black")
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.pack(fill="x")
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="VBS4 / BlueIG", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        self.configure(bg="black")  # header removed; fixed header bar used
 
         # --- Main actions ----------------------------------------------------
         self.vbs4_launcher_button = self.make_button(
@@ -4517,14 +4545,7 @@ class OneClickPanel(tk.Frame):
         self.controller = controller
         set_background(controller, self)
         controller.create_tutorial_button(self)
-
-        self.configure(bg="black")
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.pack(fill="x")
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="One-Click Terrain", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        self.configure(bg="black")  # header removed; fixed header used
 
         parent_bg = self.cget("bg")
 
@@ -5161,14 +5182,7 @@ class BVIPanel(tk.Frame):
         self.controller = controller
         set_background(controller, self)
         controller.create_tutorial_button(self)
-
-        self.configure(bg="black")
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.pack(fill="x")
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="BVI", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        self.configure(bg="black")  # header removed; fixed header used
 
         # --- Main actions ----------------------------------------------------
         self.bvi_button = self.make_button(
@@ -5302,18 +5316,10 @@ class SettingsPanel(tk.Frame):
         super().__init__(parent)
         self.controller = controller
 
-        self.configure(bg="black")
+        self.configure(bg="black")  # header removed; fixed header used
         self.grid_rowconfigure(7, weight=1, minsize=400)
         self.grid_columnconfigure(0, weight=1)
-
-        # Unified header (app title + panel title)
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.grid(row=0, column=0, sticky="ew")
-        header_frame.grid_columnconfigure(0, weight=1)
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="Settings", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        # (header removed)
 
         # --- Top toggles -------------------------------------------------
         toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0, highlightthickness=0)
@@ -6252,12 +6258,7 @@ class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_background(controller, self)
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.pack(fill="x")
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="Tutorials  ❓", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        # header removed; fixed header used
 
         # Grid container for 4 cards (2 x 2)
         grid = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
@@ -6408,12 +6409,7 @@ class CreditsPanel(tk.Frame):
         super().__init__(parent, bg="#222222")
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.pack(fill="x")
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="Credits", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        # header removed; fixed header used
 
         card_canvas, card = create_card(self)
         card_canvas.pack(pady=(20, 60))
@@ -6457,12 +6453,7 @@ class ContactSupportPanel(tk.Frame):
         super().__init__(parent, bg="#222222")
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        header_frame = tk.Frame(self, bg="black")
-        header_frame.pack(fill="x")
-        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(10,0))
-        tk.Label(header_frame, text="Contact Support", font=("Helvetica", 20, "bold"),
-                 bg="black", fg="white").pack(fill="x", pady=(0,10))
+        # header removed; fixed header used
 
         card_canvas, card = create_card(self)
         card_canvas.pack(pady=(20, 60))
