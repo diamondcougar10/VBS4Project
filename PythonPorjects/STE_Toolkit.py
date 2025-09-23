@@ -2785,6 +2785,9 @@ class MainApp(tk.Tk):
                 self.apply_scale(s)
                 self.update_idletasks()
 
+            if hasattr(self, "_sync_scrollregion"):
+                self._sync_scrollregion()
+
         self._recompute_scale = _recompute_scale
         # bind after initial geometry is set
         self.bind("<Configure>", _on_configure)
@@ -2803,8 +2806,8 @@ class MainApp(tk.Tk):
         nav = tk.Frame(self.content, bg='#333333')
         nav.pack(side='left', fill='y')
 
-        self.panels_container = tk.Frame(self.content)
-        self.panels_container.pack(side='right', expand=True, fill='both')
+        # Right-hand side hosts all panels inside a scrollable viewport
+        self._init_scrollable_viewport()
 
         # Instantiate each panel, passing `self` as the controller
         self.panels = {
@@ -2882,6 +2885,82 @@ class MainApp(tk.Tk):
         """Scale fonts and widgets proportionally using Tk scaling."""
         self.tk.call('tk', 'scaling', self.base_scaling * scale)
 
+    def _init_scrollable_viewport(self):
+        """Create the outer scrollable viewport that hosts all panels (right side)."""
+        self.viewport = tk.Canvas(self.content, bg="black", highlightthickness=0, bd=0)
+        self.vbar = tk.Scrollbar(self.content, orient="vertical", command=self.viewport.yview)
+        self.viewport.configure(yscrollcommand=self.vbar.set)
+        self.viewport.pack(side="right", fill="both", expand=True)
+        self.vbar.pack(side="right", fill="y")
+
+        self.panels_container = tk.Frame(self.viewport, bg="black")
+        self.viewport_window = self.viewport.create_window((0, 0), window=self.panels_container, anchor="nw")
+
+        self._bar_visible = True
+
+        def _on_canvas_resize(evt):
+            self.viewport.itemconfig(self.viewport_window, width=evt.width)
+            self._sync_scrollregion()
+
+        self.viewport.bind("<Configure>", _on_canvas_resize)
+        self.panels_container.bind("<Configure>", lambda _e: self._sync_scrollregion())
+
+        # Mouse wheel only when hovering the canvas so inner scrollers keep control.
+        self.viewport.bind(
+            "<Enter>",
+            lambda _e: None if self.fullscreen else self.viewport.bind("<MouseWheel>", self._on_wheel),
+        )
+        self.viewport.bind("<Leave>", lambda _e: self.viewport.unbind("<MouseWheel>"))
+
+    def _on_wheel(self, evt):
+        """Scroll the viewport in response to the mouse wheel."""
+        self.viewport.yview_scroll(-1 if evt.delta > 0 else 1, "units")
+
+    def _sync_scrollregion(self):
+        """
+        Size the canvas window to the active panel's requested height and
+        toggle the scrollbar only in windowed mode when needed.
+        """
+        if not hasattr(self, "viewport"):
+            return
+
+        panel = self.panels.get(self.current) if hasattr(self, "panels") else None
+        if not panel:
+            return
+
+        self.update_idletasks()
+        req_h = max(panel.winfo_reqheight(), 1)
+
+        self.viewport.itemconfig(self.viewport_window, height=req_h)
+
+        bbox = self.viewport.bbox(self.viewport_window)
+        if bbox:
+            x0, y0, x1, y1 = bbox
+        else:
+            x0 = y0 = 0
+            x1 = self.viewport.winfo_width()
+            y1 = req_h
+        self.viewport.configure(scrollregion=(x0, y0, x1, y1 + 120))
+
+        needs_scroll = (not self.fullscreen) and (req_h > self.viewport.winfo_height() + 2)
+
+        if needs_scroll and not self._bar_visible:
+            self.vbar.pack(side="right", fill="y")
+            self._bar_visible = True
+        elif (not needs_scroll) and self._bar_visible:
+            self.vbar.pack_forget()
+            self._bar_visible = False
+
+    def _apply_scroll_mode(self):
+        """Re-evaluate viewport scrollability; call after panel change/resize/fullscreen toggle."""
+        if not hasattr(self, "viewport"):
+            return
+        self._sync_scrollregion()
+        if self.fullscreen:
+            self.viewport.unbind("<MouseWheel>")
+        else:
+            self.viewport.bind("<MouseWheel>", self._on_wheel)
+
     def toggle_fullscreen(self):
         """Toggle fullscreen while maintaining aspect ratio."""
         screen_w = self.winfo_screenwidth()
@@ -2906,6 +2985,8 @@ class MainApp(tk.Tk):
 
         # trigger a recompute after the window actually resizes
         self.after(10, lambda: self.event_generate("<Configure>"))
+        if hasattr(self, "_apply_scroll_mode"):
+            self.after(10, self._apply_scroll_mode)
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -2933,6 +3014,9 @@ class MainApp(tk.Tk):
 
         # Refresh navigation list whenever a new panel is shown
         self.update_navigation()
+        if hasattr(self, "viewport"):
+            self.viewport.yview_moveto(0.0)
+            self.after_idle(self._apply_scroll_mode)
         # allow layout to settle then recompute scale for new content
         self.after(0, self._recompute_scale)
 
@@ -3055,8 +3139,7 @@ class MainApp(tk.Tk):
 class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        self.configure(bg="black")
         controller.create_tutorial_button(self)   # <— keeps the “?” button
         self.controller = controller
 
@@ -3166,8 +3249,6 @@ class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        set_wallpaper(self)
-        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         self.configure(bg="black")
@@ -4194,8 +4275,6 @@ class OneClickPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        set_wallpaper(self)
-        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         self.configure(bg="black")
@@ -4842,8 +4921,6 @@ class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        set_wallpaper(self)
-        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         self.configure(bg="black")
@@ -4987,8 +5064,6 @@ class BVIPanel(tk.Frame):
 class SettingsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
         self.controller = controller
 
         self.configure(bg="black")
@@ -5881,8 +5956,7 @@ class SettingsPanel(tk.Frame):
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
-        set_background(controller, self)
+        self.configure(bg="black")
 
         tk.Label(self, text="Tutorials  ❓",
                  font=("Helvetica", 36, "bold"),
@@ -6035,8 +6109,6 @@ def create_card(parent, max_width=600, padding=20, radius=20, bg="#222222"):
 class CreditsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#222222")
-        set_wallpaper(self)
-        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         card_canvas, card = create_card(self)
@@ -6079,8 +6151,6 @@ class CreditsPanel(tk.Frame):
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#222222")
-        set_wallpaper(self)
-        set_background(controller, self)
         controller.create_tutorial_button(self)
 
         card_canvas, card = create_card(self)
