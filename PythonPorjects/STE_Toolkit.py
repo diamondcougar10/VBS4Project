@@ -2938,6 +2938,11 @@ class MainApp(tk.Tk):
         # full width; the scrollbar floats on top.
         self.viewport_scrollbar = tk.Scrollbar(self.viewport_canvas, orient='vertical', command=self.viewport_canvas.yview)
         self.viewport_canvas.configure(yscrollcommand=self.viewport_scrollbar.set)
+        
+        # Initialize scroll state tracking to prevent background updates during scroll
+        self._scroll_active = False
+        self._scroll_timer = None
+        
         # Optional background image (single shared) drawn behind panels.
         self._bg_image_src = None
         self._bg_image_id = None
@@ -2959,8 +2964,15 @@ class MainApp(tk.Tk):
         self.viewport_canvas.bind('<Configure>', self._on_canvas_configure)
         self.panels_container.bind('<Configure>', self._on_frame_configure)
         
-        # Bind mouse wheel to canvas (not globally to avoid conflicts with inner scrollers)
+        # Bind mouse wheel events with better conflict resolution
         self.viewport_canvas.bind('<MouseWheel>', self._on_mousewheel)
+        self.viewport_canvas.bind('<Button-4>', self._on_mousewheel)  # Linux scroll up
+        self.viewport_canvas.bind('<Button-5>', self._on_mousewheel)  # Linux scroll down
+        
+        # Also bind to the panels container for better coverage
+        self.panels_container.bind('<MouseWheel>', self._on_mousewheel)
+        self.panels_container.bind('<Button-4>', self._on_mousewheel)
+        self.panels_container.bind('<Button-5>', self._on_mousewheel)
         
         # Track if scrollbar is currently shown (overlay mode)
         self._scrollbar_shown = True
@@ -2981,11 +2993,19 @@ class MainApp(tk.Tk):
         # Update the inner frame width to match canvas width
         canvas_width = event.width
         self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
-        # Resize/redraw background image to current viewport size
-        self._update_canvas_background(event.width, event.height)
-        # Also resize current panel wallpaper (scrolling background)
-        if getattr(self, 'current', None) and self.current in self.panels:
-            self._apply_panel_wallpaper(self.panels[self.current])
+        
+        # Only update background if size actually changed and we're not actively scrolling
+        current_bg_size = getattr(self, '_last_bg_size', (0, 0))
+        new_size = (event.width, event.height)
+        size_changed = abs(new_size[0] - current_bg_size[0]) > 5 or abs(new_size[1] - current_bg_size[1]) > 5
+        
+        if size_changed and not getattr(self, '_scroll_active', False):
+            self._last_bg_size = new_size
+            # Delay background update to avoid interference with scrolling
+            self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
+            # Also resize current panel wallpaper (scrolling background)
+            if getattr(self, 'current', None) and self.current in self.panels:
+                self.after_idle(lambda: self._apply_panel_wallpaper(self.panels[self.current]))
         
         # Re-evaluate scrollability
         self._update_scrollability()
@@ -3000,8 +3020,41 @@ class MainApp(tk.Tk):
 
     def _on_mousewheel(self, event):
         """Handle mouse wheel scrolling on the viewport canvas."""
+        # Prevent scrolling if another scrollable widget has focus
+        focused = self.focus_get()
+        if focused and hasattr(focused, 'master'):
+            # Check if focus is within a settings canvas or other scrollable area
+            parent = focused.master
+            while parent:
+                if hasattr(parent, '_settings_canvas') or getattr(parent, '__class__', None).__name__ in ['Canvas', 'Scrollbar']:
+                    return  # Don't handle scroll if focus is in another scrollable area
+                parent = getattr(parent, 'master', None)
+        
         if self._scrollbar_shown:
-            self.viewport_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            # Handle different scroll event types
+            if hasattr(event, 'delta') and event.delta:  # Windows/macOS MouseWheel
+                scroll_amount = int(-1 * (event.delta / 120))
+            elif hasattr(event, 'num'):  # Linux Button events
+                scroll_amount = -1 if event.num == 4 else 1 if event.num == 5 else 0
+            else:
+                scroll_amount = 0
+                
+            if abs(scroll_amount) > 0:
+                # Mark scroll as active to prevent background updates
+                self._scroll_active = True
+                if self._scroll_timer:
+                    self.after_cancel(self._scroll_timer)
+                
+                # Perform the scroll
+                self.viewport_canvas.yview_scroll(scroll_amount, "units")
+                
+                # Reset scroll state after a delay
+                self._scroll_timer = self.after(100, self._reset_scroll_state)
+    
+    def _reset_scroll_state(self):
+        """Reset scroll state to allow background updates again."""
+        self._scroll_active = False
+        self._scroll_timer = None
 
     def _update_scrollability(self):
         """Show/hide scrollbar based on content overflow and panel type."""
@@ -3045,6 +3098,12 @@ class MainApp(tk.Tk):
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
         panel = self.panels[name]
+        # Reset scroll state before panel switch to prevent conflicts
+        self._scroll_active = False
+        if hasattr(self, '_scroll_timer') and self._scroll_timer:
+            self.after_cancel(self._scroll_timer)
+            self._scroll_timer = None
+            
         # Hide all panels then show the requested one
         for p in self.panels.values():
             p.pack_forget()
@@ -3102,6 +3161,16 @@ class MainApp(tk.Tk):
             width = max(2, self.viewport_canvas.winfo_width())
         if height is None:
             height = max(2, self.viewport_canvas.winfo_height())
+        
+        # Avoid excessive resizing for very small initial events
+        if width < 10 or height < 10:
+            return
+            
+        # Check if we really need to resize to prevent unnecessary updates during scroll
+        current_bg_img_size = getattr(self, '_bg_current_size', (0, 0))
+        if abs(width - current_bg_img_size[0]) < 5 and abs(height - current_bg_img_size[1]) < 5:
+            return  # Skip if size change is minimal
+            
         # Expand background to cover entire scrollable content so we never
         # scroll into a blank (white) region below the static-sized image.
         try:
@@ -3110,12 +3179,12 @@ class MainApp(tk.Tk):
             height = max(height, content_h)
         except Exception:
             pass
-        # Avoid excessive resizing for very small initial events
-        if width < 10 or height < 10:
-            return
+            
         try:
             resized = self._bg_image_src.resize((width, height), Image.Resampling.LANCZOS)
             self._bg_photo = ImageTk.PhotoImage(resized)
+            self._bg_current_size = (width, height)
+            
             if self._bg_image_id is None:
                 self._bg_image_id = self.viewport_canvas.create_image(0, 0, image=self._bg_photo, anchor='nw')
             else:
@@ -5635,18 +5704,30 @@ class SettingsPanel(tk.Frame):
             elif getattr(evt, "num", None) in (4, 5):  # X11
                 self._settings_canvas.yview_scroll(-1 if evt.num == 4 else 1, "units")
 
-        def _bind_wheel(_):
-            # Bind on enter so wheel scrolling applies while hovered
-            self._settings_inner.bind_all("<MouseWheel>", _on_mousewheel)
-            self._settings_inner.bind_all("<Button-4>", _on_mousewheel)
-            self._settings_inner.bind_all("<Button-5>", _on_mousewheel)
+        def _bind_wheel(evt):
+            # Bind specifically to the settings canvas and inner frame, not globally
+            self._settings_canvas.bind("<MouseWheel>", _on_mousewheel, add=True)
+            self._settings_canvas.bind("<Button-4>", _on_mousewheel, add=True)
+            self._settings_canvas.bind("<Button-5>", _on_mousewheel, add=True)
+            self._settings_inner.bind("<MouseWheel>", _on_mousewheel, add=True)
+            self._settings_inner.bind("<Button-4>", _on_mousewheel, add=True)
+            self._settings_inner.bind("<Button-5>", _on_mousewheel, add=True)
 
-        def _unbind_wheel(_):
-            # Unbind on leave so we don't hijack wheel in other panels
-            self._settings_inner.unbind_all("<MouseWheel>")
-            self._settings_inner.unbind_all("<Button-4>")
-            self._settings_inner.unbind_all("<Button-5>")
+        def _unbind_wheel(evt):
+            # Unbind from settings canvas and inner frame
+            try:
+                self._settings_canvas.unbind("<MouseWheel>")
+                self._settings_canvas.unbind("<Button-4>")
+                self._settings_canvas.unbind("<Button-5>")
+                self._settings_inner.unbind("<MouseWheel>")
+                self._settings_inner.unbind("<Button-4>")
+                self._settings_inner.unbind("<Button-5>")
+            except Exception:
+                pass
 
+        # Bind to both canvas and inner frame for better coverage
+        self._settings_canvas.bind("<Enter>", _bind_wheel)
+        self._settings_canvas.bind("<Leave>", _unbind_wheel)
         self._settings_inner.bind("<Enter>", _bind_wheel)
         self._settings_inner.bind("<Leave>", _unbind_wheel)
 
