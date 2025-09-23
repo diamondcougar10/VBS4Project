@@ -3048,10 +3048,12 @@ class MainApp(tk.Tk):
         # Hide all panels then show the requested one
         for p in self.panels.values():
             p.pack_forget()
-        # Prevent the panel from shrinking to fit children so it always spans
-        # the available viewport height (avoids uncovered background/white area)
+        # Only force full-height for heavy/interactive panels; allow simple
+        # text/info panels to size naturally so their content isn't awkwardly
+        # glued to the top.
+        force_full_height = name not in ("Credits", "Contact Us")
         try:
-            panel.pack_propagate(False)
+            panel.pack_propagate(False if force_full_height else True)
         except Exception:
             pass
         panel.pack(fill='both', expand=True)
@@ -3393,15 +3395,12 @@ class VBS4Panel(tk.Frame):
         controller.create_tutorial_button(self)
 
         self.configure(bg="black")
-
-        tk.Label(
-            self,
-            text="VBS4 / BlueIG",
-            font=("Helvetica", 36, "bold"),
-            bg="black",
-            fg="white",
-            pady=20,
-        ).pack(fill="x")
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.pack(fill="x")
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="VBS4 / BlueIG", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         # --- Main actions ----------------------------------------------------
         self.vbs4_launcher_button = self.make_button(
@@ -4420,15 +4419,12 @@ class OneClickPanel(tk.Frame):
         controller.create_tutorial_button(self)
 
         self.configure(bg="black")
-
-        tk.Label(
-            self,
-            text="One-Click Terrain",
-            font=("Helvetica", 36, "bold"),
-            bg="black",
-            fg="white",
-            pady=20,
-        ).pack(fill="x")
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.pack(fill="x")
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="One-Click Terrain", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         parent_bg = self.cget("bg")
 
@@ -5067,15 +5063,12 @@ class BVIPanel(tk.Frame):
         controller.create_tutorial_button(self)
 
         self.configure(bg="black")
-
-        tk.Label(
-            self,
-            text="BVI",
-            font=("Helvetica", 36, "bold"),
-            bg="black",
-            fg="white",
-            pady=20,
-        ).pack(fill="x")
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.pack(fill="x")
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="BVI", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         # --- Main actions ----------------------------------------------------
         self.bvi_button = self.make_button(
@@ -5211,21 +5204,21 @@ class SettingsPanel(tk.Frame):
         self.controller = controller
 
         self.configure(bg="black")
-        self.grid_rowconfigure(6, weight=1, minsize=800)
+        self.grid_rowconfigure(7, weight=1, minsize=800)
         self.grid_columnconfigure(0, weight=1)
 
-        tk.Label(
-            self,
-            text="Settings",
-            font=("Helvetica", 36, "bold"),
-            bg="black",
-            fg="white",
-            pady=20,
-        ).grid(row=0, column=0, sticky="ew")
+        # Unified header (app title + panel title)
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.grid(row=0, column=0, sticky="ew")
+        header_frame.grid_columnconfigure(0, weight=1)
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="Settings", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         # --- Top toggles -------------------------------------------------
         toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0)
-        toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 6))
+        toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
         toggles.grid_columnconfigure(0, weight=1)
         toggles.grid_columnconfigure(1, weight=1)
 
@@ -6112,10 +6105,12 @@ class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_background(controller, self)
-
-        tk.Label(self, text="Tutorials  ❓",
-                 font=("Helvetica", 36, "bold"),
-                 bg="black", fg="white", pady=20).pack(fill="x")
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.pack(fill="x")
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="Tutorials  ❓", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         # Grid container for 4 cards (2 x 2)
         grid = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
@@ -6266,11 +6261,17 @@ class CreditsPanel(tk.Frame):
         super().__init__(parent, bg="#222222")
         set_background(controller, self)
         controller.create_tutorial_button(self)
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.pack(fill="x")
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="Credits", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         card_canvas, card = create_card(self)
-        card_canvas.pack(pady=40)
+        card_canvas.pack(pady=(20, 60))
 
-        tk.Label(card, text="CREDITS", font=("Helvetica", 32, "bold"), bg="#222222", fg="white")\
+        tk.Label(card, text="CREDITS", font=("Helvetica", 28, "bold"), bg="#222222", fg="white")\
             .pack(pady=(0, 20))
 
         if os.path.exists(logo_STE_path):
@@ -6309,11 +6310,17 @@ class ContactSupportPanel(tk.Frame):
         super().__init__(parent, bg="#222222")
         set_background(controller, self)
         controller.create_tutorial_button(self)
+        header_frame = tk.Frame(self, bg="black")
+        header_frame.pack(fill="x")
+        tk.Label(header_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(10,0))
+        tk.Label(header_frame, text="Contact Support", font=("Helvetica", 20, "bold"),
+                 bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         card_canvas, card = create_card(self)
-        card_canvas.pack(pady=40)
+        card_canvas.pack(pady=(20, 60))
 
-        tk.Label(card, text="Contact Support", font=("Helvetica", 32, "bold"),
+        tk.Label(card, text="Contact Support", font=("Helvetica", 28, "bold"),
                  bg="#222222", fg="white").pack(pady=(0, 20))
 
         tk.Label(card,
