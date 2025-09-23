@@ -2209,6 +2209,14 @@ def set_background(window, widget=None):
         lbl = tk.Label(widget or window, image=ph)
         lbl.image = ph
         lbl.place(x=0, y=0, relwidth=1, relheight=1)
+        # If we are applying the background to an arbitrary widget (like a panel
+        # or canvas), push it to the back so subsequently created buttons/frames
+        # remain clickable/visible.
+        try:
+            if widget is not None:
+                lbl.lower()
+        except Exception:
+            pass
 
     # logos
     if not isinstance(window, (tk.Tk, tk.Toplevel)) or getattr(window, "_logos_placed", False):
@@ -2243,9 +2251,13 @@ def set_wallpaper(window):
 
     img = Image.open(background_image_path).resize((w, h), Image.Resampling.LANCZOS)
     ph  = ImageTk.PhotoImage(img)
-    lbl = tk.Label(window, image=ph)
+    lbl = tk.Label(window, image=ph, bd=0, highlightthickness=0)
     lbl.image = ph
     lbl.place(relwidth=1, relheight=1)
+    try:
+        lbl.lower()
+    except Exception:
+        pass
     
 # =============================================================================
 # HELP/TUTORIALS & DOCUMENT OPENERS
@@ -2784,6 +2796,9 @@ class MainApp(tk.Tk):
                 self._live_scale = s
                 self.apply_scale(s)
                 self.update_idletasks()
+                # Re-evaluate scrollability after scaling changes
+                if hasattr(self, '_update_scrollability'):
+                    self.after(10, self._update_scrollability)
 
         self._recompute_scale = _recompute_scale
         # bind after initial geometry is set
@@ -2803,8 +2818,8 @@ class MainApp(tk.Tk):
         nav = tk.Frame(self.content, bg='#333333')
         nav.pack(side='left', fill='y')
 
-        self.panels_container = tk.Frame(self.content)
-        self.panels_container.pack(side='right', expand=True, fill='both')
+        # REPLACE the simple frame container with a scrollable viewport:
+        self._init_scrollable_viewport()
 
         # Instantiate each panel, passing `self` as the controller
         self.panels = {
@@ -2824,9 +2839,11 @@ class MainApp(tk.Tk):
         except Exception as exc:
             print(f"[wizard-enforce] {exc}")
 
-        # Stack all panels in the same location and raise the active one
+        # Initially hide all panels; we will pack only the active one so that
+        # the container's requested height matches the panel content (needed
+        # for correct scrolling instead of everything collapsing at top).
         for panel in self.panels.values():
-            panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+            panel.pack_forget()
 
         # Build the nav buttons
         nav_tip = Tooltip(nav)
@@ -2904,8 +2921,118 @@ class MainApp(tk.Tk):
             self.geometry(self.windowed_geometry)
             self.fullscreen = False
 
+        # Re-evaluate scrollability after fullscreen toggle
+        self.after(10, self._update_scrollability)
+        
         # trigger a recompute after the window actually resizes
         self.after(10, lambda: self.event_generate("<Configure>"))
+
+    def _init_scrollable_viewport(self):
+        """Initialize the canvas-based scrollable viewport for panels."""
+        # Create the outer canvas (the viewport) with proper background
+        self.viewport_canvas = tk.Canvas(self.content, highlightthickness=0, bg='black')
+        self.viewport_canvas.pack(side='right', expand=True, fill='both')
+
+        # Create an overlay scrollbar (so background shows behind where a dedicated
+        # column used to be). We place it inside the canvas so the canvas spans
+        # full width; the scrollbar floats on top.
+        self.viewport_scrollbar = tk.Scrollbar(self.viewport_canvas, orient='vertical', command=self.viewport_canvas.yview)
+        self.viewport_canvas.configure(yscrollcommand=self.viewport_scrollbar.set)
+        # Optional background image (single shared) drawn behind panels.
+        self._bg_image_src = None
+        self._bg_image_id = None
+        try:
+            if os.path.exists(background_image_path):
+                from PIL import Image  # already imported but safe
+                self._bg_image_src = Image.open(background_image_path)
+                # create an initial 1x1 placeholder; real size in configure
+                self._bg_photo = ImageTk.PhotoImage(self._bg_image_src.resize((2,2)))
+                self._bg_image_id = self.viewport_canvas.create_image(0, 0, image=self._bg_photo, anchor='nw')
+        except Exception:
+            self._bg_image_src = None
+
+        # Create the inner frame that will hold all panels (drawn above bg)
+        self.panels_container = tk.Frame(self.viewport_canvas, bg='black')
+        self.canvas_frame_id = self.viewport_canvas.create_window(0, 0, window=self.panels_container, anchor='nw')
+        
+        # Bind canvas configure to update scroll region and inner frame width
+        self.viewport_canvas.bind('<Configure>', self._on_canvas_configure)
+        self.panels_container.bind('<Configure>', self._on_frame_configure)
+        
+        # Bind mouse wheel to canvas (not globally to avoid conflicts with inner scrollers)
+        self.viewport_canvas.bind('<MouseWheel>', self._on_mousewheel)
+        
+        # Track if scrollbar is currently shown (overlay mode)
+        self._scrollbar_shown = True
+        self.after(50, self._place_overlay_scrollbar)
+
+    def _place_overlay_scrollbar(self):
+        """Position the overlay scrollbar at the right edge of the canvas."""
+        try:
+            sb_width = 18
+            self.viewport_scrollbar.place(relx=1.0, x=-sb_width, y=0, width=sb_width, relheight=1.0)
+            # ensure scrollbar above background but below any future popups
+            self.viewport_scrollbar.lift()
+        except Exception:
+            pass
+
+    def _on_canvas_configure(self, event):
+        """Handle canvas resize - update inner frame width and scrollability."""
+        # Update the inner frame width to match canvas width
+        canvas_width = event.width
+        self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
+        # Resize/redraw background image to current viewport size
+        self._update_canvas_background(event.width, event.height)
+        # Also resize current panel wallpaper (scrolling background)
+        if getattr(self, 'current', None) and self.current in self.panels:
+            self._apply_panel_wallpaper(self.panels[self.current])
+        
+        # Re-evaluate scrollability
+        self._update_scrollability()
+
+    def _on_frame_configure(self, event):
+        """Handle inner frame resize - update scroll region."""
+        # Update the scroll region to encompass the inner frame
+        self.viewport_canvas.configure(scrollregion=self.viewport_canvas.bbox('all'))
+        
+        # Re-evaluate scrollability
+        self._update_scrollability()
+
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling on the viewport canvas."""
+        if self._scrollbar_shown:
+            self.viewport_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _update_scrollability(self):
+        """Show/hide scrollbar based on content overflow and panel type."""
+        # Get canvas and content dimensions
+        self.viewport_canvas.update_idletasks()
+        canvas_height = self.viewport_canvas.winfo_height()
+        
+        # Get the actual content height from scroll region
+        bbox = self.viewport_canvas.bbox('all')
+        content_height = bbox[3] - bbox[1] if bbox else 0
+        # Determine if we should show scrollbar (not currently conditional)
+        needs_scroll = content_height > canvas_height  # kept for potential logic
+        
+        # Always show main viewport scrollbar for proper content display
+        # (Settings panel will manage its own internal scrollbar separately)
+        show_scrollbar = True
+        
+        # In overlay mode we simply hide or show via place_forget / place
+        if show_scrollbar and not self._scrollbar_shown:
+            self._place_overlay_scrollbar()
+            self._scrollbar_shown = True
+        elif not show_scrollbar and self._scrollbar_shown:
+            try:
+                self.viewport_scrollbar.place_forget()
+            except Exception:
+                pass
+            self._scrollbar_shown = False
+
+    def _reset_viewport_scroll(self):
+        """Reset viewport scroll position to top."""
+        self.viewport_canvas.yview_moveto(0)
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -2916,10 +3043,25 @@ class MainApp(tk.Tk):
             button.config(state="disabled")
 
     def show(self, name):
-        """Raise the given panel without unpacking others."""
+        """Display the named panel, repacking it inside the scroll viewport."""
         panel = self.panels[name]
-        panel.tkraise()
+        # Hide all panels then show the requested one
+        for p in self.panels.values():
+            p.pack_forget()
+        # Prevent the panel from shrinking to fit children so it always spans
+        # the available viewport height (avoids uncovered background/white area)
+        try:
+            panel.pack_propagate(False)
+        except Exception:
+            pass
+        panel.pack(fill='both', expand=True)
         self.current = name
+        
+        # Reset viewport scroll position on panel switches
+        self._reset_viewport_scroll()
+        # Update canvas window size to match this panel
+        self.after(1, lambda p=panel: (self._resize_canvas_to_panel(p), self._apply_panel_wallpaper(p)))
+        
         if name == "VBS4":
             panel.update_vbs4_version()
             self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
@@ -2933,8 +3075,89 @@ class MainApp(tk.Tk):
 
         # Refresh navigation list whenever a new panel is shown
         self.update_navigation()
+        
+        # Re-evaluate scrollability after panel switch
+        self.after(10, self._update_scrollability)
+        
         # allow layout to settle then recompute scale for new content
         self.after(0, self._recompute_scale)
+
+    def _resize_canvas_to_panel(self, panel):
+        """Force scrollregion to the visible panel's requested size."""
+        try:
+            panel.update_idletasks()
+            req_w = panel.winfo_reqwidth()
+            req_h = panel.winfo_reqheight()
+            self.viewport_canvas.configure(scrollregion=(0, 0, req_w, req_h))
+        except Exception:
+            pass
+
+    def _update_canvas_background(self, width=None, height=None):
+        """Update / resize the shared background image for the viewport."""
+        if not self._bg_image_src:
+            return
+        if width is None:
+            width = max(2, self.viewport_canvas.winfo_width())
+        if height is None:
+            height = max(2, self.viewport_canvas.winfo_height())
+        # Expand background to cover entire scrollable content so we never
+        # scroll into a blank (white) region below the static-sized image.
+        try:
+            self.panels_container.update_idletasks()
+            content_h = max(height, self.panels_container.winfo_reqheight())
+            height = max(height, content_h)
+        except Exception:
+            pass
+        # Avoid excessive resizing for very small initial events
+        if width < 10 or height < 10:
+            return
+        try:
+            resized = self._bg_image_src.resize((width, height), Image.Resampling.LANCZOS)
+            self._bg_photo = ImageTk.PhotoImage(resized)
+            if self._bg_image_id is None:
+                self._bg_image_id = self.viewport_canvas.create_image(0, 0, image=self._bg_photo, anchor='nw')
+            else:
+                self.viewport_canvas.itemconfig(self._bg_image_id, image=self._bg_photo)
+            # Ensure background stays at lowest z-order
+            if self._bg_image_id is not None:
+                self.viewport_canvas.tag_lower(self._bg_image_id)
+        except Exception:
+            pass
+
+    def _apply_panel_wallpaper(self, panel):
+        """Place/resize a wallpaper image inside a panel so it scrolls."""
+        if not os.path.exists(background_image_path):
+            return
+        try:
+            # Determine needed size: cover the full panel content height so we
+            # don't see blank/white areas below the original viewport.
+            panel.update_idletasks()
+            vw = max(1, self.viewport_canvas.winfo_width())
+            vh = max(1, self.viewport_canvas.winfo_height())
+            pw = max(vw, panel.winfo_reqwidth())
+            ph = max(vh, panel.winfo_reqheight())
+            # Put an upper bound to avoid creating gigantic images.
+            pw = min(pw, 3840)
+            ph = min(ph, 4320)
+            # Skip tiny initial calls until geometry stabilizes
+            if pw < 100 or ph < 100:
+                return
+            last_size = getattr(panel, '_bg_last_size', None)
+            if last_size == (pw, ph):
+                return  # no need to regenerate
+            from PIL import Image
+            img = Image.open(background_image_path).resize((pw, ph), Image.Resampling.LANCZOS)
+            panel._bg_panel_photo = ImageTk.PhotoImage(img)
+            panel._bg_last_size = (pw, ph)
+            if not hasattr(panel, '_bg_panel_label') or panel._bg_panel_label is None:
+                lbl = tk.Label(panel, image=panel._bg_panel_photo, bd=0, highlightthickness=0)
+                panel._bg_panel_label = lbl
+                lbl.place(relwidth=1, relheight=1)
+                lbl.lower()  # keep behind other widgets
+            else:
+                panel._bg_panel_label.configure(image=panel._bg_panel_photo)
+        except Exception:
+            pass
 
     def change_projects_root(self):
         new_root = filedialog.askdirectory(title="Choose Projects Root", parent=self)
@@ -3055,7 +3278,7 @@ class MainApp(tk.Tk):
 class MainMenu(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
+        self.configure(bg="black")
         set_background(controller, self)
         controller.create_tutorial_button(self)   # <— keeps the “?” button
         self.controller = controller
@@ -3166,7 +3389,6 @@ class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
@@ -4194,7 +4416,6 @@ class OneClickPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
@@ -4842,7 +5063,6 @@ class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
@@ -4987,7 +5207,6 @@ class BVIPanel(tk.Frame):
 class SettingsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
         set_background(controller, self)
         self.controller = controller
 
@@ -5378,11 +5597,14 @@ class SettingsPanel(tk.Frame):
         self._settings_canvas = tk.Canvas(
             locs_box, bg="black", highlightthickness=0, bd=0
         )
-        vbar = tk.Scrollbar(locs_box, orient="vertical",
+        self._settings_scrollbar = tk.Scrollbar(locs_box, orient="vertical",
                             command=self._settings_canvas.yview)
-        self._settings_canvas.configure(yscrollcommand=vbar.set)
+        self._settings_canvas.configure(yscrollcommand=self._settings_scrollbar.set)
         self._settings_canvas.pack(side="left", fill="both", expand=True)
-        vbar.pack(side="right", fill="y")
+        
+        # Only show the Settings panel scrollbar when in windowed mode
+        if not controller.fullscreen:
+            self._settings_scrollbar.pack(side="right", fill="y")
 
         # Inner frame to hold the path rows
         self._settings_inner = tk.Frame(self._settings_canvas, bg="black")
@@ -5877,11 +6099,18 @@ class SettingsPanel(tk.Frame):
     def _on_fullscreen_toggle(self):
         self.controller.toggle_fullscreen()
         self.fullscreen_var.set(self.controller.fullscreen)
+        
+        # Update Settings panel scrollbar visibility - show only in windowed mode
+        if self.controller.fullscreen:
+            # Fullscreen mode - hide the Settings scrollbar
+            self._settings_scrollbar.pack_forget()
+        else:
+            # Windowed mode - show the Settings scrollbar
+            self._settings_scrollbar.pack(side="right", fill="y")
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_wallpaper(self)
         set_background(controller, self)
 
         tk.Label(self, text="Tutorials  ❓",
@@ -6035,7 +6264,6 @@ def create_card(parent, max_width=600, padding=20, radius=20, bg="#222222"):
 class CreditsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#222222")
-        set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
@@ -6079,7 +6307,6 @@ class CreditsPanel(tk.Frame):
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#222222")
-        set_wallpaper(self)
         set_background(controller, self)
         controller.create_tutorial_button(self)
 
