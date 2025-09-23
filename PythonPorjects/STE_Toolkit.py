@@ -5200,7 +5200,6 @@ class BVIPanel(tk.Frame):
 class SettingsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
-        set_background(controller, self)
         self.controller = controller
 
         self.configure(bg="black")
@@ -5217,7 +5216,7 @@ class SettingsPanel(tk.Frame):
                  bg="black", fg="white").pack(fill="x", pady=(0,10))
 
         # --- Top toggles -------------------------------------------------
-        toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0)
+        toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0, highlightthickness=0)
         toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
         toggles.grid_columnconfigure(0, weight=1)
         toggles.grid_columnconfigure(1, weight=1)
@@ -5554,6 +5553,9 @@ class SettingsPanel(tk.Frame):
             textvariable=self.rm_local_var,
             width=40,
             bd=0,
+            bg="#111111",
+            fg="white",
+            insertbackground="white",
         ).pack(side="left", fill="x", expand=True)
         tk.Button(
             rm_row,
@@ -5581,6 +5583,8 @@ class SettingsPanel(tk.Frame):
             bg="black",
             fg="white",
             font=("Helvetica", 16),
+            bd=0,
+            highlightthickness=0,
         )
         # Row 6 expands for the scroller; keep Back button at row 7 non‑scrolling
         self.grid_rowconfigure(6, weight=1, minsize=800)
