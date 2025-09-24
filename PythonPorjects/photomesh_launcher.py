@@ -35,11 +35,11 @@ import socket
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterable
-import winreg  # for InstallLocation lookup
+import winreg  
 import glob
 import logging
 
-try:  # pragma: no cover - optional dependency
+try:  
     import requests  # type: ignore
 except Exception:  # pragma: no cover - requests may be absent in minimal environments
     requests = None  # type: ignore

@@ -56,7 +56,7 @@ from queue import Queue, Empty
 import io
 try:
     import psutil
-except Exception:  # pragma: no cover - psutil may not be installed
+except Exception: 
     psutil = None
 from photomesh_launcher import (
     get_offline_cfg,
@@ -99,9 +99,9 @@ import logging
 from pathlib import Path
 from typing import Callable
 
-try:  # Optional atomic write helper
-    from steup.utils import write_config_atomic  # type: ignore
-except Exception:  # pragma: no cover - helper may not exist
+try:  
+    from steup.utils import write_config_atomic  
+except Exception: 
     write_config_atomic = None
 
 # --- Resource path resolver -------------------------------------------------
@@ -259,7 +259,6 @@ def run_in_thread(target, *args, **kwargs):
                              kwargs=kwargs, daemon=True)
     thread.start()
 
-
 def _iter_build_outputs(build_root: str):
     """Yield outputBuild_* directories under Build_* (newest first)."""
     for bdir in sorted(
@@ -277,7 +276,6 @@ def _iter_build_outputs(build_root: str):
         except Exception:
             continue
 
-
 def wait_for_obj(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10, log=print) -> str | None:
     """Block until an OBJ export exists. Return the folder that holds it."""
     start = time.time()
@@ -291,7 +289,6 @@ def wait_for_obj(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10,
                         return obj_dir
         time.sleep(poll_sec)
     return None
-
 
 def wait_for_terraexplorer_start(timeout_sec: int = 8*3600, poll_sec: int = 5, log=print) -> bool:
     """Return True when TerraExplorer.exe is observed."""
@@ -314,14 +311,12 @@ def wait_for_terraexplorer_start(timeout_sec: int = 8*3600, poll_sec: int = 5, l
         time.sleep(poll_sec)
     return False
 
-
 # =============================================================================
 # PHOTOMESH PROGRESS PARSING
 # =============================================================================
 
 _PROGRESS_RE = re.compile(r"Progress:\s*(\d+)%")
 _TILE_RE = re.compile(r"Tile\s+(\d+)\s+of\s+(\d+)")
-
 
 def extract_progress(line: str) -> int | None:
     """Return progress percent from a log line if present."""
@@ -336,7 +331,6 @@ def extract_progress(line: str) -> int | None:
             return int(done / total * 100)
     return None
 
-
 # =============================================================================
 # NETWORK / PATH HELPERS
 # =============================================================================
@@ -345,14 +339,12 @@ def get_local_ip():
     """Return the primary IPv4 address of this machine."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # connecting to an external host does not actually send data
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
         return ip
     except Exception:
         return "127.0.0.1"
-
 
 def clean_path(path: str) -> str:
     """Return *path* normalized with UNC style backslashes."""
@@ -361,7 +353,6 @@ def clean_path(path: str) -> str:
     if path.startswith('\\') and not path.startswith('\\\\'):
         path = '\\' + path
     return path
-
 
 # =============================================================================
 # VBS4 / BLUEIG / BVI PATH RESOLUTION
@@ -377,7 +368,6 @@ def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
         return ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF
     except Exception:
         return None
-
 
 def get_vbs4_install_path() -> str:
     """Return the best VBS4.exe path found on the system.
@@ -455,7 +445,6 @@ def get_vbs4_launcher_path() -> str:
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 config.write(f)
             try:
-                # keep Settings UI in sync if the app is running
                 refresh_settings_panel_from_config()
             except Exception:
                 pass
@@ -510,7 +499,6 @@ def get_vbs4_launcher_path() -> str:
             mtime = os.path.getmtime(p)
         except Exception:
             pass
-        # Prefer real .exe over .bat, then versioned, then newest
         is_exe = 1 if p.lower().endswith('.exe') else 0
         has_ver = 1 if ver else 0
         return (is_exe, has_ver, ver, mtime)
@@ -530,7 +518,6 @@ def get_vbs4_launcher_path() -> str:
     logging.warning("VBS4 Launcher not found")
     return ''
 
-
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')
     if not path or not os.path.isfile(path):
@@ -540,7 +527,6 @@ def get_blueig_install_path() -> str:
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
     return path or ''
-
 
 def get_ares_manager_path() -> str:
     """Return ARES Manager path; try to auto-discover if not in config."""
@@ -587,7 +573,6 @@ def get_vbs4_version(file_path: str) -> str:
         ver = get_exe_file_version(file_path)
         if ver != "Unknown":
             return ver
-    # handle paths like ".../VBS4/25.1/VBS4.exe" or "VBS4 25.1" etc.
     match = re.search(r'VBS4[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
 
@@ -606,10 +591,8 @@ def get_bvi_version(file_path: str) -> str:
         ver = get_exe_file_version(file_path)
         if ver != "Unknown":
             return ver
-    # Match patterns like .../ARES-dev-release-v1.2.3/..., ...\ARES-dev-release-v1.2.3..., etc.
     match = re.search(r'ARES[-_ ]*dev[-_ ]*release[-_ ]*v[\\/\s_-]*([0-9]+(?:\.[0-9]+)*)', file_path, re.IGNORECASE)
     return match.group(1) if match else "Unknown"
-
 
 #==============================================================================
 # EXECUTABLE FINDER
@@ -669,7 +652,6 @@ def find_executable(name, additional_paths=[]):
 # =============================================================================
 # Resolve network shortcuts and local roots for Reality Mesh.
 
-
 def get_rm_template_from_config() -> str:
     """Read the template from config; keep {host} token if present, normalize slashes."""
     raw = config.get(
@@ -677,17 +659,14 @@ def get_rm_template_from_config() -> str:
         "reality_mesh_to_vbs4",
         fallback=r"\\{host}\SharedMeshDrive\RealityMeshInstall\Reality Mesh to VBS4.lnk",
     ).strip()
-    # If user hard-coded a concrete \\HOST\... path, convert to {host} template so host entry can work
     if "{host}" not in raw and raw.startswith("\\\\"):
         parts = raw.split("\\")
         if len(parts) >= 4:
-            # parts: ["", "", "HOST", "SharedMeshDrive", ...]
             raw = "\\\\{host}\\" + "\\".join(parts[3:])
             config["General"]["reality_mesh_to_vbs4"] = raw
             with open(CONFIG_PATH, "w") as f:
                 config.write(f)
     return raw
-
 
 def _subst_host(template: str) -> str:
     """Replace the {host} token with the configured host IP (fallback to name)."""
@@ -695,7 +674,6 @@ def _subst_host(template: str) -> str:
     host_ip = get_host_ip()
     replacement = host_ip or get_host()
     return template.replace("{host}", replacement)
-
 
 def _first_missing_segment(path: str) -> str:
     """Return the first non-existent segment in a path, skipping the UNC host itself."""
@@ -716,16 +694,14 @@ def _first_missing_segment(path: str) -> str:
             return current
     return ""
 
-
 def _list_dir_safe(path: str, max_items: int = 8) -> str:
     """Return a short newline-separated listing of *path* or an error message."""
     try:
         entries = os.listdir(path)
-    except Exception as exc:  # pragma: no cover - best effort only
+    except Exception as exc: 
         return f"[cannot list '{path}': {exc}]"
     entries = entries[:max_items]
     return "\n".join(entries)
-
 
 def _diagnose_missing_unc(path: str) -> str:
     """Return diagnostic text for an unresolved UNC *path*."""
@@ -735,7 +711,6 @@ def _diagnose_missing_unc(path: str) -> str:
     parent = os.path.dirname(missing)
     listing = _list_dir_safe(parent)
     return f"Missing path: {missing}\nParent listing ({parent}):\n{listing}"
-
 
 def _try_link_under(base_dir: str) -> str:
     """Search for the RM link directly in base_dir or recursively beneath it."""
@@ -751,14 +726,12 @@ def _try_link_under(base_dir: str) -> str:
                 return os.path.join(dp, f)
     return ""
 
-
 def _candidate_install_roots() -> list[str]:
     """Return possible install roots for both spellings under \\host\\SharedMeshDrive\\…"""
     root = resolve_shared_access_path()
     if not root:
         return []
     return [os.path.join(root, subdir) for subdir in RM_INSTALL_SUBDIRS]
-
 
 def find_unc_rm_link() -> str:
     """Resolve the UNC shortcut for "Reality Mesh to VBS4".
@@ -783,16 +756,12 @@ def find_unc_rm_link() -> str:
             return link
     return ""
 
-
-# Backwards compatibility helper
-def find_reality_mesh_to_vbs4_link() -> str:  # pragma: no cover - legacy name
+def find_reality_mesh_to_vbs4_link() -> str: 
     return find_unc_rm_link()
-
 
 def get_rm_local_root() -> str:
     """Return the configured local Reality Mesh install root, if any."""
     return config.get('General', 'reality_mesh_local_root', fallback='').strip()
-
 
 def set_rm_local_root(path: str) -> None:
     """Store the local Reality Mesh install root in ``config.ini``."""
@@ -802,7 +771,6 @@ def set_rm_local_root(path: str) -> None:
     config['General']['reality_mesh_local_root'] = norm
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
-
 
 def is_valid_rm_local_root(root: str) -> bool:
     """
@@ -835,7 +803,6 @@ def is_valid_rm_local_root(root: str) -> bool:
 
     return False
 
-
 def find_local_rm_shortcut(root: str) -> str:
     """
     Return the full path to 'Reality Mesh to VBS4.lnk' under *root*.
@@ -867,7 +834,6 @@ def find_local_rm_shortcut(root: str) -> str:
 
     return ''
 
-
 def resolve_active_rm_link() -> tuple[str, str]:
     root = get_rm_local_root()
     if root:
@@ -879,15 +845,11 @@ def resolve_active_rm_link() -> tuple[str, str]:
     link = find_unc_rm_link()
     return (link, 'UNC')
 
-
-# Backwards compatibility helpers
 def find_local_rm_link() -> str:  # pragma: no cover - legacy alias
     return find_local_rm_shortcut(get_rm_local_root())
 
-
 def is_valid_rm_root(local_root: str, data_marker: str = RM_LNK_NAME) -> bool:  # pragma: no cover
     return is_valid_rm_local_root(local_root)
-
 
 def load_system_settings(path: str) -> dict:
     settings = {}
@@ -903,7 +865,6 @@ def load_system_settings(path: str) -> dict:
                     value = os.path.normpath(value)
                 settings[key.strip()] = value
     return settings
-
 
 def update_vbs4_settings(path: str) -> None:
     """Ensure ``override_Path_VBS4`` and ``vbs4_version`` reflect the
@@ -938,8 +899,8 @@ def update_vbs4_settings(path: str) -> None:
     with open(path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
 
-
-
+# =============================================================================
+# TERRAIN DISTRIBUTION
 def get_distribution_paths() -> list[str]:
     """Return a list of remote VBS4 install paths for terrain distribution."""
     paths_file = os.path.join(BASE_DIR, 'distribution_paths.json')
@@ -956,7 +917,6 @@ def get_distribution_paths() -> list[str]:
     except Exception:
         return []
 
-
 def get_local_terrain_path(project_name: str) -> str | None:
     """Return the local terrain output folder for *project_name* if it exists."""
     vbs4_exe = get_vbs4_install_path()
@@ -964,7 +924,6 @@ def get_local_terrain_path(project_name: str) -> str | None:
         return None
     terrain_dir = os.path.join(os.path.dirname(vbs4_exe), 'terrain', project_name)
     return terrain_dir if os.path.isdir(terrain_dir) else None
-
 
 def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
     """Copy processed terrain for *project_name* to all configured VBS4 installs."""
@@ -983,8 +942,6 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
         except Exception as e:
             log_func(f'Failed to copy to {dest}: {e}')
 
-
-
 # =============================================================================
 # CONFIGURATION & APP ICON
 # =============================================================================
@@ -1001,11 +958,9 @@ config.read(CONFIG_PATH)
 # synchronize UI state (e.g., refresh Settings fields after config updates).
 APP_INSTANCE = None
 
-
 def _save_config():
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
-
 
 def _ensure_fuser_defaults() -> None:
     if "Fusers" not in config:
@@ -1021,9 +976,7 @@ def _ensure_fuser_defaults() -> None:
     if changed:
         _save_config()
 
-
 _ensure_fuser_defaults()
-
 
 def get_projects_root() -> str:
     try:
@@ -1031,7 +984,6 @@ def get_projects_root() -> str:
         return root
     except Exception:
         return ""
-
 
 def set_projects_root(path: str) -> None:
     if not config.has_section("Paths"):
@@ -1047,7 +999,6 @@ def get_host_ip() -> str:
         return config.get("Offline", "host_ip", fallback="").strip()
     except Exception:
         return ""
-
 
 def set_host_ip(ip: str) -> None:
     """Persist *ip* to Offline.host_ip and refresh dependent systems."""
@@ -1067,7 +1018,6 @@ def set_host_ip(ip: str) -> None:
     apply_offline_settings()
     update_fuser_shared_path()
 
-
 def build_unc_from_cfg(o: dict | None = None) -> str:
     """Return ``\\\\<ip>\\<share>`` based on Offline config (IP only)."""
 
@@ -1079,17 +1029,14 @@ def build_unc_from_cfg(o: dict | None = None) -> str:
         return ""
     return f"\\\\{ip}\\{share}"
 
-
 def resolve_shared_access_path() -> str:
     """Return the root UNC path for the shared mesh drive using the host IP."""
 
     unc = build_unc_from_cfg()
     return unc or ""
 
-
 def get_host() -> str:
     return _read_photomesh_host()
-
 
 def set_host(host: str) -> None:
     """Persist the single 'Host PC Name' across all places legacy code reads from."""
@@ -1104,17 +1051,15 @@ def set_host(host: str) -> None:
     if "Network" not in config:
         config["Network"] = {}
 
-    # Canonical + backward‑compatible keys:
     config["Offline"]["working_fuser_host"] = host
     config["Offline"]["host_name"] = host
     config["Network"]["host"] = host
-    config["Fusers"]["working_folder_host"] = host  # so fuser toggle doesn't prompt again
+    config["Fusers"]["working_folder_host"] = host  # so fuser toggle doesn't prompt
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
 
     refresh_settings_panel_from_config()
-
 
 def bootstrap_first_run_if_needed(log=None):
     """Host: ensure IP present and share exists. User: leave blanks."""
@@ -1136,7 +1081,6 @@ def bootstrap_first_run_if_needed(log=None):
             config.write(f)
     # USER mode intentionally leaves host blank
 
-
 def refresh_settings_panel_from_config() -> None:
     """Update the Settings panel UI to reflect the latest config.ini values."""
 
@@ -1157,11 +1101,10 @@ def refresh_settings_panel_from_config() -> None:
     except Exception:
         try:
             _apply()
-        except Exception as exc:  # pragma: no cover - best effort logging only
+        except Exception as exc: 
             logging.getLogger(__name__).warning(
                 "[settings-sync] Failed to refresh settings panel: %s", exc
             )
-
 
 def resolve_unc(template: str) -> str:
     """Replace {host} token with host IP (fallback to host name) and normalize."""
@@ -1199,7 +1142,6 @@ def _toplevel_init_with_icon(self, *args, **kwargs):
     try:
         self.after_idle(_maybe_icon)
     except Exception:
-        # ``after_idle`` may not exist on some custom widgets; fallback
         _maybe_icon()
 
 tk.Toplevel.__init__ = _toplevel_init_with_icon
@@ -1216,11 +1158,10 @@ def load_image(path, size=None):
         img = img.resize(size, Image.Resampling.LANCZOS)
     return ImageTk.PhotoImage(img)
 if 'fullscreen' not in config['General']:
-    config['General']['fullscreen'] = 'False'  # Set a default value
+    config['General']['fullscreen'] = 'False' 
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
        
-
 # =============================================================================
 # AUTO-LAUNCH CONFIG
 # =============================================================================
@@ -1235,10 +1176,8 @@ if 'Auto-Launch' not in config:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
-
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
-
 
 def get_auto_launch_cmd() -> tuple[str, list[str]]:
     path = config['Auto-Launch'].get('program_path', '').strip()
@@ -1270,20 +1209,16 @@ if 'working_folder_host' not in config['Fusers']:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
-
 # --- Fuser helpers ---
 
 def get_machine_name() -> str:
     return socket.gethostname().split('.')[0].upper()
 
-
 def get_working_folder_host() -> str:
     return config['Fusers'].get('working_folder_host', '').split('.')[0].upper()
 
-
 def is_host_machine() -> bool:
     return get_machine_name() == get_working_folder_host()
-
 
 def find_fuser_exe() -> str:
     """
@@ -1305,7 +1240,6 @@ def find_fuser_exe() -> str:
             return os.path.join(dp, "PhotoMeshFuser.exe")
     return ""
 
-
 def list_local_fusers() -> list:
     """Return list of psutil.Process for local PhotoMeshFuser.exe."""
     procs = []
@@ -1317,7 +1251,7 @@ def list_local_fusers() -> list:
                     procs.append(p)
         except Exception:
             pass
-    else:  # fallback to tasklist parsing
+    else:  
         try:
             out = subprocess.check_output(
                 ['tasklist', '/FI', 'IMAGENAME eq PhotoMeshFuser.exe'],
@@ -1330,22 +1264,18 @@ def list_local_fusers() -> list:
             pass
     return procs
 
-
 def count_local_fusers() -> int:
     return len(list_local_fusers())
-
 
 # --- Fuser constants / helpers ---------------------------------------------
 MIN_LOCAL_FUSERS = 1
 MAX_LOCAL_FUSERS = 3
-
 
 def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
     """Clamp desired local fuser count according to machine role."""
 
     lower = MIN_LOCAL_FUSERS if is_fuser_computer else 0
     return max(lower, min(MAX_LOCAL_FUSERS, int(n)))
-
 
 def start_fuser_instance(idx: int) -> bool:
     """Start *idx*-th fuser via its own shortcut/command."""
@@ -1376,7 +1306,6 @@ def start_fuser_instance(idx: int) -> bool:
         messagebox.showerror("Fuser", f"Failed to start {name}:\n{e}")
         return False
 
-
 def kill_fusers() -> None:
     """Kill ALL local PhotoMeshFuser.exe instances (safer + faster)."""
     try:
@@ -1389,7 +1318,6 @@ def kill_fusers() -> None:
                     p.terminate()
             except Exception:
                 pass
-
 
 def ensure_fuser_instances(desired: int):
     """
@@ -1411,7 +1339,6 @@ def ensure_fuser_instances(desired: int):
     for idx in range(current + 1, current + 1 + to_start):
         start_fuser_instance(idx)
 
-
 def enforce_local_fuser_policy():
     """Apply the configured fuser instance counts on this machine."""
     try:
@@ -1427,7 +1354,6 @@ def enforce_local_fuser_policy():
     except Exception as e:
         print(f"[fuser-policy] {e}")
 
-
 def relaunch_fusers():
     """Restart local fusers to match the configured target count."""
 
@@ -1437,9 +1363,6 @@ def relaunch_fusers():
     except Exception as e:
         print(f"[fuser-relaunch] {e}")
 
-
-# Update the shared fuser path in the JSON config. If *project_path* is a UNC
-# path, derive the host from it; otherwise fall back to the local machine name.
 def update_fuser_shared_path(project_path: str | None = None) -> None:
     """Persist the shared WorkingFuser UNC using the configured host IP."""
 
@@ -1514,14 +1437,12 @@ def apply_offline_settings() -> None:
 
     enforce_local_fuser_policy()
 
-
 INSTALLER_SILENT_FLAGS = {
     "nightlygit_pmwizard_v1_5_0_photomesh_us.exe": [["/S"], ["/silent"], ["/quiet"]],
     "realitymesh.core.installerx64.25_1.rm.b1.exe": [["/quiet"], ["/silent"], ["/S"], ["/s"]],
     "setup.exe": [["/quiet"], ["/silent"], ["/S"], ["/s"]],
 }
 DEFAULT_SILENT_FLAGS = [["/quiet"], ["/silent"], ["/S"], ["/s"]]
-
 
 def is_photomesh_installed() -> bool:
     """Return True when a PhotoMesh Wizard executable is present locally."""
@@ -1539,7 +1460,6 @@ def is_photomesh_installed() -> bool:
     except Exception:
         exe = ""
     return bool(exe and os.path.isfile(exe))
-
 
 def _candidate_rm_roots() -> list[str]:
     """Return potential Reality Mesh install roots for shortcut discovery."""
@@ -1579,7 +1499,6 @@ def _candidate_rm_roots() -> list[str]:
             ordered.append(norm)
     return ordered
 
-
 def detect_realitymesh_install_root() -> str:
     """Return the folder containing the Reality Mesh shortcut if found."""
 
@@ -1589,12 +1508,10 @@ def detect_realitymesh_install_root() -> str:
             return os.path.dirname(link)
     return ""
 
-
 def is_realitymesh_installed() -> bool:
     """Return True if a Reality Mesh install shortcut is discoverable."""
 
     return bool(detect_realitymesh_install_root())
-
 
 def _iter_installer_files(root: str) -> list[str]:
     """Return sorted installer file paths within *root*."""
@@ -1606,7 +1523,6 @@ def _iter_installer_files(root: str) -> list[str]:
         if path.is_file() and path.suffix.lower() in {".exe", ".msi"}:
             files.append(str(path))
     return files
-
 
 def _run_installer(path: str) -> tuple[bool, str]:
     """Execute installer *path* silently. Returns (success, error_message)."""
@@ -1638,12 +1554,11 @@ def _run_installer(path: str) -> tuple[bool, str]:
                     return True, ""
             except subprocess.CalledProcessError as exc:
                 last_error = f"exit code {exc.returncode}"
-            except Exception as exc:  # pragma: no cover - best effort logging
+            except Exception as exc: 
                 last_error = str(exc)
         return False, last_error or "unknown error"
     except FileNotFoundError as exc:
         return False, str(exc)
-
 
 def maybe_install_prereqs(payload_root: str) -> list[str]:
     """Install bundled prerequisites when missing. Returns failed installer info."""
@@ -1684,7 +1599,6 @@ def maybe_install_prereqs(payload_root: str) -> list[str]:
                     failures.append(f"{os.path.basename(installer)} ({err})")
 
     return failures
-
 
 def first_run_setup(master=None) -> None:
     """Execute the first-run workflow for shared drive + installer configuration."""
@@ -1769,7 +1683,7 @@ def first_run_setup(master=None) -> None:
         import update_photomesh_config as upc
 
         upc.main()
-    except Exception as exc:  # pragma: no cover - best effort logging
+    except Exception as exc:  
         log_to_console(f"[first-run] Failed updating PhotoMesh config: {exc}")
 
     detected_rm_root = detect_realitymesh_install_root()
@@ -1790,7 +1704,6 @@ def first_run_setup(master=None) -> None:
             )
 
     log_to_console("[first-run] First-run setup completed.")
-
 
 def first_run_setup_user(master=None) -> None:
     """Configure first-run defaults for non-host machines."""
@@ -1816,7 +1729,6 @@ def first_run_setup_user(master=None) -> None:
     _save_config()
     refresh_settings_panel_from_config()
     log_to_console("[first-run] User configuration saved. Set the host later from Settings.")
-
 
 # =============================================================================
 # SETTINGS HELPERS (Registry, toggles)
@@ -1897,8 +1809,6 @@ def get_image_folders_recursively(base_folder):
     folder and discovered paths ensures consistent separators and proper UNC
     handling.
     """
-
-
     base_folder = clean_path(base_folder)
     image_folders = []
 
@@ -2006,7 +1916,7 @@ def prompt_for_exe(app_name, config_key):
         icon='question'
     )
     if not response:
-        return True  # User chose to skip
+        return True 
 
     path = filedialog.askopenfilename(
         title=f"Select {app_name} Executable",
@@ -2024,11 +1934,8 @@ def prompt_for_exe(app_name, config_key):
 
 def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: str) -> str:
     path = clean_path(config['General'].get(config_key, '').strip())
-    # 1) Try what we already have in config
     if path and os.path.isfile(path):
         return path
-
-    # 2) Try auto-find logic (registry, standard folders, etc.)
     if isinstance(exe_name, str):
         candidate = exe_name.lower()
         if candidate == 'vbs4.exe':
@@ -2040,7 +1947,6 @@ def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: 
         else:
             path = find_executable(exe_name)
     else:
-        # exe_name provided as a list – try each name
         for name in exe_name:
             low = name.lower()
             if low in ('vbslauncher.exe', 'vbs4launcher.exe'):
@@ -2051,22 +1957,18 @@ def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: 
                 break
 
     if path and os.path.isfile(path):
-        # store it for next time unless it's the VBS4 path
         if config_key != 'vbs4_path':
             config['General'][config_key] = clean_path(path)
             with open(CONFIG_PATH, 'w') as f:
                 config.write(f)
         return path
 
-    # 3) Fallback: prompt the user (must pass BOTH arguments!)
-    if not prompt_for_exe(prompt_title, config_key):  # Changed from exe_name to prompt_title
+    if not prompt_for_exe(prompt_title, config_key): 
         raise FileNotFoundError(f"No executable selected for '{config_key}'.")
-
-    # prompt_for_exe wrote the new path into config
     path = config['General'][config_key]
     return path
 
-
+# =============================================================================
 # BVI (ARES Manager)
 
 def get_bvi_batch_file() -> str:
@@ -2108,7 +2010,6 @@ def launch_vbs4_setup():
         messagebox.showerror("Launch Failed", f"Couldn't launch VBS4 Setup Launcher:\n{e}")
 
 def launch_blueig():
-    # 1) Get (or ask for) the full path to BlueIG.exe
     exe = config['General'].get('blueig_path', '').strip()
     if not exe or not os.path.isfile(exe):
         messagebox.showwarning(
@@ -2209,22 +2110,16 @@ def set_background(window, widget=None):
         lbl = tk.Label(widget or window, image=ph)
         lbl.image = ph
         lbl.place(x=0, y=0, relwidth=1, relheight=1)
-        # If we are applying the background to an arbitrary widget (like a panel
-        # or canvas), push it to the back so subsequently created buttons/frames
-        # remain clickable/visible.
         try:
             if widget is not None:
                 lbl.lower()
         except Exception:
             pass
 
-    # (Floating logos removed; now handled by fixed header bar in MainApp.)
-
 def set_wallpaper(window):
     if not os.path.exists(background_image_path):
         return
 
-    # get actual window dimensions
     w = window.winfo_width()
     h = window.winfo_height()
 
@@ -2353,7 +2248,6 @@ def open_bvi_quickstart():
         messagebox.showinfo("BVI Quick-Start Guide", "No file selected. The Quick-Start Guide will not be opened.")
 
 def open_bvi_documentation():
-    # List of possible locations for the BVI documentation
     possible_paths = [
         os.path.join(BASE_DIR, "BVI_Documentation", "BVI_User_Instructions.pdf"),
         os.path.join(BASE_DIR, "..", "BVI_Documentation", "BVI_User_Instructions.pdf"),
@@ -2410,7 +2304,6 @@ def _find_file(filename, roots):
                     return os.path.join(dirpath, filename)
     return None
 
-
 def open_reality_mesh_docs():
     """Open the Reality Mesh HTML help documentation."""
     path = _find_file("Reality_Mesh_EN.htm", [r"C:\\Bohemia Interactive Simulations"])
@@ -2418,7 +2311,6 @@ def open_reality_mesh_docs():
         webbrowser.open(f"file://{path}", new=2)
     else:
         messagebox.showerror("Error", "Reality Mesh documentation not found.")
-
 
 def open_photomesh_help():
     """Open the PhotoMesh help PDF, searching development and production paths."""
@@ -2434,7 +2326,6 @@ def open_photomesh_help():
             messagebox.showerror("Error", f"Failed to open PhotoMesh help:\n{e}")
     else:
         messagebox.showerror("Error", "PhotoMesh help not found.")
-
 
 oct_help_items = {
     "Reality Mesh Help": open_reality_mesh_docs,
@@ -2546,7 +2437,6 @@ def select_vbs_map_profile():
         return
     cfg = config['General']
     cfg['vbs_map_user']   = profile.strip()
-    # you can also set defaults if you want:
     cfg.setdefault('vbs_map_server', 'localhost')
     cfg.setdefault('vbs_map_port',   '4080')
     with open(CONFIG_PATH, 'w') as f:
@@ -2567,7 +2457,6 @@ def open_external_map():
 
     host = cfg.get('vbs_map_server', 'localhost').strip()
     port = cfg.get('vbs_map_port',   '4080').strip()
-    # build URL with both loginName and vbsFullComputerName
     url = (
         f"http://{host}:{port}/#/external/login"
         f"?loginName={user}"
@@ -2590,7 +2479,6 @@ def open_external_map():
 def make_borderless(hwnd):
     """Strip only the thin border & titlebar out of a real toplevel."""
     style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
-    # turn off WS_BORDER | WS_DLGFRAME
     style &= ~(WS_BORDER | WS_DLGFRAME)
     ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
     ctypes.windll.user32.SetWindowPos(
@@ -2619,7 +2507,6 @@ def prompt_hostname(parent, initial=""):
 
     var = tk.StringVar(value=initial)
 
-    # Add label for instructions
     tk.Label(
         top,
         text="Enter Host PC name",
@@ -2711,7 +2598,6 @@ class MainApp(tk.Tk):
         pump_ui_queue(self)
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
-         # Prevent window resizing
         self.resizable(False, False)
 
         # List of buttons that can receive keyboard focus
@@ -2748,11 +2634,10 @@ class MainApp(tk.Tk):
         self._live_scale = None
         self._cfg_job = None
         def log_message(msg):
-            print(f"> {msg}")  # Or use post_ui(log_to_console, f"> {msg}") if you want UI logging
+            print(f"> {msg}")  
         self.log_message = log_message
 
         def _on_configure(event=None):
-            # throttle rapid resize events
             if self._cfg_job is not None:
                 self.after_cancel(self._cfg_job)
             self._cfg_job = self.after(25, self._recompute_scale)
@@ -2761,11 +2646,9 @@ class MainApp(tk.Tk):
 
         def _recompute_scale():
             self._cfg_job = None
-            # ensure geometry info is up to date
             self.update_idletasks()
             w = max(1, self.winfo_width())
             h = max(1, self.winfo_height())
-            # derive base content height from its requested size
             current_scale = self._live_scale if self._live_scale is not None else self.window_scale
             base_h = self.content.winfo_reqheight() / max(current_scale, 1e-6)
             # compute scale vs. design width and dynamic content height
@@ -2785,7 +2668,6 @@ class MainApp(tk.Tk):
 
         set_background(self)
 
-        # Fixed header bar (always visible, not inside scrollable canvas)
         self.header_bar = tk.Frame(self, bg="black", height=120)
         self.header_bar.pack(side="top", fill="x")
 
@@ -2846,19 +2728,13 @@ class MainApp(tk.Tk):
                               bg="red", fg="white", bd=0,
                               command=self.destroy)
         close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
-
-        # Set dark background to prevent white flashes during scroll
         self.configure(bg="black")
         self.content = tk.Frame(self, bg="black", bd=0, highlightthickness=0)
         self.content.pack(expand=True, fill="both")
 
         nav = tk.Frame(self.content, bg='#333333')
         nav.pack(side='left', fill='y')
-
-        # REPLACE the simple frame container with a scrollable viewport:
         self._init_scrollable_viewport()
-
-        # Instantiate each panel, passing `self` as the controller
         self.panels = {
             'Main':      MainMenu(self.panels_container, self),
             'VBS4':      VBS4Panel(self.panels_container, self),
@@ -2875,10 +2751,6 @@ class MainApp(tk.Tk):
             enforce_photomesh_settings(log=log_fn)
         except Exception as exc:
             print(f"[wizard-enforce] {exc}")
-
-        # Initially hide all panels; we will pack only the active one so that
-        # the container's requested height matches the panel content (needed
-        # for correct scrolling instead of everything collapsing at top).
         for panel in self.panels.values():
             panel.pack_forget()
 
@@ -2959,10 +2831,7 @@ class MainApp(tk.Tk):
             self.geometry(self.windowed_geometry)
             self.fullscreen = False
 
-        # Re-evaluate scrollability after fullscreen toggle
         self.after(10, self._update_scrollability)
-        
-        # trigger a recompute after the window actually resizes
         self.after(10, lambda: self.event_generate("<Configure>"))
 
     def _init_scrollable_viewport(self):
@@ -2970,56 +2839,32 @@ class MainApp(tk.Tk):
         # Create the outer canvas (the viewport) with proper background
         self.viewport_canvas = tk.Canvas(self.content, highlightthickness=0, bg='black')
         self.viewport_canvas.pack(side='right', expand=True, fill='both')
-        
-        # Configure pixel-based scrolling to prevent sub-pixel artifacts
         self.viewport_canvas.configure(yscrollincrement=1)
-
-        # Create an overlay scrollbar (so background shows behind where a dedicated
-        # column used to be). We place it inside the canvas so the canvas spans
-        # full width; the scrollbar floats on top.
         self.viewport_scrollbar = tk.Scrollbar(self.viewport_canvas, orient='vertical', command=self.viewport_canvas.yview)
         self.viewport_canvas.configure(yscrollcommand=self.viewport_scrollbar.set)
-        
-        # Initialize scroll state tracking to prevent background updates during scroll
         self._scroll_active = False
         self._scroll_timer = None
-        
-        # Wheel event batching for smooth scrolling
         self._wheel_accum = 0
         self._wheel_job = None
-        
-        # Optional background image (single shared) drawn behind panels.
         self._bg_image_src = None
         self._bg_image_id = None
         try:
             if os.path.exists(background_image_path):
-                from PIL import Image  # already imported but safe
                 self._bg_image_src = Image.open(background_image_path)
-                # create an initial 1x1 placeholder; real size in configure
                 self._bg_photo = ImageTk.PhotoImage(self._bg_image_src.resize((2,2)))
                 self._bg_image_id = self.viewport_canvas.create_image(0, 0, image=self._bg_photo, anchor='nw')
         except Exception:
             self._bg_image_src = None
-
-        # Create the inner frame that will hold all panels (drawn above bg)
         self.panels_container = tk.Frame(self.viewport_canvas, bg='black')
         self.canvas_frame_id = self.viewport_canvas.create_window(0, 0, window=self.panels_container, anchor='nw')
-        
-        # Bind canvas configure to update scroll region and inner frame width
         self.viewport_canvas.bind('<Configure>', self._on_canvas_configure)
         self.panels_container.bind('<Configure>', self._on_frame_configure)
-        
-        # Bind mouse wheel events with better conflict resolution
         self.viewport_canvas.bind('<MouseWheel>', self._on_mousewheel)
-        self.viewport_canvas.bind('<Button-4>', self._on_mousewheel)  # Linux scroll up
-        self.viewport_canvas.bind('<Button-5>', self._on_mousewheel)  # Linux scroll down
-        
-        # Also bind to the panels container for better coverage
+        self.viewport_canvas.bind('<Button-4>', self._on_mousewheel)  
+        self.viewport_canvas.bind('<Button-5>', self._on_mousewheel)  
         self.panels_container.bind('<MouseWheel>', self._on_mousewheel)
         self.panels_container.bind('<Button-4>', self._on_mousewheel)
         self.panels_container.bind('<Button-5>', self._on_mousewheel)
-        
-        # Track if scrollbar is currently shown (overlay mode)
         self._scrollbar_shown = True
         self.after(50, self._place_overlay_scrollbar)
 
@@ -3028,39 +2873,26 @@ class MainApp(tk.Tk):
         try:
             sb_width = 18
             self.viewport_scrollbar.place(relx=1.0, x=-sb_width, y=0, width=sb_width, relheight=1.0)
-            # ensure scrollbar above background but below any future popups
             self.viewport_scrollbar.lift()
         except Exception:
             pass
 
     def _on_canvas_configure(self, event):
         """Handle canvas resize - update inner frame width and scrollability."""
-        # Update the inner frame width to match canvas width
         canvas_width = event.width
         self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
-        
-        # Only update background if size actually changed and we're not actively scrolling
         current_bg_size = getattr(self, '_last_bg_size', (0, 0))
         new_size = (event.width, event.height)
         size_changed = abs(new_size[0] - current_bg_size[0]) > 5 or abs(new_size[1] - current_bg_size[1]) > 5
         
         if size_changed and not getattr(self, '_scroll_active', False):
             self._last_bg_size = new_size
-            # Delay background update to avoid interference with scrolling
             self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
-            # Disable per-panel wallpaper update to prevent dual background overdraw
-            # if getattr(self, 'current', None) and self.current in self.panels:
-            #     self.after_idle(lambda: self._apply_panel_wallpaper(self.panels[self.current]))
-        
-        # Re-evaluate scrollability
         self._update_scrollability()
 
     def _on_frame_configure(self, event):
         """Handle inner frame resize - update scroll region."""
-        # Update the scroll region to encompass the inner frame
         self.viewport_canvas.configure(scrollregion=self.viewport_canvas.bbox('all'))
-        
-        # Re-evaluate scrollability
         self._update_scrollability()
 
     def _on_mousewheel(self, event):
@@ -3072,21 +2904,17 @@ class MainApp(tk.Tk):
             parent = focused.master
             while parent:
                 if hasattr(parent, '_settings_canvas') or getattr(parent, '__class__', None).__name__ in ['Canvas', 'Scrollbar']:
-                    return  # Don't handle scroll if focus is in another scrollable area
+                    return 
                 parent = getattr(parent, 'master', None)
         
         if not self._scrollbar_shown:
             return
-        
-        # Handle both Windows/macOS delta and Linux button events    
+   
         delta = 0
         if hasattr(event, 'delta') and event.delta:
             delta = event.delta
         elif hasattr(event, 'num'):
-            # Linux scroll events: Button-4 = scroll up, Button-5 = scroll down
             delta = -120 if event.num == 4 else 120 if event.num == 5 else 0
-            
-        # Accumulate wheel delta for batching
         self._wheel_accum += delta
         
         if self._wheel_job is not None:
@@ -3095,15 +2923,10 @@ class MainApp(tk.Tk):
         def _flush():
             steps = int(self._wheel_accum / 120)
             if steps:
-                # Mark scroll as active to prevent background updates
                 self._scroll_active = True
                 if self._scroll_timer:
                     self.after_cancel(self._scroll_timer)
-                
-                # 1 px per step (yscrollincrement=1). Use *2 or *3 for faster feel.
                 self.viewport_canvas.yview_scroll(-steps, "units")
-                
-                # Reset scroll state after a delay
                 self._scroll_timer = self.after(100, self._reset_scroll_state)
                 
             self._wheel_accum = 0
@@ -3118,21 +2941,15 @@ class MainApp(tk.Tk):
 
     def _update_scrollability(self):
         """Show/hide scrollbar based on content overflow and panel type."""
-        # Get canvas and content dimensions
         self.viewport_canvas.update_idletasks()
         canvas_height = self.viewport_canvas.winfo_height()
         
         # Get the actual content height from scroll region
         bbox = self.viewport_canvas.bbox('all')
         content_height = bbox[3] - bbox[1] if bbox else 0
-        # Determine if we should show scrollbar (not currently conditional)
-        needs_scroll = content_height > canvas_height  # kept for potential logic
-        
-        # Always show main viewport scrollbar for proper content display
-        # (Settings panel will manage its own internal scrollbar separately)
+        needs_scroll = content_height > canvas_height  
         show_scrollbar = True
-        
-        # In overlay mode we simply hide or show via place_forget / place
+
         if show_scrollbar and not self._scrollbar_shown:
             self._place_overlay_scrollbar()
             self._scrollbar_shown = True
@@ -3158,13 +2975,11 @@ class MainApp(tk.Tk):
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
         panel = self.panels[name]
-        # Update subtitle in fixed header
         try:
             subtitle = self._panel_subtitles.get(name, name)
             self.header_subtitle.config(text=subtitle)
         except Exception:
             pass
-        # Reset scroll state before panel switch to prevent conflicts
         self._scroll_active = False
         if hasattr(self, '_scroll_timer') and self._scroll_timer:
             self.after_cancel(self._scroll_timer)
@@ -3178,9 +2993,6 @@ class MainApp(tk.Tk):
         # Hide all panels then show the requested one
         for p in self.panels.values():
             p.pack_forget()
-        # Only force full-height for heavy/interactive panels; allow simple
-        # text/info panels to size naturally so their content isn't awkwardly
-        # glued to the top.
         force_full_height = name not in ("Credits", "Contact Us")
         try:
             panel.pack_propagate(False if force_full_height else True)
@@ -3188,11 +3000,7 @@ class MainApp(tk.Tk):
             pass
         panel.pack(fill='both', expand=True)
         self.current = name
-        
-        # Reset viewport scroll position on panel switches
         self._reset_viewport_scroll()
-        # Update canvas window size to match this panel
-        # Disable per-panel wallpaper to prevent dual background overdraw during scroll
         self.after(1, lambda p=panel: self._resize_canvas_to_panel(p))
         
         if name == "VBS4":
@@ -3205,14 +3013,8 @@ class MainApp(tk.Tk):
             panel.refresh_rm_status()
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
-
-        # Refresh navigation list whenever a new panel is shown
         self.update_navigation()
-        
-        # Re-evaluate scrollability after panel switch
         self.after(10, self._update_scrollability)
-        
-        # allow layout to settle then recompute scale for new content
         self.after(0, self._recompute_scale)
 
     def _resize_canvas_to_panel(self, panel):
@@ -3234,17 +3036,13 @@ class MainApp(tk.Tk):
         if height is None:
             height = max(2, self.viewport_canvas.winfo_height())
         
-        # Avoid excessive resizing for very small initial events
         if width < 10 or height < 10:
             return
-            
-        # Check if we really need to resize to prevent unnecessary updates during scroll
+        
         current_bg_img_size = getattr(self, '_bg_current_size', (0, 0))
         if abs(width - current_bg_img_size[0]) < 5 and abs(height - current_bg_img_size[1]) < 5:
             return  # Skip if size change is minimal
-            
-        # Expand background to cover entire scrollable content so we never
-        # scroll into a blank (white) region below the static-sized image.
+
         try:
             self.panels_container.update_idletasks()
             content_h = max(height, self.panels_container.winfo_reqheight())
@@ -3261,7 +3059,6 @@ class MainApp(tk.Tk):
                 self._bg_image_id = self.viewport_canvas.create_image(0, 0, image=self._bg_photo, anchor='nw')
             else:
                 self.viewport_canvas.itemconfig(self._bg_image_id, image=self._bg_photo)
-            # Ensure background stays at lowest z-order
             if self._bg_image_id is not None:
                 self.viewport_canvas.tag_lower(self._bg_image_id)
         except Exception:
@@ -3272,8 +3069,6 @@ class MainApp(tk.Tk):
         if not os.path.exists(background_image_path):
             return
         try:
-            # Determine needed size: cover the full panel content height so we
-            # don't see blank/white areas below the original viewport.
             panel.update_idletasks()
             vw = max(1, self.viewport_canvas.winfo_width())
             vh = max(1, self.viewport_canvas.winfo_height())
@@ -3287,7 +3082,7 @@ class MainApp(tk.Tk):
                 return
             last_size = getattr(panel, '_bg_last_size', None)
             if last_size == (pw, ph):
-                return  # no need to regenerate
+                return  
             from PIL import Image
             img = Image.open(background_image_path).resize((pw, ph), Image.Resampling.LANCZOS)
             panel._bg_panel_photo = ImageTk.PhotoImage(img)
@@ -3296,7 +3091,7 @@ class MainApp(tk.Tk):
                 lbl = tk.Label(panel, image=panel._bg_panel_photo, bd=0, highlightthickness=0)
                 panel._bg_panel_label = lbl
                 lbl.place(relwidth=1, relheight=1)
-                lbl.lower()  # keep behind other widgets
+                lbl.lower() 
             else:
                 panel._bg_panel_label.configure(image=panel._bg_panel_photo)
         except Exception:
@@ -3423,13 +3218,9 @@ class MainMenu(tk.Frame):
         super().__init__(parent)
         self.configure(bg="black")
         set_background(controller, self)
-        controller.create_tutorial_button(self)   # <— keeps the “?” button
+        controller.create_tutorial_button(self) 
         self.controller = controller
-        # Removed internal header label; fixed global header bar is used now.
 
-        # BlueIG Frame (dynamic)
-        # Use a darker gray background so the surrounding area of the
-        # collapsible buttons is not the default light/white color.
         self.blueig_frame = tk.Frame(
             self,
             bg="#333333",
@@ -3528,7 +3319,7 @@ class VBS4Panel(tk.Frame):
         self.controller = controller
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        self.configure(bg="black")  # header removed; fixed header bar used
+        self.configure(bg="black") 
 
         # --- Main actions ----------------------------------------------------
         self.vbs4_launcher_button = self.make_button(
@@ -3811,9 +3602,6 @@ class VBS4Panel(tk.Frame):
         # If text is not provided, use the default text
         if text is None:
             text = "Open local Battlespaces folder"
-
-        # event.x_root, event.y_root are screen coordinates of the mouse.
-        # Add a small offset so the tooltip does not cover the mouse pointer:
         x = event.x_root + 10
         y = event.y_root + 20
 
@@ -3938,7 +3726,6 @@ class VBS4Panel(tk.Frame):
         folder_window.attributes("-topmost", True)
         folder_window.configure(bg=self.cget("bg"))
 
-        # Optional wallpaper
         if os.path.exists(prompt_box_image_path):
             img = Image.open(prompt_box_image_path).resize(
                 (801, 506), Image.Resampling.LANCZOS
@@ -4032,7 +3819,7 @@ class VBS4Panel(tk.Frame):
                     parent=folder_window,
                 )
             else:
-                # keep a breadcrumb in the log; NO modal dialog
+                # keep a breadcrumb in the log; 
                 if hasattr(self, "log_message"):
                     self.log_message(
                         f"Imagery selected: {', '.join(self.image_folder_paths)}"
@@ -4348,7 +4135,7 @@ class VBS4Panel(tk.Frame):
 
         def _pipeline():
             # Wait until PhotoMesh has actually exported OBJ tiles before launching RM.
-            build_root = self.last_build_dir  # project root that contains Build_* folders
+            build_root = self.last_build_dir  
             self.log_message(
                 "Waiting for PhotoMesh build to complete (watching for OBJ output)…"
             )
@@ -4363,17 +4150,14 @@ class VBS4Panel(tk.Frame):
                 self.log_message(
                     "Timeout or failure while waiting for OBJ. Reality Mesh will NOT be launched."
                 )
-
         run_in_thread(_pipeline)
 
-   
     def post_process_last_build(self, build_root: str | None = None) -> None:
         """Launch the external Reality Mesh to VBS4 application."""
         sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
         
-
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
         attempted: list[str] = []
@@ -4441,7 +4225,6 @@ class VBS4Panel(tk.Frame):
         finally:
             self._update_rm_status()
     def _update_rm_status(self):
-        # Only update if the label exists (i.e., one-click panel is expanded)
         if not hasattr(self, "rm_path_label"):
             return
         link, source = resolve_active_rm_link()
@@ -4493,17 +4276,15 @@ class VBS4Panel(tk.Frame):
     # ------------------------------------------------------------------
     # PhotoMesh progress monitoring
     # ------------------------------------------------------------------
+
     def start_progress_monitor(self, project_path: str):
         """Begin monitoring PhotoMesh render logs under *project_path*."""
         # Track the project root (the folder that will contain Build_*)
         self.project_root = project_path
-        self.last_build_dir = project_path  # used later only as a hint/path; no checks
-
-        # Optional log/work paths only if they exist (don't require them)
+        self.last_build_dir = project_path  
         _out = os.path.join(project_path, "Build_1", "out")
         self.project_log_folder = os.path.join(_out, "Log") if os.path.isdir(os.path.join(_out, "Log")) else None
         self.work_folder = os.path.join(_out, "Work") if os.path.isdir(os.path.join(_out, "Work")) else None
-        # Reset progress indicators
         self.progress_var.set(0)
         self.progress_label.config(text="0%")
         if self.progress_job:
@@ -4545,7 +4326,7 @@ class OneClickPanel(tk.Frame):
         self.controller = controller
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        self.configure(bg="black")  # header removed; fixed header used
+        self.configure(bg="black")
 
         parent_bg = self.cget("bg")
 
@@ -4570,7 +4351,6 @@ class OneClickPanel(tk.Frame):
         )
         self.tutorial_button.pack(pady=15)
 
-        # NEW: Back button (same style, placed beneath the others)
         self.back_button = self.make_button(
             "Back", lambda: controller.show("Main")
         )
@@ -4686,9 +4466,8 @@ class OneClickPanel(tk.Frame):
         self.project_log_folder = None
         self.work_folder = None
         self.last_build_dir = None
-        self.image_folder_paths: list[str] = []
-        self.rm_source: str | None = None
-
+        self.image_folder_paths = []
+        self.rm_source = None
         self.update_fuser_state()
         self.refresh_rm_status()
 
@@ -5048,7 +4827,7 @@ class OneClickPanel(tk.Frame):
 
         def _pipeline():
             # Wait until PhotoMesh has actually exported OBJ tiles before launching RM.
-            build_root = self.last_build_dir  # project root that contains Build_* folders
+            build_root = self.last_build_dir  
             self.log_message(
                 "Waiting for PhotoMesh build to complete (watching for OBJ output)…"
             )
@@ -5182,7 +4961,7 @@ class BVIPanel(tk.Frame):
         self.controller = controller
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        self.configure(bg="black")  # header removed; fixed header used
+        self.configure(bg="black")
 
         # --- Main actions ----------------------------------------------------
         self.bvi_button = self.make_button(
@@ -5319,7 +5098,6 @@ class SettingsPanel(tk.Frame):
         self.configure(bg="black")  # header removed; fixed header used
         self.grid_rowconfigure(7, weight=1, minsize=400)
         self.grid_columnconfigure(0, weight=1)
-        # (header removed)
 
         # --- Top toggles -------------------------------------------------
         toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0, highlightthickness=0)
@@ -5534,7 +5312,6 @@ class SettingsPanel(tk.Frame):
                   font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
             .grid(row=2, column=0, sticky="w", pady=(0, 6))
 
-
         # --- Offline / Shared Drive ------------------------------------
         grp = tk.LabelFrame(
             self,
@@ -5741,15 +5518,12 @@ class SettingsPanel(tk.Frame):
 
         # Smooth wheel behavior with batching (Windows/macOS: <MouseWheel>, X11: Button-4/5)
         def _on_mousewheel(evt):
-            # Handle both Windows/macOS delta and Linux button events
             delta = 0
             if hasattr(evt, 'delta') and evt.delta:
                 delta = evt.delta
             elif hasattr(evt, 'num'):
-                # Linux scroll events: Button-4 = scroll up, Button-5 = scroll down
                 delta = -120 if evt.num == 4 else 120 if evt.num == 5 else 0
             
-            # Accumulate wheel delta for batching
             self._set_wheel_accum += delta
             
             if self._set_wheel_job is not None:
@@ -5758,7 +5532,6 @@ class SettingsPanel(tk.Frame):
             def _flush():
                 steps = int(self._set_wheel_accum / 120)
                 if steps:
-                    # 1 px per step (yscrollincrement=1). Use *2 or *3 for faster feel.
                     self._settings_canvas.yview_scroll(-steps, "units")
                 self._set_wheel_accum = 0
                 self._set_wheel_job = None
@@ -6118,7 +5891,7 @@ class SettingsPanel(tk.Frame):
         if path.startswith('\\\\'):
             messagebox.showerror("Settings", "UNC paths are not supported for the local install folder.")
             return
-        # New validation: look for the .lnk, not Datatarget.txt
+        # New validation: look for the .lnk
         if path and not is_valid_rm_local_root(path):
             messagebox.showerror(
                 "Settings",
@@ -6246,7 +6019,7 @@ class SettingsPanel(tk.Frame):
         self.controller.toggle_fullscreen()
         self.fullscreen_var.set(self.controller.fullscreen)
         
-        # Update Settings panel scrollbar visibility - show only in windowed mode
+        # Update Settings panel scrollbar visibility
         if self.controller.fullscreen:
             # Fullscreen mode - hide the Settings scrollbar
             self._settings_scrollbar.pack_forget()
@@ -6258,7 +6031,6 @@ class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         set_background(controller, self)
-        # header removed; fixed header used
 
         # Grid container for 4 cards (2 x 2)
         grid = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
@@ -6316,12 +6088,11 @@ class TutorialCard(tk.Frame):
             btn.pack(fill="x", pady=6)
 
     def add_item(self, text: str, command: Callable):
-        btn = make_link_btn(self, text, command)  # parent replaced below
+        btn = make_link_btn(self, text, command) 
         # reparent into the last packed frame (body)
         body = self.winfo_children()[-1]
         btn.master = body
         btn.pack(fill="x", pady=6)
-
 
 def make_link_btn(parent, text, command):
     btn = tk.Button(parent, text=text, command=command,
@@ -6341,7 +6112,6 @@ def make_link_btn(parent, text, command):
     btn.bind("<Leave>", _leave)
     return btn
 
-# Optional fallback button helper if pill_button is unavailable in scope
 class DarkButtons:
     @staticmethod
     def link(parent, text, command, disabled=False):
@@ -6384,7 +6154,6 @@ def _round_rectangle(canvas, x1, y1, x2, y2, radius=20, **kwargs):
     ]
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
-
 def create_card(parent, max_width=600, padding=20, radius=20, bg="#222222"):
     """Return a canvas and inner frame styled as a centered card."""
     canvas = tk.Canvas(parent, highlightthickness=0, bd=0)
@@ -6409,7 +6178,6 @@ class CreditsPanel(tk.Frame):
         super().__init__(parent, bg="#222222")
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        # header removed; fixed header used
 
         card_canvas, card = create_card(self)
         card_canvas.pack(pady=(20, 60))
@@ -6453,7 +6221,6 @@ class ContactSupportPanel(tk.Frame):
         super().__init__(parent, bg="#222222")
         set_background(controller, self)
         controller.create_tutorial_button(self)
-        # header removed; fixed header used
 
         card_canvas, card = create_card(self)
         card_canvas.pack(pady=(20, 60))
@@ -6501,7 +6268,6 @@ class ContactSupportPanel(tk.Frame):
                   highlightthickness=0).pack(pady=(0, 10))
 
     def contact_support(self):
-        # This function will open the default email client with the new email address
         webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
 
 class Tooltip:
@@ -6519,10 +6285,8 @@ class Tooltip:
     def show(self, text, x, y):
         # If tooltip already exists, destroy it first:
         self.hide()
-
-        # Create a new Toplevel, no decorations:
         self.tw = tk.Toplevel(self.parent)
-        self.tw.wm_overrideredirect(True)  # no title bar, borders, etc.
+        self.tw.wm_overrideredirect(True)  
         self.tw.attributes("-topmost", True)
 
         # Use a normal Label (not ttk) so we can set a custom background:
@@ -6536,15 +6300,12 @@ class Tooltip:
             font=("Helvetica", 10)
         )
         label.pack(ipadx=4, ipady=2)
-
-        # Position the tooltip window at (x, y) in screen coordinates:
         self.tw.geometry(f"+{x}+{y}")
 
     def hide(self):
         if self.tw:
             self.tw.destroy()
             self.tw = None
-
 
 def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 4000) -> None:
     """Display a short-lived notification near the bottom of the parent window."""
