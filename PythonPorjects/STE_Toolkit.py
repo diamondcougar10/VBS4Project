@@ -5123,61 +5123,6 @@ class BVIPanel(tk.Frame):
         )
         self.back_button.pack(pady=(15, 0))
 
-        # --- Log area --------------------------------------------------------
-        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
-
-        tk.Label(
-            self.log_frame,
-            text="Activity Log",
-            font=("Helvetica", 16, "bold"),
-            bg=self.log_frame.cget("bg"),
-            fg="white",
-            bd=0,
-            highlightthickness=0,
-        ).pack(anchor="w")
-
-        self.log_text = tk.Text(
-            self.log_frame,
-            height=3,
-            bg=self.log_frame.cget("bg"),
-            fg="white",
-            wrap="word",
-            bd=0,
-            highlightthickness=0,
-        )
-        self.log_text.pack(fill="both", expand=True)
-        self.log_text.config(state="disabled")
-        self.log_expanded = False
-        ui_log_schedule_flush(controller, self.log_text)
-
-        # --- Log controls ----------------------------------------------------
-        button_frame = tk.Frame(
-            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
-        )
-        button_frame.pack(fill="x", pady=5)
-
-        self.toggle_log_button = tk.Button(
-            button_frame,
-            text="Expand Log",
-            command=self.toggle_log,
-            bg="#555",
-            fg="white",
-            bd=0,
-            highlightthickness=0,
-        )
-        self.toggle_log_button.pack(side="left")
-
-        tk.Button(
-            button_frame,
-            text="Clear Log",
-            command=self.clear_log,
-            bg="#555",
-            fg="white",
-            bd=0,
-            highlightthickness=0,
-        ).pack(side="right")
-
         self.update_bvi_version()
 
     def make_button(self, text, command):
@@ -5203,24 +5148,6 @@ class BVIPanel(tk.Frame):
         bvi_path = get_ares_manager_path()
         version = get_bvi_version(bvi_path)
         self.version_label.config(text=f"Version: {version}")
-
-    def log_message(self, message):
-        post_ui(log_to_console, f"> {message}")
-
-    def clear_log(self):
-        self.log_text.config(state="normal")
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state="disabled")
-
-    def toggle_log(self):
-        if self.log_expanded:
-            self.log_text.config(height=3)
-            self.toggle_log_button.config(text="Expand Log")
-            self.log_expanded = False
-        else:
-            self.log_text.config(height=15)
-            self.toggle_log_button.config(text="Collapse Log")
-            self.log_expanded = True
 
 # ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 class SettingsPanel(tk.Frame):
