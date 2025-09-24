@@ -2881,45 +2881,83 @@ class MainApp(tk.Tk):
         """Handle canvas resize - update inner frame width and scrollability."""
         canvas_width = event.width
         self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
+
         current_bg_size = getattr(self, '_last_bg_size', (0, 0))
         new_size = (event.width, event.height)
         size_changed = abs(new_size[0] - current_bg_size[0]) > 5 or abs(new_size[1] - current_bg_size[1]) > 5
-        
+
+        # Only touch the background image when we are NOT scrolling
         if size_changed and not getattr(self, '_scroll_active', False):
             self._last_bg_size = new_size
             self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
+
+        # Do NOT use bbox('all') here; scrollregion is handled in _on_frame_configure/_resize_canvas_to_panel
         self._update_scrollability()
 
     def _on_frame_configure(self, event):
-        """Handle inner frame resize - update scroll region."""
-        self.viewport_canvas.configure(scrollregion=self.viewport_canvas.bbox('all'))
+        """Handle inner frame resize - update scroll region (frame-only)."""
+        bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
+        if bbox:
+            self.viewport_canvas.configure(scrollregion=bbox)
         self._update_scrollability()
 
     def _on_mousewheel(self, event):
         """Handle mouse wheel scrolling on the viewport canvas with batching."""
-        # Prevent scrolling if another scrollable widget has focus
+        # If we're in the Settings panel, check if the event is over the inner settings canvas
+        try:
+            if self.current == 'Settings':
+                settings = self.panels.get('Settings')
+                if settings is not None:
+                    # Find if the event originated from the inner settings canvas
+                    w = event.widget
+                    while w is not None:
+                        if w is getattr(settings, '_settings_canvas', None):
+                            # If we're directly over the settings canvas or its scrollbar,
+                            # let it handle the event (but don't break yet)
+                            is_settings_scroll = True
+                            break
+                        w = getattr(w, 'master', None)
+                    else:
+                        # We're in Settings panel but not over the inner canvas,
+                        # so use the outer scrollbar
+                        is_settings_scroll = False
+                else:
+                    is_settings_scroll = False
+            else:
+                is_settings_scroll = False
+        except Exception:
+            is_settings_scroll = False
+
+        # For Settings panel, prioritize the inner scroller when the event is over it
+        if is_settings_scroll:
+            # Let the event propagate to the inner settings scroller
+            return
+            
+        # For other panels (or Settings panel outside the inner scroller area),
+        # check if another scrollable widget has focus
         focused = self.focus_get()
         if focused and hasattr(focused, 'master'):
-            # Check if focus is within a settings canvas or other scrollable area
             parent = focused.master
-            while parent:
-                if hasattr(parent, '_settings_canvas') or getattr(parent, '__class__', None).__name__ in ['Canvas', 'Scrollbar']:
-                    return 
+            while parent is not None:
+                clsname = getattr(parent, '__class__', None).__name__
+                if clsname in ('Canvas', 'Scrollbar') and parent is not self.viewport_canvas:
+                    return "break"  # Another scrollable has focus
                 parent = getattr(parent, 'master', None)
-        
+
+        # Don't scroll if scrollbar isn't showing
         if not self._scrollbar_shown:
-            return
-   
+            return "break"
+
         delta = 0
         if hasattr(event, 'delta') and event.delta:
             delta = event.delta
         elif hasattr(event, 'num'):
             delta = -120 if event.num == 4 else 120 if event.num == 5 else 0
         self._wheel_accum += delta
-        
+
         if self._wheel_job is not None:
-            return
-        
+            return "break"
+
         def _flush():
             steps = int(self._wheel_accum / 120)
             if steps:
@@ -2928,11 +2966,12 @@ class MainApp(tk.Tk):
                     self.after_cancel(self._scroll_timer)
                 self.viewport_canvas.yview_scroll(-steps, "units")
                 self._scroll_timer = self.after(100, self._reset_scroll_state)
-                
+
             self._wheel_accum = 0
             self._wheel_job = None
-        
+
         self._wheel_job = self.after(8, _flush)
+        return "break"
     
     def _reset_scroll_state(self):
         """Reset scroll state to allow background updates again."""
@@ -2940,25 +2979,75 @@ class MainApp(tk.Tk):
         self._scroll_timer = None
 
     def _update_scrollability(self):
-        """Show/hide scrollbar based on content overflow and panel type."""
-        self.viewport_canvas.update_idletasks()
-        canvas_height = self.viewport_canvas.winfo_height()
-        
-        # Get the actual content height from scroll region
-        bbox = self.viewport_canvas.bbox('all')
-        content_height = bbox[3] - bbox[1] if bbox else 0
-        needs_scroll = content_height > canvas_height  
-        show_scrollbar = True
-
-        if show_scrollbar and not self._scrollbar_shown:
-            self._place_overlay_scrollbar()
-            self._scrollbar_shown = True
-        elif not show_scrollbar and self._scrollbar_shown:
-            try:
-                self.viewport_scrollbar.place_forget()
-            except Exception:
-                pass
-            self._scrollbar_shown = False
+        """Show/hide viewport scrollbar based on content overflow and panel type."""
+        try:
+            self.viewport_canvas.update_idletasks()
+            
+            # Get the visible canvas height
+            canvas_h = max(1, self.viewport_canvas.winfo_height())
+            
+            # Get the current visible panel
+            panel = self.panels.get(self.current)
+            if not panel:
+                return
+            
+            # Get the actual panel height
+            panel.update_idletasks()
+            panel_h = panel.winfo_reqheight()
+            
+            # Special handling for Settings panel
+            if self.current == 'Settings':
+                # For Settings, always enable the outer scrollbar
+                # Force a large enough content_h to ensure the scrollbar appears
+                content_h = max(panel_h, canvas_h + 100)  # Make it always need scrolling
+                needs_scroll = True
+            else:
+                # For other panels, calculate normally
+                # Fallback approach: use the canvas_frame_id
+                bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
+                if not bbox:
+                    # Try with 'all' as a last resort
+                    bbox = self.viewport_canvas.bbox('all')
+                
+                # Make sure we have a valid bounding box
+                if bbox:
+                    frame_h = bbox[3] - bbox[1]
+                    # Use the larger of panel requested height or frame bbox
+                    content_h = max(panel_h, frame_h)
+                else:
+                    content_h = panel_h
+                
+                # Determine if scrolling is needed - content must be noticeably larger than canvas
+                needs_scroll = content_h > (canvas_h + 10)
+            
+            # Allow scrolling for all panels now
+            use_outer_scroll = True
+            
+            # Debug logging
+            if hasattr(self, 'debug_log'):
+                self.debug_log(f"Panel '{self.current}': canvas_h={canvas_h}, content_h={content_h}, panel_h={panel_h}, needs_scroll={needs_scroll}")
+            
+            # Show scrollbar for all panels that need it, including Settings
+            show_scrollbar = needs_scroll and use_outer_scroll
+            
+            # Apply scrollbar visibility change
+            if show_scrollbar and not self._scrollbar_shown:
+                self._place_overlay_scrollbar()
+                self._scrollbar_shown = True
+            elif not show_scrollbar and self._scrollbar_shown:
+                try:
+                    self.viewport_scrollbar.place_forget()
+                except Exception:
+                    pass
+                # Ensure outer view resets when we hide the bar
+                self.viewport_canvas.yview_moveto(0)
+                self._scrollbar_shown = False
+        except Exception as e:
+            # If anything fails, keep the scrollbar visible by default
+            print(f"Error in _update_scrollability: {e}")
+            if not self._scrollbar_shown:
+                self._place_overlay_scrollbar()
+                self._scrollbar_shown = True
 
     def _reset_viewport_scroll(self):
         """Reset viewport scroll position to top."""
@@ -3001,6 +3090,8 @@ class MainApp(tk.Tk):
         panel.pack(fill='both', expand=True)
         self.current = name
         self._reset_viewport_scroll()
+        
+        # Let the panel fully layout first
         self.after(1, lambda p=panel: self._resize_canvas_to_panel(p))
         
         if name == "VBS4":
@@ -3013,18 +3104,60 @@ class MainApp(tk.Tk):
             panel.refresh_rm_status()
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+        elif name == "Tutorials":
+            # Special handling for Tutorials panel to ensure transparent backgrounds
+            panel.configure(bg="")
+            # Schedule multiple background fixes
+            self.after(50, lambda: hasattr(panel, '_ensure_background_visible') and panel._ensure_background_visible())
+            self.after(200, lambda: hasattr(panel, '_ensure_background_visible') and panel._ensure_background_visible())
+        elif name == "Settings":
+            # Force scrollbar to show for Settings panel
+            self._scrollbar_shown = False  # Reset state so it will re-evaluate
+            
         self.update_navigation()
+        
+        # Schedule multiple scrollability checks with increasing delays
+        # This ensures we catch cases where panel content takes time to render
         self.after(10, self._update_scrollability)
+        self.after(100, self._update_scrollability)
+        self.after(300, self._update_scrollability)
+        
+        # Extra check specifically for Settings panel to ensure it gets scrollbar
+        if name == "Settings":
+            def force_settings_scrollbar():
+                if not self._scrollbar_shown:
+                    self._place_overlay_scrollbar()
+                    self._scrollbar_shown = True
+            self.after(500, force_settings_scrollbar)
+        
+        # Handle scaling
         self.after(0, self._recompute_scale)
 
     def _resize_canvas_to_panel(self, panel):
-        """Force scrollregion to the visible panel's requested size."""
+        """Force scrollregion to the visible panel's requested size (frame-only)."""
         try:
+            # Make sure the panel has had a chance to compute its full size
             panel.update_idletasks()
-            req_w = panel.winfo_reqwidth()
-            req_h = panel.winfo_reqheight()
-            self.viewport_canvas.configure(scrollregion=(0, 0, req_w, req_h))
-        except Exception:
+            self.viewport_canvas.update_idletasks()
+            
+            # Try to get bbox from the frame window
+            bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
+            
+            # If we can't get a bbox, fall back to panel's requested dimensions
+            if not bbox:
+                req_w = panel.winfo_reqwidth()
+                req_h = panel.winfo_reqheight()
+                bbox = (0, 0, req_w, req_h)
+            
+            # Set the scrollregion generously to ensure scrollability when needed
+            # Add a small buffer to height to ensure the last elements are fully visible
+            x1, y1, x2, y2 = bbox
+            self.viewport_canvas.configure(scrollregion=(x1, y1, x2, y2 + 20))
+            
+            # Force update scrollability state
+            self.after(50, self._update_scrollability)
+        except Exception as e:
+            print(f"Error in _resize_canvas_to_panel: {e}")
             pass
 
     def _update_canvas_background(self, width=None, height=None):
@@ -5523,20 +5656,31 @@ class SettingsPanel(tk.Frame):
                 delta = evt.delta
             elif hasattr(evt, 'num'):
                 delta = -120 if evt.num == 4 else 120 if evt.num == 5 else 0
-            
+
             self._set_wheel_accum += delta
-            
             if self._set_wheel_job is not None:
-                return
-            
+                return "break"
+
             def _flush():
                 steps = int(self._set_wheel_accum / 120)
                 if steps:
+                    # Pause background resizes in the outer viewport while we scroll the inner canvas
+                    try:
+                        self.controller._scroll_active = True
+                        if self.controller._scroll_timer:
+                            self.controller.after_cancel(self.controller._scroll_timer)
+                        self.controller._scroll_timer = self.controller.after(100, self.controller._reset_scroll_state)
+                    except Exception:
+                        pass
+
                     self._settings_canvas.yview_scroll(-steps, "units")
+
                 self._set_wheel_accum = 0
                 self._set_wheel_job = None
-            
+                return "break"
+
             self._set_wheel_job = self.after(8, _flush)
+            return "break"
 
         def _bind_wheel(evt):
             # Bind specifically to the settings canvas and inner frame, not globally
@@ -6029,12 +6173,27 @@ class SettingsPanel(tk.Frame):
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent)
+        super().__init__(parent, bg="black", bd=0, highlightthickness=0)
         set_background(controller, self)
+        self.configure(bg="black")
+        
+        # Ensure the background image shows through properly
+        try:
+            for child in self.winfo_children():
+                if isinstance(child, tk.Label) and hasattr(child, 'image'):
+                    child.lift()  # Move background image to top
+                    break
+        except Exception:
+            pass
 
         # Grid container for 4 cards (2 x 2)
-        grid = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        # Using transparent bg to let the background image show through
+        grid = tk.Frame(self, bg="", bd=0, highlightthickness=0)
         grid.pack(fill="both", expand=True, padx=24, pady=(0, 12))
+        
+        # Make sure frame doesn't interfere with background
+        grid.lower()
+        
         for c in range(2):
             grid.grid_columnconfigure(c, weight=1, uniform="cards")
         for r in range(2):
@@ -6044,6 +6203,8 @@ class TutorialsPanel(tk.Frame):
         def create_card(row, col, title, items):
             card = TutorialCard(grid, title, items)
             card.grid(row=row, column=col, sticky="nsew", padx=10, pady=10)
+            # Make sure card has proper z-order
+            card.lift()  # Bring cards above transparent grid but below any overlays
             return card
 
         # Build 4 cards
@@ -6052,14 +6213,65 @@ class TutorialsPanel(tk.Frame):
         create_card(1, 0, "One-Click Terrain Help", oct_help_items)
         create_card(1, 1, "Blue IG Help", blueig_help_items)
 
-        # Back button (centered)
-        footer = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        # Back button (centered) - fully transparent to show background
+        footer = tk.Frame(self, bd=0, highlightthickness=0, 
+                         bg="#000000")  # Start with black, will be made transparent
         footer.pack(pady=12)
-        pb = globals().get("pill_button")
-        if pb:
-            pb(footer, "Back", lambda: controller.show('Main')).pack()
-        else:
-            DarkButtons.link(footer, "Back", lambda: controller.show('Main')).pack()
+        # Use empty string to make it truly transparent
+        footer.configure(background="")  
+        footer.pack_propagate(True)      # Allow footer to collapse to button size
+        
+        # Create a dark styled back button directly - avoid any library functions that might use white
+        back_btn = tk.Button(footer, text="Back", command=lambda: controller.show('Main'),
+                         bg="#3a3a3a", fg="white",  # Dark gray background
+                         activebackground="#4a4a4a", activeforeground="white",
+                         font=("Helvetica", 16, "bold"),
+                         bd=0, highlightthickness=0, padx=18, pady=8)
+        back_btn.pack()
+        
+        # Add hover effects
+        back_btn.bind("<Enter>", lambda e: back_btn.config(bg="#4a4a4a"))
+        back_btn.bind("<Leave>", lambda e: back_btn.config(bg="#3a3a3a"))
+            
+        # Ensure this frame doesn't block the background
+        footer.lower()
+        
+        # Call after a short delay to make sure background image is visible
+        self.after(100, self._ensure_background_visible)
+        
+    def _ensure_background_visible(self):
+        """Make sure the background image is visible and frames are transparent."""
+        # Find the background image label and bring it to the correct z-order
+        bg_label = None
+        for child in self.winfo_children():
+            if isinstance(child, tk.Label) and hasattr(child, 'image'):
+                bg_label = child
+                break
+                
+        if bg_label:
+            # Put background behind content but in front of any solid color frames
+            for child in self.winfo_children():
+                if child != bg_label:
+                    if isinstance(child, tk.Frame):
+                        # Make sure frames don't create solid blocks
+                        child.configure(bg="")
+                        
+                        # Special handling for the footer frame that contains the back button
+                        if child.winfo_children() and isinstance(child.winfo_children()[0], tk.Button):
+                            # Ensure the button is dark colored
+                            btn = child.winfo_children()[0]
+                            btn.configure(bg="#3a3a3a", fg="white")
+                            btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#4a4a4a"))
+                            btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#3a3a3a"))
+                        
+                        # Lift grid frames above the background
+                        if hasattr(child, 'winfo_children'):
+                            for grandchild in child.winfo_children():
+                                if isinstance(grandchild, TutorialCard):
+                                    grandchild.lift()
+            
+            # Final z-order arrangement
+            bg_label.lower()  # Background at the very bottom
 
 
 class TutorialCard(tk.Frame):
