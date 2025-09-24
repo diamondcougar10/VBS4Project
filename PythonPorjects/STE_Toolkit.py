@@ -2104,15 +2104,48 @@ def set_background(window, widget=None):
 
     # wallpaper
     if os.path.exists(background_image_path):
+        # Load the image once at full screen size
         img = Image.open(background_image_path)
         img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
-        ph  = ImageTk.PhotoImage(img)
-        lbl = tk.Label(widget or window, image=ph)
-        lbl.image = ph
-        lbl.place(x=0, y=0, relwidth=1, relheight=1)
+        
+        # If we're applying to a panel, calculate the panel's position relative to the window
+        if widget is not None and widget != window:
+            try:
+                # Get the panel's absolute position relative to the root window
+                x = widget.winfo_rootx() - window.winfo_rootx()
+                y = widget.winfo_rooty() - window.winfo_rooty()
+                
+                # Create a cropped version of the image that corresponds to where
+                # this panel would be in the window
+                target_width = widget.winfo_width() or screen_width
+                target_height = widget.winfo_height() or screen_height
+                
+                # Make sure we don't have zero dimensions
+                if target_width < 10:
+                    target_width = screen_width
+                if target_height < 10:
+                    target_height = screen_height
+                
+                # Use the same image but place it with negative offset to align with main bg
+                ph = ImageTk.PhotoImage(img)
+                lbl = tk.Label(widget, image=ph)
+                lbl.image = ph
+                lbl.place(x=-x, y=-y, width=screen_width, height=screen_height)
+            except Exception as e:
+                # Fallback to standard method if positioning fails
+                ph = ImageTk.PhotoImage(img)
+                lbl = tk.Label(widget, image=ph)
+                lbl.image = ph
+                lbl.place(x=0, y=0, relwidth=1, relheight=1)
+        else:
+            # For the main window, just apply the full image
+            ph = ImageTk.PhotoImage(img)
+            lbl = tk.Label(window, image=ph)
+            lbl.image = ph
+            lbl.place(x=0, y=0, relwidth=1, relheight=1)
+        
         try:
-            if widget is not None:
-                lbl.lower()
+            lbl.lower()
         except Exception:
             pass
 
@@ -3052,6 +3085,28 @@ class MainApp(tk.Tk):
     def _reset_viewport_scroll(self):
         """Reset viewport scroll position to top."""
         self.viewport_canvas.yview_moveto(0)
+        
+    def _update_panel_background(self, panel):
+        """Update the background of a panel to align with the main background."""
+        try:
+            # Make sure the panel is fully laid out
+            panel.update_idletasks()
+            
+            # Re-apply the background with the current panel dimensions
+            if panel and hasattr(panel, 'winfo_exists') and panel.winfo_exists():
+                # Remove any existing background labels
+                for child in panel.winfo_children():
+                    if isinstance(child, tk.Label) and hasattr(child, 'image'):
+                        try:
+                            if str(child.cget('width')) == str(self.winfo_screenwidth()):
+                                child.destroy()
+                        except:
+                            pass
+                
+                # Apply a fresh background with proper alignment
+                set_background(self, panel)
+        except Exception as e:
+            print(f"Error updating panel background: {e}")
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -3093,6 +3148,9 @@ class MainApp(tk.Tk):
         
         # Let the panel fully layout first
         self.after(1, lambda p=panel: self._resize_canvas_to_panel(p))
+        
+        # Re-apply the background with correct alignment after the panel is shown
+        self.after(50, lambda p=panel: self._update_panel_background(p))
         
         if name == "VBS4":
             panel.update_vbs4_version()
@@ -5092,6 +5150,7 @@ class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
+        # Keep the background call but we'll make sure it's properly aligned
         set_background(controller, self)
         controller.create_tutorial_button(self)
         self.configure(bg="black")
