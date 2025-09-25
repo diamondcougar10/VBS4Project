@@ -205,6 +205,9 @@ begin
   SetIniString('Fusers', 'host_count',    '1',                Ini);
   SetIniString('Fusers', 'fuser_computer','True',             Ini);
   SetIniString('Fusers', 'working_folder_host', HostName,     Ini);
+  
+  { --- Network settings: ensure host is set in Network section too --- }
+  SetIniString('Network', 'host', HostIP,                      Ini);
 
   Result := Base;
 end;

@@ -98,6 +98,22 @@ def update_config(path: str) -> bool:
                     paths[key] = projects_unc
 
     host_ip = (offline.get("host_ip") or "").strip()
+    
+    # Also ensure the host IP is set in the Network section for proper initialization
+    if host_ip:
+        config_path = os.path.join(BASE_DIR, 'config.ini')
+        if os.path.exists(config_path):
+            try:
+                import configparser
+                config = configparser.ConfigParser()
+                config.read(config_path)
+                if "Network" not in config:
+                    config["Network"] = {}
+                config["Network"]["host"] = host_ip
+                with open(config_path, 'w') as f:
+                    config.write(f)
+            except Exception:
+                pass
     host_name = (offline.get("host_name") or "").strip()
 
     def _rewrite(value):

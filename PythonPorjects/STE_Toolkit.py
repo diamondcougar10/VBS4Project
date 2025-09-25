@@ -1012,6 +1012,13 @@ def set_host_ip(ip: str) -> None:
         offline["use_ip_unc"] = "True"
     else:
         offline["use_ip_unc"] = offline.get("use_ip_unc", "True")
+        
+    # Also ensure the IP is set in the Network section for proper initialization
+    if trimmed:
+        if "Network" not in config:
+            config["Network"] = {}
+        config["Network"]["host"] = trimmed
+        
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
 
@@ -1421,6 +1428,20 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
 
 def apply_offline_settings() -> None:
     """Apply offline configuration changes and refresh dependent systems."""
+    # Ensure Network.host is set from Offline.host_ip for proper initialization
+    try:
+        host_ip = config.get("Offline", "host_ip", fallback="").strip()
+        if host_ip:
+            if "Network" not in config:
+                config["Network"] = {}
+            # Ensure Network.host matches Offline.host_ip for proper initialization
+            if config.get("Network", "host", fallback="").strip() != host_ip:
+                config["Network"]["host"] = host_ip
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    config.write(f)
+    except Exception as e:
+        logging.warning(f"Failed to sync Network.host with Offline.host_ip: {e}")
+    
     enforce_photomesh_settings()
     update_fuser_shared_path()
 
@@ -2104,48 +2125,15 @@ def set_background(window, widget=None):
 
     # wallpaper
     if os.path.exists(background_image_path):
-        # Load the image once at full screen size
         img = Image.open(background_image_path)
         img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
-        
-        # If we're applying to a panel, calculate the panel's position relative to the window
-        if widget is not None and widget != window:
-            try:
-                # Get the panel's absolute position relative to the root window
-                x = widget.winfo_rootx() - window.winfo_rootx()
-                y = widget.winfo_rooty() - window.winfo_rooty()
-                
-                # Create a cropped version of the image that corresponds to where
-                # this panel would be in the window
-                target_width = widget.winfo_width() or screen_width
-                target_height = widget.winfo_height() or screen_height
-                
-                # Make sure we don't have zero dimensions
-                if target_width < 10:
-                    target_width = screen_width
-                if target_height < 10:
-                    target_height = screen_height
-                
-                # Use the same image but place it with negative offset to align with main bg
-                ph = ImageTk.PhotoImage(img)
-                lbl = tk.Label(widget, image=ph)
-                lbl.image = ph
-                lbl.place(x=-x, y=-y, width=screen_width, height=screen_height)
-            except Exception as e:
-                # Fallback to standard method if positioning fails
-                ph = ImageTk.PhotoImage(img)
-                lbl = tk.Label(widget, image=ph)
-                lbl.image = ph
-                lbl.place(x=0, y=0, relwidth=1, relheight=1)
-        else:
-            # For the main window, just apply the full image
-            ph = ImageTk.PhotoImage(img)
-            lbl = tk.Label(window, image=ph)
-            lbl.image = ph
-            lbl.place(x=0, y=0, relwidth=1, relheight=1)
-        
+        ph  = ImageTk.PhotoImage(img)
+        lbl = tk.Label(widget or window, image=ph)
+        lbl.image = ph
+        lbl.place(x=0, y=0, relwidth=1, relheight=1)
         try:
-            lbl.lower()
+            if widget is not None:
+                lbl.lower()
         except Exception:
             pass
 
@@ -3085,28 +3073,6 @@ class MainApp(tk.Tk):
     def _reset_viewport_scroll(self):
         """Reset viewport scroll position to top."""
         self.viewport_canvas.yview_moveto(0)
-        
-    def _update_panel_background(self, panel):
-        """Update the background of a panel to align with the main background."""
-        try:
-            # Make sure the panel is fully laid out
-            panel.update_idletasks()
-            
-            # Re-apply the background with the current panel dimensions
-            if panel and hasattr(panel, 'winfo_exists') and panel.winfo_exists():
-                # Remove any existing background labels
-                for child in panel.winfo_children():
-                    if isinstance(child, tk.Label) and hasattr(child, 'image'):
-                        try:
-                            if str(child.cget('width')) == str(self.winfo_screenwidth()):
-                                child.destroy()
-                        except:
-                            pass
-                
-                # Apply a fresh background with proper alignment
-                set_background(self, panel)
-        except Exception as e:
-            print(f"Error updating panel background: {e}")
 
     def update_button_state(self, button, path_key):
         """Update button state based on whether the executable exists."""
@@ -3149,9 +3115,6 @@ class MainApp(tk.Tk):
         # Let the panel fully layout first
         self.after(1, lambda p=panel: self._resize_canvas_to_panel(p))
         
-        # Re-apply the background with correct alignment after the panel is shown
-        self.after(50, lambda p=panel: self._update_panel_background(p))
-        
         if name == "VBS4":
             panel.update_vbs4_version()
             self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
@@ -3162,16 +3125,7 @@ class MainApp(tk.Tk):
             panel.refresh_rm_status()
         elif name == "BVI":
             self.update_button_state(panel.bvi_button, 'bvi_manager_path')
-        elif name == "Tutorials":
-            # Special handling for Tutorials panel to ensure transparent backgrounds
-            panel.configure(bg="")
-            # Schedule multiple background fixes
-            self.after(50, lambda: hasattr(panel, '_ensure_background_visible') and panel._ensure_background_visible())
-            self.after(200, lambda: hasattr(panel, '_ensure_background_visible') and panel._ensure_background_visible())
-        elif name == "Settings":
-            # Force scrollbar to show for Settings panel
-            self._scrollbar_shown = False  # Reset state so it will re-evaluate
-            
+        
         self.update_navigation()
         
         # Schedule multiple scrollability checks with increasing delays
@@ -3179,14 +3133,6 @@ class MainApp(tk.Tk):
         self.after(10, self._update_scrollability)
         self.after(100, self._update_scrollability)
         self.after(300, self._update_scrollability)
-        
-        # Extra check specifically for Settings panel to ensure it gets scrollbar
-        if name == "Settings":
-            def force_settings_scrollbar():
-                if not self._scrollbar_shown:
-                    self._place_overlay_scrollbar()
-                    self._scrollbar_shown = True
-            self.after(500, force_settings_scrollbar)
         
         # Handle scaling
         self.after(0, self._recompute_scale)
@@ -5150,7 +5096,6 @@ class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        # Keep the background call but we'll make sure it's properly aligned
         set_background(controller, self)
         controller.create_tutorial_button(self)
         self.configure(bg="black")
@@ -5182,6 +5127,61 @@ class BVIPanel(tk.Frame):
         )
         self.back_button.pack(pady=(15, 0))
 
+        # --- Log area --------------------------------------------------------
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
+
+        tk.Label(
+            self.log_frame,
+            text="Activity Log",
+            font=("Helvetica", 16, "bold"),
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(anchor="w")
+
+        self.log_text = tk.Text(
+            self.log_frame,
+            height=3,
+            bg=self.log_frame.cget("bg"),
+            fg="white",
+            wrap="word",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.config(state="disabled")
+        self.log_expanded = False
+        ui_log_schedule_flush(controller, self.log_text)
+
+        # --- Log controls ----------------------------------------------------
+        button_frame = tk.Frame(
+            self.log_frame, bg=self.log_frame.cget("bg"), bd=0, highlightthickness=0
+        )
+        button_frame.pack(fill="x", pady=5)
+
+        self.toggle_log_button = tk.Button(
+            button_frame,
+            text="Expand Log",
+            command=self.toggle_log,
+            bg="#555",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.toggle_log_button.pack(side="left")
+
+        tk.Button(
+            button_frame,
+            text="Clear Log",
+            command=self.clear_log,
+            bg="#555",
+            fg="white",
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="right")
+
         self.update_bvi_version()
 
     def make_button(self, text, command):
@@ -5207,6 +5207,24 @@ class BVIPanel(tk.Frame):
         bvi_path = get_ares_manager_path()
         version = get_bvi_version(bvi_path)
         self.version_label.config(text=f"Version: {version}")
+
+    def log_message(self, message):
+        post_ui(log_to_console, f"> {message}")
+
+    def clear_log(self):
+        self.log_text.config(state="normal")
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state="disabled")
+
+    def toggle_log(self):
+        if self.log_expanded:
+            self.log_text.config(height=3)
+            self.toggle_log_button.config(text="Expand Log")
+            self.log_expanded = False
+        else:
+            self.log_text.config(height=15)
+            self.toggle_log_button.config(text="Collapse Log")
+            self.log_expanded = True
 
 # ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 class SettingsPanel(tk.Frame):
@@ -6159,27 +6177,12 @@ class SettingsPanel(tk.Frame):
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent, bg="black", bd=0, highlightthickness=0)
+        super().__init__(parent)
         set_background(controller, self)
-        self.configure(bg="black")
-        
-        # Ensure the background image shows through properly
-        try:
-            for child in self.winfo_children():
-                if isinstance(child, tk.Label) and hasattr(child, 'image'):
-                    child.lift()  # Move background image to top
-                    break
-        except Exception:
-            pass
 
         # Grid container for 4 cards (2 x 2)
-        # Using transparent bg to let the background image show through
-        grid = tk.Frame(self, bg="", bd=0, highlightthickness=0)
+        grid = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
         grid.pack(fill="both", expand=True, padx=24, pady=(0, 12))
-        
-        # Make sure frame doesn't interfere with background
-        grid.lower()
-        
         for c in range(2):
             grid.grid_columnconfigure(c, weight=1, uniform="cards")
         for r in range(2):
@@ -6189,8 +6192,6 @@ class TutorialsPanel(tk.Frame):
         def create_card(row, col, title, items):
             card = TutorialCard(grid, title, items)
             card.grid(row=row, column=col, sticky="nsew", padx=10, pady=10)
-            # Make sure card has proper z-order
-            card.lift()  # Bring cards above transparent grid but below any overlays
             return card
 
         # Build 4 cards
@@ -6199,65 +6200,14 @@ class TutorialsPanel(tk.Frame):
         create_card(1, 0, "One-Click Terrain Help", oct_help_items)
         create_card(1, 1, "Blue IG Help", blueig_help_items)
 
-        # Back button (centered) - fully transparent to show background
-        footer = tk.Frame(self, bd=0, highlightthickness=0, 
-                         bg="#000000")  # Start with black, will be made transparent
+        # Back button (centered)
+        footer = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
         footer.pack(pady=12)
-        # Use empty string to make it truly transparent
-        footer.configure(background="")  
-        footer.pack_propagate(True)      # Allow footer to collapse to button size
-        
-        # Create a dark styled back button directly - avoid any library functions that might use white
-        back_btn = tk.Button(footer, text="Back", command=lambda: controller.show('Main'),
-                         bg="#3a3a3a", fg="white",  # Dark gray background
-                         activebackground="#4a4a4a", activeforeground="white",
-                         font=("Helvetica", 16, "bold"),
-                         bd=0, highlightthickness=0, padx=18, pady=8)
-        back_btn.pack()
-        
-        # Add hover effects
-        back_btn.bind("<Enter>", lambda e: back_btn.config(bg="#4a4a4a"))
-        back_btn.bind("<Leave>", lambda e: back_btn.config(bg="#3a3a3a"))
-            
-        # Ensure this frame doesn't block the background
-        footer.lower()
-        
-        # Call after a short delay to make sure background image is visible
-        self.after(100, self._ensure_background_visible)
-        
-    def _ensure_background_visible(self):
-        """Make sure the background image is visible and frames are transparent."""
-        # Find the background image label and bring it to the correct z-order
-        bg_label = None
-        for child in self.winfo_children():
-            if isinstance(child, tk.Label) and hasattr(child, 'image'):
-                bg_label = child
-                break
-                
-        if bg_label:
-            # Put background behind content but in front of any solid color frames
-            for child in self.winfo_children():
-                if child != bg_label:
-                    if isinstance(child, tk.Frame):
-                        # Make sure frames don't create solid blocks
-                        child.configure(bg="")
-                        
-                        # Special handling for the footer frame that contains the back button
-                        if child.winfo_children() and isinstance(child.winfo_children()[0], tk.Button):
-                            # Ensure the button is dark colored
-                            btn = child.winfo_children()[0]
-                            btn.configure(bg="#3a3a3a", fg="white")
-                            btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#4a4a4a"))
-                            btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#3a3a3a"))
-                        
-                        # Lift grid frames above the background
-                        if hasattr(child, 'winfo_children'):
-                            for grandchild in child.winfo_children():
-                                if isinstance(grandchild, TutorialCard):
-                                    grandchild.lift()
-            
-            # Final z-order arrangement
-            bg_label.lower()  # Background at the very bottom
+        pb = globals().get("pill_button")
+        if pb:
+            pb(footer, "Back", lambda: controller.show('Main')).pack()
+        else:
+            DarkButtons.link(footer, "Back", lambda: controller.show('Main')).pack()
 
 
 class TutorialCard(tk.Frame):
