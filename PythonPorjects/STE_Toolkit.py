@@ -54,6 +54,7 @@ import shlex
 import itertools
 from queue import Queue, Empty
 import io
+import time
 try:
     import psutil
 except Exception: 
@@ -104,6 +105,8 @@ try:
 except Exception: 
     write_config_atomic = None
 
+# We already have _resource_path defined below, no need for this duplicate
+
 # --- Resource path resolver -------------------------------------------------
 def _resource_path(name: str) -> str:
     """Return absolute path to bundled resource *name*.
@@ -133,6 +136,194 @@ def pump_ui_queue(root, interval_ms=33):
     except Empty:
         pass
     root.after(interval_ms, pump_ui_queue, root)
+
+# =============================================================================
+# Splash Screen (non-blocking, keeps main focused)
+# =============================================================================
+class SplashScreen(tk.Toplevel):
+    """
+    A lightweight, non-interactive splash that overlays the main window,
+    fades in/out, shows status messages, and displays a progress bar.
+    It never steals focus and has a minimum display time.
+    """
+    def __init__(self, master, image_path=None, version_text="", start_alpha=0.0, end_alpha=0.98, min_display_time=3.0):
+        # Initialize with withdraw=True to prevent flash
+        super().__init__(master)
+        self.withdraw()  # Hide initially to prevent flash
+        self.overrideredirect(True)              # borderless
+        self.attributes("-topmost", True)
+        # Make sure the main window keeps focus/interaction
+        try: self.attributes("-disabled", True)
+        except Exception: pass
+        self.attributes("-alpha", start_alpha)
+        self._alpha_target = float(end_alpha)
+        self._alpha_step   = 0.08
+        self._closing      = False
+        
+        # Track timing for minimum display time
+        self._start_time = time.time()
+        self._min_display_time = float(min_display_time)  # in seconds
+        self._ready_to_close = False
+        self._progress = 0.0
+        
+        # Canvas with image and text
+        self.configure(bg="#000")
+        frm = tk.Frame(self, bg="#000")
+        frm.pack(padx=16, pady=16)
+        self._img_lbl = None
+        if image_path and os.path.isfile(image_path):
+            try:
+                img = Image.open(image_path)
+                # modest size to avoid large decode on slow GPUs
+                img.thumbnail((560, 340), Image.Resampling.LANCZOS)
+                self._ph = ImageTk.PhotoImage(img)
+                self._img_lbl = tk.Label(frm, image=self._ph, bg="#000")
+                self._img_lbl.pack()
+            except Exception:
+                pass
+
+        self._msg_var = tk.StringVar(value="Starting…")
+        self._msg = tk.Label(
+            frm, textvariable=self._msg_var, font=("Helvetica", 12),
+            bg="#000", fg="white"
+        )
+        self._msg.pack(pady=(10,0))
+        
+        # Add a progress bar
+        progress_frame = tk.Frame(frm, bg="#000")
+        progress_frame.pack(fill="x", expand=True, pady=(15, 5))
+        
+        # Calculate progress bar width based on image or default size
+        progress_width = 400 if not self._img_lbl else min(500, img.width * 0.8 if 'img' in locals() else 400)
+        
+        # Create an empty canvas for the progress bar background
+        self._progress_canvas = tk.Canvas(
+            progress_frame, 
+            height=10, 
+            width=progress_width,
+            bg="#111111", 
+            highlightthickness=0
+        )
+        self._progress_canvas.pack()
+        
+        # Create the progress bar fill rectangle
+        self._progress_bar = self._progress_canvas.create_rectangle(
+            0, 0, 0, 10, fill="#4CAF50", width=0
+        )
+        
+        # Add percentage text below progress bar
+        self._percent_var = tk.StringVar(value="0%")
+        self._percent_label = tk.Label(
+            progress_frame,
+            textvariable=self._percent_var,
+            font=("Helvetica", 9),
+            bg="#000",
+            fg="#bbbbbb"
+        )
+        self._percent_label.pack()
+
+        self._ver = tk.Label(
+            frm, text=version_text, font=("Helvetica", 10),
+            bg="#000", fg="#bbbbbb"
+        )
+        if version_text:
+            self._ver.pack(pady=(5,0))
+
+        # position centered on the primary screen
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        w  = self.winfo_reqwidth()
+        h  = self.winfo_reqheight()
+        x  = max(0, (sw - w)//2)
+        y  = max(0, (sh - h)//2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Start the progress animation
+        self._animate_progress()
+        
+        # Now show the window, take focus, and fade in
+        self.deiconify()
+        self.focus_force()  # Make sure splash gets focus
+        self.attributes("-topmost", True)  # Ensure it stays on top
+        self._fade_in()
+        
+    def _animate_progress(self):
+        """Animate the progress bar to give visual feedback during loading"""
+        if self._closing:
+            return
+            
+        # Calculate elapsed time as a percentage of min display time
+        elapsed = time.time() - self._start_time
+        target_progress = min(1.0, elapsed / self._min_display_time)
+        
+        # For smoother animation, move the progress towards the target
+        if self._progress < target_progress:
+            self._progress = min(self._progress + 0.01, target_progress)
+        
+        # Update the progress bar
+        width = self._progress_canvas.winfo_width()
+        filled_width = int(width * self._progress)
+        self._progress_canvas.coords(self._progress_bar, 0, 0, filled_width, 10)
+        self._percent_var.set(f"{int(self._progress * 100)}%")
+        
+        # Schedule next update
+        self.after(30, self._animate_progress)
+        
+        # Check if we've reached the minimum display time
+        if self._ready_to_close and self._progress >= 1.0:
+            self.after(500, self._begin_close)  # Short delay before closing
+        
+    def _begin_close(self):
+        """Start the fade out process"""
+        self._closing = True
+        try: self.attributes("-disabled", False)
+        except Exception: pass
+        self._fade_out()
+
+    def set_message(self, text: str) -> None:
+        """Update the message shown on the splash screen"""
+        self._msg_var.set(text or "")
+
+    def set_progress(self, value: float) -> None:
+        """
+        Manually set progress value (0.0 to 1.0)
+        Note: This won't override the minimum time constraint
+        """
+        self._progress = max(0.0, min(1.0, float(value)))
+
+    def _fade_in(self):
+        if self._closing:
+            return
+        cur = float(self.attributes("-alpha") or 0.0)
+        if cur < self._alpha_target:
+            cur = min(self._alpha_target, cur + self._alpha_step)
+            self.attributes("-alpha", cur)
+            self.after(16, self._fade_in)
+
+    def close(self):
+        """
+        Request to close the splash screen.
+        Will only close after the minimum display time has elapsed.
+        """
+        self._ready_to_close = True
+        
+        # Check if we've already met the minimum display time
+        elapsed = time.time() - self._start_time
+        if elapsed >= self._min_display_time:
+            self.after(0, self._begin_close)
+
+    def _fade_out(self):
+        cur = float(self.attributes("-alpha") or 0.0)
+        if cur > 0.0:
+            self.attributes("-alpha", max(0.0, cur - 0.10))
+            self.after(16, self._fade_out)
+        else:
+            # ensure we don't steal focus on destroy
+            try: self.master.focus_force()
+            except Exception: pass
+            # Make sure splash is completely gone before main window is shown
+            self.destroy()
 
 # --- Log batching ---
 _log_buf = io.StringIO()
@@ -950,6 +1141,7 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
 ICON_NAME   = 'icon.ico'
+SPLASH_NAME = 'splash.png'
 
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
@@ -1123,11 +1315,7 @@ def resolve_unc(template: str) -> str:
 def apply_app_icon(widget):
     """Apply the application icon to a Tk widget if the icon file exists."""
     try:
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.abspath(os.path.dirname(__file__))
-        icon_path = os.path.join(base_path, ICON_NAME)
+        icon_path = _resource_path(ICON_NAME)
         widget.iconbitmap(icon_path)
     except Exception as e:
         print(f"Failed to apply icon: {e}")
@@ -1168,7 +1356,62 @@ if 'fullscreen' not in config['General']:
     config['General']['fullscreen'] = 'False' 
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
-       
+
+# =============================================================================
+# Background warm-up tasks (run off the UI thread)
+# =============================================================================
+def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val: None):
+    """
+    Do small, IO-bound checks in sequence to keep perceived startup snappy.
+    Each step reports a user-friendly message via `progress(msg)` and
+    updates the progress bar via update_progress(value).
+    """
+    # Small initial delay to ensure the splash is visible first
+    time.sleep(0.05)
+    
+    # Initialize progress - start higher to indicate UI is already loaded
+    update_progress(0.15)
+    
+    try:
+        progress("Checking configuration…")
+        bootstrap_first_run_if_needed(log=log_to_console)
+        update_progress(0.25)
+    except Exception as e:
+        log_to_console(f"[warmup] bootstrap: {e}")
+        update_progress(0.25)
+
+    steps = [
+        ("Detecting VBS4…",            get_vbs4_install_path),
+        ("Detecting VBS4 Launcher…",   get_vbs4_launcher_path),
+        ("Detecting Blue IG…",         get_blueig_install_path),
+        ("Detecting ARES Manager…",    get_ares_manager_path),
+        ("Applying offline settings…", apply_offline_settings),
+    ]
+    
+    # Calculate progress increment per step
+    step_progress = 0.55 / len(steps)  # Distribute remaining 55% among steps
+    current_progress = 0.25  # Starting from 25%
+    
+    for i, (label, fn) in enumerate(steps):
+        try:
+            progress(label)
+            _ = fn() if callable(fn) else None
+        except Exception as e:
+            log_to_console(f"[warmup] {label}: {e}")
+        
+        # Update progress after each step
+        current_progress += step_progress
+        update_progress(current_progress)
+        
+        # Shorter delay for better responsiveness
+        time.sleep(0.05)
+    
+    # Final progress update and message
+    update_progress(0.9)
+    progress("Finalizing startup...")
+    time.sleep(0.2)  # Shorter delay for visual feedback
+    update_progress(1.0)
+    progress("Ready.")
 # =============================================================================
 # AUTO-LAUNCH CONFIG
 # =============================================================================
@@ -2616,7 +2859,10 @@ class MainApp(tk.Tk):
         super().__init__()
         global APP_INSTANCE
         APP_INSTANCE = self
-        pump_ui_queue(self)
+        
+        # Start withdrawn to prevent white window flash during initialization
+        self.withdraw()
+        
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
         self.resizable(False, False)
@@ -2625,6 +2871,62 @@ class MainApp(tk.Tk):
         self.focusable_buttons = []
 
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
+        
+        # Ensure the cross-thread UI queue is pumped while the app runs
+        self.after(0, pump_ui_queue, self)
+
+        # Handle an optional splash (attached by the launcher function below)
+        self._splash = None
+
+    # --- splash helpers -----------------------------------------------------
+    def attach_splash(self, splash: SplashScreen | None):
+        """Attach an already shown splash; keep main focused."""
+        self._splash = splash
+        try:
+            self.focus_force()
+        except Exception:
+            pass
+
+    def _splash_message(self, msg: str):
+        """Update the splash screen message."""
+        if self._splash:
+            try:
+                self._splash.set_message(msg)
+            except Exception:
+                pass
+                
+    def _update_splash_progress(self, value: float):
+        """Update the splash screen progress bar."""
+        if self._splash:
+            try:
+                self._splash.set_progress(value)
+            except Exception:
+                pass
+
+    def start_warmup_async(self):
+        """Kick off background warm-up; close splash when done."""
+        def _run():
+            warm_up_environment(
+                progress=lambda m: post_ui(self._splash_message, m),
+                update_progress=lambda v: post_ui(self._update_splash_progress, v)
+            )
+            post_ui(self._finish_warmup)
+        run_in_thread(_run)
+
+    def _finish_warmup(self):
+        """Complete warm-up and close the splash screen with proper timing."""
+        if self._splash:
+            try:
+                # Final message before closing
+                self._splash.set_message("Ready to launch")
+                # The close method respects the minimum display time
+                self._splash.close()
+            finally:
+                self._splash = None
+                
+        # Now that the splash is closed, show the main window
+        self.deiconify()
+        self.update_idletasks()
 
         # base windowed size and scaling
         self.base_width, self.base_height = 1660, 800
@@ -6523,42 +6825,97 @@ def start_command_server(port: int = 9100) -> None:
     thread = threading.Thread(target=run_command_server, args=("", port), daemon=True)
     thread.start()
 
-if __name__ == "__main__":
+# =============================================================================
+# Launcher with splash
+# =============================================================================
+def run_with_splash():
+    # Prevent double instances in distro builds
     if not acquire_singleton():
-        print("STE Toolkit is already running.")
-        sys.exit(0)
+        try:
+            messagebox.showinfo("STE Toolkit", "Another instance is already running.")
+        finally:
+            return
+    
     start_command_server()
-    try:
-        apply_offline_settings()
-    except Exception as exc:
-        print(f"[startup] apply_offline_settings: {exc}")
-
+    
+    # Setup default config if needed
+    if not config.has_section('General'):
+        config.add_section('General')
+        
+    # Ensure the version number is set to 1.1
+    config['General']['app_version'] = '1.1'
+    
+    should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
+    
     try:
         update_fuser_shared_path()
     except Exception as exc:
         print(f"[startup] update_fuser_shared_path: {exc}")
-
-    if not config.has_section('General'):
-        config.add_section('General')
-    should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
-
+    
+    # Create the main app but keep it hidden during the entire splash sequence
     app = MainApp()
-    app.after(50, apply_minimal_wizard_defaults)
-    app.after(75, lambda: enforce_wizard_obj_only_defaults(log=app.panels['OneClick'].log_message))
-    app.after(50, update_fuser_shared_path)
-    app.after(50, app.panels['OneClick'].update_fuser_state)
-    app.after(50, enforce_local_fuser_policy)
+    # MainApp.__init__ already calls withdraw()
+    
+    # Create and attach a splash that never steals focus
+    splash_img = _resource_path(SPLASH_NAME)
+    ver = "Version: 1.1"  # Explicitly set version to 1.1
+    # Set min_display_time to 3.0 seconds to ensure splash shows long enough
+    splash = SplashScreen(app, image_path=splash_img, version_text=ver, min_display_time=3.0)
+    app.attach_splash(splash)
+    
+    # Process any pending UI updates while splash is showing
+    app.update_idletasks()
+    
+    # We keep the main app withdrawn until the splash screen is done
+    # We'll deiconify it in _finish_warmup method when the splash is closed
+    
+    # Ensure splash stays on top by forcing topmost again
+    splash.lift()
 
-    if should_prompt_settings:
-        def _show_first_run_toast():
-            try:
-                app.show('Settings')
-            except Exception as exc:
-                print(f"[startup] show Settings: {exc}")
-            show_info_toast(app, "Review settings (host name, drive letter, RM install path)")
-            config['General']['first_run_done'] = 'True'
-            _save_config()
-
-        app.after(250, _show_first_run_toast)
-
+    # Apply critical UI initialization immediately (don't delay buttons)
+    # This ensures the navigation buttons are immediately visible
+    
+    # Make sure panels are fully initialized before continuing
+    app.update_idletasks()
+    
+    # Apply immediate UI tasks if panels are ready
+    if hasattr(app, 'panels') and 'OneClick' in app.panels:
+        # Apply these synchronously without delay for better UI responsiveness
+        try:
+            apply_minimal_wizard_defaults()
+            enforce_wizard_obj_only_defaults(log=app.panels['OneClick'].log_message)
+        except Exception as exc:
+            print(f"[startup] immediate UI setup: {exc}")
+    
+    # Start non-blocking warmup work in parallel; splash will auto-close when done
+    app.after(1, app.start_warmup_async)
+    
+    # Schedule the remaining non-UI initialization tasks 
+    # with minimal delays to prevent UI freezing
+    def setup_delayed_tasks():
+        # Now app.panels should be initialized and we can safely access it
+        if hasattr(app, 'panels') and 'OneClick' in app.panels:
+            # Use a single short delay for background tasks
+            app.after(5, update_fuser_shared_path)
+            app.after(10, app.panels['OneClick'].update_fuser_state)
+            app.after(15, enforce_local_fuser_policy)
+            
+            if should_prompt_settings:
+                def _show_first_run_toast():
+                    try:
+                        app.show('Settings')
+                    except Exception as exc:
+                        print(f"[startup] show Settings: {exc}")
+                    show_info_toast(app, "Review settings (host name, drive letter, RM install path)")
+                    config['General']['first_run_done'] = 'True'
+                    _save_config()
+                
+                app.after(100, _show_first_run_toast)
+    
+    # Schedule this sooner after the app's initialization is complete
+    app.after(20, setup_delayed_tasks)
+    
     app.mainloop()
+
+if __name__ == "__main__":
+    run_with_splash()
