@@ -314,15 +314,31 @@ class SplashScreen(tk.Toplevel):
             self.after(0, self._begin_close)
 
     def _fade_out(self):
+        if not self.winfo_exists():
+            return  # Already destroyed, exit
+            
         cur = float(self.attributes("-alpha") or 0.0)
         if cur > 0.0:
             self.attributes("-alpha", max(0.0, cur - 0.10))
             self.after(16, self._fade_out)
         else:
             # ensure we don't steal focus on destroy
-            try: self.master.focus_force()
-            except Exception: pass
+            try: 
+                self.master.focus_force()
+            except Exception: 
+                pass
+            
+            # Set flag indicating we're being destroyed
+            self._closing = True
+            
             # Make sure splash is completely gone before main window is shown
+            # Also remove any scheduled callbacks to prevent reappearance
+            for after_id in self.tk.call('after', 'info'):
+                try:
+                    self.after_cancel(after_id)
+                except Exception:
+                    pass
+                    
             self.destroy()
 
 # --- Log batching ---
@@ -2921,7 +2937,14 @@ class MainApp(tk.Tk):
                 self._splash.set_message("Ready to launch")
                 # The close method respects the minimum display time
                 self._splash.close()
+            except Exception:
+                # If something goes wrong with the normal close process, force destroy it
+                try:
+                    self._splash.destroy()
+                except Exception:
+                    pass
             finally:
+                # Ensure the reference is gone
                 self._splash = None
                 
         # Now that the splash is closed, show the main window
@@ -3134,6 +3157,14 @@ class MainApp(tk.Tk):
 
     def toggle_fullscreen(self):
         """Toggle fullscreen while maintaining aspect ratio."""
+        # Ensure any lingering splash screen is fully cleaned up
+        if hasattr(self, '_splash') and self._splash is not None:
+            try:
+                self._splash.destroy()
+            except Exception:
+                pass
+            self._splash = None
+            
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
         if not self.fullscreen:
@@ -3153,6 +3184,10 @@ class MainApp(tk.Tk):
             self.windowed_geometry = f"{win_w}x{win_h}+{x}+{y}"
             self.geometry(self.windowed_geometry)
             self.fullscreen = False
+            
+        # Save the fullscreen state to configuration
+        config['General']['fullscreen'] = str(self.fullscreen)
+        _save_config()
 
         self.after(10, self._update_scrollability)
         self.after(10, lambda: self.event_generate("<Configure>"))
@@ -6466,6 +6501,11 @@ class SettingsPanel(tk.Frame):
         enforce_local_fuser_policy()
 
     def _on_fullscreen_toggle(self):
+        # Save the fullscreen setting to config before toggling
+        config['General']['fullscreen'] = str(not self.controller.fullscreen)
+        _save_config()
+        
+        # Toggle fullscreen state
         self.controller.toggle_fullscreen()
         self.fullscreen_var.set(self.controller.fullscreen)
         
