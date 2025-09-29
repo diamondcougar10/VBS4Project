@@ -152,9 +152,8 @@ class SplashScreen(tk.Toplevel):
         self.withdraw()  # Hide initially to prevent flash
         self.overrideredirect(True)              # borderless
         self.attributes("-topmost", True)
-        # Make sure the main window keeps focus/interaction
-        try: self.attributes("-disabled", True)
-        except Exception: pass
+        # Mark this as a splash screen for easy identification
+        self._is_splash = True
         self.attributes("-alpha", start_alpha)
         self._alpha_target = float(end_alpha)
         self._alpha_step   = 0.08
@@ -242,9 +241,8 @@ class SplashScreen(tk.Toplevel):
         # Start the progress animation
         self._animate_progress()
         
-        # Now show the window, take focus, and fade in
+        # Now show the window and fade in (borderless, on-top, semi-transparent is enough)
         self.deiconify()
-        self.focus_force()  # Make sure splash gets focus
         self.attributes("-topmost", True)  # Ensure it stays on top
         self._fade_in()
         
@@ -2903,6 +2901,43 @@ class MainApp(tk.Tk):
             except Exception:
                 pass
 
+    def _ensure_splash_gone(self):
+        """Hide & destroy any splash window so it can't reappear on WM changes.
+        Only targets splash screens that should already be closed from startup."""
+        # 1) If we still have a handle to a splash that should be closed, clean it up
+        sp = getattr(self, "_splash", None)
+        if sp and sp.winfo_exists():
+            # Check if the splash is already in closing state or should be closed
+            # We only force cleanup if the splash has been marked ready to close
+            if getattr(sp, "_ready_to_close", False) or getattr(sp, "_closing", False):
+                try:
+                    sp.attributes("-topmost", False)
+                except Exception:
+                    pass
+                try:
+                    sp.withdraw()   # prevent any single-frame flash
+                except Exception:
+                    pass
+                try:
+                    sp.destroy()    # and truly remove it
+                except Exception:
+                    pass
+                if self._splash is sp:      # clear only after the window is really gone
+                    self._splash = None
+
+        # 2) Clean up any orphan splash toplevels that are already marked for closing
+        try:
+            for w in self.winfo_children():
+                if (isinstance(w, tk.Toplevel) and getattr(w, "_is_splash", False)):
+                    # Only destroy splash screens that are already in closing state
+                    if getattr(w, "_ready_to_close", False) or getattr(w, "_closing", False):
+                        try:
+                            w.destroy()
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
     def start_warmup_async(self):
         """Kick off background warm-up; close splash when done."""
         def _run():
@@ -3133,26 +3168,39 @@ class MainApp(tk.Tk):
         self.tk.call('tk', 'scaling', self.base_scaling * snapped)
 
     def toggle_fullscreen(self):
-        """Toggle fullscreen while maintaining aspect ratio."""
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        if not self.fullscreen:
-            scale = min(screen_w / self.base_width, screen_h / self.base_height)
+        """Toggle fullscreen while maintaining aspect ratio, and make sure
+        the splash can never resurface during WM state changes."""
+        # Only clean up splash if there's actually one that should be closed
+        if hasattr(self, '_splash') and self._splash:
+            # Check if splash should already be closed before cleaning up
+            if getattr(self._splash, "_ready_to_close", False) or getattr(self._splash, "_closing", False):
+                self._ensure_splash_gone()
+
+        self.fullscreen = not self.fullscreen
+        config.setdefault('General', {})['fullscreen'] = 'True' if self.fullscreen else 'False'
+        _save_config()
+
+        # Compute/restore geometry exactly as you already do
+        if self.fullscreen:
+            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+            scale = min(sw / self.base_width, sh / self.base_height)
             self.apply_scale(scale)
-            self.geometry(f"{screen_w}x{screen_h}+0+0")
-            self.attributes('-fullscreen', True)
-            self.fullscreen = True
+            self.geometry(f"{sw}x{sh}+0+0")
+            self.attributes('-fullscreen', True)   # enter fullscreen
         else:
-            self.attributes('-fullscreen', False)
-            self.window_scale = min(screen_w / self.base_width, screen_h / self.base_height, 1.0)
-            win_w = int(self.base_width * self.window_scale)
-            win_h = int(self.base_height * self.window_scale)
-            x = (screen_w - win_w) // 2
-            y = (screen_h - win_h) // 2
+            self.attributes('-fullscreen', False)  # leave fullscreen first
+            # windowed_geometry is already computed in _finish_warmup
             self.apply_scale(self.window_scale)
-            self.windowed_geometry = f"{win_w}x{win_h}+{x}+{y}"
             self.geometry(self.windowed_geometry)
-            self.fullscreen = False
+
+        # After WM changes settle, do a final check only if needed
+        if hasattr(self, '_splash') and self._splash:
+            if getattr(self._splash, "_ready_to_close", False) or getattr(self._splash, "_closing", False):
+                self.after_idle(self._ensure_splash_gone)
+                self.after(50, self._ensure_splash_gone)
+
+        # Belt-and-suspenders: make sure no stray splash can repaint after WM state changes
+        self.after_idle(self._ensure_splash_gone)
 
         self.after(10, self._update_scrollability)
         self.after(10, lambda: self.event_generate("<Configure>"))
