@@ -1,27 +1,13 @@
 ; ===================== STE Mission Planning Toolkit Installer =====================
-; Three modes:
-;  - First-Time Setup (Host): create SharedMeshDrive, share via SMB, seed config by IP,
-;    (optionally) map M:, and run PhotoMesh + RealityMesh installers.
-;  - First-Time Setup (User): regular install; DO NOT create share or drive; DO NOT seed host;
-;    hoprocedure InitializeWizard;
-var
-  i: Integer;
-begin
-  { Single-select radios, no "select all": }
-  ModePage := CreateInputOptionPage(
-    wpWelcome,
-    'Choose Setup Mode',
-    'Pick how this installer should configure your system.',
-    'Select one option below.',
-    False,  { AllowMultipleSelection -> FALSE means use radio buttons }
-    False   { AllowNoSelection       -> must pick one }
-  );ank so the Toolkit UI can point to the Host later.
-;  - Update/Repair: do not touch layout/shares; just replace EXE and repair config.
-; All helper shells run hidden. Config seed writes to {app}\config.ini.
+; Modes:
+;  Host    – Creates "SharedMeshDrive", shares via SMB, seeds config by IP, optional M: map,
+;            and runs PhotoMesh + RealityMesh installers if needed.
+;  User    – Regular install, does not create share or drive, does not seed host/IP.
+;  Update  – No layout/shares; just replace EXE and repair config.
 ; ================================================================================
 
 #define AppName "STE Mission Planning Toolkit"
-#define AppVersion "1.0"
+#define AppVersion "1.1"
 
 [Setup]
 AppName={#AppName}
@@ -37,10 +23,10 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
 
 [Files]
-; 1) Your application (PyInstaller dist)
+; 1) Toolkit (PyInstaller dist)
 Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
-; 2) Third-party installers — always stage; runtime decides whether to run
+; 2) Third-party installers (always staged; runtime decides to run or skip)
 Source: "installs\Photomesh\*";  DestDir: "{tmp}\PhotomeshInstalls";  Flags: recursesubdirs createallsubdirs
 Source: "installs\RealityMesh\*"; DestDir: "{tmp}\RealityMeshInstalls"; Flags: recursesubdirs createallsubdirs
 
@@ -53,13 +39,10 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
-; Launch Toolkit when finished (user can uncheck on finish page)
 Filename: "{app}\STE_Toolkit.exe"; Description: "Launch STE Mission Planning Toolkit now"; Flags: nowait postinstall skipifsilent
-; Optional firewall rule
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
 [Registry]
-; Always run as admin (compat layer)
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\STE_Toolkit.exe"; ValueData: "~ RUNASADMIN"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Code]
@@ -71,9 +54,15 @@ type
   TInstallMode = (imHost, imUser, imUpdate);
 
 var
-  ModePage:       TInputOptionWizardPage;
+  { Custom mode page with visible radios (no GroupBox needed) }
+  ModePage:  TWizardPage;
+  ModeIntro: TNewStaticText;
+  RBHost:    TNewRadioButton;
+  RBUser:    TNewRadioButton;
+  RBUpdate:  TNewRadioButton;
+  ModeDesc:  TNewStaticText;
+
   SharedRootPage: TInputDirWizardPage;
-  ModeDesc:       TNewStaticText;
   SharedRoot:     string;
 
 function FileExists2(const P: string): Boolean;
@@ -100,13 +89,10 @@ begin
 end;
 
 function BuildShareBase(const Root: string): string;
-var
-  Normalized: string;
-  StartPos: Integer;
+var Normalized: string; StartPos: Integer;
 begin
   Normalized := Trim(TrimTrailingSlash(Root));
-  if Normalized = '' then
-    Normalized := 'D:\';
+  if Normalized = '' then Normalized := 'D:\';
   StartPos := Length(Normalized) - Length(SHARE_NAME) + 1;
   if (StartPos >= 1) and
      (CompareText(Copy(Normalized, StartPos, Length(SHARE_NAME)), SHARE_NAME) = 0) and
@@ -117,8 +103,7 @@ begin
 end;
 
 function ForceLayoutUnder(Root: string): string;
-var
-  Base, P: string;
+var Base, P: string;
 begin
   Base := BuildShareBase(Root);
   ForceDirectories(Base);
@@ -131,14 +116,10 @@ begin
 end;
 
 procedure EnsureSmbShare(const ShareName, LocalPath: string);
-var
-  RC: Integer;
-  Cmd: string;
-  Ran: Boolean;
+var RC: Integer; Cmd: string; Ran: Boolean;
 begin
   if LocalPath = '' then Exit;
 
-  { 1) Try PowerShell silently }
   Cmd :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
     '"$ErrorActionPreference=''Stop''; ' +
@@ -147,19 +128,14 @@ begin
     '}"';
   Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
               Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Ran and (RC = 0) then
-    Exit;
+  if Ran and (RC = 0) then Exit;
 
-  { 2) Fallback to net share (cmd) silently }
   Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
   Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
 function GetPrimaryIPv4(): string;
-var
-  PS, TmpFile: string;
-  RC: Integer;
-  S: AnsiString;
+var PS, TmpFile: string; RC: Integer; S: AnsiString;
 begin
   Result := '';
   TmpFile := ExpandConstant('{tmp}\host_ip.txt');
@@ -171,7 +147,8 @@ begin
     '  Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress); ' +
     'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';
 
-  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+          PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
   begin
     if (RC = 0) and LoadStringFromFile(TmpFile, S) then
       Result := Trim(string(S));
@@ -181,8 +158,7 @@ begin
 end;
 
 function SeedConfigIni_Host(AppDir, Root: string): string;
-var
-  Ini, Base, HostName, HostIP: string;
+var Ini, Base, HostName, HostIP: string;
 begin
   Ini      := AddBackslash(AppDir) + 'config.ini';
   Base     := ForceLayoutUnder(Root);
@@ -191,10 +167,9 @@ begin
 
   EnsureSmbShare(SHARE_NAME, Base);
 
-  { --- Offline / Shared settings: pre-seed everything (incl. Host IP) --- }
   SetIniString('Offline', 'enabled', 'True',                  Ini);
   SetIniString('Offline', 'host_name', HostName,              Ini);
-  SetIniString('Offline', 'host_ip',   HostIP,                Ini);  { << auto-set IP }
+  SetIniString('Offline', 'host_ip',   HostIP,                Ini);
   SetIniString('Offline', 'share_name',SHARE_NAME,            Ini);
   SetIniString('Offline', 'local_data_root', Base,            Ini);
   SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
@@ -205,7 +180,6 @@ begin
   SetIniString('SharedDrive', 'drive_letter',   'M:',         Ini);
   SetIniString('SharedDrive', 'auto_map_on_save','True',      Ini);
 
-  { --- General flags so Toolkit bootstraps without any Settings visit --- }
   SetIniString('General', 'first_run_done', 'True',           Ini);
   SetIniString('General', 'first_run_mode', 'HOST',           Ini);
   SetIniString('General', 'reality_mesh_local_root', AddBackslash(Base) + 'RealityMeshInstall', Ini);
@@ -217,16 +191,14 @@ begin
   SetIniString('Fusers', 'host_count',    '1',                Ini);
   SetIniString('Fusers', 'fuser_computer','True',             Ini);
   SetIniString('Fusers', 'working_folder_host', HostName,     Ini);
-  
-  { --- Network settings: ensure host is set in Network section too --- }
-  SetIniString('Network', 'host', HostIP,                      Ini);
+
+  SetIniString('Network', 'host', HostIP,                     Ini);
 
   Result := Base;
 end;
 
 procedure SeedConfigIni_User(AppDir: string);
-var
-  Ini: string;
+var Ini: string;
 begin
   Ini := AddBackslash(AppDir) + 'config.ini';
   SetIniString('Offline', 'enabled', 'True',          Ini);
@@ -250,20 +222,14 @@ begin
 end;
 
 function HasShareRealityMesh(const Base: string): Boolean;
-var
-  Rec: TFindRec;
-  Found: Boolean;
+var Rec: TFindRec; Found: Boolean;
 begin
-  Result := False;
-  Found := False;
+  Result := False; Found := False;
   if FindFirst(AddBackslash(Base) + 'RealityMeshInstall\*', Rec) then
   try
     repeat
       if (CompareText(Rec.Name, RM_LINK_NAME) = 0) then
-      begin
-        Found := True;
-        Break;
-      end;
+      begin Found := True; Break; end;
     until not FindNext(Rec);
   finally
     FindClose(Rec);
@@ -272,46 +238,38 @@ begin
 end;
 
 function TryExecHidden(const Exe, Args: string): Boolean;
-var
-  RC: Integer;
+var RC: Integer;
 begin
   Result := Exec(Exe, Args, '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
 procedure RunAllInstallers(const Dir, TargetDir: string);
-var
-  FindRec: TFindRec;
-  FilePath, Params: string;
+var Rec: TFindRec; FilePath, Params: string;
 begin
   if not DirExists(Dir) then Exit;
+  if (TargetDir <> '') and (not DirExists(TargetDir)) then ForceDirectories(TargetDir);
 
-  if (TargetDir <> '') and (not DirExists(TargetDir)) then
-    ForceDirectories(TargetDir);
-
-  { MSI payloads }
-  if FindFirst(Dir + '\*.msi', FindRec) then
+  if FindFirst(Dir + '\*.msi', Rec) then
   try
     repeat
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
       begin
-        FilePath := Dir + '\' + FindRec.Name;
+        FilePath := Dir + '\' + Rec.Name;
         Params   := '/i "' + FilePath + '" /qn /norestart ALLUSERS=1';
-        if TargetDir <> '' then
-          Params := Params + ' TARGETDIR="' + TargetDir + '"';
+        if TargetDir <> '' then Params := Params + ' TARGETDIR="' + TargetDir + '"';
         TryExecHidden(ExpandConstant('{sys}\msiexec.exe'), Params);
       end;
-    until not FindNext(FindRec);
+    until not FindNext(Rec);
   finally
-    FindClose(FindRec);
+    FindClose(Rec);
   end;
 
-  { EXE payloads — try silent switches; add INSTALLDIR when supported }
-  if FindFirst(Dir + '\*.exe', FindRec) then
+  if FindFirst(Dir + '\*.exe', Rec) then
   try
     repeat
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
       begin
-        FilePath := Dir + '\' + FindRec.Name;
+        FilePath := Dir + '\' + Rec.Name;
         if TargetDir <> '' then
         begin
           if not TryExecHidden(FilePath, '/quiet /norestart INSTALLDIR="' + TargetDir + '"') then
@@ -327,25 +285,21 @@ begin
                 TryExecHidden(FilePath, '/s');
         end;
       end;
-    until not FindNext(FindRec);
+    until not FindNext(Rec);
   finally
-    FindClose(FindRec);
+    FindClose(Rec);
   end;
 end;
 
 function SelectedMode(): TInstallMode;
 begin
-  if ModePage.SelectedValueIndex = 0 then
-    Result := imHost
-  else if ModePage.SelectedValueIndex = 1 then
-    Result := imUser
-  else
-    Result := imUpdate;
+  if RBHost.Checked then Result := imHost
+  else if RBUser.Checked then Result := imUser
+  else Result := imUpdate;
 end;
 
 procedure RefreshModeDescription;
-var
-  S: string;
+var S: string;
 begin
   case SelectedMode() of
     imHost:
@@ -361,63 +315,69 @@ begin
 end;
 
 procedure ModeRadioClicked(Sender: TObject);
-var
-  ClickedIndex, i: Integer;
 begin
-  { Enforce radio-button-like behavior - only one selected at a time }
-  if Sender is TNewCheckListBox then
-  begin
-    ClickedIndex := TNewCheckListBox(Sender).ItemIndex;
-    for i := 0 to ModePage.CheckListBox.Items.Count - 1 do
-      ModePage.CheckListBox.Checked[i] := (i = ClickedIndex);
-  end;
-  
   RefreshModeDescription;
 end;
 
 procedure InitializeWizard;
 var
-  i: Integer;
+  LeftX, TopY, SpY, AvailW: Integer;
 begin
-  { Single-select radios, no “select all”: }
-  ModePage := CreateInputOptionPage(
+  ModePage := CreateCustomPage(
     wpWelcome,
     'Choose Setup Mode',
-    'Pick how this installer should configure your system.',
-    'Select one option below.',
-    False,  { AllowMultipleSelection -> radios }
-    False   { AllowNoSelection       -> must pick one }
+    'Pick how this installer should configure your system.'
   );
-  ModePage.Add('First-Time Setup (Host)');
-  ModePage.Add('First-Time Setup (User)');
-  ModePage.Add('Update/Repair');
-  ModePage.Values[0] := True;  { default to Host }
-  
-  { Force radio button behavior by manually setting exclusive selection }
-  for i := 0 to ModePage.CheckListBox.Items.Count - 1 do
-  begin
-    ModePage.CheckListBox.ItemEnabled[i] := True;
-    { This forces radio button appearance and behavior }
-    if i = 0 then
-      ModePage.CheckListBox.Checked[i] := True
-    else
-      ModePage.CheckListBox.Checked[i] := False;
-  end;
+
+  { Layout }
+  LeftX := ScaleX(24);
+  TopY  := ScaleY(22);
+  SpY   := ScaleY(10);
+  AvailW := ModePage.SurfaceWidth - (LeftX * 2);
+
+  ModeIntro := TNewStaticText.Create(WizardForm);
+  ModeIntro.Parent   := ModePage.Surface;
+  ModeIntro.Left     := LeftX;
+  ModeIntro.Top      := TopY;
+  ModeIntro.Caption  := 'Select one option below.';
+
+  RBHost := TNewRadioButton.Create(WizardForm);
+  RBHost.Parent  := ModePage.Surface;            { radios share the same parent => exclusive }
+  RBHost.Left    := LeftX;
+  RBHost.Top     := ModeIntro.Top + ModeIntro.Height + SpY + ScaleY(2);
+  RBHost.Width   := AvailW;                      { wide to avoid truncation }
+  RBHost.Caption := 'Host';
+  RBHost.Checked := True;
+  RBHost.OnClick := @ModeRadioClicked;
+
+  RBUser := TNewRadioButton.Create(WizardForm);
+  RBUser.Parent  := ModePage.Surface;
+  RBUser.Left    := LeftX;
+  RBUser.Top     := RBHost.Top + RBHost.Height + SpY;
+  RBUser.Width   := AvailW;
+  RBUser.Caption := 'User';
+  RBUser.OnClick := @ModeRadioClicked;
+
+  RBUpdate := TNewRadioButton.Create(WizardForm);
+  RBUpdate.Parent  := ModePage.Surface;
+  RBUpdate.Left    := LeftX;
+  RBUpdate.Top     := RBUser.Top + RBUser.Height + SpY;
+  RBUpdate.Width   := AvailW;
+  RBUpdate.Caption := 'Update';
+  RBUpdate.OnClick := @ModeRadioClicked;
 
   ModeDesc := TNewStaticText.Create(WizardForm);
   ModeDesc.Parent   := ModePage.Surface;
   ModeDesc.AutoSize := False;
-  ModeDesc.Left     := 0;
-  ModeDesc.Top      := ModePage.SurfaceHeight - ScaleY(60);
-  ModeDesc.Width    := ModePage.SurfaceWidth;
-  ModeDesc.Height   := ScaleY(56);
+  ModeDesc.Left     := LeftX;
+  ModeDesc.Top      := RBUpdate.Top + RBUpdate.Height + SpY + ScaleY(4);
+  ModeDesc.Width    := AvailW;
+  ModeDesc.Height   := ScaleY(80);
   ModeDesc.WordWrap := True;
 
   RefreshModeDescription;
 
-  { Attach our click handler to the CheckListBox component to enforce radio button behavior }
-  ModePage.CheckListBox.OnClickCheck := @ModeRadioClicked;
-
+  { Host-only page for the shared drive root }
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
     'Choose Shared Drive Root',
@@ -433,28 +393,19 @@ function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if Assigned(SharedRootPage) and (PageID = SharedRootPage.ID) then
-    Result := SelectedMode() <> imHost;
+    Result := SelectedMode() <> imHost;  { only for Host }
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
-var
-  Candidate: string;
-  selectedCount: Integer;
-  i: Integer;
+var Candidate: string;
 begin
   Result := True;
 
-  if Assigned(ModePage) and (CurPageID = ModePage.ID) then
+  if (CurPageID = ModePage.ID) then
   begin
-    { Count selected items to ensure exactly one is selected }
-    selectedCount := 0;
-    for i := 0 to ModePage.CheckListBox.Items.Count - 1 do
-      if ModePage.CheckListBox.Checked[i] then
-        Inc(selectedCount);
-        
-    if selectedCount <> 1 then
+    if not (RBHost.Checked or RBUser.Checked or RBUpdate.Checked) then
     begin
-      MsgBox('Please select exactly one setup mode (Host, User, or Update/Repair).', mbError, MB_OK);
+      MsgBox('Please select one mode (Host, User, or Update).', mbError, MB_OK);
       Result := False;
       Exit;
     end;
@@ -487,12 +438,7 @@ begin
     case SelectedMode() of
       imHost:
       begin
-        if SharedRoot <> '' then
-          HostRoot := SharedRoot
-        else
-          HostRoot := 'D:\';
-
-        { Seed config (includes host_ip auto-detection) BEFORE we ever launch the app }
+        if SharedRoot <> '' then HostRoot := SharedRoot else HostRoot := 'D:\';
         Base := SeedConfigIni_Host(AppDir, HostRoot);
 
         NeedPhotoMesh   := not HasPhotoMeshWizard();
@@ -504,11 +450,11 @@ begin
           Log('PhotoMesh Wizard present; skipping Photomesh installers.');
 
         if NeedRealityMesh then
-          RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'), AddBackslash(Base) + 'RealityMeshInstall')
+          RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'),
+                           AddBackslash(Base) + 'RealityMeshInstall')
         else
           Log('Reality Mesh found under share; skipping RealityMesh installers.');
 
-        { Optionally map M: to \\<this-IP>\SharedMeshDrive silently }
         Ip := GetPrimaryIPv4();
         if Ip <> '' then
         begin
@@ -521,24 +467,20 @@ begin
         SeedConfigIni_User(AppDir);
 
       imUpdate:
-        begin
-          { No layout/shares; leave config in place. }
-        end;
+        ; { Leave config/layout as-is }
     end;
 
     if SelectedMode() = imHost then
     begin
-      if HostRoot = '' then
-        HostRoot := 'D:\';
+      if HostRoot = '' then HostRoot := 'D:\';
       RMTarget := AddBackslash(BuildShareBase(HostRoot)) + 'RealityMeshInstall\' + RM_LINK_NAME;
-      { Created by installers or present already (no-op here). }
+      { No-op if already present/created by installers }
     end;
   end;
 end;
 
 procedure CurInstallFinished;
-var
-  RC: Integer;
+var RC: Integer;
 begin
   if FileExists(ExpandConstant('{app}\update_photomesh_config.exe')) then
     Exec(ExpandConstant('{app}\update_photomesh_config.exe'), '', '{app}', SW_HIDE, ewWaitUntilTerminated, RC);
