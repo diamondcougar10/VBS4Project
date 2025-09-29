@@ -159,6 +159,8 @@ class SplashScreen(tk.Toplevel):
         self._alpha_target = float(end_alpha)
         self._alpha_step   = 0.08
         self._closing      = False
+        self._is_splash = True              # tag this window so we can find it later
+        self._after_ids = set()             # track only our own 'after' timers
         
         # Track timing for minimum display time
         self._start_time = time.time()
@@ -247,6 +249,12 @@ class SplashScreen(tk.Toplevel):
         self.focus_force()  # Make sure splash gets focus
         self.attributes("-topmost", True)  # Ensure it stays on top
         self._fade_in()
+    
+    def _after(self, ms, fn, *a, **kw):
+        """Track our own after callbacks so we can clean them up safely"""
+        aid = self.after(ms, fn, *a, **kw)
+        self._after_ids.add(aid)
+        return aid
         
     def _animate_progress(self):
         """Animate the progress bar to give visual feedback during loading"""
@@ -268,11 +276,11 @@ class SplashScreen(tk.Toplevel):
         self._percent_var.set(f"{int(self._progress * 100)}%")
         
         # Schedule next update
-        self.after(30, self._animate_progress)
+        self._after(30, self._animate_progress)
         
         # Check if we've reached the minimum display time
         if self._ready_to_close and self._progress >= 1.0:
-            self.after(500, self._begin_close)  # Short delay before closing
+            self._after(500, self._begin_close)  # Short delay before closing
         
     def _begin_close(self):
         """Start the fade out process"""
@@ -299,7 +307,7 @@ class SplashScreen(tk.Toplevel):
         if cur < self._alpha_target:
             cur = min(self._alpha_target, cur + self._alpha_step)
             self.attributes("-alpha", cur)
-            self.after(16, self._fade_in)
+            self._after(16, self._fade_in)
 
     def close(self):
         """
@@ -320,7 +328,7 @@ class SplashScreen(tk.Toplevel):
         cur = float(self.attributes("-alpha") or 0.0)
         if cur > 0.0:
             self.attributes("-alpha", max(0.0, cur - 0.10))
-            self.after(16, self._fade_out)
+            self._after(16, self._fade_out)
         else:
             # ensure we don't steal focus on destroy
             try: 
@@ -331,13 +339,13 @@ class SplashScreen(tk.Toplevel):
             # Set flag indicating we're being destroyed
             self._closing = True
             
-            # Make sure splash is completely gone before main window is shown
-            # Also remove any scheduled callbacks to prevent reappearance
-            for after_id in self.tk.call('after', 'info'):
-                try:
-                    self.after_cancel(after_id)
-                except Exception:
+            # Cancel only OUR timers, not every timer in the app
+            for aid in list(self._after_ids):
+                try: 
+                    self.after_cancel(aid)
+                except Exception: 
                     pass
+            self._after_ids.clear()
                     
             self.destroy()
 
@@ -2932,20 +2940,29 @@ class MainApp(tk.Tk):
     def _finish_warmup(self):
         """Complete warm-up and close the splash screen with proper timing."""
         if self._splash:
+            sp = self._splash
+            # hide immediately so it can never re-appear during WM changes
             try:
-                # Final message before closing
-                self._splash.set_message("Ready to launch")
-                # The close method respects the minimum display time
-                self._splash.close()
+                sp.attributes("-topmost", False)
+                sp.withdraw()
             except Exception:
-                # If something goes wrong with the normal close process, force destroy it
-                try:
-                    self._splash.destroy()
-                except Exception:
+                pass
+
+            # clear the reference ONLY when the window is actually destroyed
+            def _on_destroy(_evt=None):
+                if self._splash is sp:
+                    self._splash = None
+
+            try:
+                sp.bind("<Destroy>", _on_destroy)
+                sp.set_message("Ready to launch")
+                sp.close()  # schedules fade-out; we've already withdrawn it from view
+            except Exception:
+                try: 
+                    sp.destroy()
+                except Exception: 
                     pass
-            finally:
-                # Ensure the reference is gone
-                self._splash = None
+                _on_destroy()
                 
         # Now that the splash is closed, show the main window
         self.deiconify()
@@ -3157,13 +3174,13 @@ class MainApp(tk.Tk):
 
     def toggle_fullscreen(self):
         """Toggle fullscreen while maintaining aspect ratio."""
-        # Ensure any lingering splash screen is fully cleaned up
-        if hasattr(self, '_splash') and self._splash is not None:
-            try:
-                self._splash.destroy()
-            except Exception:
-                pass
-            self._splash = None
+        # Belt-and-suspenders: kill any orphan splash on fullscreen toggle
+        for w in self.winfo_children():
+            if isinstance(w, tk.Toplevel) and getattr(w, "_is_splash", False):
+                try: 
+                    w.destroy()
+                except Exception: 
+                    pass
             
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
