@@ -3,7 +3,19 @@
 ;  - First-Time Setup (Host): create SharedMeshDrive, share via SMB, seed config by IP,
 ;    (optionally) map M:, and run PhotoMesh + RealityMesh installers.
 ;  - First-Time Setup (User): regular install; DO NOT create share or drive; DO NOT seed host;
-;    leave host name/IP blank so the Toolkit UI can point to the Host later.
+;    hoprocedure InitializeWizard;
+var
+  i: Integer;
+begin
+  { Single-select radios, no "select all": }
+  ModePage := CreateInputOptionPage(
+    wpWelcome,
+    'Choose Setup Mode',
+    'Pick how this installer should configure your system.',
+    'Select one option below.',
+    False,  { AllowMultipleSelection -> FALSE means use radio buttons }
+    False   { AllowNoSelection       -> must pick one }
+  );ank so the Toolkit UI can point to the Host later.
 ;  - Update/Repair: do not touch layout/shares; just replace EXE and repair config.
 ; All helper shells run hidden. Config seed writes to {app}\config.ini.
 ; ================================================================================
@@ -349,7 +361,17 @@ begin
 end;
 
 procedure ModeRadioClicked(Sender: TObject);
+var
+  ClickedIndex, i: Integer;
 begin
+  { Enforce radio-button-like behavior - only one selected at a time }
+  if Sender is TNewCheckListBox then
+  begin
+    ClickedIndex := TNewCheckListBox(Sender).ItemIndex;
+    for i := 0 to ModePage.CheckListBox.Items.Count - 1 do
+      ModePage.CheckListBox.Checked[i] := (i = ClickedIndex);
+  end;
+  
   RefreshModeDescription;
 end;
 
@@ -370,6 +392,17 @@ begin
   ModePage.Add('First-Time Setup (User)');
   ModePage.Add('Update/Repair');
   ModePage.Values[0] := True;  { default to Host }
+  
+  { Force radio button behavior by manually setting exclusive selection }
+  for i := 0 to ModePage.CheckListBox.Items.Count - 1 do
+  begin
+    ModePage.CheckListBox.ItemEnabled[i] := True;
+    { This forces radio button appearance and behavior }
+    if i = 0 then
+      ModePage.CheckListBox.Checked[i] := True
+    else
+      ModePage.CheckListBox.Checked[i] := False;
+  end;
 
   ModeDesc := TNewStaticText.Create(WizardForm);
   ModeDesc.Parent   := ModePage.Surface;
@@ -382,9 +415,8 @@ begin
 
   RefreshModeDescription;
 
-  for i := 0 to ModePage.Surface.ControlCount - 1 do
-    if ModePage.Surface.Controls[i] is TNewRadioButton then
-      TNewRadioButton(ModePage.Surface.Controls[i]).OnClick := @ModeRadioClicked;
+  { Attach our click handler to the CheckListBox component to enforce radio button behavior }
+  ModePage.CheckListBox.OnClickCheck := @ModeRadioClicked;
 
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
@@ -407,12 +439,20 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Candidate: string;
+  selectedCount: Integer;
+  i: Integer;
 begin
   Result := True;
 
   if Assigned(ModePage) and (CurPageID = ModePage.ID) then
   begin
-    if ModePage.SelectedValueIndex < 0 then
+    { Count selected items to ensure exactly one is selected }
+    selectedCount := 0;
+    for i := 0 to ModePage.CheckListBox.Items.Count - 1 do
+      if ModePage.CheckListBox.Checked[i] then
+        Inc(selectedCount);
+        
+    if selectedCount <> 1 then
     begin
       MsgBox('Please select exactly one setup mode (Host, User, or Update/Repair).', mbError, MB_OK);
       Result := False;
