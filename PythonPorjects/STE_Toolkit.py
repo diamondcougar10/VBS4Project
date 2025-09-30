@@ -2664,7 +2664,10 @@ def launch_vbs4():
         messagebox.showerror("Error", "VBS4 executable not found. Please set the correct path in settings.")
         return
     try:
-        subprocess.Popen([path])
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(path)
+        else:
+            subprocess.Popen([path])
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
@@ -2817,14 +2820,12 @@ def set_wallpaper(window):
 # Static references and routines for help menus.
 
 tutorials_items = {
-    "VBS4 Documentation": lambda: webbrowser.open(
-        r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm", new=2),
-    "Script Wiki":         lambda: webbrowser.open(
-        r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\Wiki\SQF_Reference.html", new=2),
+    "VBS4 Documentation": lambda: launch_vbs4_documentation(),
+    "Script Wiki":         lambda: launch_vbs4_script_wiki(),
     "BVI PDF Docs":        lambda: messagebox.showinfo("BVI Docs","Open BVI PDF docs"),
 }
 blueig_help_items = {
-    "Blue IG Official Documentation": lambda: subprocess.Popen([BlueIG_HTML], shell=True),
+    "Blue IG Official Documentation": lambda: launch_blueig_documentation(),
     "Video Tutorials":                lambda: messagebox.showinfo("Coming Soon", "Not implemented yet"),
     "Support Website":                lambda: webbrowser.open("https://bisimulations.com/support/", new=2),
 }
@@ -2835,17 +2836,137 @@ SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help
 SUPPORT_SITE = "https://bisimulations.com/support/"
 STE_SMTP_KIT_GUIDE = os.path.join(BASE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
 
+# ─── Dynamic VBS4 Documentation Path Helpers ───────────────────────────────
+def find_vbs4_documentation_path() -> str:
+    """Find the VBS4_Manuals_EN.htm file dynamically based on VBS4 installation."""
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe or not os.path.exists(vbs4_exe):
+        return ""
+    
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    doc_path = os.path.join(vbs4_dir, "docs", "VBS4_Manuals_EN.htm")
+    return doc_path if os.path.exists(doc_path) else ""
+
+def find_vbs4_admin_manual_path() -> str:
+    """Find the VBS4 Administrator Manual PDF dynamically based on VBS4 installation."""
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe or not os.path.exists(vbs4_exe):
+        return ""
+    
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    manual_path = os.path.join(vbs4_dir, "docs", "PDF_EN", "VBS4_Administrator_Manual.pdf")
+    return manual_path if os.path.exists(manual_path) else ""
+
+def find_vbs4_script_wiki_path() -> str:
+    """Find the SQF Reference wiki dynamically based on VBS4 installation."""
+    vbs4_exe = get_vbs4_install_path()
+    if not vbs4_exe or not os.path.exists(vbs4_exe):
+        # Fallback to local copy if VBS4 not found
+        return SCRIPT_WIKI if os.path.exists(SCRIPT_WIKI) else ""
+    
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    wiki_path = os.path.join(vbs4_dir, "docs", "Wiki", "SQF_Reference.html")
+    if os.path.exists(wiki_path):
+        return wiki_path
+    # Fallback to local copy
+    return SCRIPT_WIKI if os.path.exists(SCRIPT_WIKI) else ""
+
+def find_blueig_documentation_path() -> str:
+    """Find the Blue_IG_EN.htm file dynamically based on BlueIG installation."""
+    blueig_exe = get_blueig_install_path()
+    if not blueig_exe or not os.path.exists(blueig_exe):
+        return ""
+    
+    blueig_dir = os.path.dirname(blueig_exe)
+    doc_path = os.path.join(blueig_dir, "docs", "Blue_IG_EN.htm")
+    return doc_path if os.path.exists(doc_path) else ""
+
+def launch_vbs4_documentation():
+    """Launch VBS4 official documentation, finding the path dynamically."""
+    doc_path = find_vbs4_documentation_path()
+    if not doc_path:
+        # Fallback to hardcoded path if dynamic search fails
+        doc_path = VBS4_HTML
+    
+    if os.path.exists(doc_path):
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(doc_path)
+        else:
+            subprocess.Popen([doc_path], shell=True)
+    else:
+        messagebox.showerror("Error", 
+            f"VBS4 documentation not found.\n\n"
+            f"Searched for: VBS4_Manuals_EN.htm\n"
+            f"Expected location: <VBS4_Install>/docs/VBS4_Manuals_EN.htm\n\n"
+            f"Please ensure VBS4 is properly installed and the path is set in Settings.")
+
+def launch_vbs4_admin_manual():
+    """Launch VBS4 Administrator Manual, finding the path dynamically."""
+    manual_path = find_vbs4_admin_manual_path()
+    
+    if manual_path:
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(manual_path)
+        else:
+            subprocess.Popen([manual_path], shell=True)
+    else:
+        messagebox.showerror("Error",
+            f"VBS4 Administrator Manual not found.\n\n"
+            f"Searched for: VBS4_Administrator_Manual.pdf\n"
+            f"Expected location: <VBS4_Install>/docs/PDF_EN/VBS4_Administrator_Manual.pdf\n\n"
+            f"Please ensure VBS4 is properly installed and the path is set in Settings.")
+
+def launch_vbs4_script_wiki():
+    """Launch VBS4 Script Wiki, finding the path dynamically."""
+    wiki_path = find_vbs4_script_wiki_path()
+    
+    if os.path.exists(wiki_path):
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(wiki_path)
+        else:
+            subprocess.Popen([wiki_path], shell=True)
+    else:
+        messagebox.showerror("Error",
+            f"VBS4 Script Wiki not found.\n\n"
+            f"Searched for: SQF_Reference.html\n"
+            f"Expected locations:\n"
+            f"  • <VBS4_Install>/docs/Wiki/SQF_Reference.html\n"
+            f"  • {SCRIPT_WIKI}\n\n"
+            f"Please ensure VBS4 is properly installed and the path is set in Settings.")
+
+def launch_blueig_documentation():
+    """Launch BlueIG official documentation, finding the path dynamically."""
+    doc_path = find_blueig_documentation_path()
+    if not doc_path:
+        # Fallback to hardcoded path if dynamic search fails
+        doc_path = BlueIG_HTML
+    
+    if os.path.exists(doc_path):
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(doc_path)
+        else:
+            subprocess.Popen([doc_path], shell=True)
+    else:
+        messagebox.showerror("Error", 
+            f"BlueIG documentation not found.\n\n"
+            f"Searched for: Blue_IG_EN.htm\n"
+            f"Expected location: <BlueIG_Install>/docs/Blue_IG_EN.htm\n\n"
+            f"Please ensure BlueIG is properly installed and the path is set in Settings.")
+
 # ─── PDF & VIDEO SUB-MENU DATA ───────────────────────────────────────────────
 def open_vbs4_manuals():
-    vbs4_path = get_vbs4_install_path()
-    if vbs4_path:
-        manuals_path = os.path.join(os.path.dirname(vbs4_path), "docs", "VBS4_Manuals_EN.htm")
-        if os.path.exists(manuals_path):
-            webbrowser.open(f"file://{manuals_path}", new=2)
+    """Open VBS4 Manuals using dynamic path finding and foreground launch."""
+    doc_path = find_vbs4_documentation_path()
+    if doc_path:
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(doc_path)
         else:
-            messagebox.showerror("Error", "VBS4 Manuals not found in the expected location.")
+            subprocess.Popen([doc_path], shell=True)
     else:
-        messagebox.showerror("Error", "VBS4 path not set. Please set it in the settings.")
+        messagebox.showerror("Error", 
+            "VBS4 Manuals not found.\n\n"
+            "Expected location: <VBS4_Install>/docs/VBS4_Manuals_EN.htm\n\n"
+            "Please ensure VBS4 is properly installed and the path is set in Settings.")
 
 pdf_docs = {
     "SQF Wiki": lambda: webbrowser.open(
@@ -2858,19 +2979,61 @@ pdf_docs = {
 
 VBS4_PDF_DIR = os.path.join(BASE_DIR, "PDF_EN")
 
+def find_vbs4_pdf_directories() -> list[str]:
+    """Find potential VBS4 PDF directories, checking both local and VBS4 installation paths."""
+    directories = []
+    
+    # Add local PDF_EN directory if it exists
+    if os.path.exists(VBS4_PDF_DIR):
+        directories.append(VBS4_PDF_DIR)
+    
+    # Add VBS4 installation PDF_EN directory if VBS4 is found
+    vbs4_exe = get_vbs4_install_path()
+    if vbs4_exe and os.path.exists(vbs4_exe):
+        vbs4_pdf_dir = os.path.join(os.path.dirname(vbs4_exe), "docs", "PDF_EN")
+        if os.path.exists(vbs4_pdf_dir) and vbs4_pdf_dir not in directories:
+            directories.append(vbs4_pdf_dir)
+    
+    return directories
+
 def open_vbs4_pdfs():
-    """Scan the VBS4 PDF_EN folder and pop up a submenu of all the PDFs."""
-    try:
-        pdfs = sorted(f for f in os.listdir(VBS4_PDF_DIR) if f.lower().endswith(".pdf"))
-    except FileNotFoundError:
-        messagebox.showerror("Error", f"VBS4 PDF folder not found:\n{VBS4_PDF_DIR}")
+    """Scan VBS4 PDF folders and pop up a submenu of all the PDFs."""
+    pdf_dirs = find_vbs4_pdf_directories()
+    
+    if not pdf_dirs:
+        messagebox.showerror("Error", 
+            f"VBS4 PDF folders not found.\n\n"
+            f"Searched locations:\n"
+            f"  • {VBS4_PDF_DIR}\n"
+            f"  • <VBS4_Install>/docs/PDF_EN\n\n"
+            f"Please ensure VBS4 is properly installed and the path is set in Settings.")
+        return
+
+    # Collect all PDFs from all directories
+    all_pdfs = {}
+    for pdf_dir in pdf_dirs:
+        try:
+            pdfs = [f for f in os.listdir(pdf_dir) if f.lower().endswith(".pdf")]
+            for fname in pdfs:
+                display = os.path.splitext(fname)[0].replace("_", " ")
+                path = os.path.join(pdf_dir, fname)
+                # Only add if we haven't seen this display name before (prefer first found)
+                if display not in all_pdfs:
+                    all_pdfs[display] = path
+        except Exception as e:
+            continue  # Skip directories that can't be read
+
+    if not all_pdfs:
+        messagebox.showerror("Error", "No PDF files found in VBS4 documentation folders.")
         return
 
     items = {}
-    for fname in pdfs:
-        display = os.path.splitext(fname)[0].replace("_", " ")
-        path    = os.path.join(VBS4_PDF_DIR, fname)
-        items[display] = lambda p=path: subprocess.Popen([p], shell=True)
+    for display, path in sorted(all_pdfs.items()):
+        items[display] = lambda p=path: (
+            APP_INSTANCE.launch_app_foreground(p) if APP_INSTANCE and os.path.exists(p)
+            else subprocess.Popen([p], shell=True) if os.path.exists(p)
+            else messagebox.showerror("Error", f"File not found: {p}")
+        )
 
 video_items = {
     "VBS4 Video Tutorials":   lambda: messagebox.showinfo("VBS4 Videos", "Play VBS4 tutorial videos"),
@@ -2878,9 +3041,9 @@ video_items = {
     "BVI Video Tutorials":    lambda: messagebox.showinfo("BVI Videos", "Play BVI tutorial videos"),
 }
 vbs4_help_items = {
-    "VBS4 Official Documentation": lambda: subprocess.Popen([VBS4_HTML], shell=True),
-       "VBS4 Admin Manual": lambda: subprocess.Popen([r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\PDF_EN\VBS4_Administrator_Manual.pdf"], shell=True),
-    "Script Wiki":                  lambda: subprocess.Popen([SCRIPT_WIKI], shell=True),
+    "VBS4 Official Documentation": lambda: launch_vbs4_documentation(),
+    "VBS4 Admin Manual": lambda: launch_vbs4_admin_manual(),
+    "Script Wiki": lambda: launch_vbs4_script_wiki(),
     "Video Tutorials":              lambda: messagebox.showinfo("Video Tutorials","Coming soon…"),
     "Support Website":              lambda: webbrowser.open(SUPPORT_SITE, new=2),
     "Gaming Help": lambda: webbrowser.open("https://example.com/vbs4-gaming-help", new=2),
@@ -2902,7 +3065,10 @@ def open_bvi_quickstart():
     for path in possible_paths:
         if os.path.exists(path):
             try:
-                subprocess.Popen([path], shell=True)
+                if APP_INSTANCE:
+                    APP_INSTANCE.launch_app_foreground(path)
+                else:
+                    subprocess.Popen([path], shell=True)
                 return
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
@@ -2919,7 +3085,10 @@ def open_bvi_quickstart():
             config.write(f)
         
         try:
-            subprocess.Popen([user_path], shell=True)
+            if APP_INSTANCE:
+                APP_INSTANCE.launch_app_foreground(user_path)
+            else:
+                subprocess.Popen([user_path], shell=True)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
     else:
@@ -2941,7 +3110,10 @@ def open_bvi_documentation():
     for path in possible_paths:
         if os.path.exists(path):
             try:
-                subprocess.Popen([path], shell=True)
+                if APP_INSTANCE:
+                    APP_INSTANCE.launch_app_foreground(path)
+                else:
+                    subprocess.Popen([path], shell=True)
                 return
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to open BVI Documentation:\n{e}")
@@ -2958,7 +3130,10 @@ def open_bvi_documentation():
             config.write(f)
         
         try:
-            subprocess.Popen([user_path], shell=True)
+            if APP_INSTANCE:
+                APP_INSTANCE.launch_app_foreground(user_path)
+            else:
+                subprocess.Popen([user_path], shell=True)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open BVI Documentation:\n{e}")
     else:
@@ -2982,13 +3157,47 @@ def _find_file(filename, roots):
                     return os.path.join(dirpath, filename)
     return None
 
+def find_reality_mesh_documentation_path() -> str:
+    """Find the Reality_Mesh_EN.htm file using multiple search strategies."""
+    # Try configured Reality Mesh local root first
+    rm_root = get_rm_local_root()
+    search_paths = []
+    
+    if rm_root and os.path.exists(rm_root):
+        search_paths.append(rm_root)
+    
+    # Add common installation locations
+    search_paths.extend([
+        r"C:\Bohemia Interactive Simulations",
+        r"C:\Program Files\Bohemia Interactive Simulations",
+        r"C:\Program Files (x86)\Bohemia Interactive Simulations",
+    ])
+    
+    # Also check ProgramData
+    program_data = os.environ.get("ProgramData", "")
+    if program_data:
+        search_paths.append(os.path.join(program_data, "Bentley"))
+    
+    return _find_file("Reality_Mesh_EN.htm", search_paths)
+
 def open_reality_mesh_docs():
     """Open the Reality Mesh HTML help documentation."""
-    path = _find_file("Reality_Mesh_EN.htm", [r"C:\\Bohemia Interactive Simulations"])
+    path = find_reality_mesh_documentation_path()
     if path:
-        webbrowser.open(f"file://{path}", new=2)
+        if APP_INSTANCE:
+            APP_INSTANCE.launch_app_foreground(path)
+        else:
+            subprocess.Popen([path], shell=True)
     else:
-        messagebox.showerror("Error", "Reality Mesh documentation not found.")
+        messagebox.showerror("Error", 
+            "Reality Mesh documentation not found.\n\n"
+            "Searched for: Reality_Mesh_EN.htm\n"
+            "Expected locations:\n"
+            "  • Reality Mesh local root (if configured)\n"
+            "  • C:\\Bohemia Interactive Simulations\n"
+            "  • C:\\Program Files\\Bohemia Interactive Simulations\n"
+            "  • C:\\Program Files (x86)\\Bohemia Interactive Simulations\n\n"
+            "Please ensure Reality Mesh is properly installed.")
 
 def open_photomesh_help():
     """Open the PhotoMesh help PDF, searching development and production paths."""
@@ -2999,7 +3208,10 @@ def open_photomesh_help():
     path = _find_file("PM804_Wizard_141_Training.pdf", roots)
     if path:
         try:
-            subprocess.Popen([path], shell=True)
+            if APP_INSTANCE:
+                APP_INSTANCE.launch_app_foreground(path)
+            else:
+                subprocess.Popen([path], shell=True)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open PhotoMesh help:\n{e}")
     else:
@@ -3354,6 +3566,79 @@ class MainApp(tk.Tk):
                         pass
         except Exception:
             pass
+
+    # ---- Foreground handoff + foreground launch helpers (Windows-safe) ----
+    def _handoff_foreground(self):
+        """Prepare so the next launched process/window can appear above us."""
+        # Never keep the main window topmost.
+        try:
+            self.attributes('-topmost', False)
+        except Exception:
+            pass
+        if sys.platform == 'win32':
+            self._win_drop_topmost(self.winfo_id())
+            self._win_allow_next_foreground()
+
+    def _win_allow_next_foreground(self):
+        """Allow any process to take foreground next (Windows focus rules)."""
+        try:
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+        except Exception:
+            pass
+
+    def _win_drop_topmost(self, hwnd):
+        """Make sure our window is not topmost (defensive)."""
+        try:
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOACTIVATE = 0x0010
+            HWND_NOTOPMOST = -2
+            ctypes.windll.user32.SetWindowPos(
+                ctypes.wintypes.HWND(hwnd),
+                ctypes.wintypes.HWND(HWND_NOTOPMOST),
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+            )
+        except Exception:
+            pass
+
+    def open_folder_foreground(self, path: str):
+        """Open a folder so Explorer surfaces above the fullscreen Toolkit."""
+        if not path or not os.path.exists(path):
+            messagebox.showerror("Open Folder", "Folder not found.")
+            return
+        self._handoff_foreground()
+        try:
+            if sys.platform == 'win32':
+                # Use START to promote Explorer window to foreground
+                # Note: do NOT use shell=True; call cmd explicitly
+                subprocess.Popen(['cmd', '/c', 'start', '', path], close_fds=True)
+            else:
+                # macOS/Linux fallbacks
+                if sys.platform == 'darwin':
+                    subprocess.Popen(['open', path])
+                else:
+                    subprocess.Popen(['xdg-open', path])
+        except Exception as e:
+            messagebox.showerror("Open Folder", f"Could not open:\n{path}\n\n{e}")
+
+    def launch_app_foreground(self, exe: str, args=None, cwd=None):
+        """Launch an app so it becomes the foreground window."""
+        args = args or []
+        if not exe:
+            messagebox.showerror("Launch", "Executable not set.")
+            return
+        self._handoff_foreground()
+        try:
+            if sys.platform == 'win32':
+                # START activates the new GUI app window
+                subprocess.Popen(['cmd', '/c', 'start', '', exe, *args], cwd=cwd, close_fds=True)
+            else:
+                subprocess.Popen([exe, *args], cwd=cwd, close_fds=True)
+        except FileNotFoundError:
+            messagebox.showerror("Launch", f"Not found:\n{exe}")
+        except OSError as e:
+            messagebox.showerror("Launch", f"Launch failed:\n{exe}\n\n{e}")
 
     def start_warmup_async(self):
         """Kick off background warm-up; close splash when done."""
@@ -4505,7 +4790,8 @@ class VBS4Panel(tk.Frame):
         ]
 
         try:
-            subprocess.Popen(args, cwd=os.path.dirname(exe))
+            # Use foreground launch for BlueIG GUI application
+            self.controller.launch_app_foreground(exe, args[1:], cwd=os.path.dirname(exe))
             if is_close_on_launch_enabled():
                 sys.exit(0)
         except Exception as e:
@@ -4523,13 +4809,10 @@ class VBS4Panel(tk.Frame):
             return
 
         try:
-            subprocess.Popen([vbs_license_manager_path])
+            self.launch_app_foreground(vbs_license_manager_path)
             if is_close_on_launch_enabled():
                 sys.exit(0)
-        except FileNotFoundError:
-            logging.exception("VBS License Manager not found")
-            messagebox.showerror("Launch Failed", "VBS License Manager not found.")
-        except OSError as e:
+        except Exception as e:
             logging.exception("Failed to launch VBS License Manager")
             messagebox.showerror("Launch Failed", f"Couldn't launch VBS License Manager:\n{e}")
 
@@ -4579,7 +4862,7 @@ class VBS4Panel(tk.Frame):
     def open_battlespaces_folder(self):
         battlespaces_path = os.path.expanduser(r"~\Documents\VBS4\Battlespaces")
         if os.path.exists(battlespaces_path):
-            os.startfile(battlespaces_path)
+            self.open_folder_foreground(battlespaces_path)
         else:
             messagebox.showerror("Error", "VBS4 Battlespaces folder not found.")
 
@@ -4588,7 +4871,7 @@ class VBS4Panel(tk.Frame):
         if vbs4_path:
             folder_path = os.path.dirname(vbs4_path)
             if os.path.exists(folder_path):
-                os.startfile(folder_path)
+                self.open_folder_foreground(folder_path)
             else:
                 messagebox.showerror("Error", "VBS4 installation folder not found.")
         else:
@@ -5020,7 +5303,7 @@ class VBS4Panel(tk.Frame):
             if messagebox.askyesno(
                 "Open Folder", "Would you like to open the project folder?", parent=self
             ):
-                open_in_explorer(project_dir)
+                self.open_folder_foreground(project_dir)
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
@@ -5028,7 +5311,7 @@ class VBS4Panel(tk.Frame):
 
         def start_explorer(path):
             try:
-                subprocess.Popen([path])
+                self.launch_app_foreground(path)
                 messagebox.showinfo("View Mesh", "TerraExplorer launched.", parent=self)
             except Exception as e:
                 messagebox.showerror("Error", f"Could not launch TerraExplorer:\n{e}", parent=self)
@@ -5745,7 +6028,7 @@ class OneClickPanel(tk.Frame):
             if messagebox.askyesno(
                 "Open Folder", "Would you like to open the project folder?", parent=self
             ):
-                open_in_explorer(project_dir)
+                self.open_folder_foreground(project_dir)
 
     def one_click_conversion(self):
         self.log_message("Starting One-Click Terrain Conversion...")
@@ -6817,7 +7100,7 @@ class SettingsPanel(tk.Frame):
                 working.destroy()
                 if ok:
                     messagebox.showinfo("Offline Access", f"Access OK:\n{path}\n\nOpening Explorer…")
-                    open_in_explorer(path)
+                    self.open_folder_foreground(path)
                 else:
                     messagebox.showerror(
                         "Offline Access",
@@ -6864,7 +7147,7 @@ class SettingsPanel(tk.Frame):
 
         # Once connected, open whichever path user prefers (UNC or mapped drive)
         path = resolve_shared_access_path()
-        open_in_explorer(path)
+        self.open_folder_foreground(path)
 
     def _auto_find_share(self):
         o = get_offline_cfg()
