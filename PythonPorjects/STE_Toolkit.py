@@ -100,6 +100,12 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+# PyInstaller splash screen support (only available in frozen builds with --splash)
+try:
+    import pyi_splash  # type: ignore[import]
+except Exception:
+    pyi_splash = None
+
 try:  
     from steup.utils import write_config_atomic  
 except Exception: 
@@ -2907,34 +2913,32 @@ class MainApp(tk.Tk):
         # 1) If we still have a handle to a splash that should be closed, clean it up
         sp = getattr(self, "_splash", None)
         if sp and sp.winfo_exists():
-            # Check if the splash is already in closing state or should be closed
-            # We only force cleanup if the splash has been marked ready to close
-            if getattr(sp, "_ready_to_close", False) or getattr(sp, "_closing", False):
-                try:
-                    sp.attributes("-topmost", False)
-                except Exception:
-                    pass
-                try:
-                    sp.withdraw()   # prevent any single-frame flash
-                except Exception:
-                    pass
-                try:
-                    sp.destroy()    # and truly remove it
-                except Exception:
-                    pass
-                if self._splash is sp:      # clear only after the window is really gone
-                    self._splash = None
+            try:
+                sp.attributes("-topmost", False)
+            except Exception:
+                pass
+            try:
+                sp.withdraw()   # prevent any single-frame flash
+            except Exception:
+                pass
+            try:
+                sp.destroy()    # and truly remove it
+            except Exception:
+                pass
+            if self._splash is sp:      # clear only after the window is really gone
+                self._splash = None
+        elif sp is not None and not sp.winfo_exists():
+            # If the splash has already been destroyed elsewhere, clear the handle
+            self._splash = None
 
         # 2) Clean up any orphan splash toplevels that are already marked for closing
         try:
             for w in self.winfo_children():
                 if (isinstance(w, tk.Toplevel) and getattr(w, "_is_splash", False)):
-                    # Only destroy splash screens that are already in closing state
-                    if getattr(w, "_ready_to_close", False) or getattr(w, "_closing", False):
-                        try:
-                            w.destroy()
-                        except Exception:
-                            pass
+                    try:
+                        w.destroy()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -2950,14 +2954,30 @@ class MainApp(tk.Tk):
 
     def _finish_warmup(self):
         """Complete warm-up and close the splash screen with proper timing."""
-        if self._splash:
+        # Close PyInstaller's native splash if present
+        if pyi_splash:
             try:
-                # Final message before closing
+                pyi_splash.close()
+            except Exception:
+                pass
+                
+        if self._splash:
+            # Final message before closing
+            try:
                 self._splash.set_message("Ready to launch")
+            except Exception:
+                pass
+            try:
                 # The close method respects the minimum display time
                 self._splash.close()
-            finally:
-                self._splash = None
+            except Exception:
+                pass
+            # Ensure we actually reclaim any lingering splash window once the
+            # fade-out completes (PyInstaller builds were occasionally leaving
+            # the splash as an invisible top-most window that resurfaced on
+            # fullscreen toggles).
+            self.after(0, self._ensure_splash_gone)
+            self.after(750, self._ensure_splash_gone)
                 
         # Now that the splash is closed, show the main window
         self.deiconify()
@@ -3170,6 +3190,13 @@ class MainApp(tk.Tk):
     def toggle_fullscreen(self):
         """Toggle fullscreen while maintaining aspect ratio, and make sure
         the splash can never resurface during WM state changes."""
+        # Close PyInstaller's native splash immediately if present
+        if pyi_splash:
+            try:
+                pyi_splash.close()
+            except Exception:
+                pass
+                
         # Only clean up splash if there's actually one that should be closed
         if hasattr(self, '_splash') and self._splash:
             # Check if splash should already be closed before cleaning up
@@ -6883,6 +6910,14 @@ def run_with_splash():
             messagebox.showinfo("STE Toolkit", "Another instance is already running.")
         finally:
             return
+    
+    # Close PyInstaller's native splash immediately once Python has started
+    if pyi_splash:
+        try:
+            pyi_splash.update_text("Initializing…")
+            pyi_splash.close()
+        except Exception:
+            pass
     
     start_command_server()
     
