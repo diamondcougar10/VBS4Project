@@ -379,7 +379,7 @@ SHOW_SELECTION_TOAST = False
 # LOGGING CONFIGURATION
 # =============================================================================
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     filename='ste_toolkit.log',
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -446,6 +446,102 @@ def release_singleton() -> None:
             pass
         _lock_file.close()
         _lock_file = None
+
+# =============================================================================
+# NETWORK CONNECTION HELPERS FOR WORKING FUSER UNC
+# =============================================================================
+
+def _run(cmd, **kw):
+    """Run a command; return (rc, stdout, stderr)."""
+    cp = subprocess.run(cmd, capture_output=True, text=True, **kw)
+    return cp.returncode, (cp.stdout or ""), (cp.stderr or "")
+
+def _try_net_use_unc(unc_root, username=None, password=None):
+    """
+    Try to connect to a UNC root persistently. Credentials optional.
+    Returns True on success.
+    """
+    # net use \\host\share [password] [/user:user] /persistent:yes
+    args = ["net", "use", unc_root, "/persistent:yes"]
+    # If both provided, pass them to net use; otherwise let Windows use cached creds
+    if username and password:
+        args = ["net", "use", unc_root, password, f"/user:{username}", "/persistent:yes"]
+    rc, *_ = _run(args)
+    return rc == 0
+
+def _store_creds_in_cmdkey(host, username, password):
+    """Persist credentials for SMB to avoid re-prompt on next boot."""
+    _run(["cmdkey", f"/add:{host}", f"/user:{username}", f"/pass:{password}"])
+
+def check_network_share_status():
+    """
+    Check if the configured network share is accessible.
+    Returns tuple: (is_accessible: bool, status_message: str)
+    """
+    try:
+        unc_path = resolve_shared_access_path()
+        if not unc_path or not unc_path.startswith("\\\\"):
+            return False, "No network path configured"
+        
+        # Quick test if the UNC path is accessible
+        import os
+        if os.path.exists(unc_path):
+            return True, f"Connected to {unc_path}"
+        else:
+            return False, f"Cannot access {unc_path}"
+    except Exception as e:
+        return False, f"Error checking share: {str(e)}"
+
+def _compute_working_unc_from_cfg():
+    """
+    Build the WorkingFuser UNC using the live Offline config.
+    Returns (unc_root, working_unc) or ('','') if not available.
+    """
+    o = get_offline_cfg()
+    root = build_unc_from_cfg(o)  # e.g., \\10.0.0.5\SharedMeshDrive
+    if not root:
+        return "", ""
+    wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+    working = os.path.join(root, wf_sub).replace("/", "\\")
+    return root, working
+
+def connect_working_share_interactive(parent=None, silent=False):
+    """
+    Ensure the working UNC is connected. In 'silent' mode we try to connect
+    with existing/cached credentials only. If that fails and silent=False,
+    prompt once for credentials, persist them, and connect again.
+    Returns True if the working UNC is accessible.
+    """
+    unc_root, working_unc = _compute_working_unc_from_cfg()
+    if not unc_root:
+        return False
+
+    # Already good?
+    if can_access_unc(working_unc):
+        return True
+
+    # Try silent connect first (uses any cached creds or open sessions)
+    if _try_net_use_unc(unc_root):
+        return can_access_unc(working_unc)
+
+    if silent:
+        return False  # don't prompt in silent mode
+
+    # Need credentials – prompt once and persist using cmdkey
+    try:
+        host = (get_offline_cfg().get("host_ip") or "").strip() or unc_root.strip("\\").split("\\")[0]
+        user = simpledialog.askstring("Network Sign‑in", f"Username for \\\\{host}:", parent=parent)
+        if not user:
+            return False
+        pwd = simpledialog.askstring("Network Sign‑in", "Password:", show="*", parent=parent)
+        if pwd is None:
+            return False
+        _store_creds_in_cmdkey(host, user, pwd)
+        _try_net_use_unc(unc_root, username=user, password=pwd)
+    except Exception:
+        pass
+
+    return can_access_unc(working_unc)
 
 # =============================================================================
 # THREADING UTILITIES
@@ -576,7 +672,7 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
     
     Args:
         time_budget_sec: Maximum time to spend searching (default 0.9s)
-        allow_full_drive: Whether to search entire C:\ drive as fallback
+        allow_full_drive: Whether to search entire C:\\\\ drive as fallback
         
     Returns:
         Path to VBS4.exe or empty string if not found within budget
@@ -683,14 +779,14 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
       2) Check cache for previously discovered path.
       3) Prefer a launcher that sits next to the discovered VBS4.exe.
       4) Search common VBS roots for either filename.
-      5) Only if allow_full_drive=True, scan C:\\ recursively for either filename.
+      5) Only if allow_full_drive=True, scan C:\\\\ recursively for either filename.
       6) Among all candidates, prefer highest FileVersion then newest mtime.
 
     The chosen path is saved to config['General']['vbs4_setup_path'] and cache.
     
     Args:
         time_budget_sec: Maximum time to spend searching (default 0.9s)
-        allow_full_drive: Whether to search entire C:\ drive as fallback
+        allow_full_drive: Whether to search entire C:\\\\ drive as fallback
         
     Returns:
         Path to VBS4 launcher or empty string if not found within budget
@@ -810,7 +906,7 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
         if time.time() <= deadline:
             candidates = sorted(candidates, key=_rank, reverse=True)
             if candidates:
-                logging.info("VBS4 Launcher (C:\\ scan): %s", candidates[0])
+                logging.info("VBS4 Launcher (C:\\\\ scan): %s", candidates[0])
                 return _save_and_return(candidates[0])
 
     elapsed = time.time() - t0
@@ -3693,7 +3789,7 @@ class MainApp(tk.Tk):
                 self._scrollbar_shown = False
         except Exception as e:
             # If anything fails, keep the scrollbar visible by default
-            print(f"Error in _update_scrollability: {e}")
+            logging.warning("Error in _update_scrollability: %s", e)
             if not self._scrollbar_shown:
                 self._place_overlay_scrollbar()
                 self._scrollbar_shown = True
@@ -6072,10 +6168,68 @@ class SettingsPanel(tk.Frame):
                 "Share",
                 f"Shared (or already shared): {root if root else 'No folder configured'}",
             )
+            # Refresh status after sharing
+            self._update_share_status()
 
         tk.Button(net_frame, text="Share Folder Now", command=_share_now,
                   font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
             .grid(row=2, column=0, sticky="w", pady=(0, 6))
+
+        # Create a frame to hold the share button and status indicator 
+        share_row = tk.Frame(net_frame, bg="black")
+        share_row.grid(row=2, column=1, sticky="ew", pady=(0, 6), padx=(10, 0))
+
+        # Status indicator label
+        self.share_status_label = tk.Label(
+            share_row,
+            text="",
+            font=("Helvetica", 10),
+            bg="black",
+            fg="#888888",
+            anchor="w"
+        )
+        self.share_status_label.pack(side="left", fill="x", expand=True)
+        
+        # Add tooltip functionality to the status label
+        def create_tooltip(widget, text_func):
+            def on_enter(event):
+                try:
+                    tooltip_text = text_func()
+                    # Create a simple tooltip window
+                    tooltip = tk.Toplevel()
+                    tooltip.wm_overrideredirect(True)
+                    tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+                    tooltip.configure(bg="#333333")
+                    label = tk.Label(tooltip, text=tooltip_text, bg="#333333", fg="white", 
+                                   font=("Helvetica", 9), padx=5, pady=2)
+                    label.pack()
+                    widget.tooltip = tooltip
+                except:
+                    pass
+                    
+            def on_leave(event):
+                try:
+                    if hasattr(widget, 'tooltip'):
+                        widget.tooltip.destroy()
+                        del widget.tooltip
+                except:
+                    pass
+            
+            widget.bind("<Enter>", on_enter)
+            widget.bind("<Leave>", on_leave)
+        
+        # Tooltip that shows detailed share status
+        def get_tooltip_text():
+            try:
+                is_accessible, status_msg = check_network_share_status()
+                if is_accessible:
+                    return f"Network Share Status: Connected\n{status_msg}"
+                else:
+                    return f"Network Share Status: Disconnected\n{status_msg}"
+            except Exception as e:
+                return f"Network Share Status: Error\n{str(e)}"
+        
+        create_tooltip(self.share_status_label, get_tooltip_text)
 
         # --- Offline / Shared Drive ------------------------------------
         grp = tk.LabelFrame(
@@ -6419,6 +6573,18 @@ class SettingsPanel(tk.Frame):
             highlightthickness=0,
         ).grid(row=7, column=0, pady=10)
 
+        # Silent auto-connect on first load (no prompts)
+        try:
+            o = get_offline_cfg()
+            if (o.get("host_ip") or "").strip():
+                # Delay slightly so the UI is responsive first
+                self.after(1200, lambda: connect_working_share_interactive(parent=self, silent=True))
+        except Exception:
+            pass
+            
+        # Initialize share status display
+        self.after(100, self._update_share_status)
+
     def reload_from_config(self):
         """Synchronize all Settings inputs with the persisted configuration."""
 
@@ -6461,6 +6627,26 @@ class SettingsPanel(tk.Frame):
             self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
 
         self._refresh_fuser_counter_row()
+        
+        # Update network share status
+        self._update_share_status()
+
+    def _update_share_status(self):
+        """Update the share status indicator label."""
+        if not hasattr(self, 'share_status_label'):
+            return
+            
+        try:
+            is_accessible, status_msg = check_network_share_status()
+            if is_accessible:
+                self.share_status_label.config(text="● " + status_msg, fg="#4CAF50")  # Green
+            else:
+                self.share_status_label.config(text="○ " + status_msg, fg="#F44336")  # Red
+        except Exception as e:
+            self.share_status_label.config(text="○ Status unavailable", fg="#888888")  # Gray
+            
+        # Schedule next update in 10 seconds
+        self.after(10000, self._update_share_status)
 
     def _browse_local_root(self):
         p = filedialog.askdirectory(
@@ -6586,11 +6772,21 @@ class SettingsPanel(tk.Frame):
         )
 
     def _open_working_folder(self):
+        """
+        One‑click: connect if needed, then open the working folder in Explorer.
+        If Preferred Access is DRIVE and a mapping exists, resolve_shared_access_path()
+        will open the mapped drive; otherwise we open the UNC after connecting.
+        """
+        # Always compute the UNC and make sure the workstation is connected
+        if not connect_working_share_interactive(parent=self, silent=False):
+            path = resolve_shared_access_path()  # keep original message content
+            messagebox.showerror("Open Working Folder",
+                                 f"Cannot access:\n{path}\nUse Test Access to diagnose.")
+            return
+
+        # Once connected, open whichever path user prefers (UNC or mapped drive)
         path = resolve_shared_access_path()
-        if can_access_unc(path):
-            open_in_explorer(path)
-        else:
-            messagebox.showerror("Open Working Folder", f"Cannot access:\n{path}\nUse Test Access to diagnose.")
+        open_in_explorer(path)
 
     def _auto_find_share(self):
         o = get_offline_cfg()

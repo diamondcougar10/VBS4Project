@@ -52,6 +52,7 @@ Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFla
 const
   SHARE_NAME   = 'SharedMeshDrive';
   RM_LINK_NAME = 'Reality Mesh to VBS4.lnk';
+  BEACON_FILE  = 'HostInfo.ini';
 
 type
   TInstallMode = (imHost, imUser, imUpdate);
@@ -71,6 +72,87 @@ var
 function FileExists2(const P: string): Boolean;
 begin
   Result := (P <> '') and FileExists(P);
+end;
+
+function IfThen(Cond: Boolean; const A, B: string): string;
+begin 
+  if Cond then Result := A else Result := B; 
+end;
+
+function WriteHostBeacon(const LocalBase, HostIP, HostName: string): Boolean;
+var
+  BeaconPath, Body, TS: string;
+begin
+  Result := False;
+  if LocalBase = '' then Exit;
+
+  BeaconPath := AddBackslash(LocalBase) + BEACON_FILE;
+  TS := GetDateTimeString('yyyy-mm-dd hh:nn:ss', #0, #0);
+  Body :=
+    '[Host]' + #13#10 +
+    'ip='   + HostIP   + #13#10 +
+    'name=' + HostName + #13#10 +
+    'share=' + SHARE_NAME + #13#10 +
+    'timestamp=' + TS + #13#10;
+
+  Result := SaveStringToFile(BeaconPath, Body, False);
+end;
+
+function TryReadBeaconIni(const FilePath: string; var OutIP, OutName: string): Boolean;
+begin
+  OutIP   := GetIniString('Host', 'ip',   '', FilePath);
+  OutName := GetIniString('Host', 'name', '', FilePath);
+  Result := (OutIP <> '');
+end;
+
+function DiscoverHostViaBeacon(var OutIP, OutName: string): Boolean;
+var
+  PS, OutIni, TmpPS: string;
+  RC: Integer;
+begin
+  Result := False;
+  OutIP := ''; OutName := '';
+
+  OutIni := ExpandConstant('{tmp}\HostInfo_found.ini');
+  DeleteFile(OutIni);
+
+  { A compact PowerShell script that:
+      1) gets active neighbors (Get-NetNeighbor) or arp -a fallback
+      2) checks \\<IP>\SharedMeshDrive\HostInfo.ini
+      3) copies the first hit to OutIni
+    It exits quickly and touches few hosts. }
+  PS :=
+    '$share = ''' + SHARE_NAME + '''; ' +
+    '$beacon = ''' + BEACON_FILE + '''; ' +
+    '$out = ''' + OutIni + '''; ' +
+    '$ips = @(); ' +
+    'try { $ips = (Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue | ' +
+    '  Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
+    '  Select-Object -ExpandProperty IPAddress) } catch {} ' +
+    'if(-not $ips -or $ips.Count -eq 0) { ' +
+    '  try { (arp -a) -split "`r?`n" | ForEach-Object { if($_ -match ''(\d{1,3}(?:\.\d{1,3}){3})'') { $ips += $Matches[1] } } } catch {} ' +
+    '} ' +
+    '$ips = $ips | Select-Object -Unique | Select-Object -First 64; ' +
+    'foreach($ip in $ips) { ' +
+    '  $p = "\\\\$ip\\$share\\$beacon"; ' +
+    '  if (Test-Path -LiteralPath $p) { try { Copy-Item -LiteralPath $p -Destination $out -Force; break } catch {} } ' +
+    '}';
+
+  TmpPS := ExpandConstant('{tmp}\discover_beacon.ps1');
+  SaveStringToFile(TmpPS, PS, False);
+
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+       '-NoProfile -ExecutionPolicy Bypass -File "' + TmpPS + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
+
+  DeleteFile(TmpPS);
+
+  if FileExists(OutIni) then
+  begin
+    Result := TryReadBeaconIni(OutIni, OutIP, OutName);
+    { temp file is small; keep for troubleshooting or delete if you prefer }
+    // DeleteFile(OutIni);
+  end;
 end;
 
 function HasPhotoMeshWizard(): Boolean;
@@ -197,31 +279,45 @@ begin
 
   SetIniString('Network', 'host', HostIP,                     Ini);
 
+  { NEW: drop a tiny beacon on the share so Users can auto-discover us }
+  try
+    WriteHostBeacon(Base, HostIP, HostName);
+  except
+    { ignore beacon write failures }
+  end;
+
   Result := Base;
 end;
 
-procedure SeedConfigIni_User(AppDir: string);
-var Ini: string;
+procedure SeedConfigIni_User(AppDir, DiscoveredIP, DiscoveredName: string);
+var
+  Ini: string;
+  UseIP: Boolean;
 begin
   Ini := AddBackslash(AppDir) + 'config.ini';
-  SetIniString('Offline', 'enabled', 'True',          Ini);
-  SetIniString('Offline', 'host_name',  '',           Ini);
-  SetIniString('Offline', 'host_ip',    '',           Ini);
-  SetIniString('Offline', 'share_name', 'SharedMeshDrive',   Ini);
-  SetIniString('Offline', 'local_data_root', '',      Ini);
-  SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
-  SetIniString('Offline', 'use_ip_unc', 'True',       Ini);
+  UseIP := (Trim(DiscoveredIP) <> '');
 
-  SetIniString('SharedDrive', 'preferred_mode', 'UNC', Ini);
-  SetIniString('SharedDrive', 'drive_letter',   'M:',  Ini);
-  SetIniString('SharedDrive', 'auto_map_on_save','True', Ini);
+  SetIniString('Offline', 'enabled', 'True',                Ini);
+  SetIniString('Offline', 'host_name',  DiscoveredName,     Ini);
+  SetIniString('Offline', 'host_ip',    DiscoveredIP,       Ini);
+  SetIniString('Offline', 'share_name', SHARE_NAME,         Ini);
+  SetIniString('Offline', 'local_data_root', '',            Ini);
+  SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
+  SetIniString('Offline', 'use_ip_unc', IfThen(UseIP, 'True', 'True'), Ini);
+
+  SetIniString('SharedDrive', 'preferred_mode', 'UNC',  Ini);
+  SetIniString('SharedDrive', 'drive_letter',   'M:',   Ini);
+  SetIniString('SharedDrive', 'auto_map_on_save','True',Ini);
 
   SetIniString('General', 'first_run_done', 'True', Ini);
   SetIniString('General', 'first_run_mode', 'USER', Ini);
 
-  SetIniString('Fusers', 'desired_count', '0',        Ini);
-  SetIniString('Fusers', 'host_count',    '1',        Ini);
-  SetIniString('Fusers', 'fuser_computer','False',    Ini);
+  SetIniString('Fusers', 'desired_count', '0',     Ini);
+  SetIniString('Fusers', 'host_count',    '1',     Ini);
+  SetIniString('Fusers', 'fuser_computer','False', Ini);
+
+  if UseIP then
+    SetIniString('Network', 'host', DiscoveredIP,  Ini);
 end;
 
 function HasShareRealityMesh(const Base: string): Boolean;
@@ -307,12 +403,12 @@ begin
   case SelectedMode() of
     imHost:
       S := 'HOST: Creates "SharedMeshDrive" on a local drive, shares it over the LAN (\\<IP>\SharedMeshDrive), ' +
-           'seeds config with your PC name and IP, and installs PhotoMesh + Reality Mesh payloads into the shared structure.';
+           'seeds config with your PC name and IP, creates a discovery beacon for User installs, and installs PhotoMesh + Reality Mesh payloads into the shared structure.';
     imUser:
-      S := 'USER: Regular install without creating a shared drive. Does not map or share anything. ' +
-           'Host/IP is left blank in settings so you can point to the Host later.';
+      S := 'USER: Regular install without creating a shared drive. Automatically discovers and connects to Host if available on the LAN. ' +
+           'If no Host is found, Host/IP is left blank in settings so you can set it manually later.';
     imUpdate:
-      S := 'UPDATE/REPAIR: Replaces the Toolkit binaries and repairs config. No sharing, drive layout, or third-party installs.';
+      S := 'UPDATE/REPAIR: Replaces the Toolkit binaries and repairs config. Attempts to auto-discover Host if not already configured. No sharing, drive layout, or third-party installs.';
   end;
   ModeDesc.Caption := S;
 end;
@@ -432,6 +528,8 @@ var
   AppDir, Base, RMTarget, HostRoot, Cmd, Ip: string;
   NeedPhotoMesh, NeedRealityMesh: Boolean;
   RC: Integer;
+  DscIP, DscName: string;  { NEW: for host discovery }
+  IniPath: string;         { NEW: for update case }
 begin
   if CurStep = ssInstall then
   begin
@@ -467,10 +565,35 @@ begin
       end;
 
       imUser:
-        SeedConfigIni_User(AppDir);
+      begin
+        { NEW: quick auto-discovery of Host beacon }
+        DscIP := ''; DscName := '';
+        if DiscoverHostViaBeacon(DscIP, DscName) then
+          Log(Format('Beacon found: host_ip=%s name=%s', [DscIP, DscName]))
+        else
+          Log('Beacon not found; leaving host_ip blank');
+
+        SeedConfigIni_User(AppDir, DscIP, DscName);
+      end;
 
       imUpdate:
-        ; { Leave config/layout as-is }
+      begin
+        { Keep existing config, but if Offline.host_ip is blank, try to discover }
+        IniPath := AddBackslash(AppDir) + 'config.ini';
+        if GetIniString('Offline','host_ip','', IniPath) = '' then
+        begin
+          DscIP := ''; DscName := '';
+          if DiscoverHostViaBeacon(DscIP, DscName) and (DscIP <> '') then
+          begin
+            SetIniString('Offline','host_ip', DscIP, IniPath);
+            if DscName <> '' then
+              SetIniString('Offline','host_name', DscName, IniPath);
+            SetIniString('Network','host', DscIP, IniPath);
+            Log(Format('Update: auto-filled blank host_ip with discovered %s', [DscIP]));
+          end;
+        end;
+        { otherwise leave Update behavior unchanged }
+      end;
     end;
 
     if SelectedMode() = imHost then

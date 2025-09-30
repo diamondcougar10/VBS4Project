@@ -470,7 +470,7 @@ def apply_minimal_wizard_defaults() -> None:
         m3d["3DML"] = True
         m3d["OBJ"] = True
         _save_json(cfg_path, cfg)
-        print(f"[Wizard] Ensured Model3D/OBJ/3DML enabled -> {cfg_path}")
+        # Suppressed verbose log: print(f"[Wizard] Ensured Model3D/OBJ/3DML enabled -> {cfg_path}")
 
 
 def enforce_wizard_obj_only_defaults(log=print) -> None:
@@ -534,7 +534,7 @@ def enforce_wizard_obj_only_defaults(log=print) -> None:
                 cfg["NetworkWorkingFolder"] = working_unc
 
             _save_json(path, cfg)
-            log(f"[Wizard 1.5.1] OBJ-only/Ortho-off + WorkingFolder set -> {path}")
+            # Suppressed verbose log: log(f"[Wizard 1.5.1] OBJ-only/Ortho-off + WorkingFolder set -> {path}")
         except PermissionError:
             log(f"[Wizard 1.5.1] No permission to write {path}. Run as Administrator.")
         except Exception as exc:
