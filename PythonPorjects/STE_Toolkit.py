@@ -695,8 +695,7 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
                 if write_config_atomic:
                     write_config_atomic(Path(CONFIG_PATH), config)
                 else:
-                    with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
-                        config.write(fh)
+                    save_config()
             except Exception:
                 logging.exception("Failed to write VBS4 path to config from cache")
             return cached_path
@@ -753,8 +752,7 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
             if write_config_atomic:
                 write_config_atomic(Path(CONFIG_PATH), config)
             else:
-                with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
-                    config.write(fh)
+                save_config()
         except Exception:
             logging.exception("Failed to write VBS4 path to config")
             
@@ -799,8 +797,7 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
             cache["vbs4_launcher_path"] = p
             _save_paths_cache(cache)
             
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                config.write(f)
+            save_config()
             try:
                 refresh_settings_panel_from_config()
             except Exception:
@@ -915,8 +912,7 @@ def get_blueig_install_path() -> str:
         path = find_executable('BlueIG.exe', time_budget_sec=0.5, allow_full_drive=False)
         if path:
             config['General']['blueig_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+            save_config()
     return path or ''
 
 def get_ares_manager_path() -> str:
@@ -937,8 +933,7 @@ def get_ares_manager_path() -> str:
 
     if found:
         config['General']['bvi_manager_path'] = clean_path(found)
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         return found
 
     return ''
@@ -1120,8 +1115,7 @@ def get_rm_template_from_config() -> str:
         if len(parts) >= 4:
             raw = "\\\\{host}\\" + "\\".join(parts[3:])
             config["General"]["reality_mesh_to_vbs4"] = raw
-            with open(CONFIG_PATH, "w") as f:
-                config.write(f)
+            save_config()
     return raw
 
 def _subst_host(template: str) -> str:
@@ -1225,8 +1219,7 @@ def set_rm_local_root(path: str) -> None:
         config['General'] = {}
     norm = os.path.abspath(path) if path else ''
     config['General']['reality_mesh_local_root'] = norm
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 
 def is_valid_rm_local_root(root: str) -> bool:
     """
@@ -1403,14 +1396,58 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 # =============================================================================
 # Load configuration file and apply application icon.
 
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
+# ------------------------------------------------------------
+# Config path resolution for frozen + dev
+# ------------------------------------------------------------
+def _site_dir() -> str:
+    """Return the directory where the app should store its config.
+    
+    Development: Same directory as this .py file
+    Frozen: Same directory as the .exe (e.g., C:\Program Files\STE Toolkit)
+            NOT inside the _internal subdirectory where bundled resources live
+    """
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)  # e.g., C:\Program Files\STE Toolkit
+    return os.path.abspath(os.path.dirname(__file__))
+
+BASE_DIR = _site_dir()
+DEFAULT_CONFIG_PATH = _resource_path('config.ini')  # bundled default (read-only in practice)
+SITE_CONFIG_PATH    = os.path.join(_site_dir(), 'config.ini')
 PATHS_CACHE = os.path.join(BASE_DIR, "paths_cache.json")
 ICON_NAME   = 'icon.ico'
 SPLASH_NAME = 'splash.png'
 
-config      = configparser.ConfigParser()
-config.read(CONFIG_PATH)
+def _arg_value(flag: str) -> str | None:
+    try:
+        i = sys.argv.index(flag)
+        return sys.argv[i + 1]
+    except Exception:
+        return None
+
+# Honor an explicit --config passed by the installer, else prefer SITE, else fallback to bundled
+_cli_cfg = _arg_value('--config')
+if _cli_cfg:
+    CONFIG_PATH = os.path.abspath(_cli_cfg)
+else:
+    CONFIG_PATH = SITE_CONFIG_PATH if os.path.exists(SITE_CONFIG_PATH) else DEFAULT_CONFIG_PATH
+
+config = configparser.ConfigParser()
+# Always try to read from CONFIG_PATH; if it is the bundled file and we also have a site copy,
+# read the site copy second so it overrides bundled defaults.
+if CONFIG_PATH != DEFAULT_CONFIG_PATH and os.path.exists(CONFIG_PATH):
+    config.read(CONFIG_PATH, encoding='utf-8')
+else:
+    # Try to read bundled defaults first, then overlay site copy if it exists
+    config.read([DEFAULT_CONFIG_PATH, SITE_CONFIG_PATH], encoding='utf-8')
+
+# Log config paths for debugging
+print(f"[startup] CONFIG_PATH={CONFIG_PATH}")
+print(f"[startup] SITE_CONFIG_PATH={SITE_CONFIG_PATH}")
+print(f"[startup] DEFAULT_CONFIG_PATH={DEFAULT_CONFIG_PATH}")
+print(f"[startup] sys.frozen={getattr(sys, 'frozen', False)}")
+if getattr(sys, 'frozen', False):
+    print(f"[startup] sys.executable={sys.executable}")
+    print(f"[startup] sys._MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}")
 
 # Parse CLI arguments for fast startup
 FAST_START_CLI = "--fast-start" in sys.argv
@@ -1419,9 +1456,26 @@ FAST_START_CLI = "--fast-start" in sys.argv
 # synchronize UI state (e.g., refresh Settings fields after config updates).
 APP_INSTANCE = None
 
+def save_config() -> None:
+    """
+    Persist to the *site* config (next to the EXE), not to the bundled temp file.
+    Ensures the installer-seeded config is the single source of truth.
+    """
+    target = SITE_CONFIG_PATH
+    try:
+        with open(target, 'w', encoding='utf-8') as f:
+            config.write(f)
+    except Exception as e:
+        # Last-resort fallback: try writing to CONFIG_PATH if site write fails
+        try:
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+                config.write(f)
+        except Exception:
+            print(f"[WARN] Unable to write config to '{target}' or '{CONFIG_PATH}': {e}")
+
 def _save_config():
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        config.write(f)
+    """Legacy wrapper - use save_config() instead."""
+    save_config()
 
 def _load_paths_cache() -> dict:
     """Load the paths cache from JSON file."""
@@ -1477,8 +1531,11 @@ def get_host_ip() -> str:
     """Return the configured host IP (blank when unset)."""
 
     try:
-        return config.get("Offline", "host_ip", fallback="").strip()
-    except Exception:
+        ip = config.get("Offline", "host_ip", fallback="").strip()
+        print(f"[config] get_host_ip() -> '{ip}'")
+        return ip
+    except Exception as e:
+        print(f"[config] get_host_ip() failed: {e}")
         return ""
 
 def set_host_ip(ip: str) -> None:
@@ -1500,8 +1557,7 @@ def set_host_ip(ip: str) -> None:
             config["Network"] = {}
         config["Network"]["host"] = trimmed
         
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        config.write(f)
+    save_config()
 
     apply_offline_settings()
     update_fuser_shared_path()
@@ -1544,8 +1600,7 @@ def set_host(host: str) -> None:
     config["Network"]["host"] = host
     config["Fusers"]["working_folder_host"] = host  # so fuser toggle doesn't prompt
 
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        config.write(f)
+    save_config()
 
     refresh_settings_panel_from_config()
 
@@ -1565,8 +1620,7 @@ def bootstrap_first_run_if_needed(log=None):
                 o['host_ip'] = ip
         o['use_ip_unc'] = 'True'
         ensure_offline_share_exists(log=log or (lambda m: None))
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
+        save_config()
     # USER mode intentionally leaves host blank
 
 def refresh_settings_panel_from_config() -> None:
@@ -1634,8 +1688,7 @@ if 'General' not in config:
     config['General'] = {}
 if 'close_on_launch' not in config['General']:
     config['General']['close_on_launch'] = 'False'
-with open(CONFIG_PATH, 'w') as f:
-    config.write(f)
+save_config()
 def load_image(path, size=None):
     img = Image.open(path)
     if size:
@@ -1643,8 +1696,7 @@ def load_image(path, size=None):
     return ImageTk.PhotoImage(img)
 if 'fullscreen' not in config['General']:
     config['General']['fullscreen'] = 'False' 
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 
 # Set fast startup config defaults (only if not already present)
 config_changed = False
@@ -1670,8 +1722,7 @@ if FAST_START_CLI:
     config_changed = True
 
 if config_changed:
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 
 # =============================================================================
 # Background warm-up tasks (run off the UI thread)
@@ -1771,8 +1822,7 @@ if 'Auto-Launch' not in config:
         'program_path': '',
         'arguments': ''
     }
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 
 def is_auto_launch_enabled() -> bool:
     return config.getboolean('Auto-Launch', 'enabled', fallback=False)
@@ -1796,16 +1846,13 @@ if 'Fusers' not in config:
         'fuser_computer': 'False',
         'working_folder_host': ''
     }
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 elif 'fuser_computer' not in config['Fusers']:
     config['Fusers']['fuser_computer'] = 'False'
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 if 'working_folder_host' not in config['Fusers']:
     config['Fusers']['working_folder_host'] = ''
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 
 # --- Fuser helpers ---
 
@@ -2057,8 +2104,7 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     if host_ip:
         fuser_cfg["working_folder_host"] = host_ip
 
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        config.write(f)
+    save_config()
 
     config_file = fuser_cfg.get("config_path", "fuser_config.json")
     cfg_path = (
@@ -2094,8 +2140,7 @@ def apply_offline_settings() -> None:
             # Ensure Network.host matches Offline.host_ip for proper initialization
             if config.get("Network", "host", fallback="").strip() != host_ip:
                 config["Network"]["host"] = host_ip
-                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                    config.write(f)
+                save_config()
     except Exception as e:
         logging.warning(f"Failed to sync Network.host with Offline.host_ip: {e}")
     
@@ -2449,8 +2494,7 @@ def toggle_close_on_launch():
     """Toggle whether the main window closes when you launch a tool."""
     enabled = not is_close_on_launch_enabled()
     config['General']['close_on_launch'] = str(enabled)
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
     status = "Enabled" if enabled else "Disabled"
     messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
 
@@ -2602,8 +2646,7 @@ def prompt_for_exe(app_name, config_key):
     )
     if path and os.path.exists(path):
         config['General'][config_key] = clean_path(path)
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
         return True
     else:
@@ -2637,8 +2680,7 @@ def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: 
     if path and os.path.isfile(path):
         if config_key != 'vbs4_path':
             config['General'][config_key] = clean_path(path)
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+            save_config()
         return path
 
     if not prompt_for_exe(prompt_title, config_key): 
@@ -2707,8 +2749,7 @@ def launch_blueig():
 
         # Save the new path in config.ini
         config['General']['blueig_path'] = exe
-        with open(CONFIG_PATH, 'w') as cfg:
-            config.write(cfg)
+        save_config()
 
     # Determine the folder where BlueIG.exe lives:
     blueig_dir = os.path.dirname(exe)
@@ -3081,8 +3122,7 @@ def open_bvi_quickstart():
     if user_path:
         # Save the path for future use
         config['General']['bvi_quickstart_path'] = user_path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         
         try:
             if APP_INSTANCE:
@@ -3126,8 +3166,7 @@ def open_bvi_documentation():
     if user_path:
         # Save the path for future use
         config['General']['bvi_documentation_path'] = user_path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         
         try:
             if APP_INSTANCE:
@@ -3232,8 +3271,7 @@ def set_blueig_install_path():
     )
     if path and os.path.exists(path):
         config['General']['blueig_path'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         messagebox.showinfo("Settings", f"BlueIG path set to:\n{path}")
     else:
         messagebox.showerror("Settings", "Invalid BlueIG path selected.")
@@ -3252,8 +3290,7 @@ def set_default_browser():
     )
     if path and os.path.exists(path):
         config['General']['default_browser'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         messagebox.showinfo("Settings", f"Default browser set to:\n{path}")
     else:
         messagebox.showerror("Settings", "Invalid browser path selected.")
@@ -3269,8 +3306,7 @@ def set_oneclick_output_path(path: str) -> None:
     if 'BiSimOneClickPath' not in config:
         config['BiSimOneClickPath'] = {}
     config['BiSimOneClickPath']['path'] = path
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+    save_config()
 
 # =============================================================================
 # FILE DIALOG / EXE SELECTION HELPERS
@@ -3286,8 +3322,7 @@ def set_vbs4_install_path():
     if path and os.path.exists(path):
         path = os.path.normpath(path)
         config['General']['vbs4_path'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         messagebox.showinfo("Settings", f"VBS4 path set to:\n{path}")
     else:
         messagebox.showerror("Settings", "Invalid VBS4 path selected.")
@@ -3296,41 +3331,7 @@ def set_ares_manager_path():
     path = filedialog.askopenfilename(title="Select ARES Manager.exe", filetypes=[("Executable", "*.exe")])
     if path:
         config['General']['bvi_manager_path'] = path
-        with open(CONFIG_PATH, 'w') as f: config.write(f)
-        messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
-
-# ─── One Click Terrain SETUP ──────────────────────────────────────────────────────
-def find_terra_explorer() -> str:
-    """Search for TerraExplorer.exe and return its path or an empty string."""
-    possible_paths = [
-        r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe",
-        r"C:\Program Files (x86)\Skyline\TerraExplorer Pro\TerraExplorer.exe",
-        r"C:\Program Files\Skyline\TerraExplorer\TerraExplorer.exe",
-        r"C:\Program Files (x86)\Skyline\TerraExplorer\TerraExplorer.exe",
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-    for root, dirs, files in os.walk(r"C:\\"):
-        if "TerraExplorer.exe" in files:
-            return os.path.join(root, "TerraExplorer.exe")
-    return ""
-
-# ─── helper for "External Map" ────────────────────────────────────────────
-def select_vbs_map_profile():
-    """Prompt for a VBS Map loginName and save it to config."""
-    profile = simpledialog.askstring(
-        "Select User Profile",
-        "Enter VBS Map loginName:"
-    )
-    if not profile:
-        return
-    cfg = config['General']
-    cfg['vbs_map_user']   = profile.strip()
-    cfg.setdefault('vbs_map_server', 'localhost')
-    cfg.setdefault('vbs_map_port',   '4080')
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
+        save_config()
     messagebox.showinfo("Settings", f"VBS Map loginName set to:\n{profile}")
 
 def open_external_map():
@@ -4393,8 +4394,7 @@ class MainApp(tk.Tk):
         )
         if path and os.path.exists(path):
             config['General'][config_key] = clean_path(path)
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+            save_config()
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
             button.config(state="normal", bg="#444444")
             if app_name == "VBS4":
@@ -4921,8 +4921,7 @@ class VBS4Panel(tk.Frame):
         )
         if path and os.path.exists(path):
             config['General'][config_key] = clean_path(path)
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+            save_config()
             messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
             button.config(state="normal", bg="#444444")
             if app_name == "VBS4":
@@ -6336,8 +6335,7 @@ class SettingsPanel(tk.Frame):
 
         def _on_fuser_toggle():
             config["Fusers"]["fuser_computer"] = str(self.fuser_var.get())
-            with open(CONFIG_PATH, "w") as f:
-                config.write(f)
+            save_config()
 
             if self.fuser_var.get():
                 # Ensure Fusers host matches the single Host PC Name
@@ -6375,8 +6373,7 @@ class SettingsPanel(tk.Frame):
                 # When turning off, kill all fusers and reset count
                 kill_fusers_on_disable()
 
-            with open(CONFIG_PATH, "w") as f:
-                config.write(f)
+            save_config()
 
             update_fuser_shared_path()
             enforce_local_fuser_policy()
@@ -6437,8 +6434,7 @@ class SettingsPanel(tk.Frame):
                 current = 3
             newv = _clamp_fusers(current + delta, is_fuser)
             config["Fusers"]["desired_count"] = str(newv)
-            with open(CONFIG_PATH, "w") as f:
-                config.write(f)
+            save_config()
             ensure_fuser_instances(newv)
             self._refresh_fuser_counter_row()
 
@@ -7042,8 +7038,7 @@ class SettingsPanel(tk.Frame):
         sd["drive_letter"] = self.shared_letter.get().strip() or "M:"
         sd["auto_map_on_save"] = str(bool(self.shared_auto_map.get()))
 
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
+        save_config()
 
         new_share = o["share_name"]
         if new_share and new_share.lower() != old_share.lower():
@@ -7062,8 +7057,7 @@ class SettingsPanel(tk.Frame):
                         def _apply_map():
                             self.shared_mode.set("DRIVE")
                             sd["preferred_mode"] = "DRIVE"
-                            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                                config.write(f)
+                            save_config()
 
                         post_ui(_apply_map)
 
@@ -7165,8 +7159,7 @@ class SettingsPanel(tk.Frame):
         if "Offline" not in config:
             config["Offline"] = {}
         config["Offline"]["share_name"] = share
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
+        save_config()
         if share.lower() != old.lower():
             propagate_share_rename_in_config(old, share)
         update_fuser_shared_path()
@@ -7188,8 +7181,7 @@ class SettingsPanel(tk.Frame):
             sd = config.setdefault("SharedDrive", {})
             sd["preferred_mode"] = "DRIVE"
             sd["drive_letter"] = letter
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                config.write(f)
+            save_config()
             update_fuser_shared_path()
             logging.info(f"Mapped {letter} to {unc}")
             messagebox.showinfo("Map Drive", f"Mapped {letter} to {unc}")
@@ -7201,8 +7193,7 @@ class SettingsPanel(tk.Frame):
         unmap_drive(letter)
         sd = config.setdefault("SharedDrive", {})
         sd["preferred_mode"] = "UNC"
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            config.write(f)
+        save_config()
         self.shared_mode.set("UNC")
         logging.info(f"Unmapped {letter}")
         messagebox.showinfo("Map Drive", f"Unmapped {letter}")
@@ -7282,8 +7273,7 @@ class SettingsPanel(tk.Frame):
         if path and os.path.exists(path):
             path = os.path.normpath(path)
             config['General']['vbs4_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+            save_config()
             self.lbl_vbs4.config(text=path)
             vbs4_panel = self.controller.panels.get('VBS4')
             if vbs4_panel:
@@ -7297,8 +7287,7 @@ class SettingsPanel(tk.Frame):
      if path and os.path.exists(path):
         path = os.path.normpath(path)
         config['General']['vbs4_setup_path'] = path
-        with open(CONFIG_PATH, 'w') as f:
-            config.write(f)
+        save_config()
         self.lbl_vbs4_setup.config(text=path)
         self.controller.panels['VBS4'].update_vbs4_launcher_button_state()
 
@@ -7321,8 +7310,7 @@ class SettingsPanel(tk.Frame):
         )
         if path and os.path.exists(path):
             config['General']['vbs_license_manager_path'] = path
-            with open(CONFIG_PATH, 'w') as f:
-                config.write(f)
+            save_config()
             self.lbl_vbs_license.config(text=path)
             messagebox.showinfo("Settings", f"VBS License Manager path set to:\n{path}")
         else:

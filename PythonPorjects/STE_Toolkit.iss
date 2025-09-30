@@ -40,7 +40,7 @@ Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; 
 
 [Run]
 Filename: "{app}\STE_Toolkit.exe"; \
-    Parameters: "--fast-start"; \
+    Parameters: "--fast-start --config ""{app}\config.ini"""; \
     Description: "Launch STE Mission Planning Toolkit now"; \
     Flags: nowait postinstall skipifsilent
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
@@ -243,12 +243,17 @@ begin
 end;
 
 function SeedConfigIni_Host(AppDir, Root: string): string;
-var Ini, Base, HostName, HostIP: string;
+var Ini, BundledIni, Base, HostName, HostIP: string;
 begin
-  Ini      := AddBackslash(AppDir) + 'config.ini';
-  Base     := ForceLayoutUnder(Root);
-  HostName := ExpandConstant('{computername}');
-  HostIP   := GetPrimaryIPv4();
+  Ini         := AddBackslash(AppDir) + 'config.ini';
+  BundledIni  := AddBackslash(AppDir) + '_internal\config.ini';
+  Base        := ForceLayoutUnder(Root);
+  HostName    := ExpandConstant('{computername}');
+  HostIP      := GetPrimaryIPv4();
+
+  { Copy bundled config to main directory first, so we preserve existing settings }
+  if FileExists(BundledIni) and not FileExists(Ini) then
+    FileCopy(BundledIni, Ini, False);
 
   EnsureSmbShare(SHARE_NAME, Base);
 
@@ -291,11 +296,16 @@ end;
 
 procedure SeedConfigIni_User(AppDir, DiscoveredIP, DiscoveredName: string);
 var
-  Ini: string;
+  Ini, BundledIni: string;
   UseIP: Boolean;
 begin
-  Ini := AddBackslash(AppDir) + 'config.ini';
-  UseIP := (Trim(DiscoveredIP) <> '');
+  Ini        := AddBackslash(AppDir) + 'config.ini';
+  BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
+  UseIP      := (Trim(DiscoveredIP) <> '');
+
+  { Copy bundled config to main directory first, so we preserve existing settings }
+  if FileExists(BundledIni) and not FileExists(Ini) then
+    FileCopy(BundledIni, Ini, False);
 
   SetIniString('Offline', 'enabled', 'True',                Ini);
   SetIniString('Offline', 'host_name',  DiscoveredName,     Ini);
@@ -529,7 +539,7 @@ var
   NeedPhotoMesh, NeedRealityMesh: Boolean;
   RC: Integer;
   DscIP, DscName: string;  { NEW: for host discovery }
-  IniPath: string;         { NEW: for update case }
+  IniPath, BundledIni: string;         { NEW: for update case and config copying }
 begin
   if CurStep = ssInstall then
   begin
@@ -580,6 +590,15 @@ begin
       begin
         { Keep existing config, but if Offline.host_ip is blank, try to discover }
         IniPath := AddBackslash(AppDir) + 'config.ini';
+        
+        { Ensure config exists in main directory }
+        if not FileExists(IniPath) then
+        begin
+          BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
+          if FileExists(BundledIni) then
+            FileCopy(BundledIni, IniPath, False);
+        end;
+        
         if GetIniString('Offline','host_ip','', IniPath) = '' then
         begin
           DscIP := ''; DscName := '';
