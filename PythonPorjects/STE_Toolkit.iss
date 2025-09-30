@@ -39,7 +39,10 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
-Filename: "{app}\STE_Toolkit.exe"; Description: "Launch STE Mission Planning Toolkit now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\STE_Toolkit.exe"; \
+    Parameters: "--fast-start"; \
+    Description: "Launch STE Mission Planning Toolkit now"; \
+    Flags: nowait postinstall skipifsilent
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
 [Registry]

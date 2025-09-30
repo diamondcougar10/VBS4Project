@@ -247,6 +247,9 @@ class SplashScreen(tk.Toplevel):
         # Start the progress animation
         self._animate_progress()
         
+        # Add failsafe close: hard ceiling of 10 seconds
+        self.after(int(10_000), lambda: (None if self._closing else self.close()))
+        
         # Now show the window and fade in (borderless, on-top, semi-transparent is enough)
         self.deiconify()
         self.attributes("-topmost", True)  # Ensure it stays on top
@@ -564,17 +567,47 @@ def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
     except Exception:
         return None
 
-def get_vbs4_install_path() -> str:
+def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str:
     """Return the best VBS4.exe path found on the system.
 
     Searches common installation roots, preferring the highest file version and
     using the newest modification time as a tiebreaker.  The discovered path is
-    cached in ``config['General']['vbs4_path']``.
+    cached in ``config['General']['vbs4_path']`` and paths_cache.json.
+    
+    Args:
+        time_budget_sec: Maximum time to spend searching (default 0.9s)
+        allow_full_drive: Whether to search entire C:\ drive as fallback
+        
+    Returns:
+        Path to VBS4.exe or empty string if not found within budget
     """
+    t0 = time.time()
+    deadline = t0 + time_budget_sec
+    
+    # Check config first
     path = config['General'].get('vbs4_path', '').strip()
     if path and os.path.isfile(path):
         logging.info("VBS4 path found in config: %s", path)
         return path
+
+    # Check cache
+    cache = _load_paths_cache()
+    cache_key = "vbs4_install_path"
+    if cache_key in cache:
+        cached_path = cache[cache_key]
+        if cached_path and os.path.isfile(cached_path):
+            logging.info("VBS4 path found in cache: %s", cached_path)
+            # Update config from cache
+            config['General']['vbs4_path'] = cached_path
+            try:
+                if write_config_atomic:
+                    write_config_atomic(Path(CONFIG_PATH), config)
+                else:
+                    with open(CONFIG_PATH, 'w', encoding='utf-8') as fh:
+                        config.write(fh)
+            except Exception:
+                logging.exception("Failed to write VBS4 path to config from cache")
+            return cached_path
 
     roots = [
         r"C:\BISIM\VBS4",
@@ -583,17 +616,30 @@ def get_vbs4_install_path() -> str:
         r"C:\Bohemia Interactive Simulations",
     ]
 
+    # Only add full C:\ scan if explicitly allowed
+    if allow_full_drive:
+        roots.append(r"C:\\")
+
     best_path = ""
     best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
 
     for root in roots:
+        if time.time() > deadline:
+            logging.info("[discover] VBS4 budget exceeded; will index in background")
+            return ""
+            
         try:
             os.makedirs(root, exist_ok=True)
         except Exception:
             continue
         if not os.path.isdir(root):
             continue
+            
         for dirpath, _dirnames, filenames in os.walk(root):
+            if time.time() > deadline:
+                logging.info("[discover] VBS4 budget exceeded during os.walk; will index in background")
+                return ""
+                
             for name in filenames:
                 if name.lower() != "vbs4.exe":
                     continue
@@ -606,7 +652,11 @@ def get_vbs4_install_path() -> str:
                     best_path = exe_path
 
     if best_path:
+        # Save to both config and cache
         config['General']['vbs4_path'] = best_path
+        cache[cache_key] = best_path
+        _save_paths_cache(cache)
+        
         try:
             if write_config_atomic:
                 write_config_atomic(Path(CONFIG_PATH), config)
@@ -615,34 +665,57 @@ def get_vbs4_install_path() -> str:
                     config.write(fh)
         except Exception:
             logging.exception("Failed to write VBS4 path to config")
+            
+        elapsed = time.time() - t0
+        logging.info("[discover] VBS4 found: %s (took %.2fs, budget %.2fs)", best_path, elapsed, time_budget_sec)
         return best_path
 
-    logging.warning("VBS4 path not found")
+    elapsed = time.time() - t0
+    logging.info("[discover] VBS4 not found (took %.2fs, budget %.2fs)", elapsed, time_budget_sec)
     return ""
 
-def get_vbs4_launcher_path() -> str:
+def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str:
     """
     Return the best path to the VBS4 launcher (VBSLauncher.exe or VBS4Launcher.exe).
 
     Strategy:
       1) Respect a valid path already saved in config.
-      2) Prefer a launcher that sits next to the discovered VBS4.exe.
-      3) Search common VBS roots for either filename.
-      4) As a last resort, scan C:\\ recursively for either filename.
-      5) Among all candidates, prefer highest FileVersion then newest mtime.
+      2) Check cache for previously discovered path.
+      3) Prefer a launcher that sits next to the discovered VBS4.exe.
+      4) Search common VBS roots for either filename.
+      5) Only if allow_full_drive=True, scan C:\\ recursively for either filename.
+      6) Among all candidates, prefer highest FileVersion then newest mtime.
 
-    The chosen path is saved to config['General']['vbs4_setup_path'].
+    The chosen path is saved to config['General']['vbs4_setup_path'] and cache.
+    
+    Args:
+        time_budget_sec: Maximum time to spend searching (default 0.9s)
+        allow_full_drive: Whether to search entire C:\ drive as fallback
+        
+    Returns:
+        Path to VBS4 launcher or empty string if not found within budget
     """
+    t0 = time.time()
+    deadline = t0 + time_budget_sec
 
     def _save_and_return(p: str) -> str:
         if p:
             config['General']['vbs4_setup_path'] = os.path.normpath(p)
+            
+            # Save to cache as well
+            cache = _load_paths_cache()
+            cache["vbs4_launcher_path"] = p
+            _save_paths_cache(cache)
+            
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 config.write(f)
             try:
                 refresh_settings_panel_from_config()
             except Exception:
                 pass
+                
+            elapsed = time.time() - t0
+            logging.info("[discover] VBS4 Launcher found: %s (took %.2fs, budget %.2fs)", p, elapsed, time_budget_sec)
         return p
 
     # 0) If config already points to a valid file, use it
@@ -651,10 +724,19 @@ def get_vbs4_launcher_path() -> str:
         logging.info("VBS4 Launcher (from config): %s", cfg_path)
         return cfg_path
 
+    # 0b) Check cache
+    cache = _load_paths_cache()
+    cache_key = "vbs4_launcher_path"
+    if cache_key in cache:
+        cached_path = cache[cache_key]
+        if cached_path and os.path.isfile(cached_path):
+            logging.info("VBS4 Launcher (from cache): %s", cached_path)
+            return _save_and_return(cached_path)
+
     launcher_names = ("VBSLauncher.exe", "VBS4Launcher.exe", "VBSLauncher.bat", "VBS4Launcher.bat")
 
-    # 1) Prefer same folder as discovered VBS4.exe
-    vbs4_exe = get_vbs4_install_path()
+    # 1) Prefer same folder as discovered VBS4.exe (with time budget)
+    vbs4_exe = get_vbs4_install_path(time_budget_sec=min(0.3, time_budget_sec * 0.3), allow_full_drive=False)
     if vbs4_exe:
         base = os.path.dirname(vbs4_exe)
         for name in launcher_names:
@@ -662,6 +744,10 @@ def get_vbs4_launcher_path() -> str:
             if os.path.isfile(cand):
                 logging.info("VBS4 Launcher (next to VBS4.exe): %s", cand)
                 return _save_and_return(cand)
+
+    if time.time() > deadline:
+        logging.info("[discover] VBS4 Launcher budget exceeded after VBS4.exe check; will index in background")
+        return ""
 
     # 2) Search common roots for either name
     roots = [
@@ -674,12 +760,20 @@ def get_vbs4_launcher_path() -> str:
     if vbs4_exe:
         roots.insert(0, os.path.dirname(vbs4_exe))
 
-    def _iter_candidates(search_roots):
+    def _iter_candidates(search_roots, respect_deadline=True):
         seen = set()
         for root in search_roots:
+            if respect_deadline and time.time() > deadline:
+                logging.info("[discover] VBS4 Launcher budget exceeded during iteration; will index in background")
+                return
+                
             if not os.path.isdir(root):
                 continue
             for dirpath, _dirs, files in os.walk(root):
+                if respect_deadline and time.time() > deadline:
+                    logging.info("[discover] VBS4 Launcher budget exceeded during os.walk; will index in background")
+                    return
+                    
                 for name in launcher_names:
                     if name in files:
                         p = os.path.normpath(os.path.join(dirpath, name))
@@ -699,24 +793,34 @@ def get_vbs4_launcher_path() -> str:
         return (is_exe, has_ver, ver, mtime)
 
     # 2a) Try common roots first
-    candidates = sorted(_iter_candidates(roots), key=_rank, reverse=True)
+    candidates = list(_iter_candidates(roots, respect_deadline=True))
+    if time.time() > deadline:
+        elapsed = time.time() - t0
+        logging.info("[discover] VBS4 Launcher budget exceeded (took %.2fs, budget %.2fs)", elapsed, time_budget_sec)
+        return ""
+        
+    candidates = sorted(candidates, key=_rank, reverse=True)
     if candidates:
         logging.info("VBS4 Launcher (common roots): %s", candidates[0])
         return _save_and_return(candidates[0])
 
-    # 3) Last resort: walk the entire C:\ drive (may take time on first run)
-    candidates = sorted(_iter_candidates([r"C:\\" ]), key=_rank, reverse=True)
-    if candidates:
-        logging.info("VBS4 Launcher (C:\\ scan): %s", candidates[0])
-        return _save_and_return(candidates[0])
+    # 3) Last resort: walk the entire C:\ drive (only if allowed and time permits)
+    if allow_full_drive and time.time() <= deadline:
+        candidates = list(_iter_candidates([r"C:\\" ], respect_deadline=True))
+        if time.time() <= deadline:
+            candidates = sorted(candidates, key=_rank, reverse=True)
+            if candidates:
+                logging.info("VBS4 Launcher (C:\\ scan): %s", candidates[0])
+                return _save_and_return(candidates[0])
 
-    logging.warning("VBS4 Launcher not found")
+    elapsed = time.time() - t0
+    logging.info("[discover] VBS4 Launcher not found (took %.2fs, budget %.2fs)", elapsed, time_budget_sec)
     return ''
 
 def get_blueig_install_path() -> str:
     path = config['General'].get('blueig_path', '')
     if not path or not os.path.isfile(path):
-        path = find_executable('BlueIG.exe')
+        path = find_executable('BlueIG.exe', time_budget_sec=0.5, allow_full_drive=False)
         if path:
             config['General']['blueig_path'] = path
             with open(CONFIG_PATH, 'w') as f:
@@ -735,9 +839,9 @@ def get_ares_manager_path() -> str:
         r"D:\\Program Files\\ARES",
         r"D:\\ARES",
     ]
-    found = find_executable("ares.manager.exe", additional_paths=candidates)
+    found = find_executable("ares.manager.exe", additional_paths=candidates, time_budget_sec=0.5, allow_full_drive=False)
     if not found:
-        found = find_executable("ARES.Manager.exe", additional_paths=candidates)
+        found = find_executable("ARES.Manager.exe", additional_paths=candidates, time_budget_sec=0.5, allow_full_drive=False)
 
     if found:
         config['General']['bvi_manager_path'] = clean_path(found)
@@ -793,13 +897,26 @@ def get_bvi_version(file_path: str) -> str:
 # EXECUTABLE FINDER
 #==============================================================================
 
-def find_executable(name, additional_paths=[]):
+def find_executable(name, additional_paths=[], *, time_budget_sec=0.9, allow_full_drive=False, full_drive_root="C:\\"):
     """
     Try to find either ``name`` (e.g. ``VBS4.exe``) or its ``.bat`` sibling
     (e.g. ``VBS4.bat``) under standard paths or any ``additional_paths``.
     If multiple matching files are found, the newest one (by modification time)
     is returned.
+    
+    Args:
+        name: Executable name to find
+        additional_paths: Additional directories to search
+        time_budget_sec: Maximum time to spend searching (default 0.9s)
+        allow_full_drive: Whether to fall back to full drive scan if not found in known paths
+        full_drive_root: Root drive to scan if allow_full_drive is True
+        
+    Returns:
+        Best path found or empty string if not found within budget
     """
+    t0 = time.time()
+    deadline = t0 + time_budget_sec
+    
     base, ext = os.path.splitext(name)
     # build list of candidate filenames
     candidates = [name]
@@ -807,6 +924,15 @@ def find_executable(name, additional_paths=[]):
         candidates.append(base + '.bat')
     elif ext.lower() == '.bat':
         candidates.append(base + '.exe')
+
+    # Check cache first
+    cache = _load_paths_cache()
+    cache_key = f"find_executable:{name}"
+    if cache_key in cache:
+        cached_path = cache[cache_key]
+        if cached_path and os.path.isfile(cached_path):
+            logging.info("[discover] %s found in cache: %s", name, cached_path)
+            return cached_path
 
     possible_paths = [
         r"C:\BISIM\VBS4",
@@ -820,6 +946,10 @@ def find_executable(name, additional_paths=[]):
 
     # First, check the exact paths
     for path in possible_paths:
+        if time.time() > deadline:
+            logging.info("[discover] %s budget exceeded in exact path search; will index in background", name)
+            return ""
+            
         for cand in candidates:
             full_path = os.path.join(path, cand)
             if os.path.isfile(full_path):
@@ -828,19 +958,58 @@ def find_executable(name, additional_paths=[]):
                     best_mtime = mtime
                     best_path = os.path.normpath(full_path)
 
-    # If not found, search subdirectories
-    for path in possible_paths:
-        if os.path.isdir(path):
-            for root, dirs, files in os.walk(path):
-                for cand in candidates:
-                    if cand in files:
-                        full_path = os.path.join(root, cand)
-                        mtime = os.path.getmtime(full_path)
-                        if mtime > best_mtime:
-                            best_mtime = mtime
-                            best_path = os.path.normpath(full_path)
+    # If not found, search subdirectories in known paths
+    if not best_path:
+        for path in possible_paths:
+            if time.time() > deadline:
+                logging.info("[discover] %s budget exceeded in subdirectory search; will index in background", name)
+                return ""
+                
+            if os.path.isdir(path):
+                for root, dirs, files in os.walk(path):
+                    if time.time() > deadline:
+                        logging.info("[discover] %s budget exceeded during os.walk; will index in background", name)
+                        return ""
+                        
+                    for cand in candidates:
+                        if cand in files:
+                            full_path = os.path.join(root, cand)
+                            mtime = os.path.getmtime(full_path)
+                            if mtime > best_mtime:
+                                best_mtime = mtime
+                                best_path = os.path.normpath(full_path)
 
-    return best_path
+    # Last resort: full drive scan (only if allowed)
+    if not best_path and allow_full_drive and os.path.isdir(full_drive_root):
+        if time.time() > deadline:
+            logging.info("[discover] %s budget exceeded before full drive scan; will index in background", name)
+            return ""
+            
+        logging.info("[discover] %s scanning full drive %s (this may take time)", name, full_drive_root)
+        for root, dirs, files in os.walk(full_drive_root):
+            if time.time() > deadline:
+                logging.info("[discover] %s budget exceeded during full drive scan; will index in background", name)
+                return ""
+                
+            for cand in candidates:
+                if cand in files:
+                    full_path = os.path.join(root, cand)
+                    mtime = os.path.getmtime(full_path)
+                    if mtime > best_mtime:
+                        best_mtime = mtime
+                        best_path = os.path.normpath(full_path)
+
+    # Cache and return result
+    if best_path:
+        cache[cache_key] = best_path
+        _save_paths_cache(cache)
+        elapsed = time.time() - t0
+        logging.info("[discover] %s found: %s (took %.2fs, budget %.2fs)", name, best_path, elapsed, time_budget_sec)
+    else:
+        elapsed = time.time() - t0
+        logging.info("[discover] %s not found (took %.2fs, budget %.2fs)", name, elapsed, time_budget_sec)
+
+    return best_path or ""
 
 # =============================================================================
 # REALITY MESH LINK & UNC RESOLUTION
@@ -1144,11 +1313,15 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
+PATHS_CACHE = os.path.join(BASE_DIR, "paths_cache.json")
 ICON_NAME   = 'icon.ico'
 SPLASH_NAME = 'splash.png'
 
 config      = configparser.ConfigParser()
 config.read(CONFIG_PATH)
+
+# Parse CLI arguments for fast startup
+FAST_START_CLI = "--fast-start" in sys.argv
 
 # Global handle to the running MainApp instance so background helpers can
 # synchronize UI state (e.g., refresh Settings fields after config updates).
@@ -1157,6 +1330,22 @@ APP_INSTANCE = None
 def _save_config():
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
+
+def _load_paths_cache() -> dict:
+    """Load the paths cache from JSON file."""
+    try:
+        with open(PATHS_CACHE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_paths_cache(d: dict) -> None:
+    """Save the paths cache to JSON file."""
+    try:
+        with open(PATHS_CACHE, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2)
+    except Exception:
+        logging.exception("paths_cache write failed")
 
 def _ensure_fuser_defaults() -> None:
     if "Fusers" not in config:
@@ -1361,6 +1550,33 @@ if 'fullscreen' not in config['General']:
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 
+# Set fast startup config defaults (only if not already present)
+config_changed = False
+if not config.has_section('General'):
+    config.add_section('General')
+    config_changed = True
+
+if 'fast_startup' not in config['General']:
+    config['General']['fast_startup'] = 'True'
+    config_changed = True
+
+if 'path_scan_budget_ms' not in config['General']:
+    config['General']['path_scan_budget_ms'] = '900'
+    config_changed = True
+
+if 'allow_c_drive_scan' not in config['General']:
+    config['General']['allow_c_drive_scan'] = 'False'
+    config_changed = True
+
+# Override fast_startup if --fast-start CLI flag is present
+if FAST_START_CLI:
+    config['General']['fast_startup'] = 'True'
+    config_changed = True
+
+if config_changed:
+    with open(CONFIG_PATH, 'w') as f:
+        config.write(f)
+
 # =============================================================================
 # Background warm-up tasks (run off the UI thread)
 # =============================================================================
@@ -1370,6 +1586,13 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     Each step reports a user-friendly message via `progress(msg)` and
     updates the progress bar via update_progress(value).
     """
+    # Read configuration flags for startup behavior
+    fast = config.getboolean("General", "fast_startup", fallback=True)
+    budget = max(0.3, config.getfloat("General", "path_scan_budget_ms", fallback=900) / 1000.0)
+    allow_c = config.getboolean("General", "allow_c_drive_scan", fallback=False)
+    
+    logging.info("[warmup] fast_startup=%s, budget=%.1fs, allow_c_drive_scan=%s", fast, budget, allow_c)
+    
     # Small initial delay to ensure the splash is visible first
     time.sleep(0.05)
     
@@ -1385,10 +1608,10 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
         update_progress(0.25)
 
     steps = [
-        ("Detecting VBS4…",            get_vbs4_install_path),
-        ("Detecting VBS4 Launcher…",   get_vbs4_launcher_path),
-        ("Detecting Blue IG…",         get_blueig_install_path),
-        ("Detecting ARES Manager…",    get_ares_manager_path),
+        ("Detecting VBS4…",          lambda: get_vbs4_install_path(time_budget_sec=budget, allow_full_drive=allow_c and not fast)),
+        ("Detecting VBS4 Launcher…", lambda: get_vbs4_launcher_path(time_budget_sec=budget, allow_full_drive=allow_c and not fast)),
+        ("Detecting Blue IG…",       get_blueig_install_path),
+        ("Detecting ARES Manager…",  get_ares_manager_path),
         ("Applying offline settings…", apply_offline_settings),
     ]
     
@@ -1399,7 +1622,11 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     for i, (label, fn) in enumerate(steps):
         try:
             progress(label)
+            t0 = time.time()
             _ = fn() if callable(fn) else None
+            elapsed = time.time() - t0
+            if elapsed > budget * 1.2:  # Log if significantly over budget
+                logging.info("[warmup] %s took %.2fs (budget was %.2fs)", label, elapsed, budget)
         except Exception as e:
             log_to_console(f"[warmup] {label}: {e}")
         
@@ -1407,15 +1634,36 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
         current_progress += step_progress
         update_progress(current_progress)
         
-        # Shorter delay for better responsiveness
+        # Minimal delay for animation smoothness only
         time.sleep(0.05)
     
     # Final progress update and message
     update_progress(0.9)
     progress("Finalizing startup...")
-    time.sleep(0.2)  # Shorter delay for visual feedback
+    time.sleep(0.05)  # Minimal delay for visual feedback
     update_progress(1.0)
     progress("Ready.")
+
+def _background_index_paths():
+    """
+    Background task that does expensive path discovery after the UI is live.
+    Uses larger budgets but still finite to avoid hanging the system.
+    """
+    try:
+        # Use larger budgets for background work but still time-bounded
+        for label, fn in [
+            ("VBS4", lambda: get_vbs4_install_path(time_budget_sec=6, allow_full_drive=True)),
+            ("VBS4 Launcher", lambda: get_vbs4_launcher_path(time_budget_sec=6, allow_full_drive=True)),
+            ("BlueIG", lambda: get_blueig_install_path()),  # already fast; keep as-is
+            ("ARES Manager", lambda: get_ares_manager_path()),
+        ]:
+            try:
+                path = fn()  # each is internally budgeted
+                logging.info("[indexer] %s => %s", label, path or "<not found>")
+            except Exception as e:
+                logging.exception("[indexer] %s failed: %s", label, e)
+    except Exception as e:
+        logging.exception("[indexer] failed: %s", e)
 # =============================================================================
 # AUTO-LAUNCH CONFIG
 # =============================================================================
@@ -2951,6 +3199,9 @@ class MainApp(tk.Tk):
             )
             post_ui(self._finish_warmup)
         run_in_thread(_run)
+        
+        # Schedule background indexer to run after splash is closed
+        self.after(5000, lambda: run_in_thread(_background_index_paths))
 
     def _finish_warmup(self):
         """Complete warm-up and close the splash screen with proper timing."""
