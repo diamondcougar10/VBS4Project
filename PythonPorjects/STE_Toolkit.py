@@ -99,8 +99,6 @@ import ctypes.wintypes
 import logging
 from pathlib import Path
 from typing import Callable
-
-# PyInstaller splash screen support (only available in frozen builds with --splash)
 try:
     import pyi_splash  # type: ignore[import]
 except Exception:
@@ -110,8 +108,6 @@ try:
     from steup.utils import write_config_atomic  
 except Exception: 
     write_config_atomic = None
-
-# We already have _resource_path defined below, no need for this duplicate
 
 # --- Resource path resolver -------------------------------------------------
 def _resource_path(name: str) -> str:
@@ -153,12 +149,10 @@ class SplashScreen(tk.Toplevel):
     It never steals focus and has a minimum display time.
     """
     def __init__(self, master, image_path=None, version_text="", start_alpha=0.0, end_alpha=0.98, min_display_time=3.0):
-        # Initialize with withdraw=True to prevent flash
         super().__init__(master)
         self.withdraw()  # Hide initially to prevent flash
         self.overrideredirect(True)              # borderless
         self.attributes("-topmost", True)
-        # Mark this as a splash screen for easy identification
         self._is_splash = True
         self.attributes("-alpha", start_alpha)
         self._alpha_target = float(end_alpha)
@@ -434,6 +428,8 @@ def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
             _lock_file = None
         return False
     atexit.register(release_singleton)
+    # Register fuser cleanup on exit
+    atexit.register(kill_all_fusers_on_exit)
     return True
 
 
@@ -1454,6 +1450,10 @@ def _ensure_fuser_defaults() -> None:
     if "host_count" not in fusers:
         fusers["host_count"] = "1"
         changed = True
+    # Track the last number of fusers launched for restoration on restart
+    if "last_launched_count" not in fusers:
+        fusers["last_launched_count"] = "0"
+        changed = True
     if changed:
         _save_config()
 
@@ -1871,9 +1871,10 @@ MAX_LOCAL_FUSERS = 3
 
 def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
     """Clamp desired local fuser count according to machine role."""
-
-    lower = MIN_LOCAL_FUSERS if is_fuser_computer else 0
-    return max(lower, min(MAX_LOCAL_FUSERS, int(n)))
+    if not is_fuser_computer:
+        return 0
+    
+    return max(MIN_LOCAL_FUSERS, min(MAX_LOCAL_FUSERS, int(n)))
 
 def start_fuser_instance(idx: int) -> bool:
     """Start *idx*-th fuser via its own shortcut/command."""
@@ -1927,6 +1928,9 @@ def ensure_fuser_instances(desired: int):
 
     current = count_local_fusers()
     if current == desired:
+        # Update last launched count even if no change needed
+        if is_fuser:
+            save_last_launched_fuser_count(desired)
         return
 
     if current > desired:
@@ -1936,6 +1940,68 @@ def ensure_fuser_instances(desired: int):
     to_start = max(0, desired - current)
     for idx in range(current + 1, current + 1 + to_start):
         start_fuser_instance(idx)
+    
+    # Save the number of fusers we just launched for restoration on restart
+    if is_fuser:
+        save_last_launched_fuser_count(desired)
+
+
+def save_last_launched_fuser_count(count: int):
+    """Save the number of fusers launched for restoration on restart."""
+    try:
+        config["Fusers"]["last_launched_count"] = str(count)
+        _save_config()
+    except Exception as e:
+        print(f"[fuser-tracking] Failed to save launched count: {e}")
+
+
+def get_last_launched_fuser_count() -> int:
+    """Get the number of fusers launched in the previous session."""
+    try:
+        return int(config["Fusers"].get("last_launched_count", "0"))
+    except (ValueError, KeyError):
+        return 0
+
+
+def kill_all_fusers_on_exit():
+    """Kill all fusers when the toolkit exits (only if this is a fuser computer)."""
+    try:
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        if is_fuser:
+            print("[fuser-exit] Killing all fusers on toolkit exit...")
+            kill_fusers()
+            # Reset the launched count since we killed everything
+            config["Fusers"]["last_launched_count"] = "0"
+            _save_config()
+    except Exception as e:
+        print(f"[fuser-exit] Error during exit cleanup: {e}")
+
+
+def kill_fusers_on_disable():
+    """Kill all fusers and reset count when fuser computer setting is disabled."""
+    try:
+        print("[fuser-disable] Killing all fusers - fuser computer disabled...")
+        kill_fusers()
+        # Reset the launched count since we killed everything
+        config["Fusers"]["last_launched_count"] = "0"
+        _save_config()
+    except Exception as e:
+        print(f"[fuser-disable] Error during disable cleanup: {e}")
+
+
+def restore_fusers_on_startup():
+    """Restore fusers on startup if this is a fuser computer and fusers were previously launched."""
+    try:
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        if not is_fuser:
+            return
+            
+        last_count = get_last_launched_fuser_count()
+        if last_count > 0:
+            print(f"[fuser-restore] Restoring {last_count} fusers from previous session...")
+            ensure_fuser_instances(last_count)
+    except Exception as e:
+        print(f"[fuser-restore] Error during startup restore: {e}")
 
 def enforce_local_fuser_policy():
     """Apply the configured fuser instance counts on this machine."""
@@ -3215,6 +3281,9 @@ class MainApp(tk.Tk):
         self.title("STE Mission Planning Toolkit")
         self.resizable(False, False)
 
+        # Set up window close protocol to handle fuser cleanup
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         # List of buttons that can receive keyboard focus
         self.focusable_buttons = []
 
@@ -4063,6 +4132,15 @@ class MainApp(tk.Tk):
         panel = self.panels.get('OneClick')
         if panel:
             panel.launch_reality_mesh_to_vbs4()
+
+    def on_closing(self):
+        """Handle window close event - kill fusers if this is a fuser computer."""
+        try:
+            kill_all_fusers_on_exit()
+        except Exception as e:
+            print(f"[fuser-exit] Error during window close: {e}")
+        finally:
+            self.destroy()
 
     def destroy(self):
         global APP_INSTANCE
@@ -6011,8 +6089,8 @@ class SettingsPanel(tk.Frame):
                 n = _clamp_fusers(n, True)
                 config["Fusers"]["desired_count"] = str(n)
             else:
-                # When turning off leave desired_count unchanged; policy will stop local fusers.
-                pass
+                # When turning off, kill all fusers and reset count
+                kill_fusers_on_disable()
 
             with open(CONFIG_PATH, "w") as f:
                 config.write(f)
@@ -7428,6 +7506,8 @@ def run_with_splash():
             # Use a single short delay for background tasks
             app.after(5, update_fuser_shared_path)
             app.after(10, app.panels['OneClick'].update_fuser_state)
+            # Restore fusers from previous session before enforcing policy
+            app.after(12, restore_fusers_on_startup)
             app.after(15, enforce_local_fuser_policy)
             
             if should_prompt_settings:
