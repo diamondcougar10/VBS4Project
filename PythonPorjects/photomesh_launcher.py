@@ -71,6 +71,8 @@ def migrate_hostname_to_ip_once():
     One-time migration: if host_ip is blank and host_name exists,
     try to resolve hostname -> ip and persist. Set use_ip_unc=True.
     """
+    if config is None:
+        return  # Config not yet initialized
 
     o = get_offline_cfg()
     if "Offline" not in config:
@@ -240,8 +242,11 @@ def wizard_config_paths_from_exe(exe_path: str) -> list[str]:
             paths.append(p)
     return [p for p in paths if os.path.isdir(os.path.dirname(p))]
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+# CONFIG VARIABLES WILL BE SET BY IMPORTING MODULE
+# These will be set by STE_Toolkit.py when this module is imported
+BASE_DIR = None
+CONFIG_PATH = None
+config = None
 
 # Queue endpoints and working directory used by the PhotoMesh engine
 QUEUE_API_URL = "http://127.0.0.1:8087/ProjectQueue/"
@@ -263,8 +268,9 @@ RM_INSTALL_SUBDIRS = ["RealityMeshInstall", "ReailityMeshInstall"]
 
 # region Paths & Environment
 # Shared configuration for network fuser settings
-config = configparser.ConfigParser()
-config.read(CONFIG_PATH)
+# NOTE: config, CONFIG_PATH, and BASE_DIR are set by the importing module (STE_Toolkit.py)
+# config = configparser.ConfigParser()  # Set by importing module
+# config.read(CONFIG_PATH)               # Will be done by importing module
 
 _DRIVE_RE = re.compile(r"^\s*(\S+)\s+Disk", re.MULTILINE)
 # endregion
@@ -318,12 +324,16 @@ def _save_json(path: str, data: dict) -> None:
 
 def _save_config() -> None:
     """Persist the in-memory config.ini to disk."""
+    if config is None or CONFIG_PATH is None:
+        return  # Config not yet initialized
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
 
 
 def _ensure_fuser_defaults() -> None:
     """Ensure ``config.ini`` has sane default fuser counts."""
+    if config is None:
+        return  # Config not yet initialized
     if "Fusers" not in config:
         config["Fusers"] = {}
     fusers = config["Fusers"]
@@ -338,7 +348,7 @@ def _ensure_fuser_defaults() -> None:
         _save_config()
 
 
-_ensure_fuser_defaults()
+# _ensure_fuser_defaults()  # Called by importing module after config is set
 
 
 def get_projects_root() -> str:
@@ -669,6 +679,8 @@ def get_offline_cfg() -> dict:
     The ``host_name`` value is maintained by ``STE_Toolkit.set_host`` so that
     older tools reading this config continue to work without changes.
     """
+    if config is None:
+        return {}  # Config not yet initialized
     try:
         config.read(CONFIG_PATH)
     except Exception:
@@ -690,7 +702,8 @@ def get_offline_cfg() -> dict:
 
 
 try:
-    migrate_hostname_to_ip_once()
+    # migrate_hostname_to_ip_once()  # Called by importing module after config is set
+    pass
 except Exception as e:  # pragma: no cover - best effort migration
     logging.warning(f"[migrate] hostname->ip skipped: {e}")
 

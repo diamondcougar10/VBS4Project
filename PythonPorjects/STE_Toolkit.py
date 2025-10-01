@@ -1412,6 +1412,19 @@ def _site_dir() -> str:
 
 BASE_DIR = _site_dir()
 
+def _get_bundled_resource_dir():
+    """Get the directory where bundled resources are located.
+    
+    When frozen (PyInstaller): sys._MEIPASS (temporary extraction directory)
+    When not frozen: same directory as this script
+    """
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(os.path.dirname(__file__))
+
+# Use bundled resource directory for UI assets and bundled files
+_BUNDLE_DIR = _get_bundled_resource_dir()
+
 # Robust config path resolution
 if getattr(sys, "frozen", False):
     site_root = os.path.dirname(sys.executable)
@@ -1443,6 +1456,30 @@ config = configparser.ConfigParser()
 # Always try to read from CONFIG_PATH first; this guarantees CLI override wins
 # and site config takes precedence over bundled default
 config.read(CONFIG_PATH, encoding='utf-8')
+
+# Share config with photomesh_launcher module to prevent conflicts
+import photomesh_launcher
+photomesh_launcher.config = config
+photomesh_launcher.CONFIG_PATH = CONFIG_PATH
+photomesh_launcher.BASE_DIR = BASE_DIR
+
+# Initialize fuser defaults now that config is shared
+photomesh_launcher._ensure_fuser_defaults()
+
+# Run hostname to IP migration now that config is available
+try:
+    photomesh_launcher.migrate_hostname_to_ip_once()
+except Exception as e:
+    logging.warning(f"[migrate] hostname->ip skipped: {e}")
+
+# Log config paths for diagnostics
+try:
+    log_dir = os.path.join(os.path.expandvars(r'%ProgramData%'), 'STE_Toolkit')
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, 'startup.log'), 'a', encoding='utf-8') as lf:
+        lf.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} CONFIG_PATH={CONFIG_PATH} SITE={SITE_CONFIG_PATH}\n")
+except Exception:
+    pass
 
 # Parse CLI arguments for fast startup
 FAST_START_CLI = "--fast-start" in sys.argv
@@ -2496,7 +2533,7 @@ def toggle_close_on_launch():
 # GENERIC COMMAND LAUNCH HELPERS
 # =============================================================================
 # Batch file creation and executable resolution utilities.
-BATCH_FOLDER = os.path.join(BASE_DIR, "Autolaunch_Batchfiles")
+BATCH_FOLDER = os.path.join(_BUNDLE_DIR, "Autolaunch_Batchfiles")
 BVI_BAT      = os.path.join(BATCH_FOLDER, "BVI_Manager.bat")
 
 def create_bvi_batch_file(ares_path: str) -> str:
@@ -2808,12 +2845,12 @@ def open_bvi_terrain():
 # =============================================================================
 # Paths and helpers for background images and logos.
 
-background_image_path = os.path.join(BASE_DIR, "20240206_101613_026.jpg")
-logo_STE_path         = os.path.join(BASE_DIR, "logos", "STE_CFT_Logo.png")
-logo_AFC_army         = os.path.join(BASE_DIR, "logos", "US_Army_AFC_Logo.png")
-logo_first_army       = os.path.join(BASE_DIR, "logos", "First_Army_Logo.png")
-logo_us_army_path     = os.path.join(BASE_DIR, "logos", "New_US_Army_Logo.png")
-prompt_box_image_path = os.path.join(BASE_DIR, "promptbox.jpg")
+background_image_path = os.path.join(_BUNDLE_DIR, "20240206_101613_026.jpg")
+logo_STE_path         = os.path.join(_BUNDLE_DIR, "logos", "STE_CFT_Logo.png")
+logo_AFC_army         = os.path.join(_BUNDLE_DIR, "logos", "US_Army_AFC_Logo.png")
+logo_first_army       = os.path.join(_BUNDLE_DIR, "logos", "First_Army_Logo.png")
+logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png")
+prompt_box_image_path = os.path.join(_BUNDLE_DIR, "promptbox.jpg")
 def set_background(window, widget=None):
     screen_width = window.winfo_screenwidth()
     screen_height = window.winfo_screenheight()
@@ -2869,7 +2906,7 @@ VBS4_HTML = r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm"
 BlueIG_HTML = r"C:\Builds\BlueIG\Blue IG 24.2 YYMEA_General\docs\Blue_IG_EN.htm"
 SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\Wiki\SQF_Reference.html"
 SUPPORT_SITE = "https://bisimulations.com/support/"
-STE_SMTP_KIT_GUIDE = os.path.join(BASE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
+STE_SMTP_KIT_GUIDE = os.path.join(_BUNDLE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
 
 # ─── Dynamic VBS4 Documentation Path Helpers ───────────────────────────────
 def find_vbs4_documentation_path() -> str:
@@ -3005,7 +3042,7 @@ def open_vbs4_manuals():
 
 pdf_docs = {
     "SQF Wiki": lambda: webbrowser.open(
-        os.path.join(BASE_DIR, "Help_Tutorials", "Wiki", "SQF_Reference.html"),
+        os.path.join(_BUNDLE_DIR, "Help_Tutorials", "Wiki", "SQF_Reference.html"),
         new=2),
     "VBS4 Manuals": lambda: open_vbs4_manuals(),
 }
@@ -3086,6 +3123,7 @@ vbs4_help_items = {
 def open_bvi_quickstart():
     # List of possible locations for the BVI technical document
     possible_paths = [
+        os.path.join(_BUNDLE_DIR, "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
         os.path.join(BASE_DIR, "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
         os.path.join(BASE_DIR, "..", "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
         os.path.join(BASE_DIR, "..", "..", "BVI_Documentation", "BVI_TECHNICAL_DOC.pdf"),
@@ -3130,6 +3168,7 @@ def open_bvi_quickstart():
 
 def open_bvi_documentation():
     possible_paths = [
+        os.path.join(_BUNDLE_DIR, "BVI_Documentation", "BVI_User_Instructions.pdf"),
         os.path.join(BASE_DIR, "BVI_Documentation", "BVI_User_Instructions.pdf"),
         os.path.join(BASE_DIR, "..", "BVI_Documentation", "BVI_User_Instructions.pdf"),
         os.path.join(BASE_DIR, "..", "..", "BVI_Documentation", "BVI_User_Instructions.pdf"),
@@ -4129,6 +4168,10 @@ class MainApp(tk.Tk):
     def _update_scrollability(self):
         """Show/hide viewport scrollbar based on content overflow and panel type."""
         try:
+            # Guard against early calls before GUI is fully initialized
+            if not hasattr(self, 'panels') or not hasattr(self, 'current'):
+                return
+                
             self.viewport_canvas.update_idletasks()
             
             # Get the visible canvas height
@@ -5494,7 +5537,7 @@ def find_terra_explorer() -> str:
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
         """Launch the external Reality Mesh to VBS4 application."""
-        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        sys_settings_path = os.path.join(_BUNDLE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
         
@@ -6190,7 +6233,7 @@ class OneClickPanel(tk.Frame):
         self.one_click_conversion()
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
-        sys_settings_path = os.path.join(BASE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
+        sys_settings_path = os.path.join(_BUNDLE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
         if os.path.isfile(sys_settings_path):
