@@ -1400,54 +1400,49 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 # Config path resolution for frozen + dev
 # ------------------------------------------------------------
 def _site_dir() -> str:
-    """Return the directory where the app should store its config.
+    r"""Return the directory where the app should store its config.
     
     Development: Same directory as this .py file
     Frozen: Same directory as the .exe (e.g., C:\Program Files\STE Toolkit)
             NOT inside the _internal subdirectory where bundled resources live
     """
     if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)  # e.g., C:\Program Files\STE Toolkit
+        return os.path.dirname(sys.executable)  # e.g., C:/Program Files/STE Toolkit
     return os.path.abspath(os.path.dirname(__file__))
 
 BASE_DIR = _site_dir()
-DEFAULT_CONFIG_PATH = _resource_path('config.ini')  # bundled default (read-only in practice)
-SITE_CONFIG_PATH    = os.path.join(_site_dir(), 'config.ini')
+
+# Robust config path resolution
+if getattr(sys, "frozen", False):
+    site_root = os.path.dirname(sys.executable)
+else:
+    site_root = os.path.dirname(os.path.abspath(__file__))
+
+DEFAULT_CONFIG_PATH = _resource_path("config.ini")  # bundled default (read-only in practice)
+SITE_CONFIG_PATH = os.path.join(site_root, "config.ini")
+
 PATHS_CACHE = os.path.join(BASE_DIR, "paths_cache.json")
 ICON_NAME   = 'icon.ico'
 SPLASH_NAME = 'splash.png'
 
-def _arg_value(flag: str) -> str | None:
-    try:
-        i = sys.argv.index(flag)
-        return sys.argv[i + 1]
-    except Exception:
-        return None
+# CLI override: --config <path>
+CONFIG_PATH = None
+argv = sys.argv[:]  # safe copy
+for i, a in enumerate(argv):
+    if a == "--config" and i + 1 < len(argv):
+        p = argv[i + 1]
+        if os.path.isfile(p):
+            CONFIG_PATH = p
+        break
 
-# Honor an explicit --config passed by the installer, else prefer SITE, else fallback to bundled
-_cli_cfg = _arg_value('--config')
-if _cli_cfg:
-    CONFIG_PATH = os.path.abspath(_cli_cfg)
-else:
-    CONFIG_PATH = SITE_CONFIG_PATH if os.path.exists(SITE_CONFIG_PATH) else DEFAULT_CONFIG_PATH
+# Final pick: CLI override if valid, else site file if present, else bundled default
+if not CONFIG_PATH:
+    CONFIG_PATH = SITE_CONFIG_PATH if os.path.isfile(SITE_CONFIG_PATH) else DEFAULT_CONFIG_PATH
 
 config = configparser.ConfigParser()
-# Always try to read from CONFIG_PATH; if it is the bundled file and we also have a site copy,
-# read the site copy second so it overrides bundled defaults.
-if CONFIG_PATH != DEFAULT_CONFIG_PATH and os.path.exists(CONFIG_PATH):
-    config.read(CONFIG_PATH, encoding='utf-8')
-else:
-    # Try to read bundled defaults first, then overlay site copy if it exists
-    config.read([DEFAULT_CONFIG_PATH, SITE_CONFIG_PATH], encoding='utf-8')
-
-# Log config paths for debugging
-print(f"[startup] CONFIG_PATH={CONFIG_PATH}")
-print(f"[startup] SITE_CONFIG_PATH={SITE_CONFIG_PATH}")
-print(f"[startup] DEFAULT_CONFIG_PATH={DEFAULT_CONFIG_PATH}")
-print(f"[startup] sys.frozen={getattr(sys, 'frozen', False)}")
-if getattr(sys, 'frozen', False):
-    print(f"[startup] sys.executable={sys.executable}")
-    print(f"[startup] sys._MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}")
+# Always try to read from CONFIG_PATH first; this guarantees CLI override wins
+# and site config takes precedence over bundled default
+config.read(CONFIG_PATH, encoding='utf-8')
 
 # Parse CLI arguments for fast startup
 FAST_START_CLI = "--fast-start" in sys.argv
@@ -1458,20 +1453,24 @@ APP_INSTANCE = None
 
 def save_config() -> None:
     """
-    Persist to the *site* config (next to the EXE), not to the bundled temp file.
-    Ensures the installer-seeded config is the single source of truth.
+    Persist config to the correct location, prioritizing the active CONFIG_PATH.
+    Always saves to the same file we're reading from to maintain consistency.
     """
-    target = SITE_CONFIG_PATH
+    target = CONFIG_PATH
     try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, 'w', encoding='utf-8') as f:
             config.write(f)
     except Exception as e:
-        # Last-resort fallback: try writing to CONFIG_PATH if site write fails
-        try:
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                config.write(f)
-        except Exception:
-            print(f"[WARN] Unable to write config to '{target}' or '{CONFIG_PATH}': {e}")
+        # If we can't write to the active CONFIG_PATH and it's not the site config, try site as fallback
+        if target != SITE_CONFIG_PATH:
+            try:
+                os.makedirs(os.path.dirname(SITE_CONFIG_PATH), exist_ok=True)
+                with open(SITE_CONFIG_PATH, 'w', encoding='utf-8') as f:
+                    config.write(f)
+            except Exception as e2:
+                pass
 
 def _save_config():
     """Legacy wrapper - use save_config() instead."""
@@ -1532,10 +1531,8 @@ def get_host_ip() -> str:
 
     try:
         ip = config.get("Offline", "host_ip", fallback="").strip()
-        print(f"[config] get_host_ip() -> '{ip}'")
         return ip
     except Exception as e:
-        print(f"[config] get_host_ip() failed: {e}")
         return ""
 
 def set_host_ip(ip: str) -> None:
@@ -1661,7 +1658,7 @@ def apply_app_icon(widget):
         icon_path = _resource_path(ICON_NAME)
         widget.iconbitmap(icon_path)
     except Exception as e:
-        print(f"Failed to apply icon: {e}")
+        pass
 
 _orig_toplevel_init = tk.Toplevel.__init__   
 
@@ -1999,7 +1996,7 @@ def save_last_launched_fuser_count(count: int):
         config["Fusers"]["last_launched_count"] = str(count)
         _save_config()
     except Exception as e:
-        print(f"[fuser-tracking] Failed to save launched count: {e}")
+        pass
 
 
 def get_last_launched_fuser_count() -> int:
@@ -2015,25 +2012,23 @@ def kill_all_fusers_on_exit():
     try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         if is_fuser:
-            print("[fuser-exit] Killing all fusers on toolkit exit...")
             kill_fusers()
             # Reset the launched count since we killed everything
             config["Fusers"]["last_launched_count"] = "0"
             _save_config()
     except Exception as e:
-        print(f"[fuser-exit] Error during exit cleanup: {e}")
+        pass
 
 
 def kill_fusers_on_disable():
     """Kill all fusers and reset count when fuser computer setting is disabled."""
     try:
-        print("[fuser-disable] Killing all fusers - fuser computer disabled...")
         kill_fusers()
         # Reset the launched count since we killed everything
         config["Fusers"]["last_launched_count"] = "0"
         _save_config()
     except Exception as e:
-        print(f"[fuser-disable] Error during disable cleanup: {e}")
+        pass
 
 
 def restore_fusers_on_startup():
@@ -2045,10 +2040,9 @@ def restore_fusers_on_startup():
             
         last_count = get_last_launched_fuser_count()
         if last_count > 0:
-            print(f"[fuser-restore] Restoring {last_count} fusers from previous session...")
             ensure_fuser_instances(last_count)
     except Exception as e:
-        print(f"[fuser-restore] Error during startup restore: {e}")
+        pass
 
 def enforce_local_fuser_policy():
     """Apply the configured fuser instance counts on this machine."""
@@ -2063,7 +2057,7 @@ def enforce_local_fuser_policy():
             target = 0
         ensure_fuser_instances(target)
     except Exception as e:
-        print(f"[fuser-policy] {e}")
+        pass
 
 def relaunch_fusers():
     """Restart local fusers to match the configured target count."""
@@ -2072,7 +2066,7 @@ def relaunch_fusers():
         kill_fusers()
         enforce_local_fuser_policy()
     except Exception as e:
-        print(f"[fuser-relaunch] {e}")
+        pass
 
 def update_fuser_shared_path(project_path: str | None = None) -> None:
     """Persist the shared WorkingFuser UNC using the configured host IP."""
@@ -3233,9 +3227,9 @@ def open_reality_mesh_docs():
             "Searched for: Reality_Mesh_EN.htm\n"
             "Expected locations:\n"
             "  • Reality Mesh local root (if configured)\n"
-            "  • C:\\Bohemia Interactive Simulations\n"
-            "  • C:\\Program Files\\Bohemia Interactive Simulations\n"
-            "  • C:\\Program Files (x86)\\Bohemia Interactive Simulations\n\n"
+            r"  • C:\Bohemia Interactive Simulations" + "\n"
+            r"  • C:\Program Files\Bohemia Interactive Simulations" + "\n"
+            r"  • C:\Program Files (x86)\Bohemia Interactive Simulations" + "\n\n"
             "Please ensure Reality Mesh is properly installed.")
 
 def open_photomesh_help():
@@ -3332,7 +3326,23 @@ def set_ares_manager_path():
     if path:
         config['General']['bvi_manager_path'] = path
         save_config()
-    messagebox.showinfo("Settings", f"VBS Map loginName set to:\n{profile}")
+        messagebox.showinfo("Settings", f"ARES Manager path set to:\n{path}")
+    else:
+        messagebox.showinfo("Settings", "No ARES Manager path selected.")
+
+def select_vbs_map_profile():
+    """Prompt user to set VBS Map profile/username."""
+    username = simpledialog.askstring(
+        "VBS Map Profile",
+        "Enter VBS Map username:",
+        initialvalue=config['General'].get('vbs_map_user', '')
+    )
+    if username:
+        config['General']['vbs_map_user'] = username.strip()
+        save_config()
+        messagebox.showinfo("VBS Map", f"VBS Map username set to: {username}")
+    else:
+        messagebox.showinfo("VBS Map", "No username entered.")
 
 def open_external_map():
     """Open the VBS Map web UI for the saved user, if server is live."""
@@ -3714,13 +3724,13 @@ class MainApp(tk.Tk):
         self._live_scale = None
         self._cfg_job = None
         def log_message(msg):
-            print(f"> {msg}")  
+            pass
         self.log_message = log_message
 
         def _on_configure(event=None):
             if self._cfg_job is not None:
                 self.after_cancel(self._cfg_job)
-            self._cfg_job = self.after(25, self._recompute_scale)
+            self._cfg_job = self.after(10, self._recompute_scale)  # Reduced from 25ms to 10ms
 
         bootstrap_first_run_if_needed(log=self.log_message)
 
@@ -3830,12 +3840,14 @@ class MainApp(tk.Tk):
             log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
             enforce_photomesh_settings(log=log_fn)
         except Exception as exc:
-            print(f"[wizard-enforce] {exc}")
+            pass
         for panel in self.panels.values():
             panel.pack_forget()
 
         # Build the nav buttons
         nav_tip = Tooltip(nav)
+        self._nav_buttons = {}  # Store button references for visual updates
+        
         for key, label in [
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
@@ -3846,14 +3858,50 @@ class MainApp(tk.Tk):
             ('Credits',  'Credits'),
             ('Contact Us', 'Contact Us'),
         ]:
+            def make_command(k):
+                """Create command function with immediate visual feedback."""
+                def cmd():
+                    # Immediate visual feedback - show the panel right away
+                    self.after_idle(lambda: self.show(k))
+                return cmd
+            
             btn = tk.Button(nav, text=label,
                             font=("Helvetica", 18),
                             bg="#555", fg="white",
+                            activebackground="#777",  # Better hover color
+                            activeforeground="white",
+                            relief="raised",
+                            bd=2,
                             width=12,
-                            command=lambda k=key: self.show(k))
+                            command=make_command(key))
             btn.pack(pady=5, padx=5)
-            btn.bind("<Enter>", lambda e, l=label: nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10))
-            btn.bind("<Leave>", lambda e: nav_tip.hide())
+            
+            # Store button reference for later visual updates
+            self._nav_buttons[key] = btn
+            
+            # Enhanced hover effects for better feedback
+            def on_enter(e, btn=btn, l=label):
+                if not hasattr(self, 'current') or self.current != key:
+                    btn.config(bg="#777")
+                nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10)
+            
+            def on_leave(e, btn=btn, k=key):
+                # Reset to appropriate color based on current panel
+                if hasattr(self, 'current') and self.current == k:
+                    btn.config(bg="#888")  # Slightly lighter for current panel
+                else:
+                    btn.config(bg="#555")  # Normal color
+                nav_tip.hide()
+            
+            def on_click(e, btn=btn, k=key):
+                # Immediate visual feedback on click
+                btn.config(bg="#999")
+                # Update all button states after a brief moment
+                btn.after(50, self.update_nav_button_appearance)
+            
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
+            btn.bind("<Button-1>", on_click)
             self.focusable_buttons.append(btn)
 
         tk.Button(nav, text="Exit", font=("Helvetica", 18),
@@ -3868,7 +3916,7 @@ class MainApp(tk.Tk):
         try:
             apply_offline_settings()
         except Exception as exc:
-            print("[first-run] apply_offline_settings:", exc)
+            pass
 
         # Start by showing "Main"
         self.current = None
@@ -4191,30 +4239,32 @@ class MainApp(tk.Tk):
         self.current = name
         self._reset_viewport_scroll()
         
-        # Let the panel fully layout first
-        self.after(1, lambda p=panel: self._resize_canvas_to_panel(p))
+        # Immediate layout update for faster visual response
+        self.update_idletasks()
         
-        if name == "VBS4":
-            panel.update_vbs4_version()
-            self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
-            self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
-            self.update_button_state(panel.blueig_button, 'blueig_path')
-        elif name == "OneClick":
-            panel.update_fuser_state()
-            panel.refresh_rm_status()
-        elif name == "BVI":
-            self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+        # Resize canvas immediately for instant feedback
+        self._resize_canvas_to_panel(panel)
         
+        # Update navigation state immediately
         self.update_navigation()
         
-        # Schedule multiple scrollability checks with increasing delays
-        # This ensures we catch cases where panel content takes time to render
-        self.after(10, self._update_scrollability)
-        self.after(100, self._update_scrollability)
-        self.after(300, self._update_scrollability)
+        # Update visual state of navigation buttons
+        self.update_nav_button_appearance()
         
-        # Handle scaling
-        self.after(0, self._recompute_scale)
+        # Panel-specific updates - defer heavy operations to avoid blocking UI
+        if name == "VBS4":
+            self.after_idle(lambda: self._update_vbs4_panel(panel))
+        elif name == "OneClick":
+            self.after_idle(lambda: self._update_oneclick_panel(panel))
+        elif name == "BVI":
+            self.after_idle(lambda: self._update_bvi_panel(panel))
+        
+        # Defer scrollability checks to avoid blocking initial display
+        self.after_idle(self._update_scrollability)
+        self.after(50, self._update_scrollability)  # Reduced from 100, 300
+        
+        # Handle scaling immediately for better responsiveness
+        self._recompute_scale()
 
     def _resize_canvas_to_panel(self, panel):
         """Force scrollregion to the visible panel's requested size (frame-only)."""
@@ -4240,7 +4290,31 @@ class MainApp(tk.Tk):
             # Force update scrollability state
             self.after(50, self._update_scrollability)
         except Exception as e:
-            print(f"Error in _resize_canvas_to_panel: {e}")
+            pass
+
+    def _update_vbs4_panel(self, panel):
+        """Update VBS4 panel state (deferred to avoid blocking UI)."""
+        try:
+            panel.update_vbs4_version()
+            self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
+            self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
+            self.update_button_state(panel.blueig_button, 'blueig_path')
+        except Exception:
+            pass
+
+    def _update_oneclick_panel(self, panel):
+        """Update OneClick panel state (deferred to avoid blocking UI)."""
+        try:
+            panel.update_fuser_state()
+            panel.refresh_rm_status()
+        except Exception:
+            pass
+
+    def _update_bvi_panel(self, panel):
+        """Update BVI panel state (deferred to avoid blocking UI)."""
+        try:
+            self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+        except Exception:
             pass
 
     def _update_canvas_background(self, width=None, height=None):
@@ -4372,6 +4446,18 @@ class MainApp(tk.Tk):
         except Exception:
             pass
 
+    def update_nav_button_appearance(self):
+        """Update navigation buttons to show which panel is currently active."""
+        if not hasattr(self, '_nav_buttons'):
+            return
+        
+        current_panel = getattr(self, 'current', None)
+        for key, btn in self._nav_buttons.items():
+            if key == current_panel:
+                btn.config(bg="#888", relief="sunken")  # Active panel
+            else:
+                btn.config(bg="#555", relief="raised")  # Inactive panels
+
     def create_tutorial_button(self, parent):
         """
         This method places a small “?” button in the given panel (parent).
@@ -4423,7 +4509,7 @@ class MainApp(tk.Tk):
         try:
             kill_all_fusers_on_exit()
         except Exception as e:
-            print(f"[fuser-exit] Error during window close: {e}")
+            pass
         finally:
             self.destroy()
 
@@ -5303,6 +5389,39 @@ class VBS4Panel(tk.Frame):
                 "Open Folder", "Would you like to open the project folder?", parent=self
             ):
                 self.open_folder_foreground(project_dir)
+
+def find_terra_explorer() -> str:
+    """Find TerraExplorer executable by searching common installation paths."""
+    candidates = [
+        r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe",
+        r"C:\Program Files (x86)\Skyline\TerraExplorer Pro\TerraExplorer.exe",
+        r"C:\Program Files\Skyline\TerraExplorer\TerraExplorer.exe",
+        r"C:\Program Files (x86)\Skyline\TerraExplorer\TerraExplorer.exe",
+    ]
+    
+    # Check explicit paths first
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    
+    # Search in Program Files directories
+    program_dirs = [
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+    ]
+    
+    for prog_dir in program_dirs:
+        if os.path.isdir(prog_dir):
+            # Look for Skyline folder
+            skyline_dir = os.path.join(prog_dir, "Skyline")
+            if os.path.isdir(skyline_dir):
+                # Search for TerraExplorer in any subdirectory
+                for root, dirs, files in os.walk(skyline_dir):
+                    for file in files:
+                        if file.lower() == "terraexplorer.exe":
+                            return os.path.join(root, file)
+    
+    return ""  # Not found
 
     def view_mesh(self):
         terra_explorer_path = r"C:\Program Files\Skyline\TerraExplorer Pro\TerraExplorer.exe"
@@ -7671,7 +7790,7 @@ def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 400
         toast.geometry(f"+{x}+{y}")
         toast.after(max(1000, duration_ms), toast.destroy)
     except Exception as exc:
-        print(f"[toast] {exc}")
+        pass
 
 def run_command_server(host: str = "", port: int = 9100) -> None:
     """Listen for incoming command strings and execute them."""
@@ -7729,7 +7848,7 @@ def run_with_splash():
     try:
         update_fuser_shared_path()
     except Exception as exc:
-        print(f"[startup] update_fuser_shared_path: {exc}")
+        pass
     
     # Create the main app but keep it hidden during the entire splash sequence
     app = MainApp()
@@ -7764,7 +7883,7 @@ def run_with_splash():
             apply_minimal_wizard_defaults()
             enforce_wizard_obj_only_defaults(log=app.panels['OneClick'].log_message)
         except Exception as exc:
-            print(f"[startup] immediate UI setup: {exc}")
+            pass
     
     # Start non-blocking warmup work in parallel; splash will auto-close when done
     app.after(1, app.start_warmup_async)
@@ -7786,7 +7905,7 @@ def run_with_splash():
                     try:
                         app.show('Settings')
                     except Exception as exc:
-                        print(f"[startup] show Settings: {exc}")
+                        pass
                     show_info_toast(app, "Review settings (host name, drive letter, RM install path)")
                     config['General']['first_run_done'] = 'True'
                     _save_config()
