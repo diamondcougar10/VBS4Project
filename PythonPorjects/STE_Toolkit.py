@@ -1396,19 +1396,11 @@ def distribute_terrain(project_name: str, log_func=lambda msg: None) -> None:
 # =============================================================================
 # Load configuration file and apply application icon.
 
-# ------------------------------------------------------------
-# Config path resolution for frozen + dev
-# ------------------------------------------------------------
+# --- Config path resolution (single source of truth) ---
 def _site_dir() -> str:
-    r"""Return the directory where the app should store its config.
-    
-    Development: Same directory as this .py file
-    Frozen: Same directory as the .exe (e.g., C:\Program Files\STE Toolkit)
-            NOT inside the _internal subdirectory where bundled resources live
-    """
-    if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)  # e.g., C:/Program Files/STE Toolkit
-    return os.path.abspath(os.path.dirname(__file__))
+    """Return the directory where the app should store its config."""
+    return os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) \
+           else os.path.abspath(os.path.dirname(__file__))
 
 BASE_DIR = _site_dir()
 
@@ -1425,37 +1417,33 @@ def _get_bundled_resource_dir():
 # Use bundled resource directory for UI assets and bundled files
 _BUNDLE_DIR = _get_bundled_resource_dir()
 
-# Robust config path resolution
-if getattr(sys, "frozen", False):
-    site_root = os.path.dirname(sys.executable)
-else:
-    site_root = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG_PATH = _resource_path('config.ini')          # bundled
+SITE_CONFIG_PATH    = os.path.join(BASE_DIR, 'config.ini')  # next to EXE
 
-DEFAULT_CONFIG_PATH = _resource_path("config.ini")  # bundled default (read-only in practice)
-SITE_CONFIG_PATH = os.path.join(site_root, "config.ini")
+def _arg_value(flag: str) -> str | None:
+    """Get command line argument value for given flag."""
+    try:
+        i = sys.argv.index(flag)
+        return sys.argv[i + 1]
+    except Exception:
+        return None
+
+_cli_cfg = _arg_value('--config')
+if _cli_cfg:
+    CONFIG_PATH = os.path.abspath(_cli_cfg)                  # accept even if not yet created
+else:
+    CONFIG_PATH = SITE_CONFIG_PATH if os.path.exists(SITE_CONFIG_PATH) else DEFAULT_CONFIG_PATH
 
 PATHS_CACHE = os.path.join(BASE_DIR, "paths_cache.json")
 ICON_NAME   = 'icon.ico'
 SPLASH_NAME = 'splash.png'
 
-# CLI override: --config <path>
-CONFIG_PATH = None
-argv = sys.argv[:]  # safe copy
-for i, a in enumerate(argv):
-    if a == "--config" and i + 1 < len(argv):
-        p = argv[i + 1]
-        if os.path.isfile(p):
-            CONFIG_PATH = p
-        break
-
-# Final pick: CLI override if valid, else site file if present, else bundled default
-if not CONFIG_PATH:
-    CONFIG_PATH = SITE_CONFIG_PATH if os.path.isfile(SITE_CONFIG_PATH) else DEFAULT_CONFIG_PATH
-
 config = configparser.ConfigParser()
-# Always try to read from CONFIG_PATH first; this guarantees CLI override wins
-# and site config takes precedence over bundled default
-config.read(CONFIG_PATH, encoding='utf-8')
+# Read bundled defaults then overlay site/explicit if present
+if CONFIG_PATH == DEFAULT_CONFIG_PATH:
+    config.read([DEFAULT_CONFIG_PATH, SITE_CONFIG_PATH], encoding='utf-8')
+else:
+    config.read([DEFAULT_CONFIG_PATH, CONFIG_PATH], encoding='utf-8')
 
 # Share config with photomesh_launcher module to prevent conflicts
 import photomesh_launcher
@@ -1489,25 +1477,14 @@ FAST_START_CLI = "--fast-start" in sys.argv
 APP_INSTANCE = None
 
 def save_config() -> None:
-    """
-    Persist config to the correct location, prioritizing the active CONFIG_PATH.
-    Always saves to the same file we're reading from to maintain consistency.
-    """
-    target = CONFIG_PATH
+    """Always save to site config (next to EXE)."""
+    target = SITE_CONFIG_PATH
     try:
-        # Ensure directory exists
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, 'w', encoding='utf-8') as f:
             config.write(f)
     except Exception as e:
-        # If we can't write to the active CONFIG_PATH and it's not the site config, try site as fallback
-        if target != SITE_CONFIG_PATH:
-            try:
-                os.makedirs(os.path.dirname(SITE_CONFIG_PATH), exist_ok=True)
-                with open(SITE_CONFIG_PATH, 'w', encoding='utf-8') as f:
-                    config.write(f)
-            except Exception as e2:
-                pass
+        print(f"[WARN] Unable to write '{target}': {e}")
 
 def _save_config():
     """Legacy wrapper - use save_config() instead."""

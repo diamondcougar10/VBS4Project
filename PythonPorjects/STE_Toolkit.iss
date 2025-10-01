@@ -533,6 +533,19 @@ begin
   end;
 end;
 
+procedure EnsureSiteConfigExists(const AppDir: string);
+var Src, Dst: string;
+begin
+  Dst := AddBackslash(AppDir) + 'config.ini';
+  if not FileExists(Dst) then begin
+    Src := AddBackslash(AppDir) + '_internal\config.ini';
+    if FileExists(Src) then
+      FileCopy(Src, Dst, False)   // create site-level from bundled default
+    else
+      SaveStringToFile(Dst, '; created by installer' + #13#10, False);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   AppDir, Base, RMTarget, HostRoot, Cmd, Ip: string;
@@ -541,9 +554,10 @@ var
   DscIP, DscName: string;  { NEW: for host discovery }
   IniPath, BundledIni: string;         { NEW: for update case and config copying }
 begin
-  if CurStep = ssInstall then
+  if CurStep = ssPostInstall then  { CHANGED FROM ssInstall - seed AFTER files are copied }
   begin
     AppDir := ExpandConstant('{app}');
+    EnsureSiteConfigExists(AppDir);  { NEW: Ensure config.ini exists before seeding }
     HostRoot := '';
 
     case SelectedMode() of
