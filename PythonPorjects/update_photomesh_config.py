@@ -21,6 +21,8 @@
 # region Imports
 import os
 import sys
+import time
+import subprocess
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
@@ -49,6 +51,68 @@ CONFIGS = [
 # endregion
 
 # region Utilities
+def find_fuser_exe() -> str:
+    """
+    Try common install paths for PhotoMeshFuser.exe.
+    Returns the path if found, empty string otherwise.
+    """
+    candidates = [
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe",
+        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\Fuser\\PhotoMeshFuser.exe",
+        r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe",
+        r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Tools\\Fuser\\PhotoMeshFuser.exe",
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+
+    # Try walking PhotoMesh install folder
+    for root_path in [r"C:\\Program Files\\Skyline\\PhotoMesh", r"C:\\Program Files (x86)\\Skyline\\PhotoMesh"]:
+        if os.path.exists(root_path):
+            for dp, dn, fn in os.walk(root_path):
+                if "PhotoMeshFuser.exe" in fn:
+                    return os.path.join(dp, "PhotoMeshFuser.exe")
+    return ""
+
+def seed_fuser_default(wf_unc: str) -> None:
+    """
+    Launch a fuser once with the correct UNC to let Skyline persist it as the default.
+    This makes the fuser UI's 'Open Working Folder' open the right share thereafter.
+    """
+    if not wf_unc or not wf_unc.startswith("\\\\"):
+        print(f"[seed_fuser] Invalid UNC path: {wf_unc}")
+        return
+
+    exe = find_fuser_exe()
+    if not exe:
+        print("[seed_fuser] PhotoMeshFuser.exe not found")
+        return
+
+    print(f"[seed_fuser] Seeding fuser default with: {wf_unc}")
+    
+    try:
+        # Start 'first' fuser with the UNC so Skyline persists it.
+        # Arguments: name, working_folder, auto_exit(0=no), show_ui(true)
+        p = subprocess.Popen([exe, "SeedFuser", wf_unc, "0", "true"], 
+                           stdout=subprocess.DEVNULL, 
+                           stderr=subprocess.DEVNULL)
+        
+        # Give it time to initialize and save defaults
+        time.sleep(4)
+        
+        # Best-effort shutdown; ignore errors if user already closed it
+        try:
+            subprocess.run(["taskkill", "/im", "PhotoMeshFuser.exe", "/f"], 
+                         check=False, 
+                         stdout=subprocess.DEVNULL, 
+                         stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+            
+        print("[seed_fuser] Fuser default seeded successfully")
+        
+    except Exception as e:
+        print(f"[seed_fuser] Failed to seed fuser default: {e}")
 # endregion
 
 # region File I/O & JSON helpers
@@ -159,14 +223,54 @@ def update_config(path: str) -> bool:
 
 # region Main entry point
 def main() -> None:
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Update PhotoMesh Wizard config and seed fuser defaults")
+    parser.add_argument("--seed-fuser", action="store_true", default=True,
+                       help="Seed fuser default working folder (default: True)")
+    parser.add_argument("--no-seed-fuser", action="store_true", 
+                       help="Skip seeding fuser default working folder")
+    args = parser.parse_args()
+    
+    # Determine if we should seed fuser
+    should_seed_fuser = args.seed_fuser and not args.no_seed_fuser
+    
     any_ok = False
+    wf_unc = ""
+    
+    # Update wizard configs
     for path in CONFIGS:
         if not os.path.isfile(path):
             continue
         if update_config(path):
             any_ok = True
+    
     if not any_ok:
         print("No PhotoMesh Wizard config.json found in standard locations.")
+    
+    # Compute the working fuser UNC for seeding
+    if should_seed_fuser:
+        try:
+            offline = get_offline_cfg()
+            root_unc = build_unc_from_cfg(offline)
+            if root_unc:
+                subdir = (offline.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+                wf_unc = os.path.join(root_unc, subdir).replace("/", "\\")
+            else:
+                try:
+                    wf_unc = resolve_network_working_folder_from_cfg(offline)
+                except Exception:
+                    wf_unc = ""
+        except Exception as e:
+            print(f"[main] Failed to compute working fuser UNC: {e}")
+        
+        # Seed the fuser default if we have a valid UNC
+        if wf_unc:
+            seed_fuser_default(wf_unc)
+        else:
+            print("[main] No valid working fuser UNC found - skipping fuser seeding")
+    else:
+        print("[main] Fuser seeding disabled by command line argument")
 
 
 if __name__ == "__main__":

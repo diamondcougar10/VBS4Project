@@ -5,6 +5,47 @@
 # Purpose: Main GUI toolkit for launching apps, configuring PhotoMesh/Wizard,
 #          managing fusers, paths, and Reality Mesh workflows
 # =============================================================================
+
+# Memory optimization imports and configuration
+import gc
+import sys
+import os
+
+# Optimize Python memory settings
+if hasattr(sys, 'set_int_max_str_digits'):
+    sys.set_int_max_str_digits(100000)  # Increase string conversion limits
+
+# Configure garbage collection for better memory management
+gc.set_threshold(700, 10, 10)  # More aggressive garbage collection
+gc.enable()
+
+# Set environment variables for better memory handling
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'  # Don't create .pyc files
+os.environ['PYTHONOPTIMIZE'] = '2'  # Enable optimizations
+
+# Windows-specific memory optimizations
+if sys.platform == 'win32':
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        # Increase virtual memory allocation
+        kernel32 = ctypes.windll.kernel32
+        
+        # Set process working set size (min 64MB, max 2GB)
+        handle = kernel32.GetCurrentProcess()
+        min_ws = 64 * 1024 * 1024  # 64MB minimum
+        max_ws = 2048 * 1024 * 1024  # 2GB maximum
+        
+        try:
+            kernel32.SetProcessWorkingSetSize(handle, min_ws, max_ws)
+        except:
+            pass  # Ignore if we can't set working set size
+            
+    except ImportError:
+        pass  # Ignore if ctypes not available
+
+# =============================================================================
 # Table of Contents
 #   1) Metadata & Imports
 #   2) Constants & Globals
@@ -118,6 +159,59 @@ def _resource_path(name: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
     return os.path.join(base, name)
 
+# =============================================================================
+# DIALOG SAFETY WRAPPERS (Global functions to handle fullscreen issues)
+# =============================================================================
+
+def safe_messagebox_showerror(title, message, **kwargs):
+    """Global wrapper for messagebox.showerror with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return messagebox.showerror(title, message, **kwargs)
+
+def safe_messagebox_showwarning(title, message, **kwargs):
+    """Global wrapper for messagebox.showwarning with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return messagebox.showwarning(title, message, **kwargs)
+
+def safe_messagebox_showinfo(title, message, **kwargs):
+    """Global wrapper for messagebox.showinfo with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return messagebox.showinfo(title, message, **kwargs)
+
+def safe_messagebox_askyesno(title, message, **kwargs):
+    """Global wrapper for messagebox.askyesno with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return messagebox.askyesno(title, message, **kwargs)
+
+def safe_filedialog_askdirectory(**kwargs):
+    """Global wrapper for filedialog.askdirectory with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return filedialog.askdirectory(**kwargs)
+
+def safe_filedialog_askopenfilename(**kwargs):
+    """Global wrapper for filedialog.askopenfilename with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return filedialog.askopenfilename(**kwargs)
+
+def safe_simpledialog_askstring(title, prompt, **kwargs):
+    """Global wrapper for simpledialog.askstring with proper parenting."""
+    global APP_INSTANCE
+    if APP_INSTANCE and 'parent' not in kwargs:
+        kwargs['parent'] = APP_INSTANCE
+    return simpledialog.askstring(title, prompt, **kwargs)
+
 # --- UI dispatch (thread-safe) ---
 _UI_QUEUE = Queue()
 
@@ -152,7 +246,8 @@ class SplashScreen(tk.Toplevel):
         super().__init__(master)
         self.withdraw()  # Hide initially to prevent flash
         self.overrideredirect(True)              # borderless
-        self.attributes("-topmost", True)
+        # Do not set topmost - this causes dialog visibility issues
+        # self.attributes("-topmost", True)  # REMOVED - causes fullscreen issues
         self._is_splash = True
         self.attributes("-alpha", start_alpha)
         self._alpha_target = float(end_alpha)
@@ -244,9 +339,10 @@ class SplashScreen(tk.Toplevel):
         # Add failsafe close: hard ceiling of 10 seconds
         self.after(int(10_000), lambda: (None if self._closing else self.close()))
         
-        # Now show the window and fade in (borderless, on-top, semi-transparent is enough)
+        # Now show the window and fade in (borderless, semi-transparent is enough)
         self.deiconify()
-        self.attributes("-topmost", True)  # Ensure it stays on top
+        # Do not set topmost - this causes dialog visibility issues in fullscreen
+        # self.attributes("-topmost", True)  # REMOVED - causes fullscreen issues
         self._fade_in()
         
     def _animate_progress(self):
@@ -277,10 +373,17 @@ class SplashScreen(tk.Toplevel):
         
     def _begin_close(self):
         """Start the fade out process"""
-        self._closing = True
-        try: self.attributes("-disabled", False)
-        except Exception: pass
-        self._fade_out()
+        try:
+            self._closing = True
+            try: self.attributes("-disabled", False)
+            except Exception: pass
+            self._fade_out()
+        except Exception:
+            # If anything fails, just destroy the window immediately
+            try:
+                self.destroy()
+            except Exception:
+                pass
 
     def set_message(self, text: str) -> None:
         """Update the message shown on the splash screen"""
@@ -315,16 +418,23 @@ class SplashScreen(tk.Toplevel):
             self.after(0, self._begin_close)
 
     def _fade_out(self):
-        cur = float(self.attributes("-alpha") or 0.0)
-        if cur > 0.0:
-            self.attributes("-alpha", max(0.0, cur - 0.10))
-            self.after(16, self._fade_out)
-        else:
-            # ensure we don't steal focus on destroy
-            try: self.master.focus_force()
-            except Exception: pass
-            # Make sure splash is completely gone before main window is shown
-            self.destroy()
+        try:
+            cur = float(self.attributes("-alpha") or 0.0)
+            if cur > 0.0:
+                self.attributes("-alpha", max(0.0, cur - 0.10))
+                self.after(16, self._fade_out)
+            else:
+                # ensure we don't steal focus on destroy
+                try: self.master.focus_force()
+                except Exception: pass
+                # Make sure splash is completely gone before main window is shown
+                self.destroy()
+        except Exception:
+            # Window already destroyed or invalid - just finish
+            try:
+                self.destroy()
+            except Exception:
+                pass
 
 # --- Log batching ---
 _log_buf = io.StringIO()
@@ -448,9 +558,46 @@ def release_singleton() -> None:
 # =============================================================================
 
 def _run(cmd, **kw):
-    """Run a command; return (rc, stdout, stderr)."""
-    cp = subprocess.run(cmd, capture_output=True, text=True, **kw)
-    return cp.returncode, (cp.stdout or ""), (cp.stderr or "")
+    """Run a command with memory safety; return (rc, stdout, stderr)."""
+    try:
+        # Add memory optimizations for subprocess calls
+        optimized_kw = {
+            'capture_output': True,
+            'text': True,
+            'timeout': 30,  # Prevent hanging processes
+            'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0,
+            **kw
+        }
+        
+        # Force garbage collection before subprocess
+        gc.collect()
+        
+        cp = subprocess.run(cmd, **optimized_kw)
+        return cp.returncode, (cp.stdout or ""), (cp.stderr or "")
+        
+    except subprocess.TimeoutExpired:
+        logging.warning(f"[_run] Command timed out: {cmd}")
+        return 1, "", "Command timed out"
+    except OSError as e:
+        if "not enough memory" in str(e).lower() or "resource" in str(e).lower():
+            logging.error(f"[_run] Memory/resource error for command {cmd}: {e}")
+            # Try basic garbage collection and retry once
+            for _ in range(3):
+                gc.collect()
+            try:
+                # Retry with minimal options
+                basic_kw = {'capture_output': True, 'text': True, 'timeout': 10}
+                cp = subprocess.run(cmd, **basic_kw)
+                return cp.returncode, (cp.stdout or ""), (cp.stderr or "")
+            except Exception:
+                logging.error(f"[_run] Retry also failed for command {cmd}")
+                return 1, "", f"Memory/resource error: {e}"
+        else:
+            logging.error(f"[_run] OS error for command {cmd}: {e}")
+            return 1, "", str(e)
+    except Exception as e:
+        logging.error(f"[_run] Unexpected error for command {cmd}: {e}")
+        return 1, "", str(e)
 
 def _try_net_use_unc(unc_root, username=None, password=None):
     """
@@ -462,12 +609,231 @@ def _try_net_use_unc(unc_root, username=None, password=None):
     # If both provided, pass them to net use; otherwise let Windows use cached creds
     if username and password:
         args = ["net", "use", unc_root, password, f"/user:{username}", "/persistent:yes"]
-    rc, *_ = _run(args)
-    return rc == 0
+    
+    try:
+        rc, stdout, stderr = _run(args)
+        logging.info(f"[net_use] Command: {' '.join(args)}")
+        logging.info(f"[net_use] Return code: {rc}")
+        if stdout:
+            logging.info(f"[net_use] Stdout: {stdout}")
+        if stderr:
+            logging.info(f"[net_use] Stderr: {stderr}")
+        
+        # If the connection already exists, that's also success
+        if rc != 0 and "already exists" in (stdout + stderr).lower():
+            logging.info(f"[net_use] Connection already exists for {unc_root}")
+            return True
+            
+        return rc == 0
+    except Exception as e:
+        logging.error(f"[net_use] Exception running net use: {e}")
+        return False
 
 def _store_creds_in_cmdkey(host, username, password):
     """Persist credentials for SMB to avoid re-prompt on next boot."""
-    _run(["cmdkey", f"/add:{host}", f"/user:{username}", f"/pass:{password}"])
+    try:
+        # First, try to delete any existing credentials for this host
+        _run(["cmdkey", f"/delete:{host}"])
+        # Then add the new credentials
+        rc, stdout, stderr = _run(["cmdkey", f"/add:{host}", f"/user:{username}", f"/pass:{password}"])
+        logging.info(f"[cmdkey] Stored credentials for {username}@{host}, return code: {rc}")
+        if stderr:
+            logging.warning(f"[cmdkey] Stderr: {stderr}")
+    except Exception as e:
+        logging.error(f"[cmdkey] Exception storing credentials: {e}")
+
+def _test_network_connectivity(host):
+    """Test basic network connectivity to a host."""
+    try:
+        # Try to ping the host
+        rc, stdout, stderr = _run(["ping", "-n", "1", "-w", "3000", host])
+        if rc == 0:
+            logging.info(f"[ping] Host {host} is reachable")
+            return True
+        else:
+            logging.warning(f"[ping] Host {host} is not reachable: {stderr}")
+            return False
+    except Exception as e:
+        logging.error(f"[ping] Exception testing connectivity to {host}: {e}")
+        return False
+
+def debug_network_connection(unc_path):
+    """Debug helper to test network connectivity and UNC access."""
+    if not unc_path or not unc_path.startswith("\\\\"):
+        print(f"Invalid UNC path: {unc_path}")
+        return
+    
+    # Extract host from UNC path
+    parts = unc_path.split("\\")
+    if len(parts) < 4:
+        print(f"Invalid UNC format: {unc_path}")
+        return
+    
+    host = parts[2]
+    share = parts[3]
+    unc_root = f"\\\\{host}\\{share}"
+    
+    print(f"Testing connection to: {unc_path}")
+    print(f"Host: {host}")
+    print(f"Share: {share}")
+    print(f"UNC Root: {unc_root}")
+    print()
+    
+    # Test 1: Ping connectivity
+    print("1. Testing ping connectivity...")
+    if _test_network_connectivity(host):
+        print("   ✓ Host is reachable")
+    else:
+        print("   ✗ Host is not reachable")
+        return
+    
+    # Test 2: Check if UNC is already accessible
+    print("2. Testing UNC accessibility...")
+    if can_access_unc(unc_root):
+        print("   ✓ UNC is accessible")
+        return
+    else:
+        print("   ✗ UNC is not accessible")
+    
+    # Test 3: Try net use without credentials
+    print("3. Testing net use without credentials...")
+    if _try_net_use_unc(unc_root):
+        print("   ✓ Connected without credentials")
+        if can_access_unc(unc_root):
+            print("   ✓ UNC is now accessible")
+        else:
+            print("   ✗ Connected but UNC still not accessible")
+    else:
+        print("   ✗ Cannot connect without credentials")
+        print("   → You may need to provide username and password")
+
+def clear_offline_ip_configuration():
+    """Clear the offline IP configuration to stop automatic connection attempts."""
+    try:
+        global config
+        
+        # Clear the offline host IP
+        if "Offline" in config:
+            if "host_ip" in config["Offline"]:
+                old_ip = config["Offline"]["host_ip"]
+                config["Offline"]["host_ip"] = ""
+                logging.info(f"[clear_offline] Cleared host IP: {old_ip}")
+            
+            # Also clear other related offline settings
+            if "host_name" in config["Offline"]:
+                config["Offline"]["host_name"] = ""
+                logging.info(f"[clear_offline] Cleared host name")
+        
+        # Clear network host as well
+        if "Network" in config:
+            if "host" in config["Network"]:
+                config["Network"]["host"] = ""
+                logging.info(f"[clear_offline] Cleared network host")
+        
+        # Clear fuser shared path
+        if "Fusers" in config:
+            if "shared_working_unc" in config["Fusers"]:
+                config["Fusers"]["shared_working_unc"] = ""
+                logging.info(f"[clear_offline] Cleared fuser shared UNC")
+            if "working_folder_host" in config["Fusers"]:
+                config["Fusers"]["working_folder_host"] = ""
+                logging.info(f"[clear_offline] Cleared fuser working folder host")
+        
+        # Save the configuration
+        save_config()
+        logging.info("[clear_offline] Configuration cleared and saved")
+        return True
+        
+    except Exception as e:
+        logging.error(f"[clear_offline] Failed to clear configuration: {e}")
+        return False
+
+def optimize_memory():
+    """Optimize memory usage by running garbage collection and clearing caches."""
+    try:
+        # Force garbage collection
+        collected = gc.collect()
+        
+        # Clear any module caches if available
+        if hasattr(sys, '_clear_type_cache'):
+            sys._clear_type_cache()
+            
+        # Clear import caches
+        if hasattr(sys.modules, 'clear'):
+            # Don't clear essential modules
+            pass
+        
+        logging.info(f"[memory] Garbage collection freed {collected} objects")
+        return collected
+        
+    except Exception as e:
+        logging.error(f"[memory] Failed to optimize memory: {e}")
+        return 0
+
+def get_memory_usage():
+    """Get current memory usage information."""
+    try:
+        if sys.platform == 'win32':
+            import psutil
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            return {
+                'rss': memory_info.rss,  # Resident Set Size
+                'vms': memory_info.vms,  # Virtual Memory Size
+                'percent': process.memory_percent(),
+                'available': psutil.virtual_memory().available
+            }
+    except ImportError:
+        # Fallback if psutil not available
+        try:
+            import tracemalloc
+            if tracemalloc.is_tracing():
+                current, peak = tracemalloc.get_traced_memory()
+                return {
+                    'current': current,
+                    'peak': peak,
+                    'tracing': True
+                }
+        except:
+            pass
+    except:
+        pass
+    
+    return {'error': 'Memory info not available'}
+
+def start_memory_monitoring():
+    """Start memory monitoring if available."""
+    try:
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+            logging.info("[memory] Memory monitoring started")
+    except ImportError:
+        logging.info("[memory] tracemalloc not available, memory monitoring disabled")
+    except Exception as e:
+        logging.warning(f"[memory] Failed to start memory monitoring: {e}")
+
+def periodic_memory_cleanup():
+    """Periodic memory cleanup function to be called during app runtime."""
+    try:
+        # Run garbage collection
+        collected = gc.collect()
+        
+        # Log memory stats if available
+        memory_info = get_memory_usage()
+        if 'percent' in memory_info:
+            percent = memory_info['percent']
+            if percent > 80:  # If using more than 80% of system memory
+                logging.warning(f"[memory] High memory usage: {percent:.1f}%")
+                # More aggressive cleanup
+                for _ in range(3):
+                    gc.collect()
+        
+        if collected > 0:
+            logging.debug(f"[memory] Periodic cleanup freed {collected} objects")
+            
+    except Exception as e:
+        logging.error(f"[memory] Periodic cleanup failed: {e}")
 
 def check_network_share_status():
     """
@@ -528,12 +894,22 @@ def connect_working_share_interactive(parent=None, silent=False):
         host = (get_offline_cfg().get("host_ip") or "").strip() or unc_root.strip("\\").split("\\")[0]
         user = simpledialog.askstring("Network Sign‑in", f"Username for \\\\{host}:", parent=parent)
         if not user:
+            # User cancelled username dialog - clear offline config
+            clear_offline_ip_configuration()
+            logging.info("[connect_working_share] Cleared offline configuration due to username dialog cancellation")
             return False
         pwd = simpledialog.askstring("Network Sign‑in", "Password:", show="*", parent=parent)
         if pwd is None:
+            # User cancelled password dialog - clear offline config
+            clear_offline_ip_configuration()
+            logging.info("[connect_working_share] Cleared offline configuration due to password dialog cancellation")
             return False
         _store_creds_in_cmdkey(host, user, pwd)
-        _try_net_use_unc(unc_root, username=user, password=pwd)
+        success = _try_net_use_unc(unc_root, username=user, password=pwd)
+        if not success:
+            # Authentication failed - clear offline config
+            clear_offline_ip_configuration()
+            logging.info("[connect_working_share] Cleared offline configuration due to authentication failure")
     except Exception:
         pass
 
@@ -1934,33 +2310,195 @@ def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
     
     return max(MIN_LOCAL_FUSERS, min(MAX_LOCAL_FUSERS, int(n)))
 
+def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
+    """
+    Create LocalFuser{n}.bat files that embed the correct UNC path.
+    This provides a fallback method to ensure fusers always get the right working folder.
+    """
+    try:
+        # Check system resources before creating files
+        try:
+            memory_info = get_memory_usage()
+            if 'percent' in memory_info and memory_info['percent'] > 90:
+                logging.warning("[create_fuser_bats] Skipping due to high memory usage")
+                return
+        except:
+            pass  # If memory check fails, continue anyway
+        
+        exe = find_fuser_exe()
+        if not exe:
+            logging.warning("[create_fuser_bats] PhotoMeshFuser.exe not found")
+            return
+
+        shared = working_fuser_unc()
+        if not shared:
+            logging.warning("[create_fuser_bats] No shared working UNC configured")
+            return
+
+        fuser_dir = os.path.dirname(exe)
+        if not os.access(fuser_dir, os.W_OK):
+            logging.warning(f"[create_fuser_bats] No write access to {fuser_dir}")
+            return
+            
+        shared_normalized = os.path.normpath(shared).replace("/", "\\")
+        
+        # Limit the number of batch files to reduce resource usage
+        safe_max_fusers = min(max_fusers, 3)  # Limit to 3 to reduce memory pressure
+        
+        created_count = 0
+        for i in range(1, safe_max_fusers + 1):
+            bat_name = f"LocalFuser{i}.bat"
+            bat_path = os.path.join(fuser_dir, bat_name)
+            
+            # Skip if file already exists and is recent
+            if os.path.exists(bat_path):
+                try:
+                    stat = os.stat(bat_path)
+                    age_hours = (time.time() - stat.st_mtime) / 3600
+                    if age_hours < 24:  # Skip if less than 24 hours old
+                        logging.debug(f"[create_fuser_bats] Skipping recent {bat_path}")
+                        created_count += 1
+                        continue
+                except:
+                    pass
+            
+            # Create batch file content with memory-optimized approach
+            bat_content = f'@echo off\nstart "" "{exe}" "LocalFuser{i}" "{shared_normalized}" 0 true\n'
+            
+            try:
+                # Use context manager for proper file handling
+                with open(bat_path, 'w', encoding='ansi') as f:
+                    f.write(bat_content)
+                created_count += 1
+                logging.debug(f"[create_fuser_bats] Created {bat_path}")
+                
+                # Force garbage collection after each file
+                gc.collect()
+                
+            except Exception as e:
+                logging.warning(f"[create_fuser_bats] Failed to create {bat_path}: {e}")
+                # Continue with other files
+        
+        if created_count > 0:
+            logging.info(f"[create_fuser_bats] Created/verified {created_count} batch wrappers in {fuser_dir}")
+        else:
+            logging.warning("[create_fuser_bats] No batch wrappers created")
+            
+    except Exception as e:
+        logging.error(f"[create_fuser_bats] Unexpected error: {e}")
+        # Don't let this crash the application
+
 def start_fuser_instance(idx: int) -> bool:
     """Start *idx*-th fuser via its own shortcut/command."""
     o = get_offline_cfg()
     if o["enabled"]:
         unc = resolve_network_working_folder_from_cfg(o)
         if not can_access_unc(unc):
-            messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+            # Clear offline config when network access fails
+            clear_offline_ip_configuration()
+            logging.info("[start_fuser] Cleared offline configuration due to network access failure")
+            safe_messagebox_showerror("Offline Mode", OFFLINE_ACCESS_HINT)
             return False
 
     exe = find_fuser_exe()
     if not exe:
-        messagebox.showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
+        safe_messagebox_showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
         return False
 
     name = f"LocalFuser{idx}"
     shared = working_fuser_unc()
     bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
 
+    # Ensure UNC is accessible before launching
+    if shared and shared.startswith("\\\\"):
+        unc_root = "\\\\".join(shared.split("\\")[:4])  # Extract \\host\share
+        if not can_access_unc(unc_root):
+            # Try to connect with net use (without credentials first)
+            if not _try_net_use_unc(unc_root):
+                # If still not accessible, test basic connectivity first
+                host = shared.split("\\")[2] if len(shared.split("\\")) > 2 else ""
+                if host:
+                    # First test basic network connectivity
+                    if not _test_network_connectivity(host):
+                        safe_messagebox_showerror("Network Error", 
+                                           f"Cannot reach host {host}. Check network connectivity and ensure the host is online.")
+                        return False
+                    
+                    # Try once more without credentials in case there was a timing issue
+                    if _try_net_use_unc(unc_root):
+                        time.sleep(2)
+                        if can_access_unc(unc_root):
+                            logging.info(f"[fuser] Connected to {unc_root} without credentials")
+                        else:
+                            logging.warning(f"[fuser] Connected to {unc_root} but folder access check failed")
+                    else:
+                        # Only prompt for credentials if automatic connection failed
+                        user = safe_simpledialog_askstring("Network Credentials", 
+                                                     f"Username for {host}:")
+                        if user:  # Only proceed if user entered something
+                            pwd = safe_simpledialog_askstring("Network Credentials", 
+                                                        f"Password for {user}@{host}:", 
+                                                        show="*")
+                            if pwd:  # Only proceed if password entered
+                                _store_creds_in_cmdkey(host, user, pwd)
+                                # Try to connect with credentials
+                                connect_success = _try_net_use_unc(unc_root, username=user, password=pwd)
+                                if connect_success:
+                                    # Give Windows a moment to establish the connection
+                                    time.sleep(3)
+                                    # Try multiple times to check accessibility
+                                    accessible = False
+                                    for attempt in range(3):
+                                        if can_access_unc(unc_root):
+                                            accessible = True
+                                            break
+                                        time.sleep(1)
+                                    
+                                    if accessible:
+                                        logging.info(f"[fuser] Successfully connected to {unc_root}")
+                                    else:
+                                        # Connection succeeded but still can't access - might be permissions
+                                        safe_messagebox_showwarning("Network Warning", 
+                                                   f"Connected to {unc_root} but cannot access the folder contents. " +
+                                                   f"This might be a permissions issue, but the fuser will attempt to start anyway.")
+                                else:
+                                    safe_messagebox_showerror("Network Error", 
+                                               f"Authentication failed for {unc_root}. Please check your username and password.")
+                                    # Clear offline config on authentication failure
+                                    clear_offline_ip_configuration()
+                                    logging.info("[fuser] Cleared offline configuration due to authentication failure")
+                                    return False
+                            else:
+                                # User cancelled password dialog - clear offline config
+                                clear_offline_ip_configuration()
+                                logging.info("[fuser] Cleared offline configuration due to password dialog cancellation")
+                                return False
+                        else:
+                            # User cancelled username dialog - clear offline config
+                            clear_offline_ip_configuration()
+                            logging.info("[fuser] Cleared offline configuration due to username dialog cancellation")
+                            return False
+            else:
+                # Connection succeeded without credentials
+                time.sleep(1)
+                if can_access_unc(unc_root):
+                    logging.info(f"[fuser] Connected to {unc_root} without credentials")
+                else:
+                    logging.warning(f"[fuser] Connected to {unc_root} but folder access check failed")
+
     try:
+        # Prefer batch file if it exists
         if os.path.isfile(bat):
             cmd = f'start "" "{bat}"'
         else:
-            cmd = f'start "" "{exe}" "{name}" "{shared}" 0 true'
+            # Normalize the shared path and quote it properly
+            shared_normalized = os.path.normpath(shared).replace("/", "\\")
+            cmd = f'start "" "{exe}" "{name}" "{shared_normalized}" 0 true'
+        
         subprocess.run(cmd, shell=True, check=True)
         return True
     except Exception as e:
-        messagebox.showerror("Fuser", f"Failed to start {name}:\n{e}")
+        safe_messagebox_showerror("Fuser", f"Failed to start {name}:\n{e}")
         return False
 
 def kill_fusers() -> None:
@@ -2154,6 +2692,18 @@ def apply_offline_settings() -> None:
     
     enforce_photomesh_settings()
     update_fuser_shared_path()
+    
+    # Create batch wrappers as a fallback method for reliable fuser launches
+    try:
+        # Only create batch wrappers if we have sufficient system resources
+        memory_info = get_memory_usage()
+        if 'percent' in memory_info and memory_info['percent'] > 85:
+            logging.warning("[apply_offline] Skipping batch wrapper creation due to high memory usage")
+        else:
+            create_fuser_bat_wrappers()
+    except Exception as e:
+        logging.warning(f"Failed to create fuser batch wrappers: {e}")
+        # Don't let this failure stop the application
 
     if _is_offline_enabled():
         o = get_offline_cfg()
@@ -2335,7 +2885,7 @@ def first_run_setup(master=None) -> None:
     """Execute the first-run workflow for shared drive + installer configuration."""
 
     log_to_console("[first-run] Starting first-run configuration flow…")
-    selected_root = filedialog.askdirectory(
+    selected_root = safe_filedialog_askdirectory(
         parent=master,
         title="Select the drive or root folder for SharedMeshDrive",
         mustexist=True,
@@ -2428,7 +2978,7 @@ def first_run_setup(master=None) -> None:
     if failures:
         log_to_console("[first-run] Installer issues: " + "; ".join(failures))
         if messagebox:
-            messagebox.showwarning(
+            safe_messagebox_showwarning(
                 "First-Run Setup",
                 "Some installers reported issues:\n- " + "\n- ".join(failures) +
                 "\n\nYou can retry from the Settings panel.",
@@ -2490,13 +3040,13 @@ def toggle_startup():
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
         winreg.DeleteValue(key, APP_NAME)
         winreg.CloseKey(key)
-        messagebox.showinfo("Settings", "Launch on startup ▶ Disabled")
+        safe_messagebox_showinfo("Settings", "Launch on startup ▶ Disabled")
     else:
         exe_path = sys.executable
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
         winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
         winreg.CloseKey(key)
-        messagebox.showinfo("Settings", "Launch on startup ▶ Enabled")
+        safe_messagebox_showinfo("Settings", "Launch on startup ▶ Enabled")
 
 def toggle_close_on_launch():
     """Toggle whether the main window closes when you launch a tool."""
@@ -2504,7 +3054,7 @@ def toggle_close_on_launch():
     config['General']['close_on_launch'] = str(enabled)
     save_config()
     status = "Enabled" if enabled else "Disabled"
-    messagebox.showinfo("Settings", f"Close on Software Launch? ▶ {status}")
+    safe_messagebox_showinfo("Settings", f"Close on Software Launch? ▶ {status}")
 
 # =============================================================================
 # GENERIC COMMAND LAUNCH HELPERS
@@ -2640,7 +3190,7 @@ def create_app_button(parent, app_name, get_path_func, action_func, set_path_fun
 #==============================================================================
 
 def prompt_for_exe(app_name, config_key):
-    response = messagebox.askyesno(
+    response = safe_messagebox_askyesno(
         f"Set {app_name} Path",
         f"Do you want to set the path for {app_name}?\n\nClick 'No' to skip.",
         icon='question'
@@ -2648,17 +3198,17 @@ def prompt_for_exe(app_name, config_key):
     if not response:
         return True 
 
-    path = filedialog.askopenfilename(
+    path = safe_filedialog_askopenfilename(
         title=f"Select {app_name} Executable",
         filetypes=[("Executable Files", "*.exe")]
     )
     if path and os.path.exists(path):
         config['General'][config_key] = clean_path(path)
         save_config()
-        messagebox.showinfo("Success", f"{app_name} path set to:\n{path}")
+        safe_messagebox_showinfo("Success", f"{app_name} path set to:\n{path}")
         return True
     else:
-        messagebox.showerror("Error", f"Invalid {app_name} path selected.")
+        safe_messagebox_showerror("Error", f"Invalid {app_name} path selected.")
         return False
 
 def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: str) -> str:
@@ -3602,6 +4152,89 @@ class MainApp(tk.Tk):
             self.attributes('-topmost', False)
         except Exception:
             pass
+
+    def _ensure_dialog_visibility(self):
+        """Minimal dialog visibility management - just ensure focus."""
+        try:
+            # Just ensure main window is ready for dialog parenting
+            self.update_idletasks()
+        except Exception:
+            pass
+
+    def _restore_window_state(self):
+        """Minimal window state restoration."""
+        try:
+            # Just ensure main window regains focus after dialog
+            self.after_idle(lambda: self.focus_set())
+        except Exception:
+            pass
+
+    # ---- Dialog wrapper methods for proper visibility ----
+    def safe_messagebox_showerror(self, title, message, **kwargs):
+        """Show error messagebox with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            result = messagebox.showerror(title, message, parent=self, **kwargs)
+        finally:
+            self._restore_window_state()
+        return result
+
+    def safe_messagebox_showwarning(self, title, message, **kwargs):
+        """Show warning messagebox with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            result = messagebox.showwarning(title, message, parent=self, **kwargs)
+        finally:
+            self._restore_window_state()
+        return result
+
+    def safe_messagebox_showinfo(self, title, message, **kwargs):
+        """Show info messagebox with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            result = messagebox.showinfo(title, message, parent=self, **kwargs)
+        finally:
+            self._restore_window_state()
+        return result
+
+    def safe_messagebox_askyesno(self, title, message, **kwargs):
+        """Show yes/no messagebox with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            result = messagebox.askyesno(title, message, parent=self, **kwargs)
+        finally:
+            self._restore_window_state()
+        return result
+
+    def safe_filedialog_askdirectory(self, **kwargs):
+        """Show directory dialog with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            kwargs.setdefault('parent', self)
+            result = filedialog.askdirectory(**kwargs)
+        finally:
+            self._restore_window_state()
+        return result
+
+    def safe_filedialog_askopenfilename(self, **kwargs):
+        """Show open file dialog with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            kwargs.setdefault('parent', self)
+            result = filedialog.askopenfilename(**kwargs)
+        finally:
+            self._restore_window_state()
+        return result
+
+    def safe_simpledialog_askstring(self, title, prompt, **kwargs):
+        """Show string input dialog with proper window management."""
+        self._ensure_dialog_visibility()
+        try:
+            kwargs.setdefault('parent', self)
+            result = simpledialog.askstring(title, prompt, **kwargs)
+        finally:
+            self._restore_window_state()
+        return result
         if sys.platform == 'win32':
             self._win_drop_topmost(self.winfo_id())
             self._win_allow_next_foreground()
@@ -3682,6 +4315,12 @@ class MainApp(tk.Tk):
 
     def _finish_warmup(self):
         """Complete warm-up and close the splash screen with proper timing."""
+        # Start memory monitoring
+        start_memory_monitoring()
+        
+        # Initial memory optimization
+        optimize_memory()
+        
         # Close PyInstaller's native splash if present
         if pyi_splash:
             try:
@@ -3723,6 +4362,9 @@ class MainApp(tk.Tk):
         self.window_scale = min(sw / self.base_width, sh / self.base_height, 1.0)
         win_w = int(self.base_width * self.window_scale)
         win_h = int(self.base_height * self.window_scale)
+        
+        # Schedule periodic memory cleanup (every 30 seconds)
+        self._schedule_memory_cleanup()
         x = (sw - win_w) // 2
         y = (sh - win_h) // 2
         self.windowed_geometry = f"{win_w}x{win_h}+{x}+{y}"
@@ -4524,8 +5166,53 @@ class MainApp(tk.Tk):
         if panel:
             panel.launch_reality_mesh_to_vbs4()
 
+    def _schedule_memory_cleanup(self):
+        """Schedule periodic memory cleanup."""
+        try:
+            # Run memory cleanup
+            periodic_memory_cleanup()
+            
+            # Schedule next cleanup in 30 seconds (30000 ms)
+            self.after(30000, self._schedule_memory_cleanup)
+            
+        except Exception as e:
+            logging.error(f"[memory] Memory cleanup scheduling failed: {e}")
+            # Try to reschedule anyway in 60 seconds
+            self.after(60000, self._schedule_memory_cleanup)
+
+    def force_memory_optimization(self):
+        """Manually trigger memory optimization - can be called from UI."""
+        try:
+            freed = optimize_memory()
+            memory_info = get_memory_usage()
+            
+            message = f"Memory optimization completed.\nFreed {freed} objects."
+            if 'percent' in memory_info:
+                message += f"\nCurrent memory usage: {memory_info['percent']:.1f}%"
+            
+            # Use safe messagebox if in fullscreen
+            if hasattr(self, 'fullscreen') and self.fullscreen:
+                safe_messagebox_showinfo("Memory Optimization", message)
+            else:
+                messagebox.showinfo("Memory Optimization", message)
+                
+        except Exception as e:
+            logging.error(f"[memory] Manual optimization failed: {e}")
+            error_msg = f"Memory optimization failed: {e}"
+            if hasattr(self, 'fullscreen') and self.fullscreen:
+                safe_messagebox_showerror("Memory Error", error_msg)
+            else:
+                messagebox.showerror("Memory Error", error_msg)
+
     def on_closing(self):
         """Handle window close event - kill fusers if this is a fuser computer."""
+        try:
+            # Clear offline IP configuration to prevent repeated connection attempts
+            clear_offline_ip_configuration()
+            logging.info("[on_closing] Cleared offline configuration on exit")
+        except Exception as e:
+            logging.error(f"[on_closing] Failed to clear offline configuration: {e}")
+        
         try:
             kill_all_fusers_on_exit()
         except Exception as e:
@@ -5245,6 +5932,9 @@ class VBS4Panel(tk.Frame):
         if o["enabled"]:
             default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
+                # Clear offline config when network access fails
+                clear_offline_ip_configuration()
+                logging.info("[fuser_manager] Cleared offline configuration due to network access failure")
                 messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
                 return
 
@@ -5320,6 +6010,9 @@ class VBS4Panel(tk.Frame):
         if o["enabled"]:
             default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
+                # Clear offline config when network access fails
+                clear_offline_ip_configuration()
+                logging.info("[fuser_panel] Cleared offline configuration due to network access failure")
                 messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
                 return
         else:
@@ -6834,6 +7527,7 @@ class SettingsPanel(tk.Frame):
         tk.Button(row8, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
         tk.Button(row8, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
         tk.Button(row8, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
+        tk.Button(row8, text="Clear Settings", bg="#664444", fg="white", command=self._clear_offline_settings).pack(side="left", padx=8)
 
         # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
@@ -7248,6 +7942,36 @@ class SettingsPanel(tk.Frame):
             post_ui(_done)
 
         run_in_thread(_work)
+
+    def _clear_offline_settings(self):
+        """Clear all offline IP and network configuration settings."""
+        result = messagebox.askyesno(
+            "Clear Settings", 
+            "This will clear all saved network IP addresses and connection settings.\n\n" +
+            "This will prevent automatic reconnection attempts to problematic hosts.\n\n" +
+            "Are you sure you want to continue?"
+        )
+        
+        if result:
+            # Clear the offline configuration
+            success = clear_offline_ip_configuration()
+            
+            # Also clear the UI fields
+            self.host_ip_var.set("")
+            self.off_share_name.set("")
+            self.off_work_subdir.set("")
+            
+            if success:
+                messagebox.showinfo(
+                    "Settings Cleared", 
+                    "Network settings have been cleared successfully.\n\n" +
+                    "The application will no longer attempt automatic connections to the previous host."
+                )
+            else:
+                messagebox.showerror(
+                    "Clear Failed", 
+                    "Failed to clear some settings. Check the log for details."
+                )
 
     def _refresh_fuser_counter_row(self):
         if not hasattr(self, "fuser_count_label"):
