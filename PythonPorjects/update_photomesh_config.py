@@ -85,7 +85,7 @@ def seed_fuser_default(wf_unc: str) -> None:
 
     exe = find_fuser_exe()
     if not exe:
-        print("[seed_fuser] PhotoMeshFuser.exe not found")
+        print("[seed_fuser] PhotoMeshFuser.exe not found - fuser seeding skipped")
         return
 
     print(f"[seed_fuser] Seeding fuser default with: {wf_unc}")
@@ -97,15 +97,29 @@ def seed_fuser_default(wf_unc: str) -> None:
                            stdout=subprocess.DEVNULL, 
                            stderr=subprocess.DEVNULL)
         
-        # Give it time to initialize and save defaults
-        time.sleep(4)
+        # Give it time to initialize and save defaults (with hard timeout)
+        max_wait_time = 10  # Hard limit: 10 seconds max
+        wait_time = min(4, max_wait_time)  # Prefer 4 seconds but respect limit
+        time.sleep(wait_time)
         
-        # Best-effort shutdown; ignore errors if user already closed it
+        # Best-effort shutdown with timeout; ignore errors if user already closed it
         try:
-            subprocess.run(["taskkill", "/im", "PhotoMeshFuser.exe", "/f"], 
+            # First try graceful termination
+            subprocess.run(["taskkill", "/im", "PhotoMeshFuser.exe"], 
                          check=False, 
+                         timeout=3,
                          stdout=subprocess.DEVNULL, 
                          stderr=subprocess.DEVNULL)
+            time.sleep(1)
+            
+            # If still running, force kill
+            subprocess.run(["taskkill", "/im", "PhotoMeshFuser.exe", "/f"], 
+                         check=False, 
+                         timeout=2,
+                         stdout=subprocess.DEVNULL, 
+                         stderr=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            print("[seed_fuser] Warning: Timeout during fuser cleanup")
         except Exception:
             pass
             
@@ -165,19 +179,26 @@ def update_config(path: str) -> bool:
     
     # Also ensure the host IP is set in the Network section for proper initialization
     if host_ip:
-        config_path = os.path.join(BASE_DIR, 'config.ini')
-        if os.path.exists(config_path):
-            try:
-                import configparser
+        try:
+            import configparser
+            # Use the same CONFIG_PATH resolution as STE_Toolkit
+            from STE_Toolkit import CONFIG_PATH
+            config_path = CONFIG_PATH
+            
+            if os.path.exists(config_path):
                 config = configparser.ConfigParser()
                 config.read(config_path)
                 if "Network" not in config:
                     config["Network"] = {}
                 config["Network"]["host"] = host_ip
-                with open(config_path, 'w') as f:
+                
+                # Use atomic write for consistency
+                tmp_path = config_path + ".tmp"
+                with open(tmp_path, 'w') as f:
                     config.write(f)
-            except Exception:
-                pass
+                os.replace(tmp_path, config_path)
+        except Exception:
+            pass
     host_name = (offline.get("host_name") or "").strip()
 
     def _rewrite(value):
@@ -226,16 +247,12 @@ def main() -> None:
     import argparse
     
     parser = argparse.ArgumentParser(description="Update PhotoMesh Wizard config and seed fuser defaults")
-    parser.add_argument("--seed-fuser", action="store_true", default=False,
-                       help="Force seed fuser default working folder")
-    parser.add_argument("--no-seed-fuser", action="store_true", 
+    parser.add_argument("--no-seed-fuser", action="store_true", default=False,
                        help="Skip seeding fuser default working folder")
     args = parser.parse_args()
     
     # Default to seeding enabled unless explicitly disabled
     should_seed_fuser = not args.no_seed_fuser
-    if args.seed_fuser:
-        should_seed_fuser = True
     
     any_ok = False
     wf_unc = ""
@@ -266,9 +283,26 @@ def main() -> None:
         except Exception as e:
             print(f"[main] Failed to compute working fuser UNC: {e}")
         
-        # Seed the fuser default if we have a valid UNC
+        # Only seed if we have a valid UNC and it's different from current Wizard setting
         if wf_unc:
-            seed_fuser_default(wf_unc)
+            # Check if Wizard config already has the correct UNC (idempotency)
+            needs_seeding = True
+            for config_path in CONFIGS:
+                if os.path.isfile(config_path):
+                    try:
+                        cfg = _load_json(config_path) or {}
+                        if cfg.get("NetworkWorkingFolder") == wf_unc:
+                            print(f"[main] Wizard config already has correct UNC: {wf_unc}")
+                            needs_seeding = False
+                            break
+                    except Exception:
+                        pass
+            
+            if needs_seeding:
+                print(f"[main] Seeding fuser default with UNC: {wf_unc}")
+                seed_fuser_default(wf_unc)
+            else:
+                print("[main] Fuser seeding skipped - already configured correctly")
         else:
             print("[main] No valid working fuser UNC found - skipping fuser seeding")
     else:

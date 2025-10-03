@@ -770,12 +770,24 @@ def ensure_offline_share_via_cmd(log=print) -> None:
         return
 
     try:
-        subprocess.run(
-            ["cmd", "/C", f'net share {share}="{root}" /GRANT:Everyone,FULL'],
-            check=False,
-            creationflags=NO_WINDOW_FLAG,
+        # Least privilege first: Authenticated Users (CHANGE), Administrators (FULL)
+        cmd = (
+            f'net share {share}="{root}" '
+            f'/GRANT:"Authenticated Users",CHANGE /GRANT:"Administrators",FULL'
         )
-        subprocess.run(
+        result = subprocess.run(["cmd", "/C", cmd], check=False, creationflags=NO_WINDOW_FLAG)
+        
+        if result.returncode != 0:
+            log(f"Authenticated Users share failed, trying Everyone as fallback")
+            # Fallback to Everyone with FULL if Authenticated Users fails
+            subprocess.run(
+                ["cmd", "/C", f'net share {share}="{root}" /GRANT:Everyone,FULL'],
+                check=False,
+                creationflags=NO_WINDOW_FLAG,
+            )
+        
+        # Enable firewall rules
+        firewall_result = subprocess.run(
             [
                 "cmd",
                 "/C",
@@ -784,6 +796,20 @@ def ensure_offline_share_via_cmd(log=print) -> None:
             check=False,
             creationflags=NO_WINDOW_FLAG,
         )
+        
+        # Add specific SMB rule if group enable failed
+        if firewall_result.returncode != 0:
+            log("Firewall group rule failed, trying specific SMB rule")
+            subprocess.run(
+                [
+                    "cmd", 
+                    "/C",
+                    'netsh advfirewall firewall add rule name="STE Toolkit SMB 445" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes'
+                ],
+                check=False,
+                creationflags=NO_WINDOW_FLAG,
+            )
+        
         log(
             f"Offline share ensured via CMD: \\{get_machine_name()}\\{share}  ({root})"
         )

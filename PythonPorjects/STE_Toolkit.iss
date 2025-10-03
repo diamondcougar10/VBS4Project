@@ -53,6 +53,12 @@ Filename: "{app}\STE_Toolkit.exe"; \
 
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
+[UninstallRun]
+Filename: "{cmd}"; Parameters: "/C net use M: /delete /yes"; Flags: runhidden
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""try { Remove-SmbShare -Name 'SharedMeshDrive' -Force -ErrorAction SilentlyContinue } catch {}"""; \
+  Flags: runhidden
+
 [Registry]
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\STE_Toolkit.exe"; ValueData: "~ RUNASADMIN"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
@@ -85,6 +91,37 @@ end;
 function IfThen(Cond: Boolean; const A, B: string): string;
 begin 
   if Cond then Result := A else Result := B; 
+end;
+
+procedure LogInstallEvent(const Message: string);
+var
+  LogDir, LogFile, Timestamp, DateStr: string;
+  LogContent: AnsiString;
+  FileSize: Int64;
+begin
+  LogDir := ExpandConstant('{commonappdata}\STE_Toolkit');
+  CreateDir(LogDir);
+  
+  // Use date-based log file for rotation
+  DateStr := GetDateTimeString('yyyy-mm-dd', #0, #0);
+  LogFile := AddBackslash(LogDir) + 'install-' + DateStr + '.log';
+  Timestamp := GetDateTimeString('yyyy-mm-dd hh:nn:ss', #0, #0);
+  
+  // Check file size and rotate if too large (5MB limit)
+  if FileExists(LogFile) then
+  begin
+    if GetFileSize(LogFile, FileSize) and (FileSize > 5 * 1024 * 1024) then
+    begin
+      // Archive large log and start fresh
+      if LoadStringFromFile(LogFile, LogContent) then
+      begin
+        SaveStringToFile(AddBackslash(LogDir) + 'install-' + DateStr + '-archived.log', LogContent, False);
+        SaveStringToFile(LogFile, Timestamp + ' [ROTATED] Previous log archived due to size' + #13#10, False);
+      end;
+    end;
+  end;
+  
+  SaveStringToFile(LogFile, Timestamp + ' ' + Message + #13#10, True);
 end;
 
 function WriteHostBeacon(const LocalBase, HostIP, HostName: string): Boolean;
@@ -213,6 +250,44 @@ var RC: Integer; Cmd: string; Ran: Boolean;
 begin
   if LocalPath = '' then Exit;
 
+  // First attempt: Least privilege - Authenticated Users with Change, Administrators with Full
+  Cmd :=
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
+    '"$ErrorActionPreference=''Stop''; ' +
+    'if (-not (Get-SmbShare -Name ''' + ShareName + ''' -ErrorAction SilentlyContinue)) { ' +
+    '  New-SmbShare -Name ''' + ShareName + ''' -Path ''' + LocalPath + ''' -ChangeAccess ''Authenticated Users'' -FullAccess ''Administrators'' | Out-Null ' +
+    '}"';
+  Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+  if Ran and (RC = 0) then
+  begin
+    LogInstallEvent('SMB share created with Authenticated Users (Change) permissions');
+    // Enable File and Printer Sharing firewall rule after successful share creation
+    Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
+    if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+    begin
+      if RC = 0 then
+        LogInstallEvent('Firewall group rule enabled successfully')
+      else
+      begin
+        LogInstallEvent('Firewall group rule failed, trying specific SMB rule');
+        // Fallback: add specific SMB rule if group enable failed
+        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes"';
+        if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+        begin
+          if RC = 0 then
+            LogInstallEvent('Specific SMB firewall rule added successfully')
+          else
+            LogInstallEvent('Specific SMB firewall rule failed: RC=' + IntToStr(RC));
+        end;
+      end;
+    end;
+    Exit;
+  end;
+
+  LogInstallEvent('Authenticated Users share failed, trying Everyone permissions');
+  
+  // Second attempt: Everyone with Full (for environments that require it)
   Cmd :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
     '"$ErrorActionPreference=''Stop''; ' +
@@ -221,10 +296,54 @@ begin
     '}"';
   Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
               Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-  if Ran and (RC = 0) then Exit;
+  if Ran and (RC = 0) then
+  begin
+    LogInstallEvent('SMB share created with Everyone (Full) permissions');
+    // Enable firewall rules
+    Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
+    if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+    begin
+      if RC <> 0 then
+      begin
+        LogInstallEvent('Firewall group rule failed, trying specific SMB rule');
+        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes"';
+        Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+      end;
+    end;
+    Exit;
+  end;
 
-  Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
-  Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+  LogInstallEvent('PowerShell SMB share creation failed, trying net share command');
+
+  // Final fallback: net share command with Authenticated Users
+  Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:""Authenticated Users"",CHANGE /GRANT:""Administrators"",FULL"';
+  Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+  if Ran and (RC = 0) then
+  begin
+    LogInstallEvent('SMB share created via net share with Authenticated Users');
+    Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
+    if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+    begin
+      if RC <> 0 then
+      begin
+        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes"';
+        Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+      end;
+    end;
+  end else begin
+    LogInstallEvent('Authenticated Users net share failed, trying Everyone as last resort');
+    // Last resort: Everyone with FULL
+    Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
+    Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+    if Ran and (RC = 0) then
+    begin
+      LogInstallEvent('SMB share created via net share with Everyone (Full)');
+      Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
+      Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+    end else begin
+      LogInstallEvent('All SMB share creation methods failed');
+    end;
+  end;
 end;
 
 function GetPrimaryIPv4(): string;
@@ -236,31 +355,25 @@ begin
   // Use default route approach like the runtime code (more robust for VPN/WSL/multi-NIC)
   PS :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
-    '"try { ' +
+    '"$ErrorActionPreference=''Stop''; ' +
+    '$ip = try { ' +
     '  $route = Get-NetRoute -DestinationPrefix ''0.0.0.0/0'' -AddressFamily IPv4 | ' +
-    '    Sort-Object RouteMetric | Select-Object -First 1; ' +
+    '           Sort-Object RouteMetric | Select-Object -First 1; ' +
     '  if ($route) { ' +
-    '    $ip = (Get-NetIPAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4 | ' +
+    '    (Get-NetIPAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4 | ' +
     '      Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '      Select-Object -First 1 -ExpandProperty IPAddress); ' +
-    '    if ($ip) { $ip } else { ' +
-    '      # Fallback to original method ' +
-    '      (Get-NetIPAddress -AddressFamily IPv4 | ' +
-    '        Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '        Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
-    '    } ' +
+    '      Select-Object -First 1 -ExpandProperty IPAddress) ' +
     '  } else { ' +
-    '    # No default route found, use original method ' +
     '    (Get-NetIPAddress -AddressFamily IPv4 | ' +
     '      Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
     '      Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
     '  } ' +
     '} catch { ' +
-    '  # Fallback to simple method if advanced cmdlets fail ' +
     '  (Get-NetIPAddress -AddressFamily IPv4 | ' +
     '    Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
     '    Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
-    '}" | Set-Content -Path ''' + TmpFile + ''' -NoNewline -Encoding ASCII"';
+    '}; ' +
+    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';
 
   if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
           PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
@@ -343,7 +456,7 @@ begin
   SetIniString('Offline', 'share_name', SHARE_NAME,         Ini);
   SetIniString('Offline', 'local_data_root', '',            Ini);
   SetIniString('Offline', 'working_fuser_subdir','WorkingFuser', Ini);
-  SetIniString('Offline', 'use_ip_unc', IfThen(UseIP, 'True', 'True'), Ini);
+  SetIniString('Offline', 'use_ip_unc', IfThen(UseIP, 'True', 'False'), Ini);
 
   SetIniString('SharedDrive', 'preferred_mode', 'UNC',  Ini);
   SetIniString('SharedDrive', 'drive_letter',   'M:',   Ini);
@@ -583,21 +696,36 @@ var
   RC: Integer;
   DscIP, DscName: string;  { NEW: for host discovery }
   IniPath, BundledIni: string;         { NEW: for update case and config copying }
+  ModeStr: string;
 begin
   if CurStep = ssPostInstall then  { CHANGED FROM ssInstall - seed AFTER files are copied }
   begin
     AppDir := ExpandConstant('{app}');
     EnsureSiteConfigExists(AppDir);  { NEW: Ensure config.ini exists before seeding }
     HostRoot := '';
+    
+    case SelectedMode() of
+      imHost: ModeStr := 'Host';
+      imUser: ModeStr := 'User';
+      imUpdate: ModeStr := 'Update';
+    end;
+    
+    LogInstallEvent('Installation mode: ' + ModeStr);
 
     case SelectedMode() of
       imHost:
       begin
         if SharedRoot <> '' then HostRoot := SharedRoot else HostRoot := 'D:\';
+        LogInstallEvent('Host mode - using root: ' + HostRoot);
+        
         Base := SeedConfigIni_Host(AppDir, HostRoot);
+        LogInstallEvent('Share base created: ' + Base);
 
         NeedPhotoMesh   := not HasPhotoMeshWizard();
         NeedRealityMesh := not HasShareRealityMesh(Base);
+        
+        LogInstallEvent('PhotoMesh needed: ' + IfThen(NeedPhotoMesh, 'Yes', 'No'));
+        LogInstallEvent('RealityMesh needed: ' + IfThen(NeedRealityMesh, 'Yes', 'No'));
 
         if NeedPhotoMesh then
           RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '')
@@ -611,10 +739,15 @@ begin
           Log('Reality Mesh found under share; skipping RealityMesh installers.');
 
         Ip := GetPrimaryIPv4();
+        LogInstallEvent('Detected IP: ' + Ip);
+        
         if Ip <> '' then
         begin
-          Cmd := '/C "net use M: ""\\' + Ip + '\' + SHARE_NAME + '"" /persistent:yes"';
-          Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
+          Cmd := '/C "net use M: /delete /yes & net use M: ""\\' + Ip + '\' + SHARE_NAME + '"" /persistent:yes"';
+          if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
+            LogInstallEvent('Drive mapping result: RC=' + IntToStr(RC))
+          else
+            LogInstallEvent('Drive mapping failed to execute');
         end;
       end;
 
@@ -623,15 +756,23 @@ begin
         { NEW: quick auto-discovery of Host beacon }
         DscIP := ''; DscName := '';
         if DiscoverHostViaBeacon(DscIP, DscName) then
-          Log(Format('Beacon found: host_ip=%s name=%s', [DscIP, DscName]))
+        begin
+          LogInstallEvent('Beacon discovered - IP: ' + DscIP + ', Name: ' + DscName);
+          Log(Format('Beacon found: host_ip=%s name=%s', [DscIP, DscName]));
+        end
         else
+        begin
+          LogInstallEvent('No beacon found - leaving host_ip blank');
           Log('Beacon not found; leaving host_ip blank');
+        end;
 
         SeedConfigIni_User(AppDir, DscIP, DscName);
+        LogInstallEvent('User mode configuration completed');
       end;
 
       imUpdate:
       begin
+        LogInstallEvent('Update mode - preserving existing configuration');
         { Keep existing config, but if Offline.host_ip is blank, try to discover }
         IniPath := AddBackslash(AppDir) + 'config.ini';
         
@@ -640,11 +781,15 @@ begin
         begin
           BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
           if FileExists(BundledIni) then
+          begin
             FileCopy(BundledIni, IniPath, False);
+            LogInstallEvent('Copied bundled config to main directory');
+          end;
         end;
         
         if GetIniString('Offline','host_ip','', IniPath) = '' then
         begin
+          LogInstallEvent('Attempting beacon discovery for blank host_ip');
           DscIP := ''; DscName := '';
           if DiscoverHostViaBeacon(DscIP, DscName) and (DscIP <> '') then
           begin
@@ -652,9 +797,14 @@ begin
             if DscName <> '' then
               SetIniString('Offline','host_name', DscName, IniPath);
             SetIniString('Network','host', DscIP, IniPath);
+            LogInstallEvent('Auto-filled blank host_ip with discovered: ' + DscIP);
             Log(Format('Update: auto-filled blank host_ip with discovered %s', [DscIP]));
-          end;
-        end;
+          end
+          else
+            LogInstallEvent('No beacon found during update discovery');
+        end
+        else
+          LogInstallEvent('Existing host_ip preserved in config');
         { otherwise leave Update behavior unchanged }
       end;
     end;
@@ -665,6 +815,8 @@ begin
       RMTarget := AddBackslash(BuildShareBase(HostRoot)) + 'RealityMeshInstall\' + RM_LINK_NAME;
       { No-op if already present/created by installers }
     end;
+    
+    LogInstallEvent('Installation phase completed successfully');
   end;
 end;
 

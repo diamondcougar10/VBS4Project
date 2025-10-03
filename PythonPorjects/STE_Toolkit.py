@@ -1851,7 +1851,7 @@ FAST_START_CLI = "--fast-start" in sys.argv
 APP_INSTANCE = None
 
 def save_config() -> None:
-    """Save to the active CONFIG_PATH (respects --config CLI override)."""
+    """Save to the active CONFIG_PATH (respects --config CLI override) with atomic write."""
     target = CONFIG_PATH
     
     # Fallback to site config if active path isn't writable
@@ -1860,16 +1860,23 @@ def save_config() -> None:
     
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, 'w', encoding='utf-8') as f:
+        
+        # Atomic write using temp file + rename
+        tmp = target + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
             config.write(f)
+        os.replace(tmp, target)  # Atomic on both Windows and Unix
+        
     except Exception as e:
         # Final fallback to site config
         if target != SITE_CONFIG_PATH:
             try:
                 target = SITE_CONFIG_PATH
                 os.makedirs(os.path.dirname(target), exist_ok=True)
-                with open(target, 'w', encoding='utf-8') as f:
+                tmp = target + ".tmp"
+                with open(tmp, 'w', encoding='utf-8') as f:
                     config.write(f)
+                os.replace(tmp, target)
             except Exception as e2:
                 print(f"[WARN] Unable to write config to '{target}': {e2}")
         else:
@@ -2010,7 +2017,8 @@ def bootstrap_first_run_if_needed(log=None):
     general = config.setdefault('General', {})
     mode = general.get('first_run_mode', '').upper()
 
-    if "use_ip_unc" not in o or not o.get("use_ip_unc"):
+    # Only set default if missing; do not flip an explicit False to True
+    if "use_ip_unc" not in o:
         o['use_ip_unc'] = 'True'
 
     if mode == 'HOST':
