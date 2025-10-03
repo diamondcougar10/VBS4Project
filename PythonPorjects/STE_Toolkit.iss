@@ -56,7 +56,7 @@ Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C net use M: /delete /yes"; Flags: runhidden
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""try { Remove-SmbShare -Name 'SharedMeshDrive' -Force -ErrorAction SilentlyContinue } catch {}"""; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""try {{ Remove-SmbShare -Name 'SharedMeshDrive' -Force -ErrorAction SilentlyContinue }} catch {{}}"""; \
   Flags: runhidden
 
 [Registry]

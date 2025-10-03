@@ -4388,9 +4388,11 @@ class MainApp(tk.Tk):
             self.after(0, self._ensure_splash_gone)
             self.after(750, self._ensure_splash_gone)
                 
-        # Now that the splash is closed, show the main window
+        # Now that the splash is closed, show the main window with fade-in to prevent UI flash
+        self.attributes('-alpha', 0.0)  # Start invisible
         self.deiconify()
-        self.update_idletasks()
+        self.update_idletasks()  # Let everything layout once
+        self.after(50, lambda: self.attributes('-alpha', 1.0))  # Fade in after 50ms
 
         # base windowed size and scaling
         self.base_width, self.base_height = 1660, 800
