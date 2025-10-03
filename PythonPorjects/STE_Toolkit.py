@@ -145,10 +145,8 @@ try:
 except Exception:
     pyi_splash = None
 
-try:  
-    from steup.utils import write_config_atomic  
-except Exception: 
-    write_config_atomic = None
+# Atomic write functionality - placeholder for future implementation
+write_config_atomic = None
 
 # --- Resource path resolver -------------------------------------------------
 def _resource_path(name: str) -> str:
@@ -1853,14 +1851,29 @@ FAST_START_CLI = "--fast-start" in sys.argv
 APP_INSTANCE = None
 
 def save_config() -> None:
-    """Always save to site config (next to EXE)."""
-    target = SITE_CONFIG_PATH
+    """Save to the active CONFIG_PATH (respects --config CLI override)."""
+    target = CONFIG_PATH
+    
+    # Fallback to site config if active path isn't writable
+    if not os.path.dirname(target) or not os.access(os.path.dirname(target), os.W_OK):
+        target = SITE_CONFIG_PATH
+    
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, 'w', encoding='utf-8') as f:
             config.write(f)
     except Exception as e:
-        print(f"[WARN] Unable to write '{target}': {e}")
+        # Final fallback to site config
+        if target != SITE_CONFIG_PATH:
+            try:
+                target = SITE_CONFIG_PATH
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, 'w', encoding='utf-8') as f:
+                    config.write(f)
+            except Exception as e2:
+                print(f"[WARN] Unable to write config to '{target}': {e2}")
+        else:
+            print(f"[WARN] Unable to write config to '{target}': {e}")
 
 def _save_config():
     """Legacy wrapper - use save_config() instead."""
@@ -2692,6 +2705,27 @@ def apply_offline_settings() -> None:
     
     enforce_photomesh_settings()
     update_fuser_shared_path()
+    
+    # Optional: Seed fuser default when working UNC becomes valid
+    try:
+        wf_unc = working_fuser_unc()
+        if wf_unc and wf_unc.startswith("\\\\"):
+            # Only seed if the UNC is accessible (best effort, don't block UI)
+            def _seed_in_background():
+                try:
+                    if can_access_unc(wf_unc):
+                        from update_photomesh_config import seed_fuser_default
+                        seed_fuser_default(wf_unc)
+                        logging.info(f"[apply_offline] Background fuser seeding completed for {wf_unc}")
+                    else:
+                        logging.info(f"[apply_offline] UNC not accessible, skipping background seeding: {wf_unc}")
+                except Exception as e:
+                    logging.warning(f"[apply_offline] Background fuser seeding failed: {e}")
+            
+            # Run seeding in background thread to avoid UI blocking
+            run_in_thread(_seed_in_background)
+    except Exception as e:
+        logging.warning(f"[apply_offline] Failed to start background fuser seeding: {e}")
     
     # Create batch wrappers as a fallback method for reliable fuser launches
     try:

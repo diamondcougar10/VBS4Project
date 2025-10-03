@@ -39,10 +39,18 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
+; 1) Patch Wizard + seed fuser defaults FIRST (block until done)
+Filename: "{app}\update_photomesh_config.exe"; \
+    Parameters: ""; \
+    Description: "Configuring PhotoMesh and fuser defaults..."; \
+    Flags: waituntilterminated runhidden skipifsilent
+
+; 2) Now launch the GUI (non-blocking is fine)  
 Filename: "{app}\STE_Toolkit.exe"; \
     Parameters: "--fast-start --config ""{app}\config.ini"""; \
     Description: "Launch STE Mission Planning Toolkit now"; \
     Flags: nowait postinstall skipifsilent
+
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
 [Registry]
@@ -225,12 +233,34 @@ begin
   Result := '';
   TmpFile := ExpandConstant('{tmp}\host_ip.txt');
 
+  // Use default route approach like the runtime code (more robust for VPN/WSL/multi-NIC)
   PS :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
-    '"$ip = (Get-NetIPAddress -AddressFamily IPv4 | ' +
-    '  Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '  Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress); ' +
-    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';
+    '"try { ' +
+    '  $route = Get-NetRoute -DestinationPrefix ''0.0.0.0/0'' -AddressFamily IPv4 | ' +
+    '    Sort-Object RouteMetric | Select-Object -First 1; ' +
+    '  if ($route) { ' +
+    '    $ip = (Get-NetIPAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4 | ' +
+    '      Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
+    '      Select-Object -First 1 -ExpandProperty IPAddress); ' +
+    '    if ($ip) { $ip } else { ' +
+    '      # Fallback to original method ' +
+    '      (Get-NetIPAddress -AddressFamily IPv4 | ' +
+    '        Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
+    '        Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
+    '    } ' +
+    '  } else { ' +
+    '    # No default route found, use original method ' +
+    '    (Get-NetIPAddress -AddressFamily IPv4 | ' +
+    '      Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
+    '      Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
+    '  } ' +
+    '} catch { ' +
+    '  # Fallback to simple method if advanced cmdlets fail ' +
+    '  (Get-NetIPAddress -AddressFamily IPv4 | ' +
+    '    Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
+    '    Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
+    '}" | Set-Content -Path ''' + TmpFile + ''' -NoNewline -Encoding ASCII"';
 
   if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
           PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then
@@ -583,7 +613,7 @@ begin
         Ip := GetPrimaryIPv4();
         if Ip <> '' then
         begin
-          Cmd := '/C "net use M: \\' + Ip + '\' + SHARE_NAME + ' /persistent:yes"';
+          Cmd := '/C "net use M: ""\\' + Ip + '\' + SHARE_NAME + '"" /persistent:yes"';
           Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
         end;
       end;
@@ -639,8 +669,7 @@ begin
 end;
 
 procedure CurInstallFinished;
-var RC: Integer;
 begin
-  if FileExists(ExpandConstant('{app}\update_photomesh_config.exe')) then
-    Exec(ExpandConstant('{app}\update_photomesh_config.exe'), '', '{app}', SW_HIDE, ewWaitUntilTerminated, RC);
+  // Note: update_photomesh_config.exe now runs in [Run] section BEFORE GUI launch
+  // to eliminate race conditions. This procedure is kept for future use.
 end;

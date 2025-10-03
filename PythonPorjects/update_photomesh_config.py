@@ -226,14 +226,16 @@ def main() -> None:
     import argparse
     
     parser = argparse.ArgumentParser(description="Update PhotoMesh Wizard config and seed fuser defaults")
-    parser.add_argument("--seed-fuser", action="store_true", default=True,
-                       help="Seed fuser default working folder (default: True)")
+    parser.add_argument("--seed-fuser", action="store_true", default=False,
+                       help="Force seed fuser default working folder")
     parser.add_argument("--no-seed-fuser", action="store_true", 
                        help="Skip seeding fuser default working folder")
     args = parser.parse_args()
     
-    # Determine if we should seed fuser
-    should_seed_fuser = args.seed_fuser and not args.no_seed_fuser
+    # Default to seeding enabled unless explicitly disabled
+    should_seed_fuser = not args.no_seed_fuser
+    if args.seed_fuser:
+        should_seed_fuser = True
     
     any_ok = False
     wf_unc = ""
