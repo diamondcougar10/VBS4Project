@@ -5340,6 +5340,13 @@ class MainMenu(tk.Frame):
         if is_srv:
             return
 
+        # Fast path: if BlueIG path is already cached/known, enable immediately
+        cached_path = config['General'].get('blueig_path', '')
+        if cached_path and os.path.isfile(cached_path):
+            btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+            return
+
+        # Otherwise, show "Checking..." and resolve asynchronously
         checking = tk.Label(
             self.blueig_frame,
             text="Checking...",
