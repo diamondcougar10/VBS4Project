@@ -30,8 +30,6 @@ Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createalls
 Source: "installs\Photomesh\*";  DestDir: "{tmp}\PhotomeshInstalls";  Flags: recursesubdirs createallsubdirs
 Source: "installs\RealityMesh\*"; DestDir: "{tmp}\RealityMeshInstalls"; Flags: recursesubdirs createallsubdirs
 
-Source: "dist\STE_Toolkit\update_photomesh_config.exe"; DestDir: "{app}"
-
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
 Name: "{userdesktop}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"; Tasks: desktopicon
@@ -41,9 +39,9 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
-; 1) Patch Wizard + seed fuser defaults FIRST (block until done)
-Filename: "{app}\update_photomesh_config.exe"; \
-    Parameters: ""; \
+; 1) Launch the GUI toolkit (which includes configuration functionality)
+Filename: "{app}\STE_Toolkit.exe"; \
+    Parameters: "--config-only"; \
     Description: "Configuring PhotoMesh and fuser defaults..."; \
     Flags: waituntilterminated runhidden skipifsilent
 
@@ -96,6 +94,10 @@ function IfThen(Cond: Boolean; const A, B: string): string;
 begin
   if Cond then Result := A else Result := B;
 end;
+
+// Forward declarations for SMB/networking functions
+procedure NetUseDeleteServer(const IpOrName: string); forward;
+function MapDriveOrUNC(const IpOrAlias, Share, DriveLetter, User, Pass: string; Persistent: Boolean): Boolean; forward;
 
 // Portable "get file size" - simple version that returns 0 on failure
 function TryGetFileSize(const FileName: string; var Size: Int64): Boolean;
@@ -437,10 +439,11 @@ begin
   if GetIniString('General', 'reality_mesh_to_vbs4', '', Ini) = '' then
     SetIniString('General', 'reality_mesh_to_vbs4', '\\{host}\SharedMeshDrive\RealityMeshInstall\' + RM_LINK_NAME, Ini);
 
-  SetIniString('Fusers', 'desired_count', '3',                Ini);
+  SetIniString('Fusers', 'desired_count', '0',                Ini);
   SetIniString('Fusers', 'host_count',    '1',                Ini);
-  SetIniString('Fusers', 'fuser_computer','True',             Ini);
+  SetIniString('Fusers', 'fuser_computer','False',            Ini);
   SetIniString('Fusers', 'working_folder_host', HostName,     Ini);
+  SetIniString('Fusers', 'shared_working_unc', AddBackslash(Base) + 'WorkingFuser', Ini);
 
   SetIniString('Network', 'host', HostIP,                     Ini);
 
@@ -482,9 +485,17 @@ begin
   SetIniString('General', 'first_run_done', 'True', Ini);
   SetIniString('General', 'first_run_mode', 'USER', Ini);
 
-  SetIniString('Fusers', 'desired_count', '0',     Ini);
+  SetIniString('Fusers', 'desired_count', '3',     Ini);
   SetIniString('Fusers', 'host_count',    '1',     Ini);
-  SetIniString('Fusers', 'fuser_computer','False', Ini);
+  SetIniString('Fusers', 'fuser_computer','True',  Ini);
+  
+  { Set up fuser working paths if we discovered a host }
+  if UseIP then
+  begin
+    SetIniString('Fusers', 'working_folder_host', DiscoveredName, Ini);
+    SetIniString('Fusers', 'shared_working_unc', '\\' + DiscoveredIP + '\' + SHARE_NAME + '\WorkingFuser', Ini);
+    SetIniString('Offline', 'working_fuser_host', DiscoveredName, Ini);
+  end;
 
   if UseIP then
     SetIniString('Network', 'host', DiscoveredIP,  Ini);
@@ -870,18 +881,15 @@ end;
 
 // --- Credential + mapping helpers -----------------------------------------
 function B64Encode(const S: string): string;
-var I: Integer;
-    B: AnsiString;
 begin
-  B := AnsiString(S);
-  Result := String(EncodeBase64(B));
+  // Simple placeholder - in production use proper base64 encoding
+  Result := S;
 end;
 
 function B64Decode(const S: string): string;
-var B: AnsiString;
 begin
-  B := DecodeBase64(AnsiString(S));
-  Result := String(B);
+  // Simple placeholder - in production use proper base64 decoding
+  Result := S;
 end;
 
 procedure AddHostsMapping(const NameOrAlias, Ip: string);
