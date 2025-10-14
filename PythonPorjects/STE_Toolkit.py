@@ -757,6 +757,62 @@ def clear_offline_ip_configuration():
         logging.error(f"[clear_offline] Failed to clear configuration: {e}")
         return False
 
+def validate_and_configure_network_connection(host_ip: str = None) -> bool:
+    """
+    Validate network connection to host and configure client properly.
+    Returns True if connection is successful and configured.
+    """
+    try:
+        if not host_ip:
+            # Try to get from current config
+            o = get_offline_cfg()
+            host_ip = o.get("host_ip", "").strip()
+            
+        if not host_ip:
+            logging.error("[network_config] No host IP provided or configured")
+            return False
+            
+        # Test basic connectivity
+        unc_root = f"\\\\{host_ip}\\SharedMeshDrive"
+        if not can_access_unc(unc_root):
+            # Try to establish connection
+            if not connect_working_share_interactive(parent=None, silent=True):
+                logging.error(f"[network_config] Cannot connect to {unc_root}")
+                return False
+                
+        # Test WorkingFolder specifically
+        working_folder = f"\\\\{host_ip}\\SharedMeshDrive\\WorkingFuser"
+        if not can_access_unc(working_folder):
+            logging.error(f"[network_config] WorkingFolder not accessible: {working_folder}")
+            return False
+            
+        # Configure client for network use
+        config.setdefault("Offline", {})
+        config["Offline"]["enabled"] = "True"
+        config["Offline"]["host_ip"] = host_ip
+        config["Offline"]["share_name"] = "SharedMeshDrive"
+        config["Offline"]["working_fuser_subdir"] = "WorkingFuser"
+        config["Offline"]["use_ip_unc"] = "True"
+        
+        # Sync Network section
+        config.setdefault("Network", {})
+        config["Network"]["host"] = host_ip
+        
+        # Update fuser configuration
+        config.setdefault("Fusers", {})
+        config["Fusers"]["shared_working_unc"] = working_folder
+        config["Fusers"]["working_folder_host"] = host_ip
+        
+        save_config()
+        update_fuser_shared_path()
+        
+        logging.info(f"[network_config] Successfully configured for host {host_ip}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"[network_config] Configuration failed: {e}")
+        return False
+
 def optimize_memory():
     """Optimize memory usage by running garbage collection and clearing caches."""
     try:
@@ -3033,10 +3089,32 @@ def first_run_setup(master=None) -> None:
     host_name = get_machine_name()
     host_ip = get_local_ip()
     log_to_console(f"[first-run] Host resolved as {host_name} ({host_ip})")
+    
+    # Ask user about network type instead of auto-enabling offline mode
+    network_choice = messagebox.askyesno(
+        "Network Configuration", 
+        f"This PC will be the HOST for WorkingFolder sharing.\n\n"
+        f"Host: {host_name} ({host_ip})\n"
+        f"Share: {share_root}\n\n"
+        f"Network Type:\n"
+        f"• YES = Standard Ethernet Network (recommended for switched networks)\n"
+        f"• NO = Isolated/Offline LAN (for airgapped or direct-connected PCs)\n\n"
+        f"Are you using a standard ethernet network with a switch/router?"
+    )
+    
     if "Offline" not in config:
         config["Offline"] = {}
     offline = config["Offline"]
-    offline["enabled"] = "True"
+    
+    if network_choice:
+        # Standard ethernet network - don't enable offline mode by default
+        offline["enabled"] = "False"
+        log_to_console("[first-run] Configured for standard ethernet network")
+    else:
+        # Isolated/offline LAN - enable offline mode
+        offline["enabled"] = "True"
+        log_to_console("[first-run] Configured for isolated/offline LAN")
+    
     offline["host_name"] = host_name
     offline["host_ip"] = host_ip
     offline["share_name"] = "SharedMeshDrive"
@@ -3105,10 +3183,30 @@ def first_run_setup_user(master=None) -> None:
 
     log_to_console("[first-run] Starting first-run USER configuration (no sharing)…")
 
+    # Ask user about network type for client PCs too
+    network_choice = messagebox.askyesno(
+        "Client Network Configuration", 
+        f"This PC will be a CLIENT connecting to a host's WorkingFolder.\n\n"
+        f"Network Type:\n"
+        f"• YES = Standard Ethernet Network (recommended for switched networks)\n"
+        f"• NO = Isolated/Offline LAN (for airgapped or direct-connected PCs)\n\n"
+        f"Are you using a standard ethernet network with a switch/router?\n\n"
+        f"Note: You can configure the host IP later in Settings."
+    )
+
     if "Offline" not in config:
         config["Offline"] = {}
     offline = config["Offline"]
-    offline["enabled"] = "True"
+    
+    if network_choice:
+        # Standard ethernet network - don't enable offline mode by default
+        offline["enabled"] = "False"
+        log_to_console("[first-run] Client configured for standard ethernet network")
+    else:
+        # Isolated/offline LAN - enable offline mode
+        offline["enabled"] = "True"
+        log_to_console("[first-run] Client configured for isolated/offline LAN")
+    
     offline["host_name"] = ""
     offline["host_ip"] = ""
     offline["share_name"] = "SharedMeshDrive"
@@ -3123,7 +3221,7 @@ def first_run_setup_user(master=None) -> None:
 
     _save_config()
     refresh_settings_panel_from_config()
-    log_to_console("[first-run] User configuration saved. Set the host later from Settings.")
+    log_to_console("[first-run] User configuration saved. Configure host IP in Settings if needed.")
 
 # =============================================================================
 # SETTINGS HELPERS (Registry, toggles)
@@ -4192,6 +4290,9 @@ class MainApp(tk.Tk):
 
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
         
+        # Flag to track if UI has been initialized
+        self._ui_initialized = False
+        
         # Ensure the cross-thread UI queue is pumped while the app runs
         self.after(0, pump_ui_queue, self)
 
@@ -4257,6 +4358,145 @@ class MainApp(tk.Tk):
                         pass
         except Exception:
             pass
+
+    # --- UI initialization (deferred until after splash) -------------------
+    def _initialize_ui(self):
+        """Initialize the main UI components. Called after splash is shown."""
+        if self._ui_initialized:
+            return
+            
+        # Create the main UI layout
+        nav_labels = {
+            'Main': 'Home',
+            'VBS4': 'VBS4 / BlueIG',
+            'OneClick': 'One-Click Terrain',
+            'BVI': 'BVI',
+            'Settings': 'Settings',
+            'Tutorials': 'Tutorials  ❓',
+            'Credits': 'Credits',
+            'Contact Us': 'Contact Support',
+        }
+
+        close_btn = tk.Button(self, text="✕",
+                              font=("Helvetica",12,"bold"),
+                              bg="red", fg="white", bd=0,
+                              command=self.destroy)
+        close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
+        self.configure(bg="black")
+        self.content = tk.Frame(self, bg="black", bd=0, highlightthickness=0)
+        self.content.pack(expand=True, fill="both")
+
+        nav = tk.Frame(self.content, bg='#333333')
+        nav.pack(side='left', fill='y')
+        self._init_scrollable_viewport()
+        self.panels = {
+            'Main':      MainMenu(self.panels_container, self),
+            'VBS4':      VBS4Panel(self.panels_container, self),
+            'OneClick':  OneClickPanel(self.panels_container, self),
+            'BVI':       BVIPanel(self.panels_container, self),
+            'Settings':  SettingsPanel(self.panels_container, self),
+            'Tutorials': TutorialsPanel(self.panels_container, self),
+            'Credits':   CreditsPanel(self.panels_container, self),
+            'Contact Us': ContactSupportPanel(self.panels_container, self),
+        }
+
+        try:
+            log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
+            enforce_photomesh_settings(log=log_fn)
+        except Exception as exc:
+            pass
+        for panel in self.panels.values():
+            panel.pack_forget()
+
+        # Build the nav buttons
+        nav_tip = Tooltip(nav)
+        self._nav_buttons = {}  # Store button references for visual updates
+        
+        for key, label in [
+            ('Main',     'Home'),
+            ('VBS4',     'VBS4 / BlueIG'),
+            ('OneClick', 'One-Click'),
+            ('BVI',      'BVI'),
+            ('Settings', 'Settings'),
+            ('Tutorials','?'),
+            ('Credits',  'Credits'),
+            ('Contact Us', 'Contact Us'),
+        ]:
+            def make_command(k):
+                """Create command function with immediate visual feedback."""
+                def cmd():
+                    # Immediate visual feedback - show the panel right away
+                    self.after_idle(lambda: self.show(k))
+                return cmd
+            
+            btn = tk.Button(nav, text=label,
+                            font=("Helvetica", 18),
+                            bg="#555", fg="white",
+                            activebackground="#777",  # Better hover color
+                            activeforeground="white",
+                            relief="raised",
+                            bd=2,
+                            width=12,
+                            command=make_command(key))
+            btn.pack(pady=5, padx=5)
+            
+            # Store button reference for later visual updates
+            self._nav_buttons[key] = btn
+            
+            # Enhanced hover effects for better feedback
+            def on_enter(e, btn=btn, l=label):
+                if not hasattr(self, 'current') or self.current != key:
+                    btn.config(bg="#777")
+                nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10)
+            
+            def on_leave(e, btn=btn, k=key):
+                # Reset to appropriate color based on current panel
+                if hasattr(self, 'current') and self.current == k:
+                    btn.config(bg="#888")  # Slightly lighter for current panel
+                else:
+                    btn.config(bg="#555")  # Normal color
+                nav_tip.hide()
+            
+            def on_click(e, btn=btn, k=key):
+                # Immediate visual feedback on click
+                btn.config(bg="#999")
+                # Update all button states after a brief moment
+                btn.after(50, self.update_nav_button_appearance)
+            
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
+            btn.bind("<Button-1>", on_click)
+            self.focusable_buttons.append(btn)
+
+        tk.Button(nav, text="Exit", font=("Helvetica", 18),
+                  bg="red", fg="white", command=self.destroy) \
+            .pack(fill='x', pady=20, padx=5)
+        tk.Label(nav, text="Use \u2191/\u2193 arrows to navigate",
+                 bg="#333333", fg="white",
+                 font=("Helvetica", 10)).pack(pady=(0, 10))
+
+        enforce_local_fuser_policy()
+
+        try:
+            apply_offline_settings()
+        except Exception as exc:
+            pass
+
+        # Start by showing "Main"
+        self.current = None
+        self.show('Main')
+
+        # --- Keyboard navigation setup ---
+        self.focus_index = 0
+        for key in ("<Right>", "<Down>"):
+            self.bind(key, self.focus_next)
+        for key in ("<Left>", "<Up>"):
+            self.bind(key, self.focus_prev)
+        self.bind("<Return>", self.activate_current)
+        self.update_navigation()
+        
+        # Mark UI as initialized
+        self._ui_initialized = True
 
     # ---- Foreground handoff + foreground launch helpers (Windows-safe) ----
     def _handoff_foreground(self):
@@ -4429,6 +4669,9 @@ class MainApp(tk.Tk):
 
     def _finish_warmup(self):
         """Complete warm-up and close the splash screen with proper timing."""
+        # Initialize the UI first (this was previously in __init__)
+        self._initialize_ui()
+        
         # Start memory monitoring
         start_memory_monitoring()
         
@@ -4574,137 +4817,6 @@ class MainApp(tk.Tk):
         self.header_title.pack(pady=(10,0))
         self.header_subtitle = tk.Label(center_frame, text="Home", font=("Helvetica", 20, "bold"), bg="black", fg="white")
         self.header_subtitle.pack(pady=(0,10))
-
-        # Mapping panel names to subtitles
-        self._panel_subtitles = {
-            'Main': 'Home',
-            'VBS4': 'VBS4 / BlueIG',
-            'OneClick': 'One-Click Terrain',
-            'BVI': 'BVI',
-            'Settings': 'Settings',
-            'Tutorials': 'Tutorials  ❓',
-            'Credits': 'Credits',
-            'Contact Us': 'Contact Support',
-        }
-
-        close_btn = tk.Button(self, text="✕",
-                              font=("Helvetica",12,"bold"),
-                              bg="red", fg="white", bd=0,
-                              command=self.destroy)
-        close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
-        self.configure(bg="black")
-        self.content = tk.Frame(self, bg="black", bd=0, highlightthickness=0)
-        self.content.pack(expand=True, fill="both")
-
-        nav = tk.Frame(self.content, bg='#333333')
-        nav.pack(side='left', fill='y')
-        self._init_scrollable_viewport()
-        self.panels = {
-            'Main':      MainMenu(self.panels_container, self),
-            'VBS4':      VBS4Panel(self.panels_container, self),
-            'OneClick':  OneClickPanel(self.panels_container, self),
-            'BVI':       BVIPanel(self.panels_container, self),
-            'Settings':  SettingsPanel(self.panels_container, self),
-            'Tutorials': TutorialsPanel(self.panels_container, self),
-            'Credits':   CreditsPanel(self.panels_container, self),
-            'Contact Us': ContactSupportPanel(self.panels_container, self),
-        }
-
-        try:
-            log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
-            enforce_photomesh_settings(log=log_fn)
-        except Exception as exc:
-            pass
-        for panel in self.panels.values():
-            panel.pack_forget()
-
-        # Build the nav buttons
-        nav_tip = Tooltip(nav)
-        self._nav_buttons = {}  # Store button references for visual updates
-        
-        for key, label in [
-            ('Main',     'Home'),
-            ('VBS4',     'VBS4 / BlueIG'),
-            ('OneClick', 'One-Click'),
-            ('BVI',      'BVI'),
-            ('Settings', 'Settings'),
-            ('Tutorials','?'),
-            ('Credits',  'Credits'),
-            ('Contact Us', 'Contact Us'),
-        ]:
-            def make_command(k):
-                """Create command function with immediate visual feedback."""
-                def cmd():
-                    # Immediate visual feedback - show the panel right away
-                    self.after_idle(lambda: self.show(k))
-                return cmd
-            
-            btn = tk.Button(nav, text=label,
-                            font=("Helvetica", 18),
-                            bg="#555", fg="white",
-                            activebackground="#777",  # Better hover color
-                            activeforeground="white",
-                            relief="raised",
-                            bd=2,
-                            width=12,
-                            command=make_command(key))
-            btn.pack(pady=5, padx=5)
-            
-            # Store button reference for later visual updates
-            self._nav_buttons[key] = btn
-            
-            # Enhanced hover effects for better feedback
-            def on_enter(e, btn=btn, l=label):
-                if not hasattr(self, 'current') or self.current != key:
-                    btn.config(bg="#777")
-                nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10)
-            
-            def on_leave(e, btn=btn, k=key):
-                # Reset to appropriate color based on current panel
-                if hasattr(self, 'current') and self.current == k:
-                    btn.config(bg="#888")  # Slightly lighter for current panel
-                else:
-                    btn.config(bg="#555")  # Normal color
-                nav_tip.hide()
-            
-            def on_click(e, btn=btn, k=key):
-                # Immediate visual feedback on click
-                btn.config(bg="#999")
-                # Update all button states after a brief moment
-                btn.after(50, self.update_nav_button_appearance)
-            
-            btn.bind("<Enter>", on_enter)
-            btn.bind("<Leave>", on_leave)
-            btn.bind("<Button-1>", on_click)
-            self.focusable_buttons.append(btn)
-
-        tk.Button(nav, text="Exit", font=("Helvetica", 18),
-                  bg="red", fg="white", command=self.destroy) \
-            .pack(fill='x', pady=20, padx=5)
-        tk.Label(nav, text="Use \u2191/\u2193 arrows to navigate",
-                 bg="#333333", fg="white",
-                 font=("Helvetica", 10)).pack(pady=(0, 10))
-
-        enforce_local_fuser_policy()
-
-        try:
-            apply_offline_settings()
-        except Exception as exc:
-            pass
-
-        # Start by showing "Main"
-        self.current = None
-        self.show('Main')
-
-        # --- Keyboard navigation setup ---
-        self.focus_index = 0
-        self.focusable_buttons = []
-        for key in ("<Right>", "<Down>"):
-            self.bind(key, self.focus_next)
-        for key in ("<Left>", "<Up>"):
-            self.bind(key, self.focus_prev)
-        self.bind("<Return>", self.activate_current)
-        self.update_navigation()
 
     def apply_scale(self, scale: float) -> None:
         """Scale fonts and widgets proportionally using Tk scaling."""
@@ -6060,7 +6172,13 @@ class VBS4Panel(tk.Frame):
                     # Clear offline config when network access fails after connection attempt
                     clear_offline_ip_configuration()
                     logging.info("[fuser_manager] Cleared offline configuration due to network access failure")
-                    messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+                    messagebox.showerror("Network Connection Failed", 
+                        f"Cannot access WorkingFolder at {default_path}\n\n"
+                        "Please verify:\n"
+                        "1. Host PC is running and accessible\n"
+                        "2. Network connection is stable\n"
+                        "3. SharedMeshDrive share is available\n\n"
+                        "Offline configuration has been cleared.")
                     return
 
         # Auto-discover fuser directories if a shared path is provided
@@ -6148,6 +6266,32 @@ class VBS4Panel(tk.Frame):
                 default_path = load_fuser_config(config_file)
 
         fuser_path = default_path or working_fuser_unc()
+        
+        # Critical fix: Prevent local fallback when network path is expected but unavailable
+        if fuser_path and fuser_path.startswith("\\\\"):
+            if not can_access_unc(fuser_path):
+                self.log_message(f"ERROR: Cannot access network WorkingFolder: {fuser_path}")
+                self.log_message("Network connection required. Please verify:")
+                self.log_message("1. Host PC is running and accessible")
+                self.log_message("2. Network connection is stable")
+                self.log_message("3. SharedMeshDrive share is available")
+                self.log_message("Fusers will NOT be created locally to prevent data isolation.")
+                messagebox.showerror(
+                    "Network Required", 
+                    f"Cannot access WorkingFolder at {fuser_path}\n\n"
+                    "Fusers require network access to shared WorkingFolder.\n"
+                    "Please check network connection and try again.\n\n"
+                    "Local fuser creation has been prevented to maintain data consistency."
+                )
+                return
+        elif not fuser_path:
+            self.log_message("ERROR: No fuser path configured. Please set up network WorkingFolder.")
+            messagebox.showerror(
+                "Configuration Required",
+                "No WorkingFolder path configured.\n\n"
+                "Please configure the host IP and WorkingFolder path in Settings."
+            )
+            return
 
         for idx in range(1, 4):
             name = f"LocalFuser{idx}"
@@ -6159,7 +6303,7 @@ class VBS4Panel(tk.Frame):
 
             try:
                 subprocess.run(cmd, shell=True, check=True)
-                self.log_message(f"Launched {name}.")
+                self.log_message(f"Launched {name} at {fuser_path}")
             except subprocess.CalledProcessError as e:
                 self.log_message(f"Failed to start {name}: {e}")
 
