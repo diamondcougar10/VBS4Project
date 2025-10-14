@@ -823,11 +823,58 @@ def ensure_offline_share_exists(log=print) -> None:
     ensure_offline_share_via_cmd(log=log)
 
 def can_access_unc(path: str) -> bool:
-    """Return True if *path* is an accessible directory."""
-    try:
-        return os.path.isdir(path) and os.listdir(path) is not None
-    except Exception:
+    """Best-effort check for UNC accessibility.
+
+    The prior implementation required listing the directory which proved too
+    strict for some environments (slow SMB, permission quirks), causing false
+    negatives and preventing fusers from starting. This version is deliberately
+    lenient:
+      - If it's a local path, ``os.path.isdir`` is sufficient.
+      - For UNC paths, consider the path accessible if any of the following is
+        true: ``isdir``/``exists`` succeeds for the path or its ``\\host\share``
+        root, or low-level Windows attributes indicate the path exists.
+      - On unexpected exceptions, return True to avoid blocking fuser launch;
+        later operations will still attempt connection or fail fast if truly
+        inaccessible.
+    """
+    if not path:
         return False
+
+    # Quick local-path check
+    if not path.startswith("\\\\"):
+        try:
+            return os.path.isdir(path)
+        except Exception:
+            return False
+
+    # UNC path handling
+    try:
+        # Direct checks on the full path
+        if os.path.isdir(path) or os.path.exists(path):
+            return True
+
+        # Fallback: check the \\host\share root
+        parts = path.strip("\\").split("\\")
+        if len(parts) >= 2:
+            unc_root = rf"\\\\{parts[0]}\\{parts[1]}"
+            if os.path.isdir(unc_root) or os.path.exists(unc_root):
+                return True
+
+        # Windows low-level attribute check (avoids listing)
+        if is_windows():
+            try:
+                attr = ctypes.windll.kernel32.GetFileAttributesW(ctypes.c_wchar_p(path))
+                if attr != 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
+                    return True
+            except Exception:
+                pass
+
+    except Exception as e:
+        # Be forgiving: don't block fusers due to transient/permission errors
+        logging.debug(f"[can_access_unc] Non-fatal check error for '{path}': {e}")
+        return True
+
+    return False
 
 
 def replace_share_in_unc_path(p: str, old_share: str, new_share: str) -> str:

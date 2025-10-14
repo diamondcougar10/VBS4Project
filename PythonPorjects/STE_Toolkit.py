@@ -905,6 +905,30 @@ def connect_working_share_interactive(parent=None, silent=True):
     # No prompts; just report failure
     return False
 
+def _unc_usable(unc_root: str) -> bool:
+    """Tolerant UNC availability check.
+    Accepts cases where Windows has a session but Python's os.path may lag.
+    Never prompts; treats success of dir or net use as usable.
+    """
+    try:
+        if not unc_root or not unc_root.startswith("\\\\"):
+            return False
+        # Fast-path if filesystem already sees it
+        if os.path.exists(unc_root):
+            return True
+        # Try a quick directory listing without opening Explorer/UI
+        rc, _out, _err = _run(["cmd", "/c", "dir", unc_root], timeout=5)
+        if rc == 0:
+            return True
+        # Attempt a background connection using cached creds
+        if _try_net_use_unc(unc_root):
+            # small grace period for redirector
+            time.sleep(0.6)
+            return True
+    except Exception:
+        pass
+    return False
+
 # =============================================================================
 # THREADING UTILITIES
 # =============================================================================
@@ -2320,6 +2344,12 @@ def count_local_fusers() -> int:
 MIN_LOCAL_FUSERS = 1
 MAX_LOCAL_FUSERS = 3
 
+# Global guard to prevent duplicate/overlapping fuser launches
+import threading as _threading
+_FUSER_ENFORCE_LOCK = _threading.Lock()
+_last_enforce_target: int | None = None
+_last_enforce_ts: float = 0.0
+
 def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
     """Clamp desired local fuser count according to machine role."""
     if not is_fuser_computer:
@@ -2407,30 +2437,44 @@ def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
 
 def start_fuser_instance(idx: int) -> bool:
     """Start *idx*-th fuser via its own shortcut/command."""
+    logging.info(f"[DEBUG] start_fuser_instance({idx}) called")
+    
     o = get_offline_cfg()
+    logging.info(f"[DEBUG] offline config enabled: {o.get('enabled', False)}")
+    
     if o["enabled"]:
         unc = resolve_network_working_folder_from_cfg(o)
-        if not can_access_unc(unc):
-            # Try to connect automatically before giving up
-            if not connect_working_share_interactive(parent=None, silent=True):
-                # Clear offline config when network access fails after connection attempt
-                clear_offline_ip_configuration()
-                logging.info("[start_fuser] Cleared offline configuration due to network access failure")
-                safe_messagebox_showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-                return False
+        logging.info(f"[DEBUG] resolved working folder UNC: {unc}")
+        # Check the share root tolerantly (\\host\share) rather than listing the subfolder
+        unc_root = "\\\\".join(unc.split("\\")[:4]) if unc and unc.startswith("\\\\") else ""
+        if unc_root and not _unc_usable(unc_root):
+            logging.info(f"[DEBUG] UNC root not immediately usable: {unc_root}; attempting silent connect")
+            _try_net_use_unc(unc_root)
+            time.sleep(1.0)
+            if not _unc_usable(unc_root):
+                host = unc.split("\\")[2] if len(unc.split("\\")) > 2 else ""
+                if host and not _test_network_connectivity(host):
+                    safe_messagebox_showerror("Network Error", f"Cannot reach host {host}. Check network connectivity and ensure the host is online.")
+                    return False
+                logging.info("[DEBUG] UNC still warming up but host reachable; proceeding with launch")
 
     exe = find_fuser_exe()
+    logging.info(f"[DEBUG] fuser exe found: {exe}")
     if not exe:
         safe_messagebox_showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
         return False
 
     name = f"LocalFuser{idx}"
     shared = working_fuser_unc()
+    logging.info(f"[DEBUG] working_fuser_unc(): {shared}")
     bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
+    logging.info(f"[DEBUG] bat file path: {bat}")
 
     # Ensure UNC is accessible before launching
     if shared and shared.startswith("\\\\"):
         unc_root = "\\\\".join(shared.split("\\")[:4])  # Extract \\host\share
+        logging.info(f"[DEBUG] checking UNC root access: {unc_root}")
+        
         if not can_access_unc(unc_root):
             # Try to connect with net use (without credentials first)
             if not _try_net_use_unc(unc_root):
@@ -2473,9 +2517,8 @@ def start_fuser_instance(idx: int) -> bool:
                                            f"Connected to {unc_root} but cannot access the folder contents. " +
                                            f"This might be a permissions issue, but the fuser will attempt to start anyway.")
                         else:
-                            logging.warning(f"[fuser] Automatic connection to {unc_root} failed, but continuing...")
-                            # Don't show error or clear config - allow system to continue working
-                            return False
+                            logging.warning(f"[fuser] Automatic connection to {unc_root} failed; launching anyway")
+                            # Intentionally continue; PhotoMesh may still start and connect lazily
             else:
                 # Connection succeeded without credentials
                 time.sleep(1)
@@ -2517,27 +2560,55 @@ def ensure_fuser_instances(desired: int):
     Scale local PhotoMeshFuser.exe processes to exactly 'desired'.
     If too few → spawn more; if too many → kill extras.
     """
-    is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-    desired = _clamp_fusers(desired, is_fuser)
+    logging.info(f"[DEBUG] ensure_fuser_instances({desired}) called")
 
-    current = count_local_fusers()
-    if current == desired:
-        # Update last launched count even if no change needed
+    # Only one scaler at a time to avoid racing spawns that trigger
+    # 'already running' popups from PhotoMesh
+    if not _FUSER_ENFORCE_LOCK.acquire(blocking=False):
+        logging.info("[DEBUG] ensure_fuser_instances skipped (enforcer busy)")
+        return
+    try:
+    
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        logging.info(f"[DEBUG] is_fuser_computer: {is_fuser}")
+    
+        desired = _clamp_fusers(desired, is_fuser)
+        logging.info(f"[DEBUG] clamped desired count: {desired}")
+
+        current = count_local_fusers()
+        logging.info(f"[DEBUG] current fusers running: {current}")
+    
+        if current == desired:
+            logging.info(f"[DEBUG] current == desired ({current}), no action needed")
+            # Update last launched count even if no change needed
+            if is_fuser:
+                save_last_launched_fuser_count(desired)
+            return
+
+        if current > desired:
+            logging.info(f"[DEBUG] too many fusers ({current} > {desired}), killing all")
+            kill_fusers()
+            current = 0
+
+        to_start = max(0, desired - current)
+        logging.info(f"[DEBUG] need to start {to_start} fusers")
+    
+        for idx in range(current + 1, current + 1 + to_start):
+            logging.info(f"[DEBUG] attempting to start fuser {idx}")
+            result = start_fuser_instance(idx)
+            logging.info(f"[DEBUG] start_fuser_instance({idx}) returned: {result}")
+            # Give the process a moment to initialize so subsequent calls see it
+            time.sleep(0.6)
+    
+        # Save the number of fusers we just launched for restoration on restart
         if is_fuser:
             save_last_launched_fuser_count(desired)
-        return
-
-    if current > desired:
-        kill_fusers()
-        current = 0
-
-    to_start = max(0, desired - current)
-    for idx in range(current + 1, current + 1 + to_start):
-        start_fuser_instance(idx)
-    
-    # Save the number of fusers we just launched for restoration on restart
-    if is_fuser:
-        save_last_launched_fuser_count(desired)
+            logging.info(f"[DEBUG] saved last launched count: {desired}")
+    finally:
+        try:
+            _FUSER_ENFORCE_LOCK.release()
+        except Exception:
+            pass
 
 
 def save_last_launched_fuser_count(count: int):
@@ -2597,16 +2668,40 @@ def restore_fusers_on_startup():
 def enforce_local_fuser_policy():
     """Apply the configured fuser instance counts on this machine."""
     try:
+        logging.info(f"[DEBUG] enforce_local_fuser_policy() called")
+        
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        logging.info(f"[DEBUG] is_fuser_computer: {is_fuser}")
+        
         host_ct, desired_ct = get_fuser_counts()
-        if is_host_machine():
+        logging.info(f"[DEBUG] get_fuser_counts() returned: host_ct={host_ct}, desired_ct={desired_ct}")
+        
+        is_host = is_host_machine()
+        logging.info(f"[DEBUG] is_host_machine(): {is_host}")
+        
+        if is_host:
             target = host_ct
+            logging.info(f"[DEBUG] this is host machine, target = {target}")
         elif is_fuser:
             target = desired_ct
+            logging.info(f"[DEBUG] this is fuser machine, target = {target}")
         else:
             target = 0
+            logging.info(f"[DEBUG] this is neither host nor fuser, target = {target}")
+
+        # Throttle duplicate enforcements with the same target within a short window
+        global _last_enforce_target, _last_enforce_ts
+        now = time.time()
+        if _last_enforce_target == target and (now - _last_enforce_ts) < 8.0:
+            logging.info("[DEBUG] enforce_local_fuser_policy skip (recent identical target)")
+            return
+
+        logging.info(f"[DEBUG] calling ensure_fuser_instances({target})")
         ensure_fuser_instances(target)
+        _last_enforce_target = target
+        _last_enforce_ts = now
     except Exception as e:
+        logging.error(f"[DEBUG] enforce_local_fuser_policy() exception: {e}")
         pass
 
 def relaunch_fusers():
@@ -8676,9 +8771,14 @@ def run_with_splash():
             # Use a single short delay for background tasks
             app.after(5, update_fuser_shared_path)
             app.after(10, app.panels['OneClick'].update_fuser_state)
-            # Restore fusers from previous session before enforcing policy
-            app.after(12, restore_fusers_on_startup)
-            app.after(15, enforce_local_fuser_policy)
+            # Restore fusers from previous session, then enforce policy once
+            def _restore_then_enforce():
+                try:
+                    restore_fusers_on_startup()
+                except Exception:
+                    pass
+                enforce_local_fuser_policy()
+            app.after(15, _restore_then_enforce)
             
             if should_prompt_settings:
                 def _show_first_run_toast():

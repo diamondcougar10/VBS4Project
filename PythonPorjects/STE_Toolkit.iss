@@ -39,17 +39,15 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
-; 1) Launch the GUI toolkit (which includes configuration functionality)
-Filename: "{app}\STE_Toolkit.exe"; \
-    Parameters: "--config-only"; \
-    Description: "Configuring PhotoMesh and fuser defaults..."; \
+; Patch PhotoMesh/Fuser config first (blocking), THEN launch GUI
+Filename: "{app}\update_photomesh_config.exe"; \
+    Description: "Configuring PhotoMesh settings..."; \
     Flags: waituntilterminated runhidden skipifsilent
 
-; 2) Now launch the GUI (non-blocking is fine)  
+; Launch the GUI toolkit after all configuration is complete
 Filename: "{app}\STE_Toolkit.exe"; \
-    Parameters: "--fast-start --config ""{app}\config.ini"""; \
     Description: "Launch STE Mission Planning Toolkit now"; \
-    Flags: nowait postinstall skipifsilent
+    Flags: postinstall skipifsilent
 
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
@@ -98,6 +96,15 @@ end;
 // Forward declarations for SMB/networking functions
 procedure NetUseDeleteServer(const IpOrName: string); forward;
 function MapDriveOrUNC(const IpOrAlias, Share, DriveLetter, User, Pass: string; Persistent: Boolean): Boolean; forward;
+
+function HasPhotoMeshFuser(): Boolean;
+begin
+  Result :=
+    FileExists2(ExpandConstant('{pf}\Skyline\PhotoMesh\Tools\PhotoMeshFuser\PhotoMeshFuser.exe')) or
+    FileExists2(ExpandConstant('{pf}\Skyline\PhotoMesh\PhotoMeshFuser\PhotoMeshFuser.exe')) or
+    FileExists2(ExpandConstant('{pf32}\Skyline\PhotoMesh\Tools\PhotoMeshFuser\PhotoMeshFuser.exe')) or
+    FileExists2(ExpandConstant('{pf}\Skyline\PhotoMesh\Fuser\PhotoMeshFuser.exe'));
+end;
 
 // Portable "get file size" - simple version that returns 0 on failure
 function TryGetFileSize(const FileName: string; var Size: Int64): Boolean;
@@ -447,6 +454,17 @@ begin
 
   SetIniString('Network', 'host', HostIP,                     Ini);
 
+  { Grant NTFS Modify permissions to Authenticated Users }
+  try
+    LogInstallEvent('Applying NTFS Modify permissions to Authenticated Users');
+    Exec(ExpandConstant('{cmd}'),
+      '/C icacls "' + Base + '" /grant "Authenticated Users:(OI)(CI)M" /T /C',
+      '', SW_HIDE, ewWaitUntilTerminated, RC);
+    LogInstallEvent('Applied NTFS Modify permissions RC=' + IntToStr(RC));
+  except
+    LogInstallEvent('Failed to apply NTFS permissions - continuing anyway');
+  end;
+
   { NEW: drop a tiny beacon on the share so Users can auto-discover us }
   try
     WriteHostBeacon(Base, HostIP, HostName);
@@ -485,9 +503,20 @@ begin
   SetIniString('General', 'first_run_done', 'True', Ini);
   SetIniString('General', 'first_run_mode', 'USER', Ini);
 
-  SetIniString('Fusers', 'desired_count', '3',     Ini);
+  { Only set desired_count > 0 if PhotoMesh Fuser is available }
+  if HasPhotoMeshFuser() then
+  begin
+    SetIniString('Fusers', 'desired_count', '3',     Ini);
+    SetIniString('Fusers', 'fuser_computer','True',  Ini);
+  end
+  else
+  begin
+    SetIniString('Fusers', 'desired_count', '0',     Ini);
+    SetIniString('Fusers', 'fuser_computer','False', Ini);
+    LogInstallEvent('Fuser not found; setting desired_count=0 to avoid false "0/3" state');
+  end;
+  
   SetIniString('Fusers', 'host_count',    '1',     Ini);
-  SetIniString('Fusers', 'fuser_computer','True',  Ini);
   
   { Set up fuser working paths if we discovered a host }
   if UseIP then
@@ -803,6 +832,17 @@ begin
 
         SeedConfigIni_User(AppDir, DscIP, DscName);
         LogInstallEvent('User mode configuration completed');
+
+        { NEW: ensure fuser runtime exists on user PCs }
+        if not HasPhotoMeshFuser() then
+        begin
+          LogInstallEvent('PhotoMesh Fuser missing -> running Photomesh installers in User mode');
+          RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '');
+        end
+        else
+        begin
+          LogInstallEvent('PhotoMesh Fuser found - skipping installer');
+        end;
 
         // If we discovered a host, establish a session or map M:
         if DscIP <> '' then
