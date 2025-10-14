@@ -43,8 +43,9 @@ Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; 
 
 ; Launch the GUI toolkit after all configuration is complete
 Filename: "{app}\STE_Toolkit.exe"; \
-    Description: "Launch STE Mission Planning Toolkit now"; \
-    Flags: postinstall skipifsilent
+  Parameters: "--fast-start --config ""{app}\config.ini"""; \
+  Description: "Launch STE Mission Planning Toolkit now"; \
+  Flags: postinstall skipifsilent
 
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""STE Toolkit"" dir=in action=allow program=""{app}\STE_Toolkit.exe"" enable=yes"; Flags: runhidden; Tasks: firewall
 
@@ -486,7 +487,8 @@ begin
   if FileExists(BundledIni) and not FileExists(Ini) then
     FileCopy(BundledIni, Ini, False);
 
-  SetIniString('Offline', 'enabled', 'True',                Ini);
+  { Only enable Offline if a host was discovered to prevent blocking on first boot }
+  SetIniString('Offline', 'enabled', IfThen(UseIP, 'True', 'False'), Ini);
   SetIniString('Offline', 'host_name',  DiscoveredName,     Ini);
   SetIniString('Offline', 'host_ip',    DiscoveredIP,       Ini);
   SetIniString('Offline', 'share_name', SHARE_NAME,         Ini);
@@ -500,6 +502,9 @@ begin
 
   SetIniString('General', 'first_run_done', 'True', Ini);
   SetIniString('General', 'first_run_mode', 'USER', Ini);
+  
+  { Skip network connection attempts on first boot when no host discovered }
+  SetIniString('General', 'skip_startup_connect', IfThen(UseIP, 'False', 'True'), Ini);
 
   { Only set desired_count > 0 if PhotoMesh Fuser is available }
   if HasPhotoMeshFuser() then

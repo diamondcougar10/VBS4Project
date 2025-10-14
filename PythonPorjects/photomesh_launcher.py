@@ -822,20 +822,12 @@ def ensure_offline_share_exists(log=print) -> None:
 
     ensure_offline_share_via_cmd(log=log)
 
-def can_access_unc(path: str) -> bool:
-    """Best-effort check for UNC accessibility.
-
-    The prior implementation required listing the directory which proved too
-    strict for some environments (slow SMB, permission quirks), causing false
-    negatives and preventing fusers from starting. This version is deliberately
-    lenient:
-      - If it's a local path, ``os.path.isdir`` is sufficient.
-      - For UNC paths, consider the path accessible if any of the following is
-        true: ``isdir``/``exists`` succeeds for the path or its ``\\host\share``
-        root, or low-level Windows attributes indicate the path exists.
-      - On unexpected exceptions, return True to avoid blocking fuser launch;
-        later operations will still attempt connection or fail fast if truly
-        inaccessible.
+def can_access_unc(path: str, timeout: float = 2.5) -> bool:
+    """Return True only if the UNC root is reachable quickly.
+    
+    Uses a bounded 'dir' probe to avoid os.path.* UNC stalls that can hang
+    startup for 20-60 seconds when the host is unreachable. This prevents
+    splash screen hanging in User mode installations.
     """
     if not path:
         return False
@@ -847,34 +839,33 @@ def can_access_unc(path: str) -> bool:
         except Exception:
             return False
 
-    # UNC path handling
+    # UNC path: use fast bounded subprocess probe
     try:
-        # Direct checks on the full path
-        if os.path.isdir(path) or os.path.exists(path):
-            return True
-
-        # Fallback: check the \\host\share root
+        # Use the share root for testing (more reliable than full path)
         parts = path.strip("\\").split("\\")
         if len(parts) >= 2:
-            unc_root = rf"\\\\{parts[0]}\\{parts[1]}"
-            if os.path.isdir(unc_root) or os.path.exists(unc_root):
-                return True
-
-        # Windows low-level attribute check (avoids listing)
-        if is_windows():
-            try:
-                attr = ctypes.windll.kernel32.GetFileAttributesW(ctypes.c_wchar_p(path))
-                if attr != 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
-                    return True
-            except Exception:
-                pass
-
+            target = rf"\\\\{parts[0]}\\{parts[1]}"
+        else:
+            target = path
+            
+        # Probe with bounded 'dir' command - avoids Python's UNC stat latency
+        cp = subprocess.run(
+            ["cmd", "/c", "dir", target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        return cp.returncode == 0
+        
+    except subprocess.TimeoutExpired:
+        # Timeout means host is unreachable or very slow - don't block startup
+        logging.debug(f"[can_access_unc] Timeout checking UNC: {path}")
+        return False
     except Exception as e:
-        # Be forgiving: don't block fusers due to transient/permission errors
-        logging.debug(f"[can_access_unc] Non-fatal check error for '{path}': {e}")
-        return True
-
-    return False
+        # Other errors - don't block startup
+        logging.debug(f"[can_access_unc] Error checking UNC '{path}': {e}")
+        return False
 
 
 def replace_share_in_unc_path(p: str, old_share: str, new_share: str) -> str:

@@ -555,6 +555,64 @@ def release_singleton() -> None:
 # NETWORK CONNECTION HELPERS FOR WORKING FUSER UNC
 # =============================================================================
 
+def quick_ping_check(host_ip: str, timeout: float = 0.8) -> bool:
+    """Quick ping check to avoid spinning up SMB when host is plainly offline."""
+    if not host_ip:
+        return False
+        
+    try:
+        # Use ping with short timeout and single attempt
+        result = subprocess.run(
+            ["ping", "-n", "1", "-w", "400", host_ip],  # 400ms timeout
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            creationflags=0x08000000  # CREATE_NO_WINDOW
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, Exception):
+        return False
+
+def quick_unc_check(unc_path, timeout=3):
+    """Try UNC accessibility quickly with timeout — prevents startup hangs."""
+    if not unc_path:
+        return False
+    
+    result = Queue()
+
+    def _try():
+        try:
+            # Quick access test for local paths
+            if not unc_path.startswith("\\\\"):
+                result.put(os.path.isdir(unc_path))
+                return
+            
+            # Quick access test for UNC paths
+            if os.path.exists(unc_path):
+                result.put(True)
+                return
+                
+            # Fast 'dir' as fallback (no UI)
+            rc = subprocess.run(
+                ["cmd", "/c", "dir", unc_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            ).returncode
+            result.put(rc == 0)
+        except Exception:
+            result.put(False)
+
+    t = threading.Thread(target=_try, daemon=True)
+    t.start()
+    t.join(timeout)
+    
+    try:
+        return not result.empty() and result.get_nowait()
+    except:
+        return False
+
 def _run(cmd, **kw):
     """Run a command with memory safety; return (rc, stdout, stderr)."""
     try:
@@ -600,7 +658,7 @@ def _run(cmd, **kw):
 def _try_net_use_unc(unc_root, username=None, password=None):
     """
     Try to connect to a UNC root persistently. Credentials optional.
-    Returns True on success.
+    Returns True on success. Uses shorter timeout to prevent startup delays.
     """
     # net use \\host\share [password] [/user:user] /persistent:yes
     args = ["net", "use", unc_root, "/persistent:yes"]
@@ -609,7 +667,8 @@ def _try_net_use_unc(unc_root, username=None, password=None):
         args = ["net", "use", unc_root, password, f"/user:{username}", "/persistent:yes"]
     
     try:
-        rc, stdout, stderr = _run(args)
+        # Use shorter timeout for network operations to prevent startup hangs
+        rc, stdout, stderr = _run(args, timeout=6)
         logging.info(f"[net_use] Command: {' '.join(args)}")
         logging.info(f"[net_use] Return code: {rc}")
         if stdout:
@@ -774,7 +833,7 @@ def validate_and_configure_network_connection(host_ip: str = None) -> bool:
             
         # Test basic connectivity
         unc_root = f"\\\\{host_ip}\\SharedMeshDrive"
-        if not can_access_unc(unc_root):
+        if not quick_unc_check(unc_root):
             # Try to establish connection
             if not connect_working_share_interactive(parent=None, silent=True):
                 logging.error(f"[network_config] Cannot connect to {unc_root}")
@@ -782,7 +841,7 @@ def validate_and_configure_network_connection(host_ip: str = None) -> bool:
                 
         # Test WorkingFolder specifically
         working_folder = f"\\\\{host_ip}\\SharedMeshDrive\\WorkingFuser"
-        if not can_access_unc(working_folder):
+        if not quick_unc_check(working_folder):
             logging.error(f"[network_config] WorkingFolder not accessible: {working_folder}")
             return False
             
@@ -943,12 +1002,12 @@ def connect_working_share_interactive(parent=None, silent=True):
         return False
 
     # Already accessible?
-    if can_access_unc(working_unc):
+    if quick_unc_check(working_unc):
         return True
 
     # 1) Try default connection (cached creds / current logon)
     if _try_net_use_unc(unc_root):
-        return can_access_unc(working_unc)
+        return quick_unc_check(working_unc)
 
     # 2) Optional: clear stale sessions and retry once (no prompt)
     try:
@@ -956,7 +1015,7 @@ def connect_working_share_interactive(parent=None, silent=True):
     except Exception:
         pass
     if _try_net_use_unc(unc_root):
-        return can_access_unc(working_unc)
+        return quick_unc_check(working_unc)
 
     # No prompts; just report failure
     return False
@@ -2211,6 +2270,79 @@ if config_changed:
 # =============================================================================
 # Background warm-up tasks (run off the UI thread)
 # =============================================================================
+
+def check_network_status_during_warmup():
+    """Non-blocking network status check during startup warmup."""
+    global APP_INSTANCE
+    try:
+        # Get working folder UNC for testing
+        wf_unc = working_fuser_unc()
+        if wf_unc and wf_unc.startswith("\\\\"):
+            # Extract host IP from UNC path
+            parts = wf_unc.strip("\\").split("\\")
+            if len(parts) >= 1:
+                host_ip = parts[0]
+                
+                # Quick ping check first to avoid SMB startup costs
+                if not quick_ping_check(host_ip, timeout=0.5):
+                    if APP_INSTANCE:
+                        APP_INSTANCE.network_status = "offline"
+                    logging.info(f"[startup] Host {host_ip} not reachable via ping, continuing in offline mode")
+                    return False
+                
+                # If ping succeeds, do quick UNC check
+                if quick_unc_check(wf_unc, timeout=2):
+                    if APP_INSTANCE:
+                        APP_INSTANCE.network_status = "online"
+                    logging.info("[startup] Network connectivity confirmed")
+                    return True
+                else:
+                    if APP_INSTANCE:
+                        APP_INSTANCE.network_status = "offline"
+                    logging.info("[startup] Network not accessible, continuing in offline mode")
+                    return False
+            else:
+                if APP_INSTANCE:
+                    APP_INSTANCE.network_status = "offline"
+                logging.info("[startup] Invalid UNC path, running in local mode")
+                return False
+        else:
+            # No UNC configured, assume local mode
+            if APP_INSTANCE:
+                APP_INSTANCE.network_status = "offline"
+            logging.info("[startup] No network UNC configured, running in local mode")
+            return False
+    except Exception as e:
+        logging.warning(f"[startup] Network check failed: {e}")
+        if APP_INSTANCE:
+            APP_INSTANCE.network_status = "offline"
+        return False
+
+def apply_offline_settings_with_skip_guard() -> None:
+    """Apply offline settings with skip_startup_connect guard for first boot."""
+    # Check if we should skip network connection attempts on startup
+    skip = config.getboolean('General', 'skip_startup_connect', fallback=False)
+    if skip:
+        logging.info("[warmup] skip_startup_connect=True, deferring network connection")
+        # Clear the flag so next launch will try
+        config['General']['skip_startup_connect'] = 'False'
+        save_config()
+        
+        # Apply basic settings without network probing
+        enforce_photomesh_settings()
+        update_fuser_shared_path()
+        enforce_local_fuser_policy()
+        
+        # Schedule network connection check for after UI is loaded
+        global APP_INSTANCE
+        if APP_INSTANCE:
+            APP_INSTANCE.after(2000, lambda: run_in_thread(lambda: apply_offline_settings()))
+            
+        return
+    
+    # Normal path - apply all settings including network checks
+    apply_offline_settings()
+
 def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val: None):
     """
     Do small, IO-bound checks in sequence to keep perceived startup snappy.
@@ -2243,7 +2375,8 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
         ("Detecting VBS4 Launcher…", lambda: get_vbs4_launcher_path(time_budget_sec=budget, allow_full_drive=allow_c and not fast)),
         ("Detecting Blue IG…",       get_blueig_install_path),
         ("Detecting ARES Manager…",  get_ares_manager_path),
-        ("Applying offline settings…", apply_offline_settings),
+        ("Checking network connectivity…", check_network_status_during_warmup),
+        ("Applying offline settings…", apply_offline_settings_with_skip_guard),
     ]
     
     # Calculate progress increment per step
@@ -2849,7 +2982,7 @@ def apply_offline_settings() -> None:
             # Only seed if the UNC is accessible (best effort, don't block UI)
             def _seed_in_background():
                 try:
-                    if can_access_unc(wf_unc):
+                    if quick_unc_check(wf_unc):
                         from update_photomesh_config import seed_fuser_default
                         seed_fuser_default(wf_unc)
                         logging.info(f"[apply_offline] Background fuser seeding completed for {wf_unc}")
@@ -4293,6 +4426,9 @@ class MainApp(tk.Tk):
         # Flag to track if UI has been initialized
         self._ui_initialized = False
         
+        # Network status tracking for non-blocking startup
+        self.network_status = "unknown"  # "online", "offline", "unknown"
+        
         # Ensure the cross-thread UI queue is pumped while the app runs
         self.after(0, pump_ui_queue, self)
 
@@ -4358,6 +4494,19 @@ class MainApp(tk.Tk):
                         pass
         except Exception:
             pass
+    
+    def show_warning_banner(self, message: str):
+        """Show a warning banner for offline mode or network issues."""
+        try:
+            if hasattr(self, '_ui_initialized') and self._ui_initialized:
+                # Show warning in main UI if available
+                # This could be enhanced with a banner widget
+                logging.warning(f"[MainApp] {message}")
+            else:
+                # Just log if UI not ready yet
+                logging.warning(f"[MainApp] {message}")
+        except Exception as e:
+            logging.error(f"Failed to show warning banner: {e}")
 
     # --- UI initialization (deferred until after splash) -------------------
     def _initialize_ui(self):
@@ -4671,6 +4820,10 @@ class MainApp(tk.Tk):
         """Complete warm-up and close the splash screen with proper timing."""
         # Initialize the UI first (this was previously in __init__)
         self._initialize_ui()
+        
+        # Check if we're in offline mode and show appropriate warning
+        if hasattr(self, 'network_status') and self.network_status == "offline":
+            self.show_warning_banner("Host not reachable — running in offline mode")
         
         # Start memory monitoring
         start_memory_monitoring()
