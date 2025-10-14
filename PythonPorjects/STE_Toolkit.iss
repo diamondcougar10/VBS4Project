@@ -39,10 +39,7 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "firewall";    Description: "Allow STE Toolkit through Windows Firewall"; GroupDescription: "Windows Firewall:"; Flags: checkedonce
 
 [Run]
-; Patch PhotoMesh/Fuser config first (blocking), THEN launch GUI
-Filename: "{app}\update_photomesh_config.exe"; \
-    Description: "Configuring PhotoMesh settings..."; \
-    Flags: waituntilterminated runhidden skipifsilent
+; Skipped PhotoMesh config patch step (update_photomesh_config.exe not present)
 
 ; Launch the GUI toolkit after all configuration is complete
 Filename: "{app}\STE_Toolkit.exe"; \
@@ -413,6 +410,7 @@ end;
 
 function SeedConfigIni_Host(AppDir, Root: string): string;
 var Ini, BundledIni, Base, HostName, HostIP: string;
+    RC: Integer;
 begin
   Ini         := AddBackslash(AppDir) + 'config.ini';
   BundledIni  := AddBackslash(AppDir) + '_internal\config.ini';

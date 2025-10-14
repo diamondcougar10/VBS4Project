@@ -7505,6 +7505,38 @@ class SettingsPanel(tk.Frame):
             anchor="w"
         )
         self.share_status_label.pack(side="left", fill="x", expand=True)
+
+        def _test_connection():
+            o = get_offline_cfg()
+            unc_root = build_unc_from_cfg(o)
+            working_fuser = working_fuser_unc()
+            host = o.get("host_ip", "")
+            result_lines = []
+            # 1. Ping host
+            if host:
+                ping_ok = _test_network_connectivity(host)
+                result_lines.append(f"Ping {host}: {'✓' if ping_ok else '✗'}")
+            else:
+                result_lines.append("Ping: No host IP configured ✗")
+            # 2. UNC root
+            unc_ok = _unc_usable(unc_root)
+            result_lines.append(f"Share {unc_root}: {'✓' if unc_ok else '✗'}")
+            # 3. WorkingFuser subfolder
+            fuser_ok = _unc_usable(working_fuser)
+            result_lines.append(f"WorkingFuser {working_fuser}: {'✓' if fuser_ok else '✗'}")
+            # Show results
+            msg = "\n".join(result_lines)
+            messagebox.showinfo("Connection Test", msg)
+
+        tk.Button(
+            share_row,
+            text="Test Connection",
+            command=_test_connection,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
         
         # Add tooltip functionality to the status label
         def create_tooltip(widget, text_func):
