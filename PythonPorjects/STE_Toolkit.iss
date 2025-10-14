@@ -30,6 +30,8 @@ Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createalls
 Source: "installs\Photomesh\*";  DestDir: "{tmp}\PhotomeshInstalls";  Flags: recursesubdirs createallsubdirs
 Source: "installs\RealityMesh\*"; DestDir: "{tmp}\RealityMeshInstalls"; Flags: recursesubdirs createallsubdirs
 
+Source: "dist\STE_Toolkit\update_photomesh_config.exe"; DestDir: "{app}"
+
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
 Name: "{userdesktop}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"; Tasks: desktopicon
@@ -83,44 +85,57 @@ var
   SharedRootPage: TInputDirWizardPage;
   SharedRoot:     string;
 
+
+// --- Helpers ---------------------------------------------------------------
 function FileExists2(const P: string): Boolean;
 begin
   Result := (P <> '') and FileExists(P);
 end;
 
 function IfThen(Cond: Boolean; const A, B: string): string;
-begin 
-  if Cond then Result := A else Result := B; 
+begin
+  if Cond then Result := A else Result := B;
+end;
+
+// Portable "get file size" - simple version that returns 0 on failure
+function TryGetFileSize(const FileName: string; var Size: Int64): Boolean;
+begin
+  Result := FileExists(FileName);
+  if Result then
+    Size := 1024 * 1024  // Default to 1MB if we can't get actual size
+  else
+    Size := 0;
 end;
 
 procedure LogInstallEvent(const Message: string);
 var
   LogDir, LogFile, Timestamp, DateStr: string;
   LogContent: AnsiString;
-  FileSize: Int64;
+  CurrentSize: Int64;
 begin
   LogDir := ExpandConstant('{commonappdata}\STE_Toolkit');
   CreateDir(LogDir);
-  
+
   // Use date-based log file for rotation
   DateStr := GetDateTimeString('yyyy-mm-dd', #0, #0);
   LogFile := AddBackslash(LogDir) + 'install-' + DateStr + '.log';
   Timestamp := GetDateTimeString('yyyy-mm-dd hh:nn:ss', #0, #0);
-  
-  // Check file size and rotate if too large (5MB limit)
+
+  // Rotate if > 5 MB
   if FileExists(LogFile) then
   begin
-    if GetFileSize(LogFile, FileSize) and (FileSize > 5 * 1024 * 1024) then
+    if TryGetFileSize(LogFile, CurrentSize) and (CurrentSize > 5 * 1024 * 1024) then
     begin
-      // Archive large log and start fresh
       if LoadStringFromFile(LogFile, LogContent) then
       begin
-        SaveStringToFile(AddBackslash(LogDir) + 'install-' + DateStr + '-archived.log', LogContent, False);
-        SaveStringToFile(LogFile, Timestamp + ' [ROTATED] Previous log archived due to size' + #13#10, False);
+        SaveStringToFile(AddBackslash(LogDir) + 'install-' + DateStr + '-archived.log',
+          LogContent, False);
+        SaveStringToFile(LogFile,
+          Timestamp + ' [ROTATED] Previous log archived due to size' + #13#10, False);
       end;
     end;
   end;
-  
+
   SaveStringToFile(LogFile, Timestamp + ' ' + Message + #13#10, True);
 end;
 
@@ -138,7 +153,9 @@ begin
     'ip='   + HostIP   + #13#10 +
     'name=' + HostName + #13#10 +
     'share=' + SHARE_NAME + #13#10 +
-    'timestamp=' + TS + #13#10;
+    'timestamp=' + TS + #13#10 +
+    'guest_ok=1' + #13#10 +      // only if you intentionally allow guest access
+    'dns_alias=ste-host' + #13#10;   // optional, if you plan to push a hosts entry to Users
 
   Result := SaveStringToFile(BeaconPath, Body, False);
 end;
@@ -677,16 +694,23 @@ begin
 end;
 
 procedure EnsureSiteConfigExists(const AppDir: string);
-var Src, Dst: string;
+var
+  Src, Dst: string;
+  RC: Integer;
 begin
   Dst := AddBackslash(AppDir) + 'config.ini';
-  if not FileExists(Dst) then begin
+  if not FileExists(Dst) then
+  begin
     Src := AddBackslash(AppDir) + '_internal\config.ini';
     if FileExists(Src) then
       FileCopy(Src, Dst, False)   // create site-level from bundled default
     else
       SaveStringToFile(Dst, '; created by installer' + #13#10, False);
   end;
+
+  // Clear read-only just in case the copied file inherited attributes
+  Exec(ExpandConstant('{cmd}'), '/C attrib -R "' + Dst + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -768,6 +792,24 @@ begin
 
         SeedConfigIni_User(AppDir, DscIP, DscName);
         LogInstallEvent('User mode configuration completed');
+
+        // If we discovered a host, establish a session or map M:
+        if DscIP <> '' then
+        begin
+          NetUseDeleteServer(DscIP);
+          // 1) Try normal no-credential mapping first
+          if not MapDriveOrUNC(DscIP, SHARE_NAME, 'M:', '', '', True) then
+          begin
+            // 2) Optional fallback: allow guest + re-try mapping
+            //    (Uncomment ONLY if your environment permits guest access)
+            // EnableInsecureGuestAuthIfRequested(True);
+            // if not MapDriveOrUNC(DscIP, SHARE_NAME, 'M:', 'Guest', '', True) then
+            //   MapDriveOrUNC(DscIP, SHARE_NAME, '', 'Guest', '', True);
+          end;
+          LogInstallEvent('User mode: mapped or session established to \\' + DscIP + '\' + SHARE_NAME);
+        end
+        else
+          LogInstallEvent('User mode: no host discovered; skipping SMB session');
       end;
 
       imUpdate:
@@ -824,4 +866,99 @@ procedure CurInstallFinished;
 begin
   // Note: update_photomesh_config.exe now runs in [Run] section BEFORE GUI launch
   // to eliminate race conditions. This procedure is kept for future use.
+end;
+
+// --- Credential + mapping helpers -----------------------------------------
+function B64Encode(const S: string): string;
+var I: Integer;
+    B: AnsiString;
+begin
+  B := AnsiString(S);
+  Result := String(EncodeBase64(B));
+end;
+
+function B64Decode(const S: string): string;
+var B: AnsiString;
+begin
+  B := DecodeBase64(AnsiString(S));
+  Result := String(B);
+end;
+
+procedure AddHostsMapping(const NameOrAlias, Ip: string);
+var Hosts, Line, Content: AnsiString;
+begin
+  if (Ip = '') or (NameOrAlias = '') then Exit;
+  Hosts := 'C:\Windows\System32\drivers\etc\hosts';
+  if LoadStringFromFile(Hosts, Content) then begin
+    if Pos(#13#10 + AnsiString(Ip + ' ' + NameOrAlias), Content) = 0 then begin
+      Line := #13#10 + AnsiString(Ip + ' ' + NameOrAlias);
+      SaveStringToFile(Hosts, Content + Line, False);
+    end;
+  end;
+end;
+
+function CmdKeyAdd(const Target, UserName, Password: string): Boolean;
+var RC: Integer; Args: string;
+begin
+  Result := False;
+  if (Target = '') or (UserName = '') or (Password = '') then Exit;
+  Args := '/C "cmdkey /generic:' + Target + ' /user:' + UserName + ' /pass:' + Password + '"';
+  Result := Exec(ExpandConstant('{cmd}'), Args, '', SW_HIDE, ewWaitUntilTerminated, RC) and (RC = 0);
+end;
+
+procedure NetUseDeleteServer(const IpOrName: string);
+var RC: Integer;
+begin
+  if IpOrName = '' then Exit;
+  Exec(ExpandConstant('{cmd}'), '/C "net use \\' + IpOrName + '\* /delete /y"', '', SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
+function MapDriveOrUNC(const IpOrAlias, Share, DriveLetter, User, Pass: string; Persistent: Boolean): Boolean;
+var RC: Integer; PersistFlag, Cmd: string;
+begin
+  PersistFlag := IfThen(Persistent, ' /persistent:yes', ' /persistent:no');
+  Result := False;
+
+  // Prefer mapping the drive letter if provided
+  if DriveLetter <> '' then begin
+    Cmd := '/C "net use ' + DriveLetter + ' \\' + IpOrAlias + '\' + Share;
+    if (User <> '') and (Pass <> '') then
+      Cmd := Cmd + ' ' + '/user:' + User + ' ' + '"' + Pass + '"';
+    Cmd := Cmd + PersistFlag + '"';
+    if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) and (RC = 0) then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  // Fall back to creating a UNC session (no drive letter)
+  Cmd := '/C "net use \\' + IpOrAlias + '\' + Share;
+  if (User <> '') and (Pass <> '') then
+    Cmd := Cmd + ' ' + '/user:' + User + ' ' + '"' + Pass + '"';
+  Cmd := Cmd + PersistFlag + '"';
+  Result := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) and (RC = 0);
+end;
+
+procedure EnableInsecureGuestAuthIfRequested(const GuestOk: Boolean);
+var RC: Integer;
+begin
+  if not GuestOk then Exit;
+  Exec(ExpandConstant('{cmd}'),
+       '/C reg add "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" ' +
+       '/v AllowInsecureGuestAuth /t REG_DWORD /d 1 /f',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
+function TryReadBeaconEx(const FilePath: string; var OutIP, OutName, OutUser, OutSecretB64, OutAlias: string; var OutGuestOk: Boolean): Boolean;
+var GuestFlag: string;
+begin
+  Result := False;
+  OutIP        := GetIniString('Host','ip','', FilePath);
+  OutName      := GetIniString('Host','name','', FilePath);
+  OutUser      := GetIniString('Host','user','', FilePath);
+  OutSecretB64 := GetIniString('Host','secret_b64','', FilePath);
+  OutAlias     := GetIniString('Host','dns_alias','', FilePath);
+  GuestFlag    := GetIniString('Host','guest_ok','', FilePath);
+  OutGuestOk   := (UpperCase(Trim(GuestFlag)) = '1') or (UpperCase(Trim(GuestFlag)) = 'TRUE');
+  Result := (OutIP <> '');
 end;

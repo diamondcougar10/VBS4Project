@@ -621,6 +621,17 @@ def _try_net_use_unc(unc_root, username=None, password=None):
         if rc != 0 and "already exists" in (stdout + stderr).lower():
             logging.info(f"[net_use] Connection already exists for {unc_root}")
             return True
+        
+        # For automatic connections (no credentials), be more permissive with certain errors
+        if not username and not password and rc != 0:
+            error_text = (stdout + stderr).lower()
+            # Some errors we can ignore for automatic connections
+            if any(phrase in error_text for phrase in ["system error 53", "network path was not found"]):
+                logging.warning(f"[net_use] Network path issue for {unc_root}, but continuing...")
+                return False
+            elif "access is denied" in error_text:
+                logging.warning(f"[net_use] Access denied for {unc_root}, but continuing...")
+                return False
             
         return rc == 0
     except Exception as e:
@@ -865,53 +876,34 @@ def _compute_working_unc_from_cfg():
     working = os.path.join(root, wf_sub).replace("/", "\\")
     return root, working
 
-def connect_working_share_interactive(parent=None, silent=False):
+def connect_working_share_interactive(parent=None, silent=True):
     """
-    Ensure the working UNC is connected. In 'silent' mode we try to connect
-    with existing/cached credentials only. If that fails and silent=False,
-    prompt once for credentials, persist them, and connect again.
+    Auto-connect to the configured WorkingFuser UNC without ever prompting
+    for credentials. Uses the current Windows session or cached credentials.
     Returns True if the working UNC is accessible.
     """
     unc_root, working_unc = _compute_working_unc_from_cfg()
     if not unc_root:
         return False
 
-    # Already good?
+    # Already accessible?
     if can_access_unc(working_unc):
         return True
 
-    # Try silent connect first (uses any cached creds or open sessions)
+    # 1) Try default connection (cached creds / current logon)
     if _try_net_use_unc(unc_root):
         return can_access_unc(working_unc)
 
-    if silent:
-        return False  # don't prompt in silent mode
-
-    # Need credentials – prompt once and persist using cmdkey
+    # 2) Optional: clear stale sessions and retry once (no prompt)
     try:
-        host = (get_offline_cfg().get("host_ip") or "").strip() or unc_root.strip("\\").split("\\")[0]
-        user = simpledialog.askstring("Network Sign‑in", f"Username for \\\\{host}:", parent=parent)
-        if not user:
-            # User cancelled username dialog - clear offline config
-            clear_offline_ip_configuration()
-            logging.info("[connect_working_share] Cleared offline configuration due to username dialog cancellation")
-            return False
-        pwd = simpledialog.askstring("Network Sign‑in", "Password:", show="*", parent=parent)
-        if pwd is None:
-            # User cancelled password dialog - clear offline config
-            clear_offline_ip_configuration()
-            logging.info("[connect_working_share] Cleared offline configuration due to password dialog cancellation")
-            return False
-        _store_creds_in_cmdkey(host, user, pwd)
-        success = _try_net_use_unc(unc_root, username=user, password=pwd)
-        if not success:
-            # Authentication failed - clear offline config
-            clear_offline_ip_configuration()
-            logging.info("[connect_working_share] Cleared offline configuration due to authentication failure")
+        _run(["net", "use", unc_root, "/delete", "/yes"])
     except Exception:
         pass
+    if _try_net_use_unc(unc_root):
+        return can_access_unc(working_unc)
 
-    return can_access_unc(working_unc)
+    # No prompts; just report failure
+    return False
 
 # =============================================================================
 # THREADING UTILITIES
@@ -1968,6 +1960,10 @@ def set_host_ip(ip: str) -> None:
 
     apply_offline_settings()
     update_fuser_shared_path()
+    
+    # Try to establish the UNC session now (no prompts)
+    if trimmed:  # Only try to connect if an IP was actually set
+        connect_working_share_interactive(parent=None, silent=True)
 
 def build_unc_from_cfg(o: dict | None = None) -> str:
     """Return ``\\\\<ip>\\<share>`` based on Offline config (IP only)."""
@@ -2415,11 +2411,13 @@ def start_fuser_instance(idx: int) -> bool:
     if o["enabled"]:
         unc = resolve_network_working_folder_from_cfg(o)
         if not can_access_unc(unc):
-            # Clear offline config when network access fails
-            clear_offline_ip_configuration()
-            logging.info("[start_fuser] Cleared offline configuration due to network access failure")
-            safe_messagebox_showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-            return False
+            # Try to connect automatically before giving up
+            if not connect_working_share_interactive(parent=None, silent=True):
+                # Clear offline config when network access fails after connection attempt
+                clear_offline_ip_configuration()
+                logging.info("[start_fuser] Cleared offline configuration due to network access failure")
+                safe_messagebox_showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+                return False
 
     exe = find_fuser_exe()
     if not exe:
@@ -2453,51 +2451,30 @@ def start_fuser_instance(idx: int) -> bool:
                         else:
                             logging.warning(f"[fuser] Connected to {unc_root} but folder access check failed")
                     else:
-                        # Only prompt for credentials if automatic connection failed
-                        user = safe_simpledialog_askstring("Network Credentials", 
-                                                     f"Username for {host}:")
-                        if user:  # Only proceed if user entered something
-                            pwd = safe_simpledialog_askstring("Network Credentials", 
-                                                        f"Password for {user}@{host}:", 
-                                                        show="*")
-                            if pwd:  # Only proceed if password entered
-                                _store_creds_in_cmdkey(host, user, pwd)
-                                # Try to connect with credentials
-                                connect_success = _try_net_use_unc(unc_root, username=user, password=pwd)
-                                if connect_success:
-                                    # Give Windows a moment to establish the connection
-                                    time.sleep(3)
-                                    # Try multiple times to check accessibility
-                                    accessible = False
-                                    for attempt in range(3):
-                                        if can_access_unc(unc_root):
-                                            accessible = True
-                                            break
-                                        time.sleep(1)
-                                    
-                                    if accessible:
-                                        logging.info(f"[fuser] Successfully connected to {unc_root}")
-                                    else:
-                                        # Connection succeeded but still can't access - might be permissions
-                                        safe_messagebox_showwarning("Network Warning", 
-                                                   f"Connected to {unc_root} but cannot access the folder contents. " +
-                                                   f"This might be a permissions issue, but the fuser will attempt to start anyway.")
-                                else:
-                                    safe_messagebox_showerror("Network Error", 
-                                               f"Authentication failed for {unc_root}. Please check your username and password.")
-                                    # Clear offline config on authentication failure
-                                    clear_offline_ip_configuration()
-                                    logging.info("[fuser] Cleared offline configuration due to authentication failure")
-                                    return False
+                        # Attempt automatic connection without prompting for credentials
+                        logging.info(f"[fuser] Attempting automatic connection to {unc_root}")
+                        connect_success = _try_net_use_unc(unc_root)
+                        if connect_success:
+                            # Give Windows a moment to establish the connection
+                            time.sleep(3)
+                            # Try multiple times to check accessibility
+                            accessible = False
+                            for attempt in range(3):
+                                if can_access_unc(unc_root):
+                                    accessible = True
+                                    break
+                                time.sleep(1)
+                            
+                            if accessible:
+                                logging.info(f"[fuser] Successfully connected to {unc_root} automatically")
                             else:
-                                # User cancelled password dialog - clear offline config
-                                clear_offline_ip_configuration()
-                                logging.info("[fuser] Cleared offline configuration due to password dialog cancellation")
-                                return False
+                                # Connection succeeded but still can't access - might be permissions
+                                safe_messagebox_showwarning("Network Warning", 
+                                           f"Connected to {unc_root} but cannot access the folder contents. " +
+                                           f"This might be a permissions issue, but the fuser will attempt to start anyway.")
                         else:
-                            # User cancelled username dialog - clear offline config
-                            clear_offline_ip_configuration()
-                            logging.info("[fuser] Cleared offline configuration due to username dialog cancellation")
+                            logging.warning(f"[fuser] Automatic connection to {unc_root} failed, but continuing...")
+                            # Don't show error or clear config - allow system to continue working
                             return False
             else:
                 # Connection succeeded without credentials
@@ -5983,11 +5960,13 @@ class VBS4Panel(tk.Frame):
         if o["enabled"]:
             default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
-                # Clear offline config when network access fails
-                clear_offline_ip_configuration()
-                logging.info("[fuser_manager] Cleared offline configuration due to network access failure")
-                messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-                return
+                # Try to connect automatically before giving up
+                if not connect_working_share_interactive(parent=None, silent=True):
+                    # Clear offline config when network access fails after connection attempt
+                    clear_offline_ip_configuration()
+                    logging.info("[fuser_manager] Cleared offline configuration due to network access failure")
+                    messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+                    return
 
         # Auto-discover fuser directories if a shared path is provided
         discovered = discover_fusers_from_shared_path(default_path)
@@ -6061,11 +6040,13 @@ class VBS4Panel(tk.Frame):
         if o["enabled"]:
             default_path = resolve_network_working_folder_from_cfg(o)
             if not can_access_unc(default_path):
-                # Clear offline config when network access fails
-                clear_offline_ip_configuration()
-                logging.info("[fuser_panel] Cleared offline configuration due to network access failure")
-                messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
-                return
+                # Try to connect automatically before giving up
+                if not connect_working_share_interactive(parent=None, silent=True):
+                    # Clear offline config when network access fails after connection attempt
+                    clear_offline_ip_configuration()
+                    logging.info("[fuser_panel] Cleared offline configuration due to network access failure")
+                    messagebox.showerror("Offline Mode", OFFLINE_ACCESS_HINT)
+                    return
         else:
             default_path = shared_path
             if default_path is None:
@@ -7934,6 +7915,8 @@ class SettingsPanel(tk.Frame):
         def _work():
             try:
                 apply_offline_settings()  # sync Wizard, fusers, and ensure share
+                # Try to establish the UNC session now (no prompts)
+                connect_working_share_interactive(parent=None, silent=True)
 
                 if self.shared_auto_map.get():
                     unc_root = build_unc_from_cfg(o)
@@ -7972,6 +7955,8 @@ class SettingsPanel(tk.Frame):
         tk.Label(working, text="Working…", padx=20, pady=20).pack()
 
         def _work():
+            # First try to connect automatically, then test access
+            connect_working_share_interactive(parent=None, silent=True)
             ok = can_access_unc(path)
 
             def _done():
@@ -8047,7 +8032,7 @@ class SettingsPanel(tk.Frame):
         will open the mapped drive; otherwise we open the UNC after connecting.
         """
         # Always compute the UNC and make sure the workstation is connected
-        if not connect_working_share_interactive(parent=self, silent=False):
+        if not connect_working_share_interactive(parent=self, silent=True):
             path = resolve_shared_access_path()  # keep original message content
             messagebox.showerror("Open Working Folder",
                                  f"Cannot access:\n{path}\nUse Test Access to diagnose.")
