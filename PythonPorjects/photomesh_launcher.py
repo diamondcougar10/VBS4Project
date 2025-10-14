@@ -621,6 +621,94 @@ def assert_preset_settings_name(project_root: str, name: str = "STEPRESET") -> N
 # endregion
 
 # region Network / UNC resolution
+
+# ---------- BEGIN: robust UNC resolution & fuser folder helpers ----------
+
+def _cfg_get(section: dict, key: str, default: str = "") -> str:
+    if not section:
+        return default
+    return str(section.get(key, default) or default)
+
+def workingfuser_unc_from_cfg(cfg: dict) -> str:
+    """
+    Returns the UNC to the WorkingFuser folder, derived strictly from config.
+    Prefers Fusers.shared_working_unc; otherwise builds from Offline.* keys.
+    """
+    fusers = cfg.get('Fusers', {})
+    offline = cfg.get('Offline', {})
+    explicit = _cfg_get(fusers, 'shared_working_unc')
+    if explicit:
+        return explicit.rstrip('\\/')
+    host = _cfg_get(offline, 'host_ip') or _cfg_get(offline, 'host_name')
+    share = _cfg_get(offline, 'share_name', 'SharedMeshDrive')
+    sub   = _cfg_get(offline, 'working_fuser_subdir', 'WorkingFuser')
+    if not host:
+        return ""  # nothing to do
+    return fr'\\{host}\{share}\{sub}'
+
+def unc_reachable_quick(unc_path: str, timeout_sec: float = 2.5) -> bool:
+    """
+    Fast, bounded probe that doesn't hang the UI.
+    """
+    if not unc_path or not unc_path.startswith('\\\\'):
+        return False
+    try:
+        # Avoid os.path.exists on UNC (can hang with SMB); use cmd dir
+        cmd = ['cmd', '/c', 'dir', f'"{unc_path}"']
+        p = subprocess.run(cmd, capture_output=True, timeout=timeout_sec)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+def ensure_localfuser_dirs_on_unc(cfg: dict, desired_count: int) -> list[Path]:
+    """
+    Ensures LocalFuser[1..N] *on the UNC WorkingFuser* and returns those paths.
+    Refuses to fall back to local folder if a Host is configured.
+    """
+    working_unc = workingfuser_unc_from_cfg(cfg)
+    if not working_unc:
+        raise RuntimeError("No Host configured yet (working UNC unknown).")
+
+    # Gate: UNC must be reachable quickly; otherwise fail fast.
+    if not unc_reachable_quick(working_unc):
+        raise RuntimeError(f"WorkingFuser UNC not reachable: {working_unc}")
+
+    client = socket.gethostname()
+    try:
+        client_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        client_ip = "0.0.0.0"
+
+    # Create fuser folders under the UNC
+    localfuser_paths: list[Path] = []
+    for idx in range(1, max(1, desired_count) + 1):
+        folder_name = f"{client}-{idx}({client_ip})_LocalFuser{idx}"
+        p = Path(working_unc) / folder_name
+        # Create via PowerShell to avoid long hangs on Python IO errors
+        subprocess.run(['powershell', '-NoProfile', '-Command',
+                        f"New-Item -ItemType Directory -Path '{p}' -Force | Out-Null"],
+                       timeout=3, capture_output=True)
+        localfuser_paths.append(p)
+    return localfuser_paths
+
+def migrate_local_localfuser_to_unc_if_needed(cfg: dict) -> None:
+    try:
+        app_dir = Path(sys.argv[0]).resolve().parent
+        # any folders that look like *_LocalFuserN in the app dir?
+        suspects = [p for p in app_dir.glob('*_LocalFuser*') if p.is_dir()]
+        if not suspects:
+            return
+        working_unc = workingfuser_unc_from_cfg(cfg)
+        if not (working_unc and unc_reachable_quick(working_unc)):
+            return  # don't move if we can't reach the UNC
+        for p in suspects:
+            subprocess.run(['powershell','-NoProfile','-Command',
+                            f"Move-Item -Force -LiteralPath '{p}' -Destination '{Path(working_unc)}'"],
+                           timeout=5, capture_output=True)
+    except Exception:
+        pass
+# ---------- END: helpers ----------
+
 def _read_photomesh_host() -> str:
     """Resolve the PhotoMesh host from config.ini settings.
 
@@ -850,7 +938,7 @@ def can_access_unc(path: str, timeout: float = 2.5) -> bool:
             
         # Probe with bounded 'dir' command - avoids Python's UNC stat latency
         cp = subprocess.run(
-            ["cmd", "/c", "dir", target],
+            ["cmd", "/c", "dir", f"\"{target}\""],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=timeout,

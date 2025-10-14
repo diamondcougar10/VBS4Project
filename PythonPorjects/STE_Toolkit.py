@@ -587,14 +587,9 @@ def quick_unc_check(unc_path, timeout=3):
                 result.put(os.path.isdir(unc_path))
                 return
             
-            # Quick access test for UNC paths
-            if os.path.exists(unc_path):
-                result.put(True)
-                return
-                
-            # Fast 'dir' as fallback (no UI)
+            # Bounded UNC probe using dir (quoted target to avoid parsing issues)
             rc = subprocess.run(
-                ["cmd", "/c", "dir", unc_path],
+                ["cmd", "/c", "dir", f"\"{unc_path}\""],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=2,
@@ -4805,19 +4800,33 @@ class MainApp(tk.Tk):
 
     def start_warmup_async(self):
         """Kick off background warm-up; close splash when done."""
+        self._splash_closed = False
+        self._splash_close_reason = None
         def _run():
             warm_up_environment(
                 progress=lambda m: post_ui(self._splash_message, m),
                 update_progress=lambda v: post_ui(self._update_splash_progress, v)
             )
-            post_ui(self._finish_warmup)
+            post_ui(lambda: self._finish_warmup(reason="warmup-complete"))
         run_in_thread(_run)
         
         # Schedule background indexer to run after splash is closed
         self.after(5000, lambda: run_in_thread(_background_index_paths))
 
-    def _finish_warmup(self):
-        """Complete warm-up and close the splash screen with proper timing."""
+        # Hard failsafe: ensure splash closes even if warmup stalls (e.g., regression)
+        self.after(9000, lambda: (not self._splash_closed) and self._finish_warmup(reason="failsafe"))
+
+    def _finish_warmup(self, reason: str = "unknown"):
+        """Complete warm-up and close the splash screen with proper timing.
+
+        reason: 'warmup-complete' or 'failsafe' (telemetry for diagnostics)
+        """
+        if getattr(self, '_splash_closed', False) and reason != "warmup-complete":
+            # Already finalized via normal path; ignore redundant failsafe
+            return
+        self._splash_closed = True
+        self._splash_close_reason = reason
+        logging.info(f"[startup] splash-closed reason={reason}")
         # Initialize the UI first (this was previously in __init__)
         self._initialize_ui()
         
@@ -9096,6 +9105,7 @@ def run_with_splash():
     # with minimal delays to prevent UI freezing
     def setup_delayed_tasks():
         # Now app.panels should be initialized and we can safely access it
+
         if hasattr(app, 'panels') and 'OneClick' in app.panels:
             # Use a single short delay for background tasks
             app.after(5, update_fuser_shared_path)
@@ -9106,9 +9116,17 @@ def run_with_splash():
                     restore_fusers_on_startup()
                 except Exception:
                     pass
+                # --- Hardened fuser startup: ensure all LocalFuser folders are created on UNC ---
+                try:
+                    from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
+                    desired_count = get_fuser_counts()[1]
+                    ensure_localfuser_dirs_on_unc(pm_config, desired_count)
+                    migrate_local_localfuser_to_unc_if_needed(pm_config)
+                except Exception as e:
+                    logging.error(f"[fuser_startup] Failed to ensure LocalFuser folders on UNC: {e}")
                 enforce_local_fuser_policy()
             app.after(15, _restore_then_enforce)
-            
+
             if should_prompt_settings:
                 def _show_first_run_toast():
                     try:
@@ -9118,12 +9136,12 @@ def run_with_splash():
                     show_info_toast(app, "Review settings (host name, drive letter, RM install path)")
                     config['General']['first_run_done'] = 'True'
                     _save_config()
-                
+
                 app.after(100, _show_first_run_toast)
-    
+
     # Schedule this sooner after the app's initialization is complete
     app.after(20, setup_delayed_tasks)
-    
+
     app.mainloop()
 
 if __name__ == "__main__":
