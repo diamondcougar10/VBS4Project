@@ -92,6 +92,7 @@ import re
 import socket
 import threading
 import shlex
+import platform
 import itertools
 from queue import Queue, Empty
 import io
@@ -481,11 +482,13 @@ SHOW_SELECTION_TOAST = False
 # LOGGING CONFIGURATION
 # =============================================================================
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.DEBUG,
     filename='ste_toolkit.log',
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+# Force flush logs immediately to help diagnose startup hangs
+logging.getLogger().handlers[0].setLevel(logging.DEBUG)
 
 # --- Hidden subprocess helper (no visible console windows) ---
 CREATE_NO_WINDOW = 0x08000000
@@ -538,6 +541,8 @@ def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
     atexit.register(release_singleton)
     # Register fuser cleanup on exit
     atexit.register(kill_all_fusers_on_exit)
+    # Register presence service cleanup on exit
+    atexit.register(stop_presence_service)
     return True
 
 
@@ -964,9 +969,8 @@ def check_network_share_status():
         if not unc_path or not unc_path.startswith("\\\\"):
             return False, "No network path configured"
         
-        # Quick test if the UNC path is accessible
-        import os
-        if os.path.exists(unc_path):
+        # Bounded UNC probe to avoid UI hangs
+        if quick_unc_check(unc_path, timeout=2):
             return True, f"Connected to {unc_path}"
         else:
             return False, f"Cannot access {unc_path}"
@@ -1038,6 +1042,140 @@ def _unc_usable(unc_root: str) -> bool:
     except Exception:
         pass
     return False
+
+# =============================================================================
+# PRESENCE HEARTBEAT (Connected Fuser PCs tracking)
+# =============================================================================
+
+HEARTBEAT_DIR_NAME = "_clients"
+HEARTBEAT_TTL_SECS = 90
+_HB_STOP = threading.Event()
+_HB_THREAD = None
+
+def _machine_ip_fast() -> str:
+    """Get machine IP quickly without blocking."""
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except Exception:
+        return ""
+
+def _working_clients_dir() -> str:
+    """Return path to _clients dir in WorkingFuser UNC, or '' if not available."""
+    try:
+        wf = working_fuser_unc()
+    except Exception:
+        wf = ""
+    if not wf or not wf.startswith("\\\\"):
+        return ""
+    return os.path.join(wf, HEARTBEAT_DIR_NAME).replace("/", "\\")
+
+def _heartbeat_path_for_this_pc() -> str:
+    """Return path to this PC's heartbeat JSON file."""
+    root = _working_clients_dir()
+    if not root:
+        return ""
+    name = f"{platform.node()}({_machine_ip_fast()})"
+    try:
+        os.makedirs(root, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(root, f"{name}.json")
+
+def _atomic_write_json(path: str, data: dict) -> None:
+    """Atomically write JSON to path (best effort)."""
+    try:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, separators=(",", ":"))
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+def write_presence_heartbeat() -> None:
+    """Write/update our presence file on the WorkingFuser share."""
+    p = _heartbeat_path_for_this_pc()
+    if not p:
+        return
+    payload = {
+        "pc": platform.node(),
+        "ip": _machine_ip_fast(),
+        "pid": os.getpid(),
+        "ts": int(time.time()),
+        "fusers": count_local_fusers(),
+    }
+    _atomic_write_json(p, payload)
+
+def cleanup_stale_presence() -> None:
+    """Delete very old heartbeats (> 24h) to keep the folder tidy."""
+    root = _working_clients_dir()
+    if not root:
+        return
+    now = time.time()
+    for fp in glob.glob(os.path.join(root, "*.json")):
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            if now - float(d.get("ts", 0)) > (24 * 3600):
+                os.remove(fp)
+        except Exception:
+            pass
+
+def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
+    """Return list of active client dicts from _clients/*.json."""
+    root = _working_clients_dir()
+    if not root:
+        return []
+    now = time.time()
+    out = []
+    for fp in glob.glob(os.path.join(root, "*.json")):
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            age = now - float(d.get("ts", 0))
+            if (not active_only) or age <= HEARTBEAT_TTL_SECS:
+                out.append(d)
+        except Exception:
+            pass
+    return out
+
+def count_connected_fuser_pcs() -> int:
+    """Return count of active fuser PCs (heartbeat within TTL)."""
+    return len(scan_connected_fuser_pcs(True))
+
+def list_connected_fuser_pc_names() -> list[str]:
+    """Return sorted list of unique PC names with active heartbeats."""
+    return sorted({ (d.get("pc") or "unknown") for d in scan_connected_fuser_pcs(True) })
+
+def _presence_loop():
+    """Background thread that writes heartbeat every ~20s."""
+    while not _HB_STOP.is_set():
+        try:
+            write_presence_heartbeat()
+            cleanup_stale_presence()
+        except Exception:
+            pass
+        _HB_STOP.wait(20.0)
+
+def start_presence_service():
+    """Start the background heartbeat thread."""
+    global _HB_THREAD
+    if _HB_THREAD:
+        return
+    _HB_THREAD = threading.Thread(target=_presence_loop, name="presence", daemon=True)
+    _HB_THREAD.start()
+    logging.info("[presence] Heartbeat service started")
+
+def stop_presence_service():
+    """Stop heartbeat thread and cleanup our presence file."""
+    try:
+        _HB_STOP.set()
+        # Best-effort cleanup of our file
+        p = _heartbeat_path_for_this_pc()
+        if p and os.path.isfile(p):
+            os.remove(p)
+            logging.info("[presence] Heartbeat file removed")
+    except Exception:
+        pass
 
 # =============================================================================
 # THREADING UTILITIES
@@ -2344,6 +2482,11 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     Each step reports a user-friendly message via `progress(msg)` and
     updates the progress bar via update_progress(value).
     """
+    try:
+        logging.info("[warmup] ====== WARMUP STARTED ======")
+    except:
+        pass
+    
     # Read configuration flags for startup behavior
     fast = config.getboolean("General", "fast_startup", fallback=True)
     budget = max(0.3, config.getfloat("General", "path_scan_budget_ms", fallback=900) / 1000.0)
@@ -2402,6 +2545,11 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     time.sleep(0.05)  # Minimal delay for visual feedback
     update_progress(1.0)
     progress("Ready.")
+    
+    try:
+        logging.info("[warmup] ====== WARMUP COMPLETED ======")
+    except:
+        pass
 
 def _background_index_paths():
     """
@@ -3730,9 +3878,9 @@ def set_background(window, widget=None):
         lbl = tk.Label(widget or window, image=ph)
         lbl.image = ph
         lbl.place(x=0, y=0, relwidth=1, relheight=1)
+        # Always lower the background so it never occludes content
         try:
-            if widget is not None:
-                lbl.lower()
+            lbl.lower()
         except Exception:
             pass
 
@@ -4507,7 +4655,14 @@ class MainApp(tk.Tk):
     def _initialize_ui(self):
         """Initialize the main UI components. Called after splash is shown."""
         if self._ui_initialized:
+            logging.info("[startup] UI already initialized, skipping")
             return
+        
+        try:
+            logging.info("[startup] Starting UI initialization")
+            logging.info("[ui-diag] About to create close button")
+        except:
+            pass
             
         # Create the main UI layout
         nav_labels = {
@@ -4525,32 +4680,72 @@ class MainApp(tk.Tk):
                               font=("Helvetica",12,"bold"),
                               bg="red", fg="white", bd=0,
                               command=self.destroy)
+        logging.info("[ui-diag] Close button created")
         close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
+        logging.info("[ui-diag] Close button placed")
         self.configure(bg="black")
+        logging.info("[ui-diag] Background configured")
         self.content = tk.Frame(self, bg="black", bd=0, highlightthickness=0)
+        logging.info("[ui-diag] Content frame created")
         self.content.pack(expand=True, fill="both")
+        logging.info("[ui-diag] Content frame packed")
 
         nav = tk.Frame(self.content, bg='#333333')
+        logging.info("[ui-diag] Nav frame created")
         nav.pack(side='left', fill='y')
+        logging.info("[ui-diag] Nav frame packed")
         self._init_scrollable_viewport()
+        logging.info("[ui-diag] Scrollable viewport initialized")
+        logging.info("[ui-diag] About to create panels (this may take time)...")
+        logging.info("[ui-diag] Creating MainMenu panel...")
+        main_panel = MainMenu(self.panels_container, self)
+        logging.info("[ui-diag] MainMenu panel created")
+        logging.info("[ui-diag] Creating VBS4Panel...")
+        vbs4_panel = VBS4Panel(self.panels_container, self)
+        logging.info("[ui-diag] VBS4Panel created")
+        logging.info("[ui-diag] Creating OneClickPanel...")
+        oneclick_panel = OneClickPanel(self.panels_container, self)
+        logging.info("[ui-diag] OneClickPanel created")
+        logging.info("[ui-diag] Creating BVIPanel...")
+        bvi_panel = BVIPanel(self.panels_container, self)
+        logging.info("[ui-diag] BVIPanel created")
+        logging.info("[ui-diag] Creating SettingsPanel...")
+        settings_panel = SettingsPanel(self.panels_container, self)
+        logging.info("[ui-diag] SettingsPanel created")
+        logging.info("[ui-diag] Creating TutorialsPanel...")
+        tutorials_panel = TutorialsPanel(self.panels_container, self)
+        logging.info("[ui-diag] TutorialsPanel created")
+        logging.info("[ui-diag] Creating CreditsPanel...")
+        credits_panel = CreditsPanel(self.panels_container, self)
+        logging.info("[ui-diag] CreditsPanel created")
+        logging.info("[ui-diag] Creating ContactSupportPanel...")
+        contact_panel = ContactSupportPanel(self.panels_container, self)
+        logging.info("[ui-diag] ContactSupportPanel created")
+        logging.info("[ui-diag] All panels created successfully, assembling dictionary...")
         self.panels = {
-            'Main':      MainMenu(self.panels_container, self),
-            'VBS4':      VBS4Panel(self.panels_container, self),
-            'OneClick':  OneClickPanel(self.panels_container, self),
-            'BVI':       BVIPanel(self.panels_container, self),
-            'Settings':  SettingsPanel(self.panels_container, self),
-            'Tutorials': TutorialsPanel(self.panels_container, self),
-            'Credits':   CreditsPanel(self.panels_container, self),
-            'Contact Us': ContactSupportPanel(self.panels_container, self),
+            'Main':      main_panel,
+            'VBS4':      vbs4_panel,
+            'OneClick':  oneclick_panel,
+            'BVI':       bvi_panel,
+            'Settings':  settings_panel,
+            'Tutorials': tutorials_panel,
+            'Credits':   credits_panel,
+            'Contact Us': contact_panel,
         }
+        logging.info("[ui-diag] Panels dictionary assembled")
 
+        logging.info("[ui-diag] About to call enforce_photomesh_settings()")
         try:
             log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
             enforce_photomesh_settings(log=log_fn)
         except Exception as exc:
+            logging.warning(f"[ui-diag] enforce_photomesh_settings() failed: {exc}")
             pass
+        logging.info("[ui-diag] enforce_photomesh_settings() complete")
+        logging.info("[ui-diag] About to pack_forget all panels")
         for panel in self.panels.values():
             panel.pack_forget()
+        logging.info("[ui-diag] All panels pack_forget() complete")
 
         # Build the nav buttons
         nav_tip = Tooltip(nav)
@@ -4619,16 +4814,23 @@ class MainApp(tk.Tk):
                  bg="#333333", fg="white",
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
+        logging.info("[ui-diag] About to call enforce_local_fuser_policy() (2nd call)")
         enforce_local_fuser_policy()
+        logging.info("[ui-diag] enforce_local_fuser_policy() complete")
 
+        logging.info("[ui-diag] About to call apply_offline_settings()")
         try:
             apply_offline_settings()
         except Exception as exc:
+            logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
             pass
+        logging.info("[ui-diag] apply_offline_settings() complete")
 
         # Start by showing "Main"
+        logging.info("[ui-diag] About to show Main panel")
         self.current = None
         self.show('Main')
+        logging.info("[ui-diag] Main panel shown")
 
         # --- Keyboard navigation setup ---
         self.focus_index = 0
@@ -4641,6 +4843,7 @@ class MainApp(tk.Tk):
         
         # Mark UI as initialized
         self._ui_initialized = True
+        logging.info("[ui-diag] UI initialization complete, flag set to True")
 
     # ---- Foreground handoff + foreground launch helpers (Windows-safe) ----
     def _handoff_foreground(self):
@@ -4803,24 +5006,36 @@ class MainApp(tk.Tk):
         self._splash_closed = False
         self._splash_close_reason = None
         def _run():
-            warm_up_environment(
-                progress=lambda m: post_ui(self._splash_message, m),
-                update_progress=lambda v: post_ui(self._update_splash_progress, v)
-            )
-            post_ui(lambda: self._finish_warmup(reason="warmup-complete"))
+            try:
+                warm_up_environment(
+                    progress=lambda m: post_ui(self._splash_message, m),
+                    update_progress=lambda v: post_ui(self._update_splash_progress, v)
+                )
+                post_ui(lambda: self._finish_warmup(reason="warmup-complete"))
+            except Exception as e:
+                logging.error(f"[startup] warmup thread error: {e}")
+                post_ui(lambda: self._finish_warmup(reason="warmup-error"))
         run_in_thread(_run)
         
         # Schedule background indexer to run after splash is closed
         self.after(5000, lambda: run_in_thread(_background_index_paths))
 
-        # Hard failsafe: ensure splash closes even if warmup stalls (e.g., regression)
-        self.after(9000, lambda: (not self._splash_closed) and self._finish_warmup(reason="failsafe"))
+        # Hard failsafe: ensure splash closes even if warmup stalls (reduced from 9s to 5s)
+        def failsafe_check():
+            if not self._splash_closed:
+                logging.warning("[startup] Failsafe triggered - forcing splash close")
+                self._finish_warmup(reason="failsafe")
+        self.after(5000, failsafe_check)
 
     def _finish_warmup(self, reason: str = "unknown"):
         """Complete warm-up and close the splash screen with proper timing.
 
         reason: 'warmup-complete' or 'failsafe' (telemetry for diagnostics)
         """
+        try:
+            logging.info(f"[startup] _finish_warmup called, reason={reason}, already_closed={getattr(self, '_splash_closed', False)}")
+        except:
+            pass
         if getattr(self, '_splash_closed', False) and reason != "warmup-complete":
             # Already finalized via normal path; ignore redundant failsafe
             return
@@ -4828,7 +5043,9 @@ class MainApp(tk.Tk):
         self._splash_close_reason = reason
         logging.info(f"[startup] splash-closed reason={reason}")
         # Initialize the UI first (this was previously in __init__)
+        logging.info("[startup] About to call _initialize_ui()")
         self._initialize_ui()
+        logging.info("[startup] _initialize_ui() completed successfully")
         
         # Check if we're in offline mode and show appropriate warning
         if hasattr(self, 'network_status') and self.network_status == "offline":
@@ -4866,10 +5083,26 @@ class MainApp(tk.Tk):
             self.after(750, self._ensure_splash_gone)
                 
         # Now that the splash is closed, show the main window with fade-in to prevent UI flash
-        self.attributes('-alpha', 0.0)  # Start invisible
-        self.deiconify()
-        self.update_idletasks()  # Let everything layout once
-        self.after(50, lambda: self.attributes('-alpha', 1.0))  # Fade in after 50ms
+        try:
+            logging.info("[startup] About to set alpha=0.0")
+            self.attributes('-alpha', 0.0)  # Start invisible
+            logging.info("[startup] About to deiconify()")
+            self.deiconify()
+            logging.info("[startup] Deiconify() completed, calling update_idletasks()")
+            self.update_idletasks()  # Let everything layout once
+            logging.info("[startup] update_idletasks() completed, scheduling fade-in")
+            self.after(50, lambda: self.attributes('-alpha', 1.0))  # Fade in after 50ms
+            # Failsafe: ensure window is fully visible after 200ms
+            self.after(200, lambda: self.attributes('-alpha', 1.0))
+            logging.info("[startup] Main window deiconified and fade-in scheduled")
+        except Exception as e:
+            logging.error(f"[startup] Error showing main window: {e}")
+            # Fallback: just show the window without fade
+            try:
+                self.attributes('-alpha', 1.0)
+                self.deiconify()
+            except:
+                pass
 
         # base windowed size and scaling
         self.base_width, self.base_height = 1660, 800
@@ -4938,7 +5171,12 @@ class MainApp(tk.Tk):
         set_background(self)
 
         self.header_bar = tk.Frame(self, bg="black", height=120)
-        self.header_bar.pack(side="top", fill="x")
+        # Ensure the header sits above the main content even if content was packed earlier
+        try:
+            self.header_bar.pack(side="top", fill="x", before=self.content)
+        except Exception:
+            # Fallback if content not yet packed
+            self.header_bar.pack(side="top", fill="x")
 
         # Left logo group
         self._logo_cache = {}
@@ -5263,12 +5501,15 @@ class MainApp(tk.Tk):
 
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
+        logging.info(f"[ui-diag] show() called for panel: {name}")
         panel = self.panels[name]
+        logging.info(f"[ui-diag] show(): got panel object")
         try:
             subtitle = self._panel_subtitles.get(name, name)
             self.header_subtitle.config(text=subtitle)
         except Exception:
             pass
+        logging.info(f"[ui-diag] show(): subtitle set")
         self._scroll_active = False
         if hasattr(self, '_scroll_timer') and self._scroll_timer:
             self.after_cancel(self._scroll_timer)
@@ -5287,15 +5528,21 @@ class MainApp(tk.Tk):
             panel.pack_propagate(False if force_full_height else True)
         except Exception:
             pass
+        logging.info(f"[ui-diag] show(): about to pack panel")
         panel.pack(fill='both', expand=True)
+        logging.info(f"[ui-diag] show(): panel packed")
         self.current = name
         self._reset_viewport_scroll()
+        logging.info(f"[ui-diag] show(): viewport scroll reset")
         
         # Immediate layout update for faster visual response
+        logging.info(f"[ui-diag] show(): about to call update_idletasks()")
         self.update_idletasks()
+        logging.info(f"[ui-diag] show(): update_idletasks() complete")
         
         # Resize canvas immediately for instant feedback
         self._resize_canvas_to_panel(panel)
+        logging.info(f"[ui-diag] show(): canvas resized")
         
         # Update navigation state immediately
         self.update_navigation()
@@ -5315,8 +5562,12 @@ class MainApp(tk.Tk):
         self.after_idle(self._update_scrollability)
         self.after(50, self._update_scrollability)  # Reduced from 100, 300
         
-        # Handle scaling immediately for better responsiveness
-        self._recompute_scale()
+        # Restore safe scaling: defer recompute slightly so initial display isn't blocked
+        try:
+            self.after_idle(self._recompute_scale)
+            self.after(20, self._recompute_scale)
+        except Exception:
+            pass
 
     def _resize_canvas_to_panel(self, panel):
         """Force scrollregion to the visible panel's requested size (frame-only)."""
@@ -7579,24 +7830,37 @@ class BVIPanel(tk.Frame):
 class SettingsPanel(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
+        logging.info("[ui-diag] SettingsPanel: super().__init__ complete")
         self.controller = controller
 
         self.configure(bg="black")  # header removed; fixed header used
+        logging.info("[ui-diag] SettingsPanel: configure complete")
         self.grid_rowconfigure(7, weight=1, minsize=400)
         self.grid_columnconfigure(0, weight=1)
+        logging.info("[ui-diag] SettingsPanel: grid configuration complete")
 
         # --- Top toggles -------------------------------------------------
+        logging.info("[ui-diag] SettingsPanel: creating toggles frame")
         toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0, highlightthickness=0)
+        logging.info("[ui-diag] SettingsPanel: toggles frame created, about to grid")
         toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: toggles gridded")
         toggles.grid_columnconfigure(0, weight=1)
         toggles.grid_columnconfigure(1, weight=1)
+        logging.info("[ui-diag] SettingsPanel: toggles grid columns configured")
 
+        logging.info("[ui-diag] SettingsPanel: about to create BooleanVars")
         self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
+        logging.info("[ui-diag] SettingsPanel: fullscreen_var created")
         self.startup_var = tk.BooleanVar(value=is_startup_enabled())
+        logging.info("[ui-diag] SettingsPanel: startup_var created")
         self.close_on_launch_var = tk.BooleanVar(value=is_close_on_launch_enabled())
+        logging.info("[ui-diag] SettingsPanel: close_on_launch_var created")
+        logging.info("[ui-diag] SettingsPanel: about to create fuser_var")
         self.fuser_var = tk.BooleanVar(
             value=config["Fusers"].getboolean("fuser_computer", False)
         )
+        logging.info("[ui-diag] SettingsPanel: fuser_var created")
 
         def _on_fuser_toggle():
             config["Fusers"]["fuser_computer"] = str(self.fuser_var.get())
@@ -7659,7 +7923,9 @@ class SettingsPanel(tk.Frame):
             ("Fuser Computer", self.fuser_var, _on_fuser_toggle),
         ]
 
+        logging.info("[ui-diag] SettingsPanel: about to create checkbuttons")
         for i, (text, var, cmd) in enumerate(toggle_specs):
+            logging.info(f"[ui-diag] SettingsPanel: creating checkbutton {i}: {text}")
             r, c = divmod(i, 2)
             chk = tk.Checkbutton(
                 toggles,
@@ -7676,11 +7942,16 @@ class SettingsPanel(tk.Frame):
                 bd=0,
                 highlightthickness=0,
             )
+            logging.info(f"[ui-diag] SettingsPanel: checkbutton {i} created, about to grid")
             chk.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
+            logging.info(f"[ui-diag] SettingsPanel: checkbutton {i} gridded")
 
+        logging.info("[ui-diag] SettingsPanel: all checkbuttons complete, creating fuser controls")
         # --- Local fuser controls -----------------------------------------
         frow = tk.Frame(self, bg="black")
+        logging.info("[ui-diag] SettingsPanel: frow frame created")
         frow.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: frow gridded")
 
         self.fuser_count_label = tk.Label(
             frow,
@@ -7723,7 +7994,44 @@ class SettingsPanel(tk.Frame):
             width=3,
         ).pack(side="left")
 
+        logging.info("[ui-diag] SettingsPanel: about to call _refresh_fuser_counter_row()")
         self._refresh_fuser_counter_row()
+        logging.info("[ui-diag] SettingsPanel: _refresh_fuser_counter_row() complete")
+
+        # --- Connected Fuser PCs (Host-visible indicator) ----------------
+        logging.info("[ui-diag] SettingsPanel: creating conn_row frame")
+        conn_row = tk.Frame(self, bg="black")
+        logging.info("[ui-diag] SettingsPanel: conn_row created, about to grid (removed 'after' param to fix hang)")
+        # BUGFIX: Removed 'after=frow' parameter which was causing 3-second hang
+        conn_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(12, 6))  # Increased top padding instead of using 'after'
+        logging.info("[ui-diag] SettingsPanel: conn_row gridded")
+
+        self.connected_pcs_label = tk.Label(
+            conn_row,
+            text="Connected fuser PCs: 0",
+            font=("Helvetica", 14),
+            bg="black",
+            fg="#888888",
+        )
+        logging.info("[ui-diag] SettingsPanel: connected_pcs_label created")
+        self.connected_pcs_label.pack(side="left")
+        logging.info("[ui-diag] SettingsPanel: connected_pcs_label packed")
+
+        self.connected_pcs_names_label = tk.Label(
+            conn_row,
+            text="",
+            font=("Helvetica", 10),
+            bg="black",
+            fg="#666666",
+        )
+        logging.info("[ui-diag] SettingsPanel: connected_pcs_names_label created")
+        self.connected_pcs_names_label.pack(side="left", padx=(10, 0))
+        logging.info("[ui-diag] SettingsPanel: connected_pcs_names_label packed")
+
+        # Schedule periodic refresh of connected PCs count
+        logging.info("[ui-diag] SettingsPanel: about to call _refresh_connected_pcs()")
+        self._refresh_connected_pcs()
+        logging.info("[ui-diag] SettingsPanel: _refresh_connected_pcs() complete")
 
         # --- Network Host -----------------------------------------------
         net_frame = tk.Frame(self, bg="black")
@@ -8157,10 +8465,16 @@ class SettingsPanel(tk.Frame):
             get_projects_root(),
             parent=self._settings_inner,
         )
+        # Use cached paths from config for instant display (no scanning during startup)
+        # The paths are already cached by get_vbs4_install_path() etc. during warmup
+        cached_vbs4 = config["General"].get("vbs4_path", "") or "[not set]"
+        cached_blueig = config["General"].get("blueig_path", "") or "[not set]"
+        cached_ares = config["General"].get("ares_manager_path", "") or "[not set]"
+        
         self.lbl_vbs4 = self._create_path_row(
             "Set VBS4 Install Location",
             self._on_set_vbs4,
-            get_vbs4_install_path(),
+            cached_vbs4,
             parent=self._settings_inner,
         )
         self.lbl_vbs4_setup = self._create_path_row(
@@ -8172,13 +8486,13 @@ class SettingsPanel(tk.Frame):
         self.lbl_blueig = self._create_path_row(
             "Set BlueIG Install Location",
             self._on_set_blueig,
-            get_blueig_install_path(),
+            cached_blueig,
             parent=self._settings_inner,
         )
         self.lbl_ares = self._create_path_row(
             "Set ARES Manager Location",
             self._on_set_ares,
-            get_ares_manager_path(),
+            cached_ares,
             parent=self._settings_inner,
         )
         self.lbl_browser = self._create_path_row(
@@ -8202,17 +8516,24 @@ class SettingsPanel(tk.Frame):
 
         # Spacer so the last row can scroll above the bottom edge
         tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
+        logging.info("[ui-diag] SettingsPanel: spacer added")
 
         # Force update of layout and scroll region to ensure all items are visible
+        logging.info("[ui-diag] SettingsPanel: about to call _settings_inner.update_idletasks()")
         self._settings_inner.update_idletasks()
+        logging.info("[ui-diag] SettingsPanel: _settings_inner.update_idletasks() complete")
+        logging.info("[ui-diag] SettingsPanel: about to call _settings_canvas.update_idletasks()")
         self._settings_canvas.update_idletasks()
+        logging.info("[ui-diag] SettingsPanel: _settings_canvas.update_idletasks() complete")
         self._settings_canvas.yview_moveto(0)
+        logging.info("[ui-diag] SettingsPanel: yview_moveto complete")
         
         # Manually update scroll region to ensure all content is accessible
         bbox = self._settings_canvas.bbox("all")
         if bbox:
             x0, y0, x1, y1 = bbox
             self._settings_canvas.configure(scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD))
+        logging.info("[ui-diag] SettingsPanel: scroll region configured")
 
         # Back button and tutorial
         tk.Button(
@@ -8228,17 +8549,28 @@ class SettingsPanel(tk.Frame):
             highlightthickness=0,
         ).grid(row=7, column=0, pady=10)
 
-        # Silent auto-connect on first load (no prompts)
+        logging.info("[ui-diag] SettingsPanel: about to setup auto-connect")
+        # Silent auto-connect on first load (no prompts) - run in background to avoid blocking UI
         try:
             o = get_offline_cfg()
             if (o.get("host_ip") or "").strip():
-                # Delay slightly so the UI is responsive first
-                self.after(1200, lambda: connect_working_share_interactive(parent=self, silent=True))
+                # Run connection attempt in background thread to avoid blocking UI
+                def _try_connect_bg():
+                    try:
+                        connect_working_share_interactive(parent=None, silent=True)
+                    except Exception as e:
+                        logging.warning(f"Background share connection failed: {e}")
+                
+                # Delay slightly so the UI is responsive first, then run in background
+                self.after(2000, lambda: run_in_thread(_try_connect_bg))
         except Exception:
             pass
-            
-        # Initialize share status display
-        self.after(100, self._update_share_status)
+        logging.info("[ui-diag] SettingsPanel: auto-connect setup complete")
+
+        # Initialize share status display (async; short defer since it's non-blocking)
+        logging.info("[ui-diag] SettingsPanel: scheduling share status update")
+        self.after(300, self._update_share_status)
+        logging.info("[ui-diag] SettingsPanel __init__ COMPLETE")
 
     def reload_from_config(self):
         """Synchronize all Settings inputs with the persisted configuration."""
@@ -8263,45 +8595,69 @@ class SettingsPanel(tk.Frame):
             self.rm_local_var.set(get_rm_local_root())
 
         # Update common path labels so they reflect any background changes.
+        # Use cached values from config for instant updates (no scanning)
+        general = config["General"] if "General" in config else {}
         if hasattr(self, "lbl_projects_root"):
             self.lbl_projects_root.config(text=get_projects_root() or "[not set]")
         if hasattr(self, "lbl_vbs4"):
-            self.lbl_vbs4.config(text=get_vbs4_install_path() or "[not set]")
-        general = config["General"] if "General" in config else {}
+            self.lbl_vbs4.config(text=general.get("vbs4_path", "") or "[not set]")
         if hasattr(self, "lbl_vbs4_setup"):
             self.lbl_vbs4_setup.config(general.get("vbs4_setup_path", ""))
         if hasattr(self, "lbl_blueig"):
-            self.lbl_blueig.config(text=get_blueig_install_path() or "[not set]")
+            self.lbl_blueig.config(text=general.get("blueig_path", "") or "[not set]")
         if hasattr(self, "lbl_ares"):
-            self.lbl_ares.config(text=get_ares_manager_path() or "[not set]")
+            self.lbl_ares.config(text=general.get("ares_manager_path", "") or "[not set]")
         if hasattr(self, "lbl_browser"):
-            self.lbl_browser.config(text=get_default_browser() or "[not set]")
+            self.lbl_browser.config(text=general.get("browser_path", "") or get_default_browser() or "[not set]")
         if hasattr(self, "lbl_vbs_license"):
             self.lbl_vbs_license.config(general.get("vbs_license_manager_path", ""))
         if hasattr(self, "lbl_oneclick"):
-            self.lbl_oneclick.config(text=get_oneclick_output_path() or "[not set]")
+            self.lbl_oneclick.config(text=general.get("oneclick_output", "") or get_oneclick_output_path() or "[not set]")
 
         self._refresh_fuser_counter_row()
-        
-        # Update network share status
-        self._update_share_status()
 
     def _update_share_status(self):
-        """Update the share status indicator label."""
-        if not hasattr(self, 'share_status_label'):
+        """Update the share status indicator based on current network share availability.
+
+        Runs the check on a background thread to avoid blocking the UI thread. UI is updated via after().
+        """
+        # Prevent overlapping background checks
+        if getattr(self, "_share_check_busy", False):
+            # Try again a bit later if a previous check is still running
+            self.after(5000, self._update_share_status)
             return
-            
-        try:
-            is_accessible, status_msg = check_network_share_status()
-            if is_accessible:
-                self.share_status_label.config(text="● " + status_msg, fg="#4CAF50")  # Green
-            else:
-                self.share_status_label.config(text="○ " + status_msg, fg="#F44336")  # Red
-        except Exception as e:
-            self.share_status_label.config(text="○ Status unavailable", fg="#888888")  # Gray
-            
-        # Schedule next update in 10 seconds
-        self.after(10000, self._update_share_status)
+
+        self._share_check_busy = True
+
+        def _work():
+            result = (None, None)
+            try:
+                result = check_network_share_status()
+            except Exception as e:
+                logging.warning(f"Share status check failed: {e}")
+
+            def _apply():
+                try:
+                    is_accessible, status_msg = result
+                    if is_accessible is True:
+                        self.share_status_label.config(text="● Connected", fg="#00FF00")  # Green
+                    elif is_accessible is False:
+                        self.share_status_label.config(text="○ Disconnected", fg="#FF0000")  # Red
+                    else:
+                        self.share_status_label.config(text="○ Status unavailable", fg="#888888")  # Gray
+                finally:
+                    self._share_check_busy = False
+                    # Schedule next update in 10 seconds
+                    self.after(10000, self._update_share_status)
+
+            # Apply result on UI thread
+            try:
+                self.after(0, _apply)
+            except Exception:
+                # If widget is destroyed, just drop it
+                self._share_check_busy = False
+
+        run_in_thread(_work)
 
     def _browse_local_root(self):
         p = filedialog.askdirectory(
@@ -8457,6 +8813,28 @@ class SettingsPanel(tk.Frame):
         self.fuser_count_label.config(
             text=f"Local fusers: {running} running / {desired} desired{suffix}"
         )
+
+    def _refresh_connected_pcs(self):
+        """Periodically refresh the connected fuser PCs count and list."""
+        if not hasattr(self, "connected_pcs_label"):
+            return
+        
+        try:
+            count = count_connected_fuser_pcs()
+            names = list_connected_fuser_pc_names()
+            self.connected_pcs_label.config(text=f"Connected fuser PCs: {count}")
+            if names:
+                name_str = ", ".join(names[:5])  # Show first 5
+                if len(names) > 5:
+                    name_str += "..."
+                self.connected_pcs_names_label.config(text=f"({name_str})")
+            else:
+                self.connected_pcs_names_label.config(text="")
+        except Exception:
+            pass
+        
+        # Schedule next refresh in 5 seconds
+        self.after(5000, self._refresh_connected_pcs)
 
     def _open_working_folder(self):
         """
@@ -9125,6 +9503,8 @@ def run_with_splash():
                 except Exception as e:
                     logging.error(f"[fuser_startup] Failed to ensure LocalFuser folders on UNC: {e}")
                 enforce_local_fuser_policy()
+                # Start presence heartbeat service after fuser startup
+                start_presence_service()
             app.after(15, _restore_then_enforce)
 
             if should_prompt_settings:
@@ -9142,7 +9522,9 @@ def run_with_splash():
     # Schedule this sooner after the app's initialization is complete
     app.after(20, setup_delayed_tasks)
 
+    logging.info("[startup] About to start mainloop()")
     app.mainloop()
+    logging.info("[startup] mainloop() exited (app closed)")
 
 if __name__ == "__main__":
     run_with_splash()
