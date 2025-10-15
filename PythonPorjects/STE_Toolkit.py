@@ -190,6 +190,155 @@ def safe_messagebox_askyesno(title, message, **kwargs):
         kwargs['parent'] = APP_INSTANCE
     return messagebox.askyesno(title, message, **kwargs)
 
+# =============================================================================
+# LAN HOST DISCOVERY (UDP beacon + listener)
+# =============================================================================
+
+BEACON_MAGIC = "STE_TOOLKIT_BEACON_V1"
+BEACON_PORT = 40609
+_BCN_STOP = threading.Event()
+_BCN_THREAD = None
+_LST_STOP = threading.Event()
+_LST_THREAD = None
+
+def _compose_beacon_payload() -> bytes:
+    try:
+        o = get_offline_cfg()
+        payload = {
+            "magic": BEACON_MAGIC,
+            "pc": platform.node(),
+            "ip": o.get("host_ip") or get_primary_ipv4() or _machine_ip_fast(),
+            "share": (o.get("share_name") or "SharedMeshDrive"),
+            "wf_sub": (o.get("working_fuser_subdir") or "WorkingFuser"),
+            "ts": int(time.time()),
+        }
+        return json.dumps(payload).encode("utf-8")
+    except Exception:
+        return b""
+
+def _host_beacon_loop():
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(1.0)
+        while not _BCN_STOP.is_set():
+            try:
+                data = _compose_beacon_payload()
+                if data:
+                    sock.sendto(data, ("255.255.255.255", BEACON_PORT))
+            except Exception:
+                pass
+            # Burst a few times quickly on startup, then slow down
+            _BCN_STOP.wait(2.0)
+    finally:
+        try:
+            if sock:
+                sock.close()
+        except Exception:
+            pass
+
+def start_host_beacon():
+    global _BCN_THREAD
+    if _BCN_THREAD and _BCN_THREAD.is_alive():
+        return
+    try:
+        _BCN_STOP.clear()
+    except Exception:
+        pass
+    _BCN_THREAD = threading.Thread(target=_host_beacon_loop, name="host-beacon", daemon=True)
+    _BCN_THREAD.start()
+    logging.info("[beacon] Host UDP beacon started")
+
+def stop_host_beacon():
+    try:
+        _BCN_STOP.set()
+        global _BCN_THREAD
+        if _BCN_THREAD and _BCN_THREAD.is_alive():
+            try:
+                _BCN_THREAD.join(timeout=1.5)
+            except Exception:
+                pass
+        _BCN_THREAD = None
+    except Exception:
+        pass
+
+def _user_listener_loop():
+    sock = None
+    last_set = 0
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        except Exception:
+            pass
+        sock.bind(("", BEACON_PORT))
+        sock.settimeout(1.0)
+        while not _LST_STOP.is_set():
+            try:
+                data, _addr = sock.recvfrom(4096)
+                if not data:
+                    continue
+                try:
+                    d = json.loads(data.decode("utf-8", errors="ignore"))
+                except Exception:
+                    continue
+                if not isinstance(d, dict) or d.get("magic") != BEACON_MAGIC:
+                    continue
+                ip = (d.get("ip") or "").strip()
+                if not ip:
+                    continue
+                now = time.time()
+                if now - last_set < 3.0:
+                    continue
+                # Persist discovered host_ip if not set or different
+                cur = config.get("Offline", "host_ip", fallback="").strip()
+                if not cur or cur != ip:
+                    logging.info(f"[beacon] Discovered host {ip}; applying")
+                    try:
+                        set_host_ip(ip)
+                        # Attempt silent connect (best effort)
+                        connect_working_share_interactive(parent=None, silent=True)
+                    except Exception:
+                        pass
+                    last_set = now
+            except socket.timeout:
+                pass
+            except Exception:
+                pass
+    finally:
+        try:
+            if sock:
+                sock.close()
+        except Exception:
+            pass
+
+def start_user_listener():
+    global _LST_THREAD
+    if _LST_THREAD and _LST_THREAD.is_alive():
+        return
+    try:
+        _LST_STOP.clear()
+    except Exception:
+        pass
+    _LST_THREAD = threading.Thread(target=_user_listener_loop, name="user-listener", daemon=True)
+    _LST_THREAD.start()
+    logging.info("[beacon] User UDP listener started")
+
+def stop_user_listener():
+    try:
+        _LST_STOP.set()
+        global _LST_THREAD
+        if _LST_THREAD and _LST_THREAD.is_alive():
+            try:
+                _LST_THREAD.join(timeout=1.5)
+            except Exception:
+                pass
+        _LST_THREAD = None
+    except Exception:
+        pass
+
 def safe_filedialog_askdirectory(**kwargs):
     """Global wrapper for filedialog.askdirectory with proper parenting."""
     global APP_INSTANCE
@@ -543,6 +692,9 @@ def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
     atexit.register(kill_all_fusers_on_exit)
     # Register presence service cleanup on exit
     atexit.register(stop_presence_service)
+    # Stop UDP beacons/listeners on exit
+    atexit.register(stop_host_beacon)
+    atexit.register(stop_user_listener)
     return True
 
 
@@ -611,6 +763,85 @@ def quick_unc_check(unc_path, timeout=3):
     try:
         return not result.empty() and result.get_nowait()
     except:
+        return False
+
+def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
+    """Best-effort discovery of the Host IP on the local subnet.
+
+    Strategy:
+    - If Offline.host_ip exists and is reachable (ping + UNC probe), use it.
+    - Otherwise, ARP-scan likely gateway and a small range of last octets (1,10,20,50,100):
+      try \\<candidate>\SharedMeshDrive fast with quick checks.
+    Returns the first responding IP or ''. Non-blocking per host with tight timeouts.
+    """
+    try:
+        # 1) Use configured IP if valid
+        ip = config.get("Offline", "host_ip", fallback="").strip()
+        if ip:
+            if quick_ping_check(ip, timeout=timeout_per_host) or can_access_unc(rf"\\{ip}\SharedMeshDrive"):
+                return ip
+        # 2) Try common candidates on the local subnet
+        local = get_primary_ipv4()
+        if not local or local.count(".") != 3:
+            return ""
+        parts = local.split(".")
+        base = ".".join(parts[:3])
+        candidates = [
+            f"{base}.1",
+            f"{base}.10",
+            f"{base}.20",
+            f"{base}.50",
+            f"{base}.100",
+        ]
+        for cand in candidates:
+            try:
+                if quick_ping_check(cand, timeout=timeout_per_host):
+                    if can_access_unc(rf"\\{cand}\SharedMeshDrive") or quick_unc_check(rf"\\{cand}\SharedMeshDrive", timeout=1):
+                        return cand
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return ""
+
+def auto_connect_shared_working_folder() -> bool:
+    """Ensure Offline.host_ip is discovered and connect to WorkingFuser UNC.
+
+    - Discovers host IP if missing.
+    - Updates Offline.host_ip and Fusers.working_folder_host.
+    - Tries to connect silently to the share root and verifies the WorkingFuser path.
+    Returns True on success, False otherwise.
+    """
+    try:
+        o = get_offline_cfg()
+        ip = (o.get("host_ip") or "").strip()
+        if not ip:
+            ip = discover_host_ip_quick()
+            if ip:
+                set_host_ip(ip)
+
+        if not ip:
+            return False
+
+        # Try to connect to the share root quickly
+        unc_root = build_unc_from_cfg(o | {"host_ip": ip}) if '|' in dir(dict) else build_unc_from_cfg({**o, "host_ip": ip})
+        if not unc_root:
+            unc_root = rf"\\{ip}\SharedMeshDrive"
+
+        # Attempt to establish session silently
+        _try_net_use_unc(unc_root)
+        time.sleep(0.6)
+
+        # Verify working folder accessibility best-effort
+        wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+        wf_unc = os.path.join(unc_root, wf_sub).replace("/", "\\")
+        if quick_unc_check(wf_unc, timeout=2):
+            # Persist shared path for fuser launches
+            update_fuser_shared_path(wf_unc)
+            return True
+        return False
+    except Exception as e:
+        logging.info(f"[autoconnect] failed: {e}")
         return False
 
 def _run(cmd, **kw):
@@ -1074,6 +1305,12 @@ def _heartbeat_path_for_this_pc() -> str:
     root = _working_clients_dir()
     if not root:
         return ""
+    # Avoid blocking on unreachable UNC
+    try:
+        if not quick_unc_check(root, timeout=1):
+            return ""
+    except Exception:
+        return ""
     name = f"{platform.node()}({_machine_ip_fast()})"
     try:
         os.makedirs(root, exist_ok=True)
@@ -1110,6 +1347,11 @@ def cleanup_stale_presence() -> None:
     root = _working_clients_dir()
     if not root:
         return
+    try:
+        if not quick_unc_check(root, timeout=1):
+            return
+    except Exception:
+        return
     now = time.time()
     for fp in glob.glob(os.path.join(root, "*.json")):
         try:
@@ -1124,6 +1366,12 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
     """Return list of active client dicts from _clients/*.json."""
     root = _working_clients_dir()
     if not root:
+        return []
+    # Avoid blocking on unreachable UNC; do a quick probe first
+    try:
+        if not quick_unc_check(root, timeout=1):
+            return []
+    except Exception:
         return []
     now = time.time()
     out = []
@@ -1159,8 +1407,13 @@ def _presence_loop():
 def start_presence_service():
     """Start the background heartbeat thread."""
     global _HB_THREAD
-    if _HB_THREAD:
+    if _HB_THREAD and _HB_THREAD.is_alive():
         return
+    # Ensure stop flag is clear before starting
+    try:
+        _HB_STOP.clear()
+    except Exception:
+        pass
     _HB_THREAD = threading.Thread(target=_presence_loop, name="presence", daemon=True)
     _HB_THREAD.start()
     logging.info("[presence] Heartbeat service started")
@@ -1169,6 +1422,14 @@ def stop_presence_service():
     """Stop heartbeat thread and cleanup our presence file."""
     try:
         _HB_STOP.set()
+        # Give the thread a moment to exit
+        global _HB_THREAD
+        if _HB_THREAD and _HB_THREAD.is_alive():
+            try:
+                _HB_THREAD.join(timeout=2.0)
+            except Exception:
+                pass
+        _HB_THREAD = None
         # Best-effort cleanup of our file
         p = _heartbeat_path_for_this_pc()
         if p and os.path.isfile(p):
@@ -2297,7 +2558,27 @@ def bootstrap_first_run_if_needed(log=None):
         o['use_ip_unc'] = 'True'
         ensure_offline_share_exists(log=log or (lambda m: None))
         save_config()
-    # USER mode intentionally leaves host blank
+        # Start host beacon to advertise IP on LAN
+        try:
+            start_host_beacon()
+        except Exception:
+            pass
+    elif mode == 'USER':
+        # Default User mode behavior: run fusers locally and listen for Host beacons
+        try:
+            fsec = config.setdefault('Fusers', {})
+            if 'fuser_computer' not in fsec:
+                fsec['fuser_computer'] = 'True'
+            if 'desired_count' not in fsec:
+                fsec['desired_count'] = '3'
+            save_config()
+        except Exception:
+            pass
+        try:
+            start_user_listener()
+        except Exception:
+            pass
+    # UPDATE mode: no changes
 
 def refresh_settings_panel_from_config() -> None:
     """Update the Settings panel UI to reflect the latest config.ini values."""
@@ -2850,7 +3131,11 @@ def start_fuser_instance(idx: int) -> bool:
                                            f"This might be a permissions issue, but the fuser will attempt to start anyway.")
                         else:
                             logging.warning(f"[fuser] Automatic connection to {unc_root} failed; launching anyway")
-                            # Intentionally continue; PhotoMesh may still start and connect lazily
+                            # Do NOT launch fuser locally; require UNC to prevent data going to local install
+                            safe_messagebox_showerror("Network Error", 
+                                f"Cannot access {unc_root}. Fusers will not be started to avoid writing to a local folder.\n\n" +
+                                "Ensure you're connected to the Host's SharedMeshDrive and try again.")
+                            return False
             else:
                 # Connection succeeded without credentials
                 time.sleep(1)
@@ -2868,6 +3153,13 @@ def start_fuser_instance(idx: int) -> bool:
             shared_normalized = os.path.normpath(shared).replace("/", "\\")
             cmd = f'start "" "{exe}" "{name}" "{shared_normalized}" 0 true'
         
+        # Final guard: refuse to launch if the resolved shared path is not a UNC
+        if not (shared and shared.startswith("\\\\")):
+            safe_messagebox_showerror(
+                "Fuser",
+                "WorkingFuser path is not a network share. Aborting to prevent local data creation."
+            )
+            return False
         subprocess.run(cmd, shell=True, check=True)
         return True
     except Exception as e:
@@ -5879,13 +6171,7 @@ class MainMenu(tk.Frame):
         controller.create_tutorial_button(self) 
         self.controller = controller
 
-        self.blueig_frame = tk.Frame(
-            self,
-            bg="#333333",
-            bd=0,
-            highlightthickness=0,
-        )
-        self.blueig_frame.pack(pady=10)
+        # Create BlueIG button directly without wrapper frame
         self.create_blueig_button()
 
         # Other buttons
@@ -5917,23 +6203,30 @@ class MainMenu(tk.Frame):
                 bg=bg, fg="white",
                 width=30, height=1,
                 command=cmd,
-                state=state
+                state=state,
+                bd=0,
+                highlightthickness=0,
             )
             button.pack(pady=10)
 
     def create_blueig_button(self):
-        for widget in self.blueig_frame.winfo_children():
-            widget.destroy()
+        # Create button directly on self, not in a frame
+        if hasattr(self, 'blueig_button'):
+            self.blueig_button.destroy()
+        if hasattr(self, 'blueig_checking_label'):
+            self.blueig_checking_label.destroy()
 
-        btn = tk.Button(
-            self.blueig_frame,
+        self.blueig_button = tk.Button(
+            self,
             text="Launch BlueIG",
             font=("Helvetica", 24),
             bg="#888888", fg="white",
             width=30, height=1,
             state="disabled",
+            bd=0,
+            highlightthickness=0,
         )
-        btn.pack()
+        self.blueig_button.pack(pady=10)
 
         is_srv = config["General"].getboolean("is_server", fallback=False)
         if is_srv:
@@ -5942,25 +6235,27 @@ class MainMenu(tk.Frame):
         # Fast path: if BlueIG path is already cached/known, enable immediately
         cached_path = config['General'].get('blueig_path', '')
         if cached_path and os.path.isfile(cached_path):
-            btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+            self.blueig_button.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
             return
 
         # Otherwise, show "Checking..." and resolve asynchronously
-        checking = tk.Label(
-            self.blueig_frame,
+        self.blueig_checking_label = tk.Label(
+            self,
             text="Checking...",
-            bg=self.blueig_frame.cget("bg"),
+            bg="black",
             fg="white",
+            font=("Helvetica", 10),
         )
-        checking.pack()
+        self.blueig_checking_label.pack()
 
         def _resolve():
             path_ok = bool(get_blueig_install_path())
 
             def _apply():
                 if path_ok:
-                    btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
-                checking.destroy()
+                    self.blueig_button.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+                if hasattr(self, 'blueig_checking_label'):
+                    self.blueig_checking_label.destroy()
 
             post_ui(_apply)
 
@@ -8047,7 +8342,7 @@ class SettingsPanel(tk.Frame):
         ).grid(row=0, column=0, columnspan=2, sticky="w")
 
         host_row = tk.Frame(net_frame, bg="black")
-        host_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 10))
+        host_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 6))
 
         self.host_ip_var = tk.StringVar(
             value=config.get("Offline", "host_ip", fallback="")
@@ -8088,6 +8383,32 @@ class SettingsPanel(tk.Frame):
             bd=0,
         ).pack(side="left", padx=8)
 
+        # Compact host + working fuser status row with a manual retry button
+        status_row = tk.Frame(net_frame, bg="black")
+        status_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+
+        self.host_status_label = tk.Label(
+            status_row,
+            text=self._format_host_status(None),
+            font=("Helvetica", 12),
+            bg="black",
+            fg="#CCCCCC",
+            anchor="w",
+        )
+        self.host_status_label.pack(side="left", fill="x", expand=True)
+
+        self.retry_btn = tk.Button(
+            status_row,
+            text="Retry connect",
+            command=self._retry_connect,
+            font=("Helvetica", 12),
+            bg="#444444",
+            fg="white",
+            bd=0,
+            width=16,
+        )
+        self.retry_btn.pack(side="right", padx=(8, 0))
+
         # Provide a “Share Now” action to (re)publish the folder silently
         def _share_now():
             # Canonical share creator from photomesh_launcher.py
@@ -8103,11 +8424,11 @@ class SettingsPanel(tk.Frame):
 
         tk.Button(net_frame, text="Share Folder Now", command=_share_now,
                   font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
-            .grid(row=2, column=0, sticky="w", pady=(0, 6))
+            .grid(row=3, column=0, sticky="w", pady=(0, 6))
 
         # Create a frame to hold the share button and status indicator 
         share_row = tk.Frame(net_frame, bg="black")
-        share_row.grid(row=2, column=1, sticky="ew", pady=(0, 6), padx=(10, 0))
+        share_row.grid(row=3, column=1, sticky="ew", pady=(0, 6), padx=(10, 0))
 
         # Status indicator label
         self.share_status_label = tk.Label(
@@ -8572,6 +8893,53 @@ class SettingsPanel(tk.Frame):
         self.after(300, self._update_share_status)
         logging.info("[ui-diag] SettingsPanel __init__ COMPLETE")
 
+    def _format_host_status(self, connected: bool | None) -> str:
+        try:
+            o = get_offline_cfg()
+            ip = (o.get("host_ip") or "").strip()
+            root, working = _compute_working_unc_from_cfg()
+            host_txt = ip if ip else "[no host set]"
+            if connected is None:
+                # initial/unknown state
+                return f"Host: {host_txt} • WorkingFuser: (checking…)"
+            return f"Host: {host_txt} • WorkingFuser: {'Connected' if connected else 'Not connected'}"
+        except Exception:
+            return "Host: [error] • WorkingFuser: [error]"
+
+    def _retry_connect(self):
+        # Debounce button
+        try:
+            self.retry_btn.config(state="disabled", text="Connecting…")
+        except Exception:
+            pass
+
+        def _work():
+            ok = False
+            try:
+                ok = connect_working_share_interactive(parent=None, silent=True)
+            except Exception:
+                ok = False
+
+            def _apply():
+                # Update status + re-enable button
+                try:
+                    if hasattr(self, "host_status_label"):
+                        self.host_status_label.config(text=self._format_host_status(ok))
+                    # Also refresh the share status pill
+                    self._update_share_status()
+                finally:
+                    try:
+                        self.retry_btn.config(state="normal", text="Retry connect")
+                    except Exception:
+                        pass
+
+            try:
+                self.after(0, _apply)
+            except Exception:
+                pass
+
+        run_in_thread(_work)
+
     def reload_from_config(self):
         """Synchronize all Settings inputs with the persisted configuration."""
 
@@ -8641,10 +9009,17 @@ class SettingsPanel(tk.Frame):
                     is_accessible, status_msg = result
                     if is_accessible is True:
                         self.share_status_label.config(text="● Connected", fg="#00FF00")  # Green
+                        # Update compact host status line
+                        if hasattr(self, "host_status_label"):
+                            self.host_status_label.config(text=self._format_host_status(True))
                     elif is_accessible is False:
                         self.share_status_label.config(text="○ Disconnected", fg="#FF0000")  # Red
+                        if hasattr(self, "host_status_label"):
+                            self.host_status_label.config(text=self._format_host_status(False))
                     else:
                         self.share_status_label.config(text="○ Status unavailable", fg="#888888")  # Gray
+                        if hasattr(self, "host_status_label"):
+                            self.host_status_label.config(text=self._format_host_status(None))
                 finally:
                     self._share_check_busy = False
                     # Schedule next update in 10 seconds
@@ -8815,26 +9190,57 @@ class SettingsPanel(tk.Frame):
         )
 
     def _refresh_connected_pcs(self):
-        """Periodically refresh the connected fuser PCs count and list."""
+        """Periodically refresh the connected fuser PCs count and list asynchronously."""
         if not hasattr(self, "connected_pcs_label"):
             return
-        
-        try:
-            count = count_connected_fuser_pcs()
-            names = list_connected_fuser_pc_names()
-            self.connected_pcs_label.config(text=f"Connected fuser PCs: {count}")
-            if names:
-                name_str = ", ".join(names[:5])  # Show first 5
-                if len(names) > 5:
-                    name_str += "..."
-                self.connected_pcs_names_label.config(text=f"({name_str})")
-            else:
-                self.connected_pcs_names_label.config(text="")
-        except Exception:
-            pass
-        
-        # Schedule next refresh in 5 seconds
-        self.after(5000, self._refresh_connected_pcs)
+
+        # Prevent overlapping scans
+        if getattr(self, "_pcs_refresh_busy", False):
+            # Try again shortly; avoid piling up
+            self.after(2000, self._refresh_connected_pcs)
+            return
+
+        self._pcs_refresh_busy = True
+
+        def _scan_and_update():
+            try:
+                cnt = 0
+                names: list[str] | None = None
+                try:
+                    cnt = count_connected_fuser_pcs()
+                    names = list_connected_fuser_pc_names()
+                except Exception:
+                    # If any scanning error occurs, keep defaults
+                    names = []
+
+                def _apply():
+                    try:
+                        self.connected_pcs_label.config(text=f"Connected fuser PCs: {cnt}")
+                        if names:
+                            name_str = ", ".join(names[:5])
+                            if len(names) > 5:
+                                name_str += "..."
+                            self.connected_pcs_names_label.config(text=f"({name_str})")
+                        else:
+                            self.connected_pcs_names_label.config(text="")
+                    except Exception:
+                        pass
+                    finally:
+                        # Allow future scans and schedule next refresh
+                        self._pcs_refresh_busy = False
+                        self.after(10000, self._refresh_connected_pcs)
+
+                # Update UI on main thread
+                self.after(0, _apply)
+            except Exception:
+                # Ensure busy flag clears and reschedule even on unexpected errors
+                def _clear_and_resched():
+                    self._pcs_refresh_busy = False
+                    self.after(10000, self._refresh_connected_pcs)
+                self.after(0, _clear_and_resched)
+
+        # Run scan off the UI thread
+        run_in_thread(_scan_and_update)
 
     def _open_working_folder(self):
         """
@@ -9498,6 +9904,11 @@ def run_with_splash():
                 try:
                     from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
                     desired_count = get_fuser_counts()[1]
+                    # 1) Auto-connect to the host's WorkingFuser share (User mode reliability)
+                    try:
+                        run_in_thread(auto_connect_shared_working_folder)
+                    except Exception:
+                        pass
                     ensure_localfuser_dirs_on_unc(pm_config, desired_count)
                     migrate_local_localfuser_to_unc_if_needed(pm_config)
                 except Exception as e:
