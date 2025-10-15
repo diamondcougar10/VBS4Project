@@ -201,6 +201,10 @@ _BCN_THREAD = None
 _LST_STOP = threading.Event()
 _LST_THREAD = None
 
+# Strict enforcement: refuse fuser launch if WorkingFuser is not a UNC or not accessible
+# This prevents fusers from ever writing to local folders (fail-closed behavior)
+ENFORCE_SHARED_WORKING_ONLY = True  # Can be overridden in config.ini [Fusers] enforce_shared_only
+
 def _compose_beacon_payload() -> bytes:
     try:
         o = get_offline_cfg()
@@ -3049,100 +3053,102 @@ def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
         # Don't let this crash the application
 
 def start_fuser_instance(idx: int) -> bool:
-    """Start *idx*-th fuser via its own shortcut/command."""
+    """
+    Start *idx*-th fuser via its own shortcut/command.
+    
+    **STRICT ENFORCEMENT**: If ENFORCE_SHARED_WORKING_ONLY is True (default),
+    this function will REFUSE to launch a fuser unless:
+      1. working_fuser_unc() returns a valid UNC path (starts with \\\\)
+      2. The UNC share is accessible (after attempting connection if needed)
+    
+    This ensures fusers NEVER write to local folders, preventing data silos.
+    """
     logging.info(f"[DEBUG] start_fuser_instance({idx}) called")
     
-    o = get_offline_cfg()
-    logging.info(f"[DEBUG] offline config enabled: {o.get('enabled', False)}")
+    # -------------------------------------------------------------------------
+    # STRICT PRE-FLIGHT CHECK: Validate UNC path and accessibility
+    # -------------------------------------------------------------------------
+    enforce = config.getboolean('Fusers', 'enforce_shared_only', fallback=ENFORCE_SHARED_WORKING_ONLY)
     
-    if o["enabled"]:
-        unc = resolve_network_working_folder_from_cfg(o)
-        logging.info(f"[DEBUG] resolved working folder UNC: {unc}")
-        # Check the share root tolerantly (\\host\share) rather than listing the subfolder
-        unc_root = "\\\\".join(unc.split("\\")[:4]) if unc and unc.startswith("\\\\") else ""
-        if unc_root and not _unc_usable(unc_root):
-            logging.info(f"[DEBUG] UNC root not immediately usable: {unc_root}; attempting silent connect")
-            _try_net_use_unc(unc_root)
-            time.sleep(1.0)
-            if not _unc_usable(unc_root):
-                host = unc.split("\\")[2] if len(unc.split("\\")) > 2 else ""
+    if enforce:
+        shared = working_fuser_unc()
+        logging.info(f"[STRICT] Validating WorkingFuser path: {shared}")
+        
+        # 1. Check if path is a UNC path
+        if not (shared and shared.startswith("\\\\")):
+            logging.error(f"[STRICT] WorkingFuser is not a UNC path: {shared}")
+            safe_messagebox_showerror(
+                "Configuration Error",
+                "Working folder is not configured to a network share (UNC path).\n\n"
+                "Fusers cannot be started to prevent creating local data.\n\n"
+                "Please configure the Host IP and SharedMeshDrive connection in Settings."
+            )
+            return False
+        
+        # 2. Extract share root (\\host\share)
+        unc_root = "\\\\".join(shared.split("\\")[:4])
+        host = shared.split("\\")[2] if len(shared.split("\\")) > 2 else ""
+        logging.info(f"[STRICT] UNC root: {unc_root}, Host: {host}")
+        
+        # 3. Quick check if accessible
+        if not quick_unc_check(unc_root, timeout_sec=2.0):
+            logging.info(f"[STRICT] UNC not immediately accessible, attempting connection...")
+            
+            # Try to mount the share
+            if not _try_net_use_unc(unc_root):
+                logging.warning(f"[STRICT] net use failed for {unc_root}")
+            
+            # Wait a moment for Windows to establish connection
+            time.sleep(0.8)
+            
+            # Re-check accessibility
+            if not quick_unc_check(unc_root, timeout_sec=2.0):
+                logging.error(f"[STRICT] Cannot access {unc_root} after connection attempt")
+                
+                # Test basic network connectivity to host
                 if host and not _test_network_connectivity(host):
-                    safe_messagebox_showerror("Network Error", f"Cannot reach host {host}. Check network connectivity and ensure the host is online.")
+                    safe_messagebox_showerror(
+                        "Network Error",
+                        f"Cannot reach host '{host}'.\n\n"
+                        "Please check:\n"
+                        "• Network connection is active\n"
+                        "• Host computer is online\n"
+                        "• Firewall allows SMB traffic\n\n"
+                        "Fusers cannot be started until connection is established."
+                    )
                     return False
-                logging.info("[DEBUG] UNC still warming up but host reachable; proceeding with launch")
-
+                else:
+                    # Host is reachable but share not accessible
+                    safe_messagebox_showerror(
+                        "Share Access Error",
+                        f"Cannot access shared folder:\n{unc_root}\n\n"
+                        "The host is reachable but the share may not exist or you don't have permissions.\n\n"
+                        "Please verify:\n"
+                        "• SharedMeshDrive is shared on the Host\n"
+                        "• Your user has read/write access\n"
+                        "• Use 'Retry Connect' in Settings to reconnect"
+                    )
+                    return False
+        
+        logging.info(f"[STRICT] UNC validation passed: {unc_root} is accessible")
+    
+    # -------------------------------------------------------------------------
+    # Find fuser executable
+    # -------------------------------------------------------------------------
     exe = find_fuser_exe()
     logging.info(f"[DEBUG] fuser exe found: {exe}")
     if not exe:
         safe_messagebox_showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
         return False
 
+    # -------------------------------------------------------------------------
+    # Prepare launch command
+    # -------------------------------------------------------------------------
     name = f"LocalFuser{idx}"
     shared = working_fuser_unc()
     logging.info(f"[DEBUG] working_fuser_unc(): {shared}")
     bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
     logging.info(f"[DEBUG] bat file path: {bat}")
-
-    # Ensure UNC is accessible before launching
-    if shared and shared.startswith("\\\\"):
-        unc_root = "\\\\".join(shared.split("\\")[:4])  # Extract \\host\share
-        logging.info(f"[DEBUG] checking UNC root access: {unc_root}")
-        
-        if not can_access_unc(unc_root):
-            # Try to connect with net use (without credentials first)
-            if not _try_net_use_unc(unc_root):
-                # If still not accessible, test basic connectivity first
-                host = shared.split("\\")[2] if len(shared.split("\\")) > 2 else ""
-                if host:
-                    # First test basic network connectivity
-                    if not _test_network_connectivity(host):
-                        safe_messagebox_showerror("Network Error", 
-                                           f"Cannot reach host {host}. Check network connectivity and ensure the host is online.")
-                        return False
-                    
-                    # Try once more without credentials in case there was a timing issue
-                    if _try_net_use_unc(unc_root):
-                        time.sleep(2)
-                        if can_access_unc(unc_root):
-                            logging.info(f"[fuser] Connected to {unc_root} without credentials")
-                        else:
-                            logging.warning(f"[fuser] Connected to {unc_root} but folder access check failed")
-                    else:
-                        # Attempt automatic connection without prompting for credentials
-                        logging.info(f"[fuser] Attempting automatic connection to {unc_root}")
-                        connect_success = _try_net_use_unc(unc_root)
-                        if connect_success:
-                            # Give Windows a moment to establish the connection
-                            time.sleep(3)
-                            # Try multiple times to check accessibility
-                            accessible = False
-                            for attempt in range(3):
-                                if can_access_unc(unc_root):
-                                    accessible = True
-                                    break
-                                time.sleep(1)
-                            
-                            if accessible:
-                                logging.info(f"[fuser] Successfully connected to {unc_root} automatically")
-                            else:
-                                # Connection succeeded but still can't access - might be permissions
-                                safe_messagebox_showwarning("Network Warning", 
-                                           f"Connected to {unc_root} but cannot access the folder contents. " +
-                                           f"This might be a permissions issue, but the fuser will attempt to start anyway.")
-                        else:
-                            logging.warning(f"[fuser] Automatic connection to {unc_root} failed; launching anyway")
-                            # Do NOT launch fuser locally; require UNC to prevent data going to local install
-                            safe_messagebox_showerror("Network Error", 
-                                f"Cannot access {unc_root}. Fusers will not be started to avoid writing to a local folder.\n\n" +
-                                "Ensure you're connected to the Host's SharedMeshDrive and try again.")
-                            return False
-            else:
-                # Connection succeeded without credentials
-                time.sleep(1)
-                if can_access_unc(unc_root):
-                    logging.info(f"[fuser] Connected to {unc_root} without credentials")
-                else:
-                    logging.warning(f"[fuser] Connected to {unc_root} but folder access check failed")
 
     try:
         # Prefer batch file if it exists
