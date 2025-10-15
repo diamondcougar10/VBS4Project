@@ -6171,7 +6171,13 @@ class MainMenu(tk.Frame):
         controller.create_tutorial_button(self) 
         self.controller = controller
 
-        # Create BlueIG button directly without wrapper frame
+        self.blueig_frame = tk.Frame(
+            self,
+            bg="black",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.blueig_frame.pack(pady=10)
         self.create_blueig_button()
 
         # Other buttons
@@ -6203,30 +6209,23 @@ class MainMenu(tk.Frame):
                 bg=bg, fg="white",
                 width=30, height=1,
                 command=cmd,
-                state=state,
-                bd=0,
-                highlightthickness=0,
+                state=state
             )
             button.pack(pady=10)
 
     def create_blueig_button(self):
-        # Create button directly on self, not in a frame
-        if hasattr(self, 'blueig_button'):
-            self.blueig_button.destroy()
-        if hasattr(self, 'blueig_checking_label'):
-            self.blueig_checking_label.destroy()
+        for widget in self.blueig_frame.winfo_children():
+            widget.destroy()
 
-        self.blueig_button = tk.Button(
-            self,
+        btn = tk.Button(
+            self.blueig_frame,
             text="Launch BlueIG",
             font=("Helvetica", 24),
             bg="#888888", fg="white",
             width=30, height=1,
             state="disabled",
-            bd=0,
-            highlightthickness=0,
         )
-        self.blueig_button.pack(pady=10)
+        btn.pack()
 
         is_srv = config["General"].getboolean("is_server", fallback=False)
         if is_srv:
@@ -6235,27 +6234,25 @@ class MainMenu(tk.Frame):
         # Fast path: if BlueIG path is already cached/known, enable immediately
         cached_path = config['General'].get('blueig_path', '')
         if cached_path and os.path.isfile(cached_path):
-            self.blueig_button.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+            btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
             return
 
         # Otherwise, show "Checking..." and resolve asynchronously
-        self.blueig_checking_label = tk.Label(
-            self,
+        checking = tk.Label(
+            self.blueig_frame,
             text="Checking...",
-            bg="black",
+            bg=self.blueig_frame.cget("bg"),
             fg="white",
-            font=("Helvetica", 10),
         )
-        self.blueig_checking_label.pack()
+        checking.pack()
 
         def _resolve():
             path_ok = bool(get_blueig_install_path())
 
             def _apply():
                 if path_ok:
-                    self.blueig_button.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
-                if hasattr(self, 'blueig_checking_label'):
-                    self.blueig_checking_label.destroy()
+                    btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+                checking.destroy()
 
             post_ui(_apply)
 
