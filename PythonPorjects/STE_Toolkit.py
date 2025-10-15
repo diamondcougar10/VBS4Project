@@ -4164,17 +4164,31 @@ logo_AFC_army         = os.path.join(_BUNDLE_DIR, "logos", "US_Army_AFC_Logo.png
 logo_first_army       = os.path.join(_BUNDLE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png")
 prompt_box_image_path = os.path.join(_BUNDLE_DIR, "promptbox.jpg")
-def set_background(window, widget=None):
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
 
-    # wallpaper
+# Cache for background image - consistent size across all panels
+_cached_bg_photo = None
+_cached_bg_size = (0, 0)
+_PANEL_BG_WIDTH = 1920  # Fixed background width
+_PANEL_BG_HEIGHT = 1080  # Fixed background height
+
+def set_background(window, widget=None):
+    """Apply a consistent-sized cached background to a widget."""
+    global _cached_bg_photo, _cached_bg_size
+    
+    # Use fixed size so all panels have same background dimensions
+    bg_width = _PANEL_BG_WIDTH
+    bg_height = _PANEL_BG_HEIGHT
+
+    # wallpaper - use cached version if already created
     if os.path.exists(background_image_path):
-        img = Image.open(background_image_path)
-        img = img.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
-        ph  = ImageTk.PhotoImage(img)
-        lbl = tk.Label(widget or window, image=ph)
-        lbl.image = ph
+        if _cached_bg_photo is None or _cached_bg_size != (bg_width, bg_height):
+            img = Image.open(background_image_path)
+            img = img.resize((bg_width, bg_height), Image.Resampling.LANCZOS)
+            _cached_bg_photo = ImageTk.PhotoImage(img)
+            _cached_bg_size = (bg_width, bg_height)
+        
+        lbl = tk.Label(widget or window, image=_cached_bg_photo)
+        lbl.image = _cached_bg_photo
         lbl.place(x=0, y=0, relwidth=1, relheight=1)
         # Always lower the background so it never occludes content
         try:
@@ -5956,37 +5970,8 @@ class MainApp(tk.Tk):
             pass
 
     def _apply_panel_wallpaper(self, panel):
-        """Place/resize a wallpaper image inside a panel so it scrolls."""
-        if not os.path.exists(background_image_path):
-            return
-        try:
-            panel.update_idletasks()
-            vw = max(1, self.viewport_canvas.winfo_width())
-            vh = max(1, self.viewport_canvas.winfo_height())
-            pw = max(vw, panel.winfo_reqwidth())
-            ph = max(vh, panel.winfo_reqheight())
-            # Put an upper bound to avoid creating gigantic images.
-            pw = min(pw, 3840)
-            ph = min(ph, 4320)
-            # Skip tiny initial calls until geometry stabilizes
-            if pw < 100 or ph < 100:
-                return
-            last_size = getattr(panel, '_bg_last_size', None)
-            if last_size == (pw, ph):
-                return  
-            from PIL import Image
-            img = Image.open(background_image_path).resize((pw, ph), Image.Resampling.LANCZOS)
-            panel._bg_panel_photo = ImageTk.PhotoImage(img)
-            panel._bg_last_size = (pw, ph)
-            if not hasattr(panel, '_bg_panel_label') or panel._bg_panel_label is None:
-                lbl = tk.Label(panel, image=panel._bg_panel_photo, bd=0, highlightthickness=0)
-                panel._bg_panel_label = lbl
-                lbl.place(relwidth=1, relheight=1)
-                lbl.lower() 
-            else:
-                panel._bg_panel_label.configure(image=panel._bg_panel_photo)
-        except Exception:
-            pass
+        """Disabled - using per-panel backgrounds instead."""
+        pass
 
     def change_projects_root(self):
         new_root = filedialog.askdirectory(title="Choose Projects Root", parent=self)
@@ -6213,7 +6198,7 @@ class MainMenu(tk.Frame):
                 text=txt,
                 font=("Helvetica", 24),
                 bg=bg, fg="white",
-                width=30, height=1,
+                width=25, height=2,
                 command=cmd,
                 state=state
             )
@@ -6228,7 +6213,7 @@ class MainMenu(tk.Frame):
             text="Launch BlueIG",
             font=("Helvetica", 24),
             bg="#888888", fg="white",
-            width=30, height=1,
+            width=25, height=2,
             state="disabled",
         )
         btn.pack()
@@ -8091,8 +8076,8 @@ class BVIPanel(tk.Frame):
             fg="white",
             activebackground="#666666",
             activeforeground="white",
-            width=30,
-            height=1,
+            width=27,
+            height=2,
             command=command,
             bd=0,
             highlightthickness=0,
@@ -9653,7 +9638,7 @@ class CreditsPanel(tk.Frame):
                  justify="left").pack(fill="x", pady=(0, 20))
 
         tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444", fg="white",
-                  width=30, height=1, command=lambda: controller.show('Main'),
+                  width=25, height=2, command=lambda: controller.show('Main'),
                   bd=0, highlightthickness=0).pack(pady=(10, 0))
 
 class ContactSupportPanel(tk.Frame):
@@ -9699,11 +9684,11 @@ class ContactSupportPanel(tk.Frame):
             .pack(fill="x")
 
         tk.Button(card, text="Contact Support via Email", font=("Helvetica", 24),
-                  bg="#444444", fg="white", width=30, height=1,
+                  bg="#444444", fg="white", width=25, height=2,
                   command=self.contact_support, bd=0, highlightthickness=0)\
             .pack(pady=(30, 10))
         tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444",
-                  fg="white", width=30, height=1,
+                  fg="white", width=25, height=2,
                   command=lambda: controller.show('Main'), bd=0,
                   highlightthickness=0).pack(pady=(0, 10))
 
