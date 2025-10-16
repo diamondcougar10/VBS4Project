@@ -877,18 +877,23 @@ def auto_connect_shared_working_folder() -> bool:
         if not unc_root:
             unc_root = rf"\\{ip}\SharedMeshDrive"
 
-        # Attempt to establish session silently
-        _try_net_use_unc(unc_root)
-        time.sleep(0.6)
-
-        # Verify working folder accessibility best-effort
+        # First, do a quick check without net use to avoid CMD windows
+        # If the share is already accessible, skip the connection attempt
         wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
         wf_unc = os.path.join(unc_root, wf_sub).replace("/", "\\")
-        if quick_unc_check(wf_unc, timeout=2):
-            # Persist shared path for fuser launches
+        
+        if quick_unc_check(wf_unc, timeout=1):
+            # Already accessible, no need to connect
+            logging.info(f"[autoconnect] Share already accessible: {wf_unc}")
             update_fuser_shared_path(wf_unc)
             return True
+        
+        # SKIP net use during startup warmup to prevent CMD error windows
+        # User can manually click "Test Access" button if they need to connect
+        # This prevents the "not enough memory resources" errors at startup
+        logging.info(f"[autoconnect] Share not immediately accessible, skipping connection (will connect on-demand)")
         return False
+        
     except Exception as e:
         logging.info(f"[autoconnect] failed: {e}")
         return False
@@ -921,12 +926,17 @@ def _run(cmd, **kw):
             for _ in range(3):
                 gc.collect()
             try:
-                # Retry with minimal options
-                basic_kw = {'capture_output': True, 'text': True, 'timeout': 10}
+                # Retry with minimal options, still hiding the window
+                basic_kw = {
+                    'capture_output': True, 
+                    'text': True, 
+                    'timeout': 10,
+                    'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0
+                }
                 cp = subprocess.run(cmd, **basic_kw)
                 return cp.returncode, (cp.stdout or ""), (cp.stderr or "")
-            except Exception:
-                logging.error(f"[_run] Retry also failed for command {cmd}")
+            except Exception as retry_err:
+                logging.error(f"[_run] Retry also failed for command {cmd}: {retry_err}")
                 return 1, "", f"Memory/resource error: {e}"
         else:
             logging.error(f"[_run] OS error for command {cmd}: {e}")
@@ -1286,10 +1296,17 @@ def check_network_share_status():
     """
     try:
         unc_path = resolve_shared_access_path()
-        if not unc_path or not unc_path.startswith("\\\\"):
+        if not unc_path:
             return False, "No network path configured"
         
-        # Bounded UNC probe to avoid UI hangs (3 second timeout)
+        # If it's a local path (Host PC), just check if it exists
+        if not unc_path.startswith("\\\\"):
+            if os.path.exists(unc_path):
+                return True, f"Local share accessible: {unc_path}"
+            else:
+                return False, f"Local path not found: {unc_path}"
+        
+        # For UNC paths, do bounded UNC probe to avoid UI hangs (3 second timeout)
         if quick_unc_check(unc_path, timeout=3):
             return True, f"Connected to {unc_path}"
         
@@ -1399,31 +1416,53 @@ def _machine_ip_fast() -> str:
         return ""
 
 def _working_clients_dir() -> str:
-    """Return path to _clients dir in WorkingFuser UNC, or '' if not available."""
+    """Return path to _clients dir in WorkingFuser, or '' if not available.
+    On host, normalizes UNC to local path so heartbeats can be written without loopback session."""
     try:
         wf = working_fuser_unc()
     except Exception:
         wf = ""
-    if not wf or not wf.startswith("\\\\"):
+    if not wf:
         return ""
-    return os.path.join(wf, HEARTBEAT_DIR_NAME).replace("/", "\\")
+    
+    # NEW: Normalize UNC to local path when we're the host so loopback UNC isn't required
+    try:
+        wf = unc_to_local_if_host(wf)
+    except Exception:
+        pass
+    
+    # Build clients directory path
+    clients_dir = os.path.join(wf, HEARTBEAT_DIR_NAME).replace("/", "\\")
+    
+    # Ensure directory exists
+    try:
+        os.makedirs(clients_dir, exist_ok=True)
+    except Exception:
+        pass
+    
+    return clients_dir
 
 def _heartbeat_path_for_this_pc() -> str:
     """Return path to this PC's heartbeat JSON file."""
     root = _working_clients_dir()
     if not root:
         return ""
-    # Avoid blocking on unreachable UNC
-    try:
-        if not quick_unc_check(root, timeout=1):
+    
+    # For UNC paths, check connectivity; for local paths (on host), just verify existence
+    if root.startswith("\\\\"):
+        try:
+            if not quick_unc_check(root, timeout=1):
+                return ""
+        except Exception:
             return ""
-    except Exception:
-        return ""
+    else:
+        # Local path - ensure directory exists
+        try:
+            os.makedirs(root, exist_ok=True)
+        except Exception:
+            return ""
+    
     name = f"{platform.node()}({_machine_ip_fast()})"
-    try:
-        os.makedirs(root, exist_ok=True)
-    except Exception:
-        pass
     return os.path.join(root, f"{name}.json")
 
 def _atomic_write_json(path: str, data: dict) -> None:
@@ -1440,7 +1479,14 @@ def write_presence_heartbeat() -> None:
     """Write/update our presence file on the WorkingFuser share."""
     p = _heartbeat_path_for_this_pc()
     if not p:
+        logging.warning("[presence] Cannot write heartbeat: empty path")
         return
+    
+    # Diagnostic logging
+    clients_dir = _working_clients_dir()
+    logging.debug(f"[presence] clients_dir={clients_dir} exists={os.path.isdir(clients_dir) if clients_dir else False}")
+    logging.debug(f"[presence] heartbeat_path={p}")
+    
     payload = {
         "pc": platform.node(),
         "ip": _machine_ip_fast(),
@@ -1449,6 +1495,7 @@ def write_presence_heartbeat() -> None:
         "fusers": count_local_fusers(),
     }
     _atomic_write_json(p, payload)
+    logging.debug(f"[presence] Heartbeat written successfully to {p}")
 
 def cleanup_stale_presence() -> None:
     """Delete very old heartbeats (> 24h) to keep the folder tidy."""
@@ -1471,45 +1518,114 @@ def cleanup_stale_presence() -> None:
             pass
 
 def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
-    """Return list of active client dicts from _clients/*.json."""
+    """Return list of active PCs by scanning fuser folders created by Fuser.exe.
+    
+    PhotoMesh Fuser.exe creates folders in _clients with naming pattern:
+    <PCNAME>(<IP>)_<FuserName> (e.g., HAMMERKIT1-4(192.168.10.243)_SeedFuser)
+    
+    We scan for these folders and extract unique PC names.
+    """
     root = _working_clients_dir()
     if not root:
+        logging.debug("[presence] scan: no clients_dir available")
         return []
     
     # Convert to local path if we're on the Host PC
     root = unc_to_local_if_host(root)
+    logging.debug(f"[presence] scan: checking root={root}")
     
     # For UNC paths, check connectivity before accessing; for local paths, just check existence
     if root.startswith("\\\\"):
         try:
             if not quick_unc_check(root, timeout=1):
+                logging.debug(f"[presence] scan: UNC check failed for {root}")
                 return []
         except Exception:
+            logging.debug(f"[presence] scan: UNC check exception for {root}")
             return []
     else:
         # Local path - just verify it exists
         if not os.path.exists(root):
+            logging.debug(f"[presence] scan: local path doesn't exist: {root}")
             return []
-    now = time.time()
+    
+    # Scan for fuser folders created by Fuser.exe
+    # Pattern: PCNAME(IP)_FuserName or KeepAlive_PCNAME(IP)_FuserName
     out = []
-    for fp in glob.glob(os.path.join(root, "*.json")):
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            age = now - float(d.get("ts", 0))
-            if (not active_only) or age <= HEARTBEAT_TTL_SECS:
-                out.append(d)
-        except Exception:
-            pass
+    pc_fusers = {}  # Track fusers per PC: {pc_name: count}
+    
+    try:
+        for item in os.listdir(root):
+            item_path = os.path.join(root, item)
+            
+            # Check both folders (created by Fuser.exe) and JSON files (our legacy heartbeats)
+            if os.path.isdir(item_path) or item.endswith('.json'):
+                # Extract PC name and IP from folder/file name
+                # Patterns: 
+                #   PCNAME(IP)_FuserName
+                #   KeepAlive_PCNAME(IP)_FuserName
+                #   PCNAME(IP).json
+                name = item.replace('KeepAlive_', '').replace('.json', '')
+                
+                # Extract PC name (everything before the first parenthesis)
+                if '(' in name and ')' in name:
+                    pc_name = name.split('(')[0]
+                    # Extract IP
+                    ip_part = name.split('(')[1].split(')')[0]
+                    
+                    if pc_name not in pc_fusers:
+                        pc_fusers[pc_name] = {"pc": pc_name, "ip": ip_part, "fusers": 0}
+                    pc_fusers[pc_name]["fusers"] += 1
+                    
+                    logging.debug(f"[presence] scan: found fuser from {pc_name} ({ip_part})")
+        
+        out = list(pc_fusers.values())
+        logging.debug(f"[presence] scan: found {len(out)} unique PCs with fusers")
+        
+    except Exception as e:
+        logging.warning(f"[presence] scan: error scanning directory {root}: {e}")
+    
     return out
 
 def count_connected_fuser_pcs() -> int:
-    """Return count of active fuser PCs (heartbeat within TTL)."""
-    return len(scan_connected_fuser_pcs(True))
+    """
+    Return count of unique active fuser PCs (not individual fusers, but unique PC names).
+    Includes ALL PCs running fusers (both Host and User PCs).
+    """
+    pc_names = list_connected_fuser_pc_names()
+    
+    logging.debug(f"[connected_pcs] Total unique PCs running fusers: {len(pc_names)}")
+    logging.debug(f"[connected_pcs] PC names: {pc_names}")
+    
+    return len(pc_names)
 
 def list_connected_fuser_pc_names() -> list[str]:
     """Return sorted list of unique PC names with active heartbeats."""
     return sorted({ (d.get("pc") or "unknown") for d in scan_connected_fuser_pcs(True) })
+
+def get_connected_pcs_summary() -> dict:
+    """
+    Return summary of connected PCs with their fuser counts.
+    Returns dict: {pc_name: {"ip": str, "fusers": int, "last_seen": float}}
+    """
+    all_heartbeats = scan_connected_fuser_pcs(True)
+    summary = {}
+    
+    for hb in all_heartbeats:
+        pc_name = hb.get("pc") or "unknown"
+        if pc_name not in summary:
+            summary[pc_name] = {
+                "ip": hb.get("ip", "unknown"),
+                "fusers": hb.get("fusers", 0),
+                "last_seen": hb.get("ts", 0)
+            }
+        else:
+            # Update with latest info (in case multiple heartbeats per PC)
+            if hb.get("ts", 0) > summary[pc_name]["last_seen"]:
+                summary[pc_name]["fusers"] = hb.get("fusers", 0)
+                summary[pc_name]["last_seen"] = hb.get("ts", 0)
+    
+    return summary
 
 def _presence_loop():
     """Background thread that writes heartbeat every ~20s."""
@@ -1534,6 +1650,14 @@ def start_presence_service():
     _HB_THREAD = threading.Thread(target=_presence_loop, name="presence", daemon=True)
     _HB_THREAD.start()
     logging.info("[presence] Heartbeat service started")
+    
+    # NEW: Opportunistic first write so count populates immediately
+    try:
+        write_presence_heartbeat()
+        logging.info("[presence] Initial heartbeat written")
+    except Exception as e:
+        logging.warning(f"[presence] Initial heartbeat write failed: {e}")
+
 
 def stop_presence_service():
     """Stop heartbeat thread and cleanup our presence file."""
@@ -3169,6 +3293,7 @@ import threading as _threading
 _FUSER_ENFORCE_LOCK = _threading.Lock()
 _last_enforce_target: int | None = None
 _last_enforce_ts: float = 0.0
+_skip_fuser_enforcement_at_startup: bool = True  # Skip fuser launches during startup
 
 def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
     """Clamp desired local fuser count according to machine role."""
@@ -3297,18 +3422,33 @@ def start_fuser_instance(idx: int) -> bool:
             logging.error(f"[start_fuser_instance] BLOCKED: Working folder is not a UNC path: {original_unc}")
             return False
         
-        # 5. Quick accessibility check
-        # If it's a local path now (Host PC), check with os.path.exists
-        # If still UNC (User PC), use quick_unc_check (assumes session already established by caller)
+        # 5. Pre-establish UNC session once before any expensive checks/launch
         if shared.startswith("\\\\"):
+            # Extract \\host\share from \\host\share\WorkingFuser\...
+            parts = shared.split("\\")
+            if len(parts) > 3:
+                unc_root = f"\\\\{parts[2]}\\{parts[3]}"
+            else:
+                unc_root = shared
+            
+            logging.info(f"[start_fuser_instance] Pre-establishing UNC session to {unc_root}")
+            if not ensure_unc_session_once(unc_root, first_timeout=5.0):
+                safe_messagebox_showerror(
+                    "Network Error",
+                    f"Cannot access {unc_root}\n\n"
+                    "Check connectivity and ensure the share is available."
+                )
+                logging.error(f"[start_fuser_instance] UNC session failed for {unc_root}")
+                return False
+            
+            # Now quick_unc_check on the specific subfolder is cheap
             accessible = quick_unc_check(shared, timeout=2.0)
         else:
+            # Local path (Host PC)
             accessible = os.path.exists(shared)
         
         if not accessible:
             logging.warning(f"[start_fuser_instance] Path not accessible: {shared}")
-            # Don't show error here - let the caller handle it
-            # This allows batch launches to continue even if one fails
             return False
         
         logging.info(f"[start_fuser_instance] Path accessible: {shared}")
@@ -3318,15 +3458,24 @@ def start_fuser_instance(idx: int) -> bool:
     bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
     
     try:
-        if os.path.isfile(bat):
-            cmd = f'start "" "{bat}"'
-            logging.info(f"[start_fuser_instance] Using batch file: {bat}")
-        else:
-            shared_normalized = os.path.normpath(shared).replace("/", "\\")
-            cmd = f'start "" "{exe}" "{name}" "{shared_normalized}" 0 true'
-            logging.info(f"[start_fuser_instance] Direct launch: {cmd}")
+        # Launch fuser directly, windowless (no start, no shell=True, no BAT)
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        creation = DETACHED_PROCESS | CREATE_NO_WINDOW
         
-        subprocess.run(cmd, shell=True, check=True)
+        shared_normalized = os.path.normpath(shared).replace("/", "\\")
+        args = [exe, name, shared_normalized, "0", "true"]
+        
+        logging.info(f"[start_fuser_instance] Direct launch (windowless): {' '.join(args)}")
+        
+        # Launch the fuser EXE directly; no BAT, no cmd.exe, no window
+        subprocess.Popen(
+            args,
+            creationflags=creation,
+            cwd=os.path.dirname(exe),
+            close_fds=True
+        )
+        
         logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully")
         return True
         
@@ -3353,7 +3502,14 @@ def ensure_fuser_instances(desired: int):
     Scale local PhotoMeshFuser.exe processes to exactly 'desired'.
     If too few → spawn more; if too many → kill extras.
     """
+    global _skip_fuser_enforcement_at_startup
+    
     logging.info(f"[DEBUG] ensure_fuser_instances({desired}) called")
+
+    # Skip fuser enforcement during startup to prevent CMD errors
+    if _skip_fuser_enforcement_at_startup:
+        logging.info("[DEBUG] Skipping fuser enforcement during startup (will restore on user action)")
+        return
 
     # Only one scaler at a time to avoid racing spawns that trigger
     # 'already running' popups from PhotoMesh
@@ -3482,14 +3638,15 @@ def enforce_local_fuser_policy():
             target = 0
             logging.info(f"[DEBUG] this is neither host nor fuser, target = {target}")
 
-        # Establish UNC session once before scaling fusers (throttled + cached)
-        try:
-            unc_root, _ = _compute_working_unc_from_cfg()
-            if unc_root and unc_root.startswith("\\\\"):
-                logging.info(f"[DEBUG] Pre-establishing UNC session to {unc_root}")
-                ensure_unc_session_once(unc_root)
-        except Exception as e:
-            logging.debug(f"[DEBUG] UNC pre-connection attempt: {e}")
+        # REMOVED: Pre-establishing UNC session to prevent "not enough memory" CMD errors
+        # The connection will be established on-demand when actually needed
+        # try:
+        #     unc_root, _ = _compute_working_unc_from_cfg()
+        #     if unc_root and unc_root.startswith("\\\\"):
+        #         logging.info(f"[DEBUG] Pre-establishing UNC session to {unc_root}")
+        #         ensure_unc_session_once(unc_root)
+        # except Exception as e:
+        #     logging.debug(f"[DEBUG] UNC pre-connection attempt: {e}")
 
         # Throttle duplicate enforcements with the same target within a short window
         global _last_enforce_target, _last_enforce_ts
@@ -8519,6 +8676,10 @@ class SettingsPanel(tk.Frame):
                         n = 3
                 n = _clamp_fusers(n, True)
                 config["Fusers"]["desired_count"] = str(n)
+                
+                # NOTE: Connection will be checked in ensure_fuser_instances()
+                # If share is not accessible, fusers won't launch and user will
+                # need to click "Test Access" to establish connection first
             else:
                 # When turning off, kill all fusers and reset count
                 kill_fusers_on_disable()
@@ -9566,8 +9727,20 @@ class SettingsPanel(tk.Frame):
                 cnt = 0
                 names: list[str] | None = None
                 try:
-                    cnt = count_connected_fuser_pcs()
+                    # Get list of connected PCs from heartbeats
                     names = list_connected_fuser_pc_names()
+                    names_set = set(names) if names else set()
+                    
+                    # NEW: Add host baseline if we're the host (never shows 0 on host)
+                    if is_host_machine():
+                        try:
+                            host_name = socket.gethostname()
+                            names_set.add(host_name)
+                        except Exception:
+                            pass
+                    
+                    names = sorted(names_set)
+                    cnt = len(names)
                 except Exception:
                     # If any scanning error occurs, keep defaults
                     names = []
@@ -9609,9 +9782,18 @@ class SettingsPanel(tk.Frame):
         """
         # Get the path (will be converted to local if we're on Host PC)
         path = resolve_shared_access_path()
+        logging.info(f"[open_working_folder] Resolved path: '{path}'")
+        
+        # Check if path is empty
+        if not path:
+            messagebox.showerror("Open Working Folder",
+                                 "Working folder path is not configured.\n\n"
+                                 "Please configure Host IP and Share Name in Offline Settings.")
+            return
         
         # If it's a local path (Host PC), just open it directly
         if not path.startswith("\\\\"):
+            logging.info(f"[open_working_folder] Opening local path: {path}")
             if os.path.exists(path):
                 self.open_folder_foreground(path)
             else:
@@ -9620,12 +9802,15 @@ class SettingsPanel(tk.Frame):
             return
         
         # For UNC paths (User PCs), ensure connection first
+        logging.info(f"[open_working_folder] Connecting to UNC path: {path}")
         if not connect_working_share_interactive(parent=self, silent=True):
             messagebox.showerror("Open Working Folder",
-                                 f"Cannot access:\n{path}\nUse Test Access to diagnose.")
+                                 f"Cannot access:\n{path}\n\n"
+                                 "Use 'Test Access' button to diagnose the connection issue.")
             return
 
         # Once connected, open the UNC path
+        logging.info(f"[open_working_folder] Connection successful, opening: {path}")
         self.open_folder_foreground(path)
 
     def _auto_find_share(self):
@@ -10301,6 +10486,14 @@ def run_with_splash():
 
     # Schedule this sooner after the app's initialization is complete
     app.after(20, setup_delayed_tasks)
+    
+    # Clear the startup skip flag after UI is fully loaded (3 seconds after startup)
+    def _enable_fuser_enforcement():
+        global _skip_fuser_enforcement_at_startup
+        _skip_fuser_enforcement_at_startup = False
+        logging.info("[startup] Fuser enforcement now enabled (startup complete)")
+    
+    app.after(3000, _enable_fuser_enforcement)
 
     logging.info("[startup] About to start mainloop()")
     app.mainloop()
