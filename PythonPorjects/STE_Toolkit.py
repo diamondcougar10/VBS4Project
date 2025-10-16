@@ -712,6 +712,13 @@ def release_singleton() -> None:
 # NETWORK CONNECTION HELPERS FOR WORKING FUSER UNC
 # =============================================================================
 
+# --- UNC session guard / throttle ---
+_UNC_SESS_LOCK = threading.Lock()
+_UNC_SESS_CACHE = {}       # { unc_root: {"ok": bool, "ts": float} }
+_UNC_SESS_COOLDOWN = 120   # seconds to consider a session "fresh"
+_NET_USE_LAST_TS = 0.0
+_NET_USE_MIN_GAP = 1.0     # at least 1s between 'net use' calls
+
 def quick_ping_check(host_ip: str, timeout: float = 0.8) -> bool:
     """Quick ping check to avoid spinning up SMB when host is plainly offline."""
     if not host_ip:
@@ -744,16 +751,58 @@ def quick_unc_check(unc_path, timeout=3):
                 result.put(os.path.isdir(unc_path))
                 return
             
-            # Bounded UNC probe using dir (quoted target to avoid parsing issues)
-            rc = subprocess.run(
-                ["cmd", "/c", "dir", f"\"{unc_path}\""],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=2,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            ).returncode
-            result.put(rc == 0)
-        except Exception:
+            # Method 1: Use 'net view' to check if the host is reachable
+            # This is faster and more reliable than os.path.exists() for UNC paths
+            try:
+                # Extract host from UNC path (\\host\share\path -> \\host)
+                parts = unc_path.split("\\")
+                if len(parts) >= 3:
+                    host = f"\\\\{parts[2]}"
+                    
+                    # Quick net view check with short timeout
+                    subprocess_timeout = max(1, timeout - 1.0)
+                    rc = subprocess.run(
+                        ["net", "view", host],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=subprocess_timeout,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    ).returncode
+                    
+                    if rc == 0:
+                        # Host is reachable, now check if path exists
+                        result.put(True)
+                        return
+            except subprocess.TimeoutExpired:
+                logging.debug(f"[quick_unc_check] net view timed out for {unc_path}")
+            except Exception as e:
+                logging.debug(f"[quick_unc_check] net view failed: {e}")
+            
+            # Method 2: Try dir command as fallback (works even if net view fails)
+            try:
+                subprocess_timeout = max(1, timeout - 0.5)
+                rc = subprocess.run(
+                    ["cmd", "/c", "dir", unc_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=subprocess_timeout,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                ).returncode
+                result.put(rc == 0)
+                return
+            except subprocess.TimeoutExpired:
+                logging.debug(f"[quick_unc_check] dir command timed out")
+            except Exception as e:
+                logging.debug(f"[quick_unc_check] dir command failed: {e}")
+            
+            # Method 3: Last resort - os.path.exists (can be slow)
+            try:
+                result.put(os.path.exists(unc_path))
+            except:
+                result.put(False)
+                
+        except Exception as e:
+            logging.debug(f"[quick_unc_check] Unexpected error: {e}")
             result.put(False)
 
     t = threading.Thread(target=_try, daemon=True)
@@ -886,47 +935,87 @@ def _run(cmd, **kw):
         logging.error(f"[_run] Unexpected error for command {cmd}: {e}")
         return 1, "", str(e)
 
+def _try_net_use_unc_throttled(unc_root: str, timeout: float = 8.0) -> bool:
+    """
+    Throttled 'net use' attach. Handles 1219 (credential collision) once.
+    Returns True when the session is usable.
+    """
+    global _NET_USE_LAST_TS
+    now = time.monotonic()
+
+    # simple coarse throttle to avoid bursts
+    gap = now - _NET_USE_LAST_TS
+    if gap < _NET_USE_MIN_GAP:
+        time.sleep(_NET_USE_MIN_GAP - gap)
+
+    rc, out, err = _run(["net", "use", unc_root, "/persistent:yes"], timeout=timeout)
+    _NET_USE_LAST_TS = time.monotonic()
+    txt = (out + err).lower()
+
+    if rc == 0 or "already exists" in txt:
+        logging.info(f"[net_use] Session OK for {unc_root}")
+        return True
+
+    # 1219: multiple connections with different creds → clear and retry once
+    if "1219" in txt or "multiple connections" in txt:
+        logging.warning(f"[net_use] Error 1219 detected, clearing connections for {unc_root}")
+        host = unc_root.split("\\")[2] if unc_root.startswith("\\\\") and len(unc_root.split("\\")) > 2 else ""
+        _run(["net", "use", unc_root, "/delete", "/y"], timeout=5)
+        if host:
+            _run(["net", "use", f"\\\\{host}\\IPC$", "/delete", "/y"], timeout=5)
+            _run(["cmdkey", f"/delete:{host}"], timeout=5)
+        rc2, out2, err2 = _run(["net", "use", unc_root, "/persistent:yes"], timeout=timeout)
+        result = rc2 == 0 or "already exists" in (out2 + err2).lower()
+        if result:
+            logging.info(f"[net_use] Session OK after retry for {unc_root}")
+        else:
+            logging.error(f"[net_use] Failed after retry: {out2} {err2}")
+        return result
+
+    logging.warning(f"[net_use] Failed for {unc_root}: {txt}")
+    return False
+
+def ensure_unc_session_once(unc_root: str, *, first_timeout=6.0) -> bool:
+    """
+    Ensure a UNC session exists in THIS process token.
+    Caches success for _UNC_SESS_COOLDOWN seconds.
+    """
+    if not unc_root or not unc_root.startswith("\\\\"):
+        return False
+
+    with _UNC_SESS_LOCK:
+        info = _UNC_SESS_CACHE.get(unc_root)
+        if info and (time.monotonic() - info["ts"]) < _UNC_SESS_COOLDOWN and info["ok"]:
+            logging.debug(f"[unc_session] Using cached session for {unc_root}")
+            return True
+
+        # First check: allow a bit more time on a cold connect
+        if quick_unc_check(unc_root, timeout=first_timeout):
+            logging.info(f"[unc_session] Quick check passed for {unc_root}")
+            _UNC_SESS_CACHE[unc_root] = {"ok": True, "ts": time.monotonic()}
+            return True
+
+        # Try one attach (throttled)
+        logging.info(f"[unc_session] Attempting throttled net use for {unc_root}")
+        ok = _try_net_use_unc_throttled(unc_root, timeout=first_timeout)
+        if not ok:
+            # tiny settle and recheck
+            time.sleep(0.6)
+            ok = quick_unc_check(unc_root, timeout=3)
+            if ok:
+                logging.info(f"[unc_session] Recheck passed for {unc_root}")
+
+        _UNC_SESS_CACHE[unc_root] = {"ok": ok, "ts": time.monotonic()}
+        return ok
+
+# Backward compatibility wrapper
 def _try_net_use_unc(unc_root, username=None, password=None):
     """
-    Try to connect to a UNC root persistently. Credentials optional.
-    Returns True on success. Uses shorter timeout to prevent startup delays.
+    Legacy wrapper for compatibility. New code should use ensure_unc_session_once().
     """
-    # net use \\host\share [password] [/user:user] /persistent:yes
-    args = ["net", "use", unc_root, "/persistent:yes"]
-    # If both provided, pass them to net use; otherwise let Windows use cached creds
-    if username and password:
-        args = ["net", "use", unc_root, password, f"/user:{username}", "/persistent:yes"]
-    
-    try:
-        # Use shorter timeout for network operations to prevent startup hangs
-        rc, stdout, stderr = _run(args, timeout=6)
-        logging.info(f"[net_use] Command: {' '.join(args)}")
-        logging.info(f"[net_use] Return code: {rc}")
-        if stdout:
-            logging.info(f"[net_use] Stdout: {stdout}")
-        if stderr:
-            logging.info(f"[net_use] Stderr: {stderr}")
-        
-        # If the connection already exists, that's also success
-        if rc != 0 and "already exists" in (stdout + stderr).lower():
-            logging.info(f"[net_use] Connection already exists for {unc_root}")
-            return True
-        
-        # For automatic connections (no credentials), be more permissive with certain errors
-        if not username and not password and rc != 0:
-            error_text = (stdout + stderr).lower()
-            # Some errors we can ignore for automatic connections
-            if any(phrase in error_text for phrase in ["system error 53", "network path was not found"]):
-                logging.warning(f"[net_use] Network path issue for {unc_root}, but continuing...")
-                return False
-            elif "access is denied" in error_text:
-                logging.warning(f"[net_use] Access denied for {unc_root}, but continuing...")
-                return False
-            
-        return rc == 0
-    except Exception as e:
-        logging.error(f"[net_use] Exception running net use: {e}")
-        return False
+    if username or password:
+        logging.warning("[net_use] Credentials not supported in throttled mode, ignoring")
+    return _try_net_use_unc_throttled(unc_root)
 
 def _store_creds_in_cmdkey(host, username, password):
     """Persist credentials for SMB to avoid re-prompt on next boot."""
@@ -1200,11 +1289,30 @@ def check_network_share_status():
         if not unc_path or not unc_path.startswith("\\\\"):
             return False, "No network path configured"
         
-        # Bounded UNC probe to avoid UI hangs
-        if quick_unc_check(unc_path, timeout=2):
+        # Bounded UNC probe to avoid UI hangs (3 second timeout)
+        if quick_unc_check(unc_path, timeout=3):
             return True, f"Connected to {unc_path}"
-        else:
-            return False, f"Cannot access {unc_path}"
+        
+        # Fallback: Try os.path.exists with timeout as last resort
+        # Sometimes Windows has the connection but subprocess check fails
+        try:
+            result_queue = Queue()
+            def _check_exists():
+                try:
+                    result_queue.put(os.path.exists(unc_path))
+                except:
+                    result_queue.put(False)
+            
+            t = threading.Thread(target=_check_exists, daemon=True)
+            t.start()
+            t.join(2.0)  # 2 second timeout for fallback
+            
+            if not result_queue.empty() and result_queue.get_nowait():
+                return True, f"Connected to {unc_path}"
+        except:
+            pass
+        
+        return False, f"Cannot access {unc_path}"
     except Exception as e:
         return False, f"Error checking share: {str(e)}"
 
@@ -2514,6 +2622,86 @@ def build_unc_from_cfg(o: dict | None = None) -> str:
         return ""
     return f"\\\\{ip}\\{share}"
 
+def unc_to_local_if_host(unc_path: str) -> str:
+    r"""
+    Convert UNC path to local path if we're on the Host PC.
+    This prevents SMB loopback issues where a PC can't access its own shares via \\IP\share.
+    
+    Examples:
+        \\192.168.10.243\SharedMeshDrive\WorkingFuser -> E:\SharedMeshDrive\WorkingFuser (if on host)
+        \\192.168.10.243\SharedMeshDrive\WorkingFuser -> \\192.168.10.243\SharedMeshDrive\WorkingFuser (if not host)
+    """
+    if not unc_path or not unc_path.startswith("\\\\"):
+        return unc_path
+    
+    # Check if this is pointing to the configured host IP
+    o = get_offline_cfg()
+    host_ip = (o.get("host_ip") or "").strip()
+    
+    if not host_ip:
+        return unc_path
+    
+    # Check if UNC path starts with the host IP
+    if not unc_path.lower().startswith(f"\\\\{host_ip.lower()}\\"):
+        return unc_path
+    
+    # Check if we ARE the host
+    # Method 1: Check if fuser_computer is True (Host mode)
+    is_fuser_computer = config.getboolean("Fusers", "fuser_computer", fallback=False)
+    
+    # Method 2: Check if our IP matches the host IP
+    our_ip = get_primary_ipv4()
+    is_same_ip = (our_ip == host_ip) if our_ip else False
+    
+    if not (is_fuser_computer or is_same_ip):
+        return unc_path  # We're not the host, use UNC
+    
+    # We ARE the host - convert to local path
+    # Extract the share name and remaining path
+    # Format: \\192.168.10.243\SharedMeshDrive\WorkingFuser
+    parts = unc_path.split("\\")
+    if len(parts) < 4:
+        return unc_path
+    
+    share_name = parts[3]  # SharedMeshDrive
+    remaining_path = "\\".join(parts[4:]) if len(parts) > 4 else ""
+    
+    # Query Windows to find the actual local path for this share
+    try:
+        rc, out, err = _run(["net", "share", share_name], timeout=3.0)
+        if rc == 0:
+            # Parse the output for the "Path" line
+            # Example output:
+            # Share name   SharedMeshDrive
+            # Path         E:\SharedMeshDrive
+            # Remark
+            for line in out.split('\n'):
+                line_stripped = line.strip()
+                if line_stripped.lower().startswith("path"):
+                    # Split on whitespace, taking everything after "Path"
+                    parts_line = line.split(maxsplit=1)
+                    if len(parts_line) >= 2:
+                        local_base = parts_line[1].strip()
+                        if os.path.exists(local_base):
+                            local_path = os.path.join(local_base, remaining_path) if remaining_path else local_base
+                            logging.info(f"[unc_to_local] Converted {unc_path} -> {local_path} (Host PC via 'net share')")
+                            return local_path
+    except Exception as e:
+        logging.warning(f"[unc_to_local] Failed to query share '{share_name}': {e}")
+    
+    # Fallback: Try to find the local path by checking common drive letters
+    logging.info(f"[unc_to_local] 'net share' query failed, trying common drives")
+    for drive in ["C:", "D:", "E:", "F:", "G:", "H:"]:
+        local_share = f"{drive}\\{share_name}"
+        if os.path.exists(local_share):
+            local_path = os.path.join(local_share, remaining_path) if remaining_path else local_share
+            logging.info(f"[unc_to_local] Converted {unc_path} -> {local_path} (Host PC via drive scan)")
+            return local_path
+    
+    # If we can't find it, return the original UNC path
+    logging.warning(f"[unc_to_local] Could not find local path for {unc_path}, using UNC (may fail due to loopback)")
+    return unc_path
+
 def resolve_shared_access_path() -> str:
     """Return the root UNC path for the shared mesh drive using the host IP."""
 
@@ -3054,6 +3242,11 @@ def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
         logging.error(f"[create_fuser_bats] Unexpected error: {e}")
         # Don't let this crash the application
 
+# --- Fuser spawn control / throttle ---
+_SPAWN_LOCK = threading.Lock()
+_SPAWN_FAILS = {}   # {index:int -> fail_count:int}
+_LAST_TRY = {}      # {index:int -> t:float}
+
 def start_fuser_instance(idx: int) -> bool:
     """
     Start *idx*-th fuser via its own shortcut/command.
@@ -3073,44 +3266,41 @@ def start_fuser_instance(idx: int) -> bool:
     
     # 2. Get the shared working folder path
     shared = working_fuser_unc()
-    logging.info(f"[start_fuser_instance] Working folder: {shared}")
+    logging.info(f"[start_fuser_instance] Working folder (UNC): {shared}")
     
-    # 3. STRICT ENFORCEMENT: Ensure path is a UNC (not local)
+    # 3. Convert to local path if we're on the Host PC (prevents SMB loopback issues)
+    shared = unc_to_local_if_host(shared)
+    logging.info(f"[start_fuser_instance] Working folder (resolved): {shared}")
+    
+    # 4. STRICT ENFORCEMENT: Ensure path is configured (UNC or local if host)
     if ENFORCE_SHARED_WORKING_ONLY:
-        if not (shared and shared.startswith("\\\\")):
+        original_unc = working_fuser_unc()
+        if not (original_unc and original_unc.startswith("\\\\")):
             safe_messagebox_showerror(
                 "Fuser",
                 "Working folder is not configured to a network share.\n\n"
                 "Set Host IP in Settings and try again."
             )
-            logging.error(f"[start_fuser_instance] BLOCKED: Working folder is not a UNC path: {shared}")
+            logging.error(f"[start_fuser_instance] BLOCKED: Working folder is not a UNC path: {original_unc}")
             return False
         
-        # 4. Extract the UNC root (\\host\share) for checking
-        unc_root = "\\\\".join(shared.split("\\")[:4])
-        logging.info(f"[start_fuser_instance] Checking UNC root: {unc_root}")
+        # 5. Quick accessibility check
+        # If it's a local path now (Host PC), check with os.path.exists
+        # If still UNC (User PC), use quick_unc_check (assumes session already established by caller)
+        if shared.startswith("\\\\"):
+            accessible = quick_unc_check(shared, timeout=2.0)
+        else:
+            accessible = os.path.exists(shared)
         
-        # 5. Check if UNC is accessible
-        if not quick_unc_check(unc_root):
-            logging.warning(f"[start_fuser_instance] UNC not immediately accessible, attempting silent net use")
-            # Try silent net use to connect
-            _try_net_use_unc(unc_root)
-            time.sleep(0.8)
-            
-            # 6. Retry accessibility check
-            if not quick_unc_check(unc_root):
-                host = shared.split("\\")[2] if len(shared.split("\\")) > 2 else "host"
-                safe_messagebox_showerror(
-                    "Network Error",
-                    f"Cannot access {unc_root}\n\n"
-                    f"Check connectivity to {host} and ensure the shared folder is available."
-                )
-                logging.error(f"[start_fuser_instance] BLOCKED: Cannot access UNC after retry: {unc_root}")
-                return False
+        if not accessible:
+            logging.warning(f"[start_fuser_instance] Path not accessible: {shared}")
+            # Don't show error here - let the caller handle it
+            # This allows batch launches to continue even if one fails
+            return False
         
-        logging.info(f"[start_fuser_instance] UNC accessible: {unc_root}")
+        logging.info(f"[start_fuser_instance] Path accessible: {shared}")
     
-    # 7. Build the launch command
+    # 5. Build the launch command
     name = f"LocalFuser{idx}"
     bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
     
@@ -5444,7 +5634,7 @@ class MainApp(tk.Tk):
                 pass
 
         # base windowed size and scaling
-        self.base_width, self.base_height = 1660, 800
+        self.base_width, self.base_height = 1760, 900  # Increased width to 1760 and height to 900 for Settings panel
         self.base_scaling = float(self.tk.call('tk', 'scaling'))
 
         # screen dims
@@ -6932,7 +7122,29 @@ class VBS4Panel(tk.Frame):
                         "3. SharedMeshDrive share is available\n\n"
                         "Offline configuration has been cleared.")
                     return
+        
+        # Convert to local path if we're on the Host PC (prevents SMB loopback issues)
+        if default_path:
+            original_path = default_path
+            default_path = unc_to_local_if_host(default_path)
+            if default_path != original_path:
+                self.log_message(f"Host PC detected: Using local path for remote fusers")
+                self.log_message(f"  UNC:   {original_path}")
+                self.log_message(f"  Local: {default_path}")
 
+        # Establish UNC session ONCE before launching any fusers (only for UNC paths)
+        if default_path and default_path.startswith("\\\\"):
+            parts = default_path.split("\\")
+            if len(parts) >= 4 and parts[0] == '' and parts[1] == '':
+                unc_root = f"\\\\{parts[2]}\\{parts[3]}"
+            else:
+                unc_root = default_path
+            
+            self.log_message(f"Establishing network session to {unc_root}...")
+            if not ensure_unc_session_once(unc_root, first_timeout=8.0):
+                self.log_message(f"WARNING: Cannot establish network session to {unc_root}")
+                # Continue anyway for remote fusers - they might be on different shares
+        
         # Auto-discover fuser directories if a shared path is provided
         discovered = discover_fusers_from_shared_path(default_path)
         for ip, info in discovered.items():
@@ -6942,45 +7154,51 @@ class VBS4Panel(tk.Frame):
         if not ip_list:
             ip_list = list(fuser_settings.keys())
 
-        for ip in ip_list:
-            fusers = fuser_settings.get(ip, [])
-            if not fusers:
-                self.log_message(f"No fuser configuration found for {ip}")
-                remote_path, fuser_name = self.prompt_remote_fuser_details(ip)
-                if remote_path and fuser_name:
-                    fusers = [{
-                        'name': fuser_name,
-                        'shared_path': remote_path,
-                        'machine_name': self.resolve_machine_name(ip),
-                    }]
-                else:
-                    continue
+        # Launch fusers with spawn lock to prevent resource exhaustion
+        with _SPAWN_LOCK:
+            for ip in ip_list:
+                fusers = fuser_settings.get(ip, [])
+                if not fusers:
+                    self.log_message(f"No fuser configuration found for {ip}")
+                    remote_path, fuser_name = self.prompt_remote_fuser_details(ip)
+                    if remote_path and fuser_name:
+                        fusers = [{
+                            'name': fuser_name,
+                            'shared_path': remote_path,
+                            'machine_name': self.resolve_machine_name(ip),
+                        }]
+                    else:
+                        continue
 
-            for fuser in fusers:
-                name = fuser.get('name')
-                path = fuser.get('shared_path') or default_path
-                machine_name = fuser.get('machine_name') or self.resolve_machine_name(ip)
-                if not path:
-                    share = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
-                    subdir = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
-                    path = rf'\\{ip}\\{share}\\{subdir}'
-                if not path:
-                    self.log_message(f"No shared path for {name} on {ip}")
-                    continue
+                fuser_count = len(fusers)
+                for fuser_idx, fuser in enumerate(fusers):
+                    name = fuser.get('name')
+                    path = fuser.get('shared_path') or default_path
+                    machine_name = fuser.get('machine_name') or self.resolve_machine_name(ip)
+                    if not path:
+                        share = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+                        subdir = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+                        path = rf'\\{ip}\\{share}\\{subdir}'
+                    if not path:
+                        self.log_message(f"No shared path for {name} on {ip}")
+                        continue
 
-                bat_path = rf'\\{ip}\\C$\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
-                if os.path.isfile(bat_path):
-                    cmd = f'start "" "{bat_path}"'
-                else:
-                    cmd = f'start "" "{fuser_exe}" "{name}" "{path}" 0 true'
+                    bat_path = rf'\\{ip}\\C$\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
+                    if os.path.isfile(bat_path):
+                        cmd = f'start "" "{bat_path}"'
+                    else:
+                        cmd = f'start "" "{fuser_exe}" "{name}" "{path}" 0 true'
 
-                try:
-                    subprocess.run(cmd, shell=True, check=True)
-                    host = machine_name or ip
-                    self.log_message(f"Launched {name} on {host} at {path}")
-                except subprocess.CalledProcessError as e:
-                    self.log_message(f"Failed to launch {name} on {ip}: {e}")
-
+                    try:
+                        subprocess.run(cmd, shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                        host = machine_name or ip
+                        self.log_message(f"Launched {name} on {host} at {path}")
+                        # Stagger launches to prevent resource exhaustion
+                        if fuser_idx < fuser_count - 1:
+                            time.sleep(0.5)
+                    except subprocess.CalledProcessError as e:
+                        self.log_message(f"Failed to launch {name} on {ip}: {e}")
+        
         # Launch local fusers on this machine
         self.launch_local_fuser(default_path)
 
@@ -7020,23 +7238,7 @@ class VBS4Panel(tk.Frame):
         fuser_path = default_path or working_fuser_unc()
         
         # Critical fix: Prevent local fallback when network path is expected but unavailable
-        if fuser_path and fuser_path.startswith("\\\\"):
-            if not can_access_unc(fuser_path):
-                self.log_message(f"ERROR: Cannot access network WorkingFolder: {fuser_path}")
-                self.log_message("Network connection required. Please verify:")
-                self.log_message("1. Host PC is running and accessible")
-                self.log_message("2. Network connection is stable")
-                self.log_message("3. SharedMeshDrive share is available")
-                self.log_message("Fusers will NOT be created locally to prevent data isolation.")
-                messagebox.showerror(
-                    "Network Required", 
-                    f"Cannot access WorkingFolder at {fuser_path}\n\n"
-                    "Fusers require network access to shared WorkingFolder.\n"
-                    "Please check network connection and try again.\n\n"
-                    "Local fuser creation has been prevented to maintain data consistency."
-                )
-                return
-        elif not fuser_path:
+        if not fuser_path:
             self.log_message("ERROR: No fuser path configured. Please set up network WorkingFolder.")
             messagebox.showerror(
                 "Configuration Required",
@@ -7044,20 +7246,58 @@ class VBS4Panel(tk.Frame):
                 "Please configure the host IP and WorkingFolder path in Settings."
             )
             return
-
-        for idx in range(1, 4):
-            name = f"LocalFuser{idx}"
-            bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
-            if os.path.isfile(bat):
-                cmd = f'start "" "{bat}"'
+        
+        # Convert to local path if we're on the Host PC (prevents SMB loopback issues)
+        original_path = fuser_path
+        fuser_path = unc_to_local_if_host(fuser_path)
+        if fuser_path != original_path:
+            self.log_message(f"Host PC detected: Using local path instead of UNC")
+            self.log_message(f"  UNC:   {original_path}")
+            self.log_message(f"  Local: {fuser_path}")
+        
+        # Establish UNC session ONCE before launching any fusers (only for UNC paths)
+        if fuser_path.startswith("\\\\"):
+            # Extract UNC root (\\host\share)
+            parts = fuser_path.split("\\")
+            if len(parts) >= 4 and parts[0] == '' and parts[1] == '':
+                unc_root = f"\\\\{parts[2]}\\{parts[3]}"
             else:
-                cmd = f'start "" "{fuser_exe}" "{name}" "{fuser_path}" 0 true'
+                unc_root = fuser_path
+            
+            self.log_message(f"Establishing network session to {unc_root}...")
+            if not ensure_unc_session_once(unc_root, first_timeout=8.0):
+                self.log_message(f"ERROR: Cannot access network WorkingFolder: {fuser_path}")
+                self.log_message("Network connection required. Please verify:")
+                self.log_message("1. Host PC is running and accessible")
+                self.log_message("2. Network connection is stable")
+                self.log_message("3. SharedMeshDrive share is available")
+                messagebox.showerror(
+                    "Network Required", 
+                    f"Cannot access WorkingFolder at {fuser_path}\n\n"
+                    "Fusers require network access to shared WorkingFolder.\n"
+                    "Please check network connection and try again."
+                )
+                return
+            self.log_message(f"Network session established successfully")
 
-            try:
-                subprocess.run(cmd, shell=True, check=True)
-                self.log_message(f"Launched {name} at {fuser_path}")
-            except subprocess.CalledProcessError as e:
-                self.log_message(f"Failed to start {name}: {e}")
+        # Launch fusers sequentially with spawn lock to prevent resource exhaustion
+        with _SPAWN_LOCK:
+            for idx in range(1, 4):
+                name = f"LocalFuser{idx}"
+                bat = rf'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\{name}.bat'
+                if os.path.isfile(bat):
+                    cmd = f'start "" "{bat}"'
+                else:
+                    cmd = f'start "" "{fuser_exe}" "{name}" "{fuser_path}" 0 true'
+
+                try:
+                    subprocess.run(cmd, shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                    self.log_message(f"Launched {name} at {fuser_path}")
+                    # Stagger launches to prevent resource exhaustion
+                    if idx < 3:
+                        time.sleep(0.5)
+                except subprocess.CalledProcessError as e:
+                    self.log_message(f"Failed to start {name}: {e}")
 
     def create_mesh(self):
         if not hasattr(self, 'image_folder_paths') or not self.image_folder_paths:
@@ -8262,6 +8502,12 @@ class SettingsPanel(tk.Frame):
             ("Fuser Computer", self.fuser_var, _on_fuser_toggle),
         ]
 
+        # Check if we're on the Host PC (by IP comparison)
+        o = get_offline_cfg()
+        host_ip = (o.get("host_ip") or "").strip()
+        our_ip = get_primary_ipv4()
+        is_host_by_ip = (our_ip == host_ip) if (our_ip and host_ip) else False
+
         logging.info("[ui-diag] SettingsPanel: about to create checkbuttons")
         for i, (text, var, cmd) in enumerate(toggle_specs):
             logging.info(f"[ui-diag] SettingsPanel: creating checkbutton {i}: {text}")
@@ -8281,9 +8527,34 @@ class SettingsPanel(tk.Frame):
                 bd=0,
                 highlightthickness=0,
             )
+            
+            # If this is the "Fuser Computer" checkbox and we're on Host PC, disable it
+            if text == "Fuser Computer" and is_host_by_ip:
+                chk.config(state="disabled", fg="#888888")  # Gray out the text
+                # Automatically check it since we're the host
+                self.fuser_var.set(True)
+                config["Fusers"]["fuser_computer"] = "True"
+                save_config()
+                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer checkbox disabled (Host PC detected by IP)")
+                # Store reference for potential future updates
+                self.fuser_computer_checkbox = chk
+            
             logging.info(f"[ui-diag] SettingsPanel: checkbutton {i} created, about to grid")
             chk.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
             logging.info(f"[ui-diag] SettingsPanel: checkbutton {i} gridded")
+
+        # Add info label if we're on Host PC
+        if is_host_by_ip:
+            host_info_label = tk.Label(
+                toggles,
+                text=f"ℹ Host PC detected (IP: {our_ip}) - Fuser Computer is auto-enabled",
+                font=("Helvetica", 11),
+                bg="#444444",
+                fg="#aaaaaa",
+                anchor="w"
+            )
+            host_info_label.grid(row=2, column=0, columnspan=2, padx=6, pady=(0, 6), sticky="w")
+            logging.info("[ui-diag] SettingsPanel: Host PC info label added")
 
         logging.info("[ui-diag] SettingsPanel: all checkbuttons complete, creating fuser controls")
         # --- Local fuser controls -----------------------------------------
@@ -8341,8 +8612,8 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: creating conn_row frame")
         conn_row = tk.Frame(self, bg="black")
         logging.info("[ui-diag] SettingsPanel: conn_row created, about to grid (removed 'after' param to fix hang)")
-        # BUGFIX: Removed 'after=frow' parameter which was causing 3-second hang
-        conn_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(12, 6))  # Increased top padding instead of using 'after'
+        # BUGFIX: Changed to row=3 to prevent overlap with frow (Local fusers in row=2)
+        conn_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         logging.info("[ui-diag] SettingsPanel: conn_row gridded")
 
         self.connected_pcs_label = tk.Label(
@@ -8368,13 +8639,15 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: connected_pcs_names_label packed")
 
         # Schedule periodic refresh of connected PCs count
-        logging.info("[ui-diag] SettingsPanel: about to call _refresh_connected_pcs()")
-        self._refresh_connected_pcs()
-        logging.info("[ui-diag] SettingsPanel: _refresh_connected_pcs() complete")
+        # CRITICAL FIX: Don't call synchronously during init - it can block on slow network
+        # Schedule it to run after mainloop starts to avoid UI hang
+        logging.info("[ui-diag] SettingsPanel: scheduling first _refresh_connected_pcs() after UI ready")
+        self.after(500, self._refresh_connected_pcs)
+        logging.info("[ui-diag] SettingsPanel: _refresh_connected_pcs() scheduled for 500ms from now")
 
         # --- Network Host -----------------------------------------------
         net_frame = tk.Frame(self, bg="black")
-        net_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
+        net_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
         tk.Label(
@@ -8568,7 +8841,7 @@ class SettingsPanel(tk.Frame):
             padx=10,
             pady=10,
         )
-        grp.grid(row=4, column=0, sticky="ew", padx=10, pady=10)
+        grp.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
 
         off = get_offline_cfg()
         self.off_enabled = tk.BooleanVar(value=off["enabled"])
@@ -8669,7 +8942,7 @@ class SettingsPanel(tk.Frame):
 
         # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
-        rm_row.grid(row=5, column=0, sticky="ew", padx=10, pady=5)
+        rm_row.grid(row=6, column=0, sticky="ew", padx=10, pady=5)
         tk.Label(
             rm_row,
             text="Reality Mesh Install Folder",
@@ -8716,9 +8989,9 @@ class SettingsPanel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        # Row 6 expands for the scroller; keep Back button at row 7 non‑scrolling
-        self.grid_rowconfigure(6, weight=1, minsize=600)
-        locs_box.grid(row=6, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        # Row 7 expands for the scroller; keep Back button at row 8 non‑scrolling
+        self.grid_rowconfigure(7, weight=1, minsize=600)
+        locs_box.grid(row=7, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         # Canvas + vertical scrollbar
         self._settings_canvas = tk.Canvas(
@@ -8912,7 +9185,7 @@ class SettingsPanel(tk.Frame):
             command=lambda: controller.show("Main"),
             bd=0,
             highlightthickness=0,
-        ).grid(row=7, column=0, pady=10)
+        ).grid(row=8, column=0, pady=10)
 
         logging.info("[ui-diag] SettingsPanel: about to setup auto-connect")
         # Silent auto-connect on first load (no prompts) - run in background to avoid blocking UI
