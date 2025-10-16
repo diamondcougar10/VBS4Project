@@ -201,10 +201,6 @@ _BCN_THREAD = None
 _LST_STOP = threading.Event()
 _LST_THREAD = None
 
-# Strict enforcement: refuse fuser launch if WorkingFuser is not a UNC or not accessible
-# This prevents fusers from ever writing to local folders (fail-closed behavior)
-ENFORCE_SHARED_WORKING_ONLY = True  # Can be overridden in config.ini [Fusers] enforce_shared_only
-
 def _compose_beacon_payload() -> bytes:
     try:
         o = get_offline_cfg()
@@ -770,7 +766,7 @@ def quick_unc_check(unc_path, timeout=3):
         return False
 
 def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
-    """Best-effort discovery of the Host IP on the local subnet.
+    r"""Best-effort discovery of the Host IP on the local subnet.
 
     Strategy:
     - If Offline.host_ip exists and is reachable (ping + UNC probe), use it.
@@ -2363,6 +2359,11 @@ try:
 except Exception as e:
     logging.warning(f"[migrate] hostname->ip skipped: {e}")
 
+# --- Config flags (global enforcement) ---
+# Strict enforcement: refuse to launch fusers if shared working folder is not accessible
+# This prevents User installations from creating local working folders
+ENFORCE_SHARED_WORKING_ONLY = config.getboolean('Fusers', 'enforce_shared_only', fallback=True)
+
 # Log config paths for diagnostics
 try:
     log_dir = os.path.join(os.path.expandvars(r'%ProgramData%'), 'STE_Toolkit')
@@ -2749,6 +2750,7 @@ def apply_offline_settings_with_skip_guard() -> None:
         # Apply basic settings without network probing
         enforce_photomesh_settings()
         update_fuser_shared_path()
+        _assert_shared_path_is_unc()  # Self-heal check before enforcing policy
         enforce_local_fuser_policy()
         
         # Schedule network connection check for after UI is loaded
@@ -3056,120 +3058,78 @@ def start_fuser_instance(idx: int) -> bool:
     """
     Start *idx*-th fuser via its own shortcut/command.
     
-    **STRICT ENFORCEMENT**: If ENFORCE_SHARED_WORKING_ONLY is True (default),
-    this function will REFUSE to launch a fuser unless:
-      1. working_fuser_unc() returns a valid UNC path (starts with \\\\)
-      2. The UNC share is accessible (after attempting connection if needed)
-    
-    This ensures fusers NEVER write to local folders, preventing data silos.
+    If ENFORCE_SHARED_WORKING_ONLY is True (default), this function will REFUSE to launch
+    if the working folder is not a valid, accessible UNC path. This prevents User-mode
+    installations from creating local working folders.
     """
-    logging.info(f"[DEBUG] start_fuser_instance({idx}) called")
+    logging.info(f"[start_fuser_instance] Launching fuser #{idx}")
     
-    # -------------------------------------------------------------------------
-    # STRICT PRE-FLIGHT CHECK: Validate UNC path and accessibility
-    # -------------------------------------------------------------------------
-    enforce = config.getboolean('Fusers', 'enforce_shared_only', fallback=ENFORCE_SHARED_WORKING_ONLY)
-    
-    if enforce:
-        shared = working_fuser_unc()
-        logging.info(f"[STRICT] Validating WorkingFuser path: {shared}")
-        
-        # 1. Check if path is a UNC path
-        if not (shared and shared.startswith("\\\\")):
-            logging.error(f"[STRICT] WorkingFuser is not a UNC path: {shared}")
-            safe_messagebox_showerror(
-                "Configuration Error",
-                "Working folder is not configured to a network share (UNC path).\n\n"
-                "Fusers cannot be started to prevent creating local data.\n\n"
-                "Please configure the Host IP and SharedMeshDrive connection in Settings."
-            )
-            return False
-        
-        # 2. Extract share root (\\host\share)
-        unc_root = "\\\\".join(shared.split("\\")[:4])
-        host = shared.split("\\")[2] if len(shared.split("\\")) > 2 else ""
-        logging.info(f"[STRICT] UNC root: {unc_root}, Host: {host}")
-        
-        # 3. Quick check if accessible
-        if not quick_unc_check(unc_root, timeout_sec=2.0):
-            logging.info(f"[STRICT] UNC not immediately accessible, attempting connection...")
-            
-            # Try to mount the share
-            if not _try_net_use_unc(unc_root):
-                logging.warning(f"[STRICT] net use failed for {unc_root}")
-            
-            # Wait a moment for Windows to establish connection
-            time.sleep(0.8)
-            
-            # Re-check accessibility
-            if not quick_unc_check(unc_root, timeout_sec=2.0):
-                logging.error(f"[STRICT] Cannot access {unc_root} after connection attempt")
-                
-                # Test basic network connectivity to host
-                if host and not _test_network_connectivity(host):
-                    safe_messagebox_showerror(
-                        "Network Error",
-                        f"Cannot reach host '{host}'.\n\n"
-                        "Please check:\n"
-                        "• Network connection is active\n"
-                        "• Host computer is online\n"
-                        "• Firewall allows SMB traffic\n\n"
-                        "Fusers cannot be started until connection is established."
-                    )
-                    return False
-                else:
-                    # Host is reachable but share not accessible
-                    safe_messagebox_showerror(
-                        "Share Access Error",
-                        f"Cannot access shared folder:\n{unc_root}\n\n"
-                        "The host is reachable but the share may not exist or you don't have permissions.\n\n"
-                        "Please verify:\n"
-                        "• SharedMeshDrive is shared on the Host\n"
-                        "• Your user has read/write access\n"
-                        "• Use 'Retry Connect' in Settings to reconnect"
-                    )
-                    return False
-        
-        logging.info(f"[STRICT] UNC validation passed: {unc_root} is accessible")
-    
-    # -------------------------------------------------------------------------
-    # Find fuser executable
-    # -------------------------------------------------------------------------
+    # 1. Find the fuser executable
     exe = find_fuser_exe()
-    logging.info(f"[DEBUG] fuser exe found: {exe}")
     if not exe:
         safe_messagebox_showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
         return False
-
-    # -------------------------------------------------------------------------
-    # Prepare launch command
-    # -------------------------------------------------------------------------
-    name = f"LocalFuser{idx}"
+    logging.info(f"[start_fuser_instance] Fuser exe: {exe}")
+    
+    # 2. Get the shared working folder path
     shared = working_fuser_unc()
-    logging.info(f"[DEBUG] working_fuser_unc(): {shared}")
-    bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
-    logging.info(f"[DEBUG] bat file path: {bat}")
-
-    try:
-        # Prefer batch file if it exists
-        if os.path.isfile(bat):
-            cmd = f'start "" "{bat}"'
-        else:
-            # Normalize the shared path and quote it properly
-            shared_normalized = os.path.normpath(shared).replace("/", "\\")
-            cmd = f'start "" "{exe}" "{name}" "{shared_normalized}" 0 true'
-        
-        # Final guard: refuse to launch if the resolved shared path is not a UNC
+    logging.info(f"[start_fuser_instance] Working folder: {shared}")
+    
+    # 3. STRICT ENFORCEMENT: Ensure path is a UNC (not local)
+    if ENFORCE_SHARED_WORKING_ONLY:
         if not (shared and shared.startswith("\\\\")):
             safe_messagebox_showerror(
                 "Fuser",
-                "WorkingFuser path is not a network share. Aborting to prevent local data creation."
+                "Working folder is not configured to a network share.\n\n"
+                "Set Host IP in Settings and try again."
             )
+            logging.error(f"[start_fuser_instance] BLOCKED: Working folder is not a UNC path: {shared}")
             return False
+        
+        # 4. Extract the UNC root (\\host\share) for checking
+        unc_root = "\\\\".join(shared.split("\\")[:4])
+        logging.info(f"[start_fuser_instance] Checking UNC root: {unc_root}")
+        
+        # 5. Check if UNC is accessible
+        if not quick_unc_check(unc_root):
+            logging.warning(f"[start_fuser_instance] UNC not immediately accessible, attempting silent net use")
+            # Try silent net use to connect
+            _try_net_use_unc(unc_root)
+            time.sleep(0.8)
+            
+            # 6. Retry accessibility check
+            if not quick_unc_check(unc_root):
+                host = shared.split("\\")[2] if len(shared.split("\\")) > 2 else "host"
+                safe_messagebox_showerror(
+                    "Network Error",
+                    f"Cannot access {unc_root}\n\n"
+                    f"Check connectivity to {host} and ensure the shared folder is available."
+                )
+                logging.error(f"[start_fuser_instance] BLOCKED: Cannot access UNC after retry: {unc_root}")
+                return False
+        
+        logging.info(f"[start_fuser_instance] UNC accessible: {unc_root}")
+    
+    # 7. Build the launch command
+    name = f"LocalFuser{idx}"
+    bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
+    
+    try:
+        if os.path.isfile(bat):
+            cmd = f'start "" "{bat}"'
+            logging.info(f"[start_fuser_instance] Using batch file: {bat}")
+        else:
+            shared_normalized = os.path.normpath(shared).replace("/", "\\")
+            cmd = f'start "" "{exe}" "{name}" "{shared_normalized}" 0 true'
+            logging.info(f"[start_fuser_instance] Direct launch: {cmd}")
+        
         subprocess.run(cmd, shell=True, check=True)
+        logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully")
         return True
+        
     except Exception as e:
         safe_messagebox_showerror("Fuser", f"Failed to start {name}:\n{e}")
+        logging.error(f"[start_fuser_instance] Launch failed: {e}")
         return False
 
 def kill_fusers() -> None:
@@ -3334,6 +3294,72 @@ def enforce_local_fuser_policy():
         logging.error(f"[DEBUG] enforce_local_fuser_policy() exception: {e}")
         pass
 
+def _assert_shared_path_is_unc():
+    """
+    Startup self-heal check: Ensure the working fuser path is a valid UNC.
+    
+    If the path has drifted to a local folder (e.g., due to manual config edits
+    or migration issues), this will attempt to auto-fix it back to the proper
+    UNC path using the configured host_ip and share_name.
+    
+    Called during startup warmup before enforce_local_fuser_policy().
+    """
+    if not ENFORCE_SHARED_WORKING_ONLY:
+        logging.info("[self-heal] ENFORCE_SHARED_WORKING_ONLY disabled, skipping check")
+        return
+    
+    try:
+        shared = working_fuser_unc()
+        logging.info(f"[self-heal] Current working folder: {shared}")
+        
+        # Check if path is a valid UNC
+        if shared and shared.startswith("\\\\"):
+            logging.info("[self-heal] ✓ Working folder is already a UNC path")
+            return
+        
+        # Path is NOT a UNC - attempt to fix it
+        logging.warning(f"[self-heal] ✗ Working folder is NOT a UNC path: {shared}")
+        
+        # Get host IP and share name from config
+        host_ip = config.get("Offline", "host_ip", fallback="").strip()
+        share_name = config.get("Offline", "share_name", fallback="SharedMeshDrive").strip()
+        
+        if not host_ip:
+            logging.error("[self-heal] Cannot fix: host_ip not configured")
+            return
+        
+        # Rebuild the proper UNC path
+        expected_unc = f"\\\\{host_ip}\\{share_name}\\WorkingFuser"
+        logging.info(f"[self-heal] Attempting to fix to: {expected_unc}")
+        
+        # Update the config
+        if "Offline" not in config:
+            config["Offline"] = {}
+        
+        # Clear any local path that might be set
+        if config.has_option("Offline", "local_data_root"):
+            old_local = config.get("Offline", "local_data_root", fallback="")
+            if old_local and not old_local.startswith("\\\\"):
+                logging.info(f"[self-heal] Found local path in config: {old_local}")
+                # We won't remove it entirely, but the UNC should take precedence
+        
+        # Ensure enabled flag is set
+        config["Offline"]["enabled"] = "True"
+        
+        # Save and sync
+        save_config()
+        update_fuser_shared_path()
+        
+        # Verify the fix
+        new_shared = working_fuser_unc()
+        if new_shared and new_shared.startswith("\\\\"):
+            logging.info(f"[self-heal] ✓ Successfully fixed to UNC: {new_shared}")
+        else:
+            logging.warning(f"[self-heal] ⚠ Fix incomplete, path is still: {new_shared}")
+            
+    except Exception as e:
+        logging.error(f"[self-heal] Exception during path check: {e}")
+
 def relaunch_fusers():
     """Restart local fusers to match the configured target count."""
 
@@ -3460,6 +3486,7 @@ def apply_offline_settings() -> None:
         elif host_short and local_name.upper() == host_short:
             ensure_offline_share_exists()
 
+    _assert_shared_path_is_unc()  # Self-heal check before enforcing policy
     enforce_local_fuser_policy()
 
 INSTALLER_SILENT_FLAGS = {
@@ -5970,8 +5997,37 @@ class MainApp(tk.Tk):
             pass
 
     def _apply_panel_wallpaper(self, panel):
-        """Disabled - using per-panel backgrounds instead."""
-        pass
+        """Place/resize a wallpaper image inside a panel so it scrolls."""
+        if not os.path.exists(background_image_path):
+            return
+        try:
+            panel.update_idletasks()
+            vw = max(1, self.viewport_canvas.winfo_width())
+            vh = max(1, self.viewport_canvas.winfo_height())
+            pw = max(vw, panel.winfo_reqwidth())
+            ph = max(vh, panel.winfo_reqheight())
+            # Put an upper bound to avoid creating gigantic images.
+            pw = min(pw, 3840)
+            ph = min(ph, 4320)
+            # Skip tiny initial calls until geometry stabilizes
+            if pw < 100 or ph < 100:
+                return
+            last_size = getattr(panel, '_bg_last_size', None)
+            if last_size == (pw, ph):
+                return  
+            from PIL import Image
+            img = Image.open(background_image_path).resize((pw, ph), Image.Resampling.LANCZOS)
+            panel._bg_panel_photo = ImageTk.PhotoImage(img)
+            panel._bg_last_size = (pw, ph)
+            if not hasattr(panel, '_bg_panel_label') or panel._bg_panel_label is None:
+                lbl = tk.Label(panel, image=panel._bg_panel_photo, bd=0, highlightthickness=0)
+                panel._bg_panel_label = lbl
+                lbl.place(relwidth=1, relheight=1)
+                lbl.lower() 
+            else:
+                panel._bg_panel_label.configure(image=panel._bg_panel_photo)
+        except Exception:
+            pass
 
     def change_projects_root(self):
         new_root = filedialog.askdirectory(title="Choose Projects Root", parent=self)
