@@ -1475,12 +1475,21 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
     root = _working_clients_dir()
     if not root:
         return []
-    # Avoid blocking on unreachable UNC; do a quick probe first
-    try:
-        if not quick_unc_check(root, timeout=1):
+    
+    # Convert to local path if we're on the Host PC
+    root = unc_to_local_if_host(root)
+    
+    # For UNC paths, check connectivity before accessing; for local paths, just check existence
+    if root.startswith("\\\\"):
+        try:
+            if not quick_unc_check(root, timeout=1):
+                return []
+        except Exception:
             return []
-    except Exception:
-        return []
+    else:
+        # Local path - just verify it exists
+        if not os.path.exists(root):
+            return []
     now = time.time()
     out = []
     for fp in glob.glob(os.path.join(root, "*.json")):
@@ -2706,6 +2715,9 @@ def resolve_shared_access_path() -> str:
     """Return the root UNC path for the shared mesh drive using the host IP."""
 
     unc = build_unc_from_cfg()
+    # Convert to local path if we're on the Host PC
+    if unc:
+        unc = unc_to_local_if_host(unc)
     return unc or ""
 
 def get_host() -> str:
@@ -2990,6 +3002,7 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
         ("Detecting ARES Manager…",  get_ares_manager_path),
         ("Checking network connectivity…", check_network_status_during_warmup),
         ("Applying offline settings…", apply_offline_settings_with_skip_guard),
+        ("Warming shared working folder…", auto_connect_shared_working_folder),
     ]
     
     # Calculate progress increment per step
@@ -3468,6 +3481,15 @@ def enforce_local_fuser_policy():
         else:
             target = 0
             logging.info(f"[DEBUG] this is neither host nor fuser, target = {target}")
+
+        # Establish UNC session once before scaling fusers (throttled + cached)
+        try:
+            unc_root, _ = _compute_working_unc_from_cfg()
+            if unc_root and unc_root.startswith("\\\\"):
+                logging.info(f"[DEBUG] Pre-establishing UNC session to {unc_root}")
+                ensure_unc_session_once(unc_root)
+        except Exception as e:
+            logging.debug(f"[DEBUG] UNC pre-connection attempt: {e}")
 
         # Throttle duplicate enforcements with the same target within a short window
         global _last_enforce_target, _last_enforce_ts
@@ -5181,8 +5203,73 @@ class MainApp(tk.Tk):
             logging.error(f"Failed to show warning banner: {e}")
 
     # --- UI initialization (deferred until after splash) -------------------
+    def _build_header(self):
+        """Build the header bar with logos and title. Safe to call multiple times."""
+        # If we somehow already have a header, don't build another.
+        if getattr(self, "header_bar", None) and self.header_bar.winfo_exists():
+            logging.info("[ui-diag] header already exists; skipping")
+            return
+
+        logging.info("[ui-diag] Building header once")
+        self.header_bar = tk.Frame(self, bg="black", height=120)
+
+        # Prefer to place the header above main content; fall back only if needed.
+        try:
+            # Requires self.content to be packed already
+            self.header_bar.pack(side="top", fill="x", before=self.content)
+        except Exception as e:
+            # Only pack if it's not already mapped (prevents double pack)
+            if not self.header_bar.winfo_ismapped():
+                self.header_bar.pack(side="top", fill="x")
+
+        # Left logo group
+        self._logo_cache = {}
+        def _load_logo(path, size):
+            if not os.path.exists(path):
+                return None
+            key = (path, size)
+            if key in self._logo_cache:
+                return self._logo_cache[key]
+            try:
+                img = Image.open(path).convert("RGBA").resize(size, Image.Resampling.LANCZOS)
+                ph = ImageTk.PhotoImage(img)
+                self._logo_cache[key] = ph
+                return ph
+            except Exception:
+                return None
+
+        left_logo_frame = tk.Frame(self.header_bar, bg="black")
+        left_logo_frame.pack(side="left", padx=10)
+        for path, size in [
+            (logo_STE_path, (70,70)),
+            (logo_AFC_army, (60,70)),
+            (logo_first_army, (45,75)),
+        ]:
+            ph = _load_logo(path, size)
+            if ph:
+                tk.Label(left_logo_frame, image=ph, bg="black").pack(side="left", padx=5, pady=5)
+
+        right_logo_frame = tk.Frame(self.header_bar, bg="black")
+        right_logo_frame.pack(side="right", padx=10)
+        ph_us = _load_logo(logo_us_army_path, (200,76))
+        if ph_us:
+            tk.Label(right_logo_frame, image=ph_us, bg="black").pack(side="right", padx=5, pady=5)
+
+        center_frame = tk.Frame(self.header_bar, bg="black")
+        center_frame.pack(expand=True, fill="both")
+        self.header_title = tk.Label(center_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"), bg="black", fg="white")
+        self.header_title.pack(pady=(10,0))
+        self.header_subtitle = tk.Label(center_frame, text="Home", font=("Helvetica", 20, "bold"), bg="black", fg="white")
+        self.header_subtitle.pack(pady=(0,10))
+
     def _initialize_ui(self):
         """Initialize the main UI components. Called after splash is shown."""
+        # Double guard: both _ui_built and _ui_initialized
+        if getattr(self, "_ui_built", False):
+            logging.info("[startup] _initialize_ui() called again; skipping")
+            return
+        self._ui_built = True
+        
         if self._ui_initialized:
             logging.info("[startup] UI already initialized, skipping")
             return
@@ -5699,53 +5786,8 @@ class MainApp(tk.Tk):
 
         set_background(self)
 
-        self.header_bar = tk.Frame(self, bg="black", height=120)
-        # Ensure the header sits above the main content even if content was packed earlier
-        try:
-            self.header_bar.pack(side="top", fill="x", before=self.content)
-        except Exception:
-            # Fallback if content not yet packed
-            self.header_bar.pack(side="top", fill="x")
-
-        # Left logo group
-        self._logo_cache = {}
-        def _load_logo(path, size):
-            if not os.path.exists(path):
-                return None
-            key = (path, size)
-            if key in self._logo_cache:
-                return self._logo_cache[key]
-            try:
-                img = Image.open(path).convert("RGBA").resize(size, Image.Resampling.LANCZOS)
-                ph = ImageTk.PhotoImage(img)
-                self._logo_cache[key] = ph
-                return ph
-            except Exception:
-                return None
-
-        left_logo_frame = tk.Frame(self.header_bar, bg="black")
-        left_logo_frame.pack(side="left", padx=10)
-        for path, size in [
-            (logo_STE_path, (70,70)),
-            (logo_AFC_army, (60,70)),
-            (logo_first_army, (45,75)),
-        ]:
-            ph = _load_logo(path, size)
-            if ph:
-                tk.Label(left_logo_frame, image=ph, bg="black").pack(side="left", padx=5, pady=5)
-
-        right_logo_frame = tk.Frame(self.header_bar, bg="black")
-        right_logo_frame.pack(side="right", padx=10)
-        ph_us = _load_logo(logo_us_army_path, (200,76))
-        if ph_us:
-            tk.Label(right_logo_frame, image=ph_us, bg="black").pack(side="right", padx=5, pady=5)
-
-        center_frame = tk.Frame(self.header_bar, bg="black")
-        center_frame.pack(expand=True, fill="both")
-        self.header_title = tk.Label(center_frame, text="STE Mission Planning Toolkit", font=("Helvetica", 28, "bold"), bg="black", fg="white")
-        self.header_title.pack(pady=(10,0))
-        self.header_subtitle = tk.Label(center_frame, text="Home", font=("Helvetica", 20, "bold"), bg="black", fg="white")
-        self.header_subtitle.pack(pady=(0,10))
+        # Build the header bar (safe to call, checks if already exists)
+        self._build_header()
 
     def apply_scale(self, scale: float) -> None:
         """Scale fonts and widgets proportionally using Tk scaling."""
@@ -9565,15 +9607,25 @@ class SettingsPanel(tk.Frame):
         If Preferred Access is DRIVE and a mapping exists, resolve_shared_access_path()
         will open the mapped drive; otherwise we open the UNC after connecting.
         """
-        # Always compute the UNC and make sure the workstation is connected
+        # Get the path (will be converted to local if we're on Host PC)
+        path = resolve_shared_access_path()
+        
+        # If it's a local path (Host PC), just open it directly
+        if not path.startswith("\\\\"):
+            if os.path.exists(path):
+                self.open_folder_foreground(path)
+            else:
+                messagebox.showerror("Open Working Folder",
+                                   f"Cannot access local path:\n{path}")
+            return
+        
+        # For UNC paths (User PCs), ensure connection first
         if not connect_working_share_interactive(parent=self, silent=True):
-            path = resolve_shared_access_path()  # keep original message content
             messagebox.showerror("Open Working Folder",
                                  f"Cannot access:\n{path}\nUse Test Access to diagnose.")
             return
 
-        # Once connected, open whichever path user prefers (UNC or mapped drive)
-        path = resolve_shared_access_path()
+        # Once connected, open the UNC path
         self.open_folder_foreground(path)
 
     def _auto_find_share(self):
