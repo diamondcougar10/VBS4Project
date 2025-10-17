@@ -1520,19 +1520,24 @@ def cleanup_stale_presence() -> None:
 def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
     """Return list of active PCs by scanning fuser folders created by Fuser.exe.
     
-    PhotoMesh Fuser.exe creates folders in _clients with naming pattern:
+    PhotoMesh Fuser.exe creates folders directly in WorkingFuser root with naming pattern:
     <PCNAME>(<IP>)_<FuserName> (e.g., HAMMERKIT1-4(192.168.10.243)_SeedFuser)
     
-    We scan for these folders and extract unique PC names.
+    We scan the WorkingFuser root directory for these folders and extract unique PC names.
     """
-    root = _working_clients_dir()
+    # Get WorkingFuser root, not _clients subdirectory
+    try:
+        root = working_fuser_unc()
+    except Exception:
+        root = ""
+    
     if not root:
-        logging.debug("[presence] scan: no clients_dir available")
+        logging.debug("[presence] scan: no WorkingFuser root available")
         return []
     
     # Convert to local path if we're on the Host PC
     root = unc_to_local_if_host(root)
-    logging.debug(f"[presence] scan: checking root={root}")
+    logging.debug(f"[presence] scan: checking WorkingFuser root={root}")
     
     # For UNC paths, check connectivity before accessing; for local paths, just check existence
     if root.startswith("\\\\"):
@@ -1549,7 +1554,7 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
             logging.debug(f"[presence] scan: local path doesn't exist: {root}")
             return []
     
-    # Scan for fuser folders created by Fuser.exe
+    # Scan for fuser folders created by Fuser.exe in the WorkingFuser root
     # Pattern: PCNAME(IP)_FuserName or KeepAlive_PCNAME(IP)_FuserName
     out = []
     pc_fusers = {}  # Track fusers per PC: {pc_name: count}
@@ -1558,12 +1563,16 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
         for item in os.listdir(root):
             item_path = os.path.join(root, item)
             
-            # Check both folders (created by Fuser.exe) and JSON files (our legacy heartbeats)
+            # Check both folders (created by Fuser.exe) and JSON files (KeepAlive heartbeats)
             if os.path.isdir(item_path) or item.endswith('.json'):
+                # Skip the _clients subdirectory itself
+                if item == '_clients' or item == HEARTBEAT_DIR_NAME:
+                    continue
+                
                 # Extract PC name and IP from folder/file name
                 # Patterns: 
                 #   PCNAME(IP)_FuserName
-                #   KeepAlive_PCNAME(IP)_FuserName
+                #   KeepAlive_PCNAME(IP)_FuserName.json
                 #   PCNAME(IP).json
                 name = item.replace('KeepAlive_', '').replace('.json', '')
                 
@@ -9777,12 +9786,19 @@ class SettingsPanel(tk.Frame):
     def _open_working_folder(self):
         """
         One‑click: connect if needed, then open the working folder in Explorer.
-        If Preferred Access is DRIVE and a mapping exists, resolve_shared_access_path()
-        will open the mapped drive; otherwise we open the UNC after connecting.
+        Opens the WorkingFuser subfolder (not just the share root).
         """
-        # Get the path (will be converted to local if we're on Host PC)
-        path = resolve_shared_access_path()
-        logging.info(f"[open_working_folder] Resolved path: '{path}'")
+        # Get the WorkingFuser UNC path (includes the WorkingFuser subfolder)
+        try:
+            path = working_fuser_unc()
+        except Exception:
+            path = ""
+        
+        # Convert to local if we're on Host PC
+        if path:
+            path = unc_to_local_if_host(path)
+        
+        logging.info(f"[open_working_folder] Resolved WorkingFuser path: '{path}'")
         
         # Check if path is empty
         if not path:
@@ -9795,23 +9811,34 @@ class SettingsPanel(tk.Frame):
         if not path.startswith("\\\\"):
             logging.info(f"[open_working_folder] Opening local path: {path}")
             if os.path.exists(path):
-                self.open_folder_foreground(path)
+                self.controller.open_folder_foreground(path)
             else:
                 messagebox.showerror("Open Working Folder",
-                                   f"Cannot access local path:\n{path}")
+                                   f"Cannot access local path:\n{path}\n\n"
+                                   "The folder may not exist yet. Try enabling fusers first.")
             return
         
-        # For UNC paths (User PCs), ensure connection first
-        logging.info(f"[open_working_folder] Connecting to UNC path: {path}")
+        # For UNC paths (User PCs), ensure connection to the share root first
+        share_root = resolve_shared_access_path()  # Just the share root for connection
+        logging.info(f"[open_working_folder] Connecting to share root: {share_root}")
+        
         if not connect_working_share_interactive(parent=self, silent=True):
             messagebox.showerror("Open Working Folder",
                                  f"Cannot access:\n{path}\n\n"
                                  "Use 'Test Access' button to diagnose the connection issue.")
             return
 
-        # Once connected, open the UNC path
-        logging.info(f"[open_working_folder] Connection successful, opening: {path}")
-        self.open_folder_foreground(path)
+        # Once share is connected, open the WorkingFuser subfolder
+        logging.info(f"[open_working_folder] Connection successful, opening WorkingFuser: {path}")
+        
+        # Verify the subfolder exists
+        if not os.path.exists(path):
+            messagebox.showerror("Open Working Folder",
+                                 f"WorkingFuser folder doesn't exist:\n{path}\n\n"
+                                 "Try enabling fusers first to create the folder.")
+            return
+        
+        self.controller.open_folder_foreground(path)
 
     def _auto_find_share(self):
         o = get_offline_cfg()
