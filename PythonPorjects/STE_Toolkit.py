@@ -408,6 +408,10 @@ class SplashScreen(tk.Toplevel):
         self._ready_to_close = False
         self._progress = 0.0
         
+        # Connection progress mode flags
+        self._connection_in_progress = False
+        self._progress_mode = False
+        
         # Canvas with image and text
         self.configure(bg="#000")
         frm = tk.Frame(self, bg="#000")
@@ -497,6 +501,17 @@ class SplashScreen(tk.Toplevel):
         """Animate the progress bar to give visual feedback during loading"""
         if self._closing:
             return
+        
+        # In progress mode, progress is manually controlled
+        if self._progress_mode:
+            # Update the visual elements without auto-advancing
+            width = self._progress_canvas.winfo_width()
+            filled_width = int(width * self._progress)
+            self._progress_canvas.coords(self._progress_bar, 0, 0, filled_width, 10)
+            self._percent_var.set(f"{int(self._progress * 100)}%")
+            # Still schedule next update for smooth visuals
+            self.after(30, self._animate_progress)
+            return
             
         # Calculate elapsed time as a percentage of min display time
         elapsed = time.time() - self._start_time
@@ -544,6 +559,43 @@ class SplashScreen(tk.Toplevel):
         """
         self._progress = max(0.0, min(1.0, float(value)))
 
+    def switch_to_progress_mode(self) -> None:
+        """
+        Switch splash screen to progress mode for manual progress control.
+        Used during network connection to show real progress.
+        """
+        self._progress_mode = True
+        self._connection_in_progress = True
+        self._progress = 0.0
+        
+    def update_progress(self, message: str, progress: float = None, color: str = "white") -> None:
+        """
+        Update the progress message and optionally the progress bar.
+        
+        Args:
+            message: Status message to display
+            progress: Progress value between 0.0 and 1.0 (optional)
+            color: Message color - "white", "red", or "green"
+        """
+        try:
+            self.set_message(message)
+            
+            # Update message color
+            if color == "red":
+                self._msg.config(fg="#FF5555")
+            elif color == "green":
+                self._msg.config(fg="#4CAF50")
+            else:
+                self._msg.config(fg="white")
+            
+            # Update progress if provided
+            if progress is not None:
+                self._progress = max(0.0, min(1.0, float(progress)))
+            
+            self.update_idletasks()
+        except Exception:
+            pass
+
     def _fade_in(self):
         if self._closing:
             return
@@ -557,7 +609,12 @@ class SplashScreen(tk.Toplevel):
         """
         Request to close the splash screen.
         Will only close after the minimum display time has elapsed.
+        Won't close if connection is in progress.
         """
+        # Don't close if connection is still in progress
+        if self._connection_in_progress:
+            return
+            
         self._ready_to_close = True
         
         # Check if we've already met the minimum display time
@@ -5845,26 +5902,89 @@ class MainApp(tk.Tk):
                 pyi_splash.close()
             except Exception:
                 pass
+        
+        # Check if we need to connect to network before closing splash
+        connection_needed = False
+        try:
+            o = get_offline_cfg()
+            host_ip = (o.get("host_ip") or "").strip()
+            if host_ip:
+                connection_needed = True
+                logging.info("[startup] Host IP configured, keeping splash open for connection progress")
+        except Exception:
+            pass
+        
+        if self._splash and connection_needed:
+            # Switch splash to progress mode and keep it open during connection
+            try:
+                self._splash.switch_to_progress_mode()
+                self._splash.update_progress("Initializing network connection...", 0.10)
+                self.update_idletasks()
                 
-        if self._splash:
-            # Final message before closing
+                # Run connection process
+                def _connect_bg():
+                    try:
+                        # 1. Sync configuration
+                        self._splash.update_progress("Syncing configuration...", 0.20)
+                        self.update_idletasks()
+                        apply_offline_settings()
+                        logging.info("[startup] Applied offline settings")
+                        
+                        # 2. Connect to share (this is the slow part)
+                        self._splash.update_progress("Connecting to network share...\nThis may take 5-7 minutes on first connection", 0.40)
+                        self.update_idletasks()
+                        connect_working_share_interactive(parent=None, silent=True)
+                        logging.info("[startup] Connected to working share")
+                        
+                        # 3. Start fusers if enabled
+                        if config["Fusers"].getboolean("fuser_computer", False):
+                            self._splash.update_progress("Starting fuser services...", 0.80)
+                            self.update_idletasks()
+                            enforce_local_fuser_policy()
+                            logging.info("[startup] Enforced fuser policy")
+                        
+                        # Success
+                        self._splash.update_progress("✓ Connection established!", 1.0, color="green")
+                        self.update_idletasks()
+                        time.sleep(1)  # Brief pause to show success
+                        
+                    except Exception as e:
+                        logging.warning(f"[startup] Connection failed: {e}")
+                        self._splash.update_progress(f"✗ Connection failed: {str(e)}", 1.0, color="red")
+                        self.update_idletasks()
+                        time.sleep(2)  # Show error briefly
+                    finally:
+                        # Mark connection as complete and close splash
+                        self._splash._connection_in_progress = False
+                        self._splash.close()
+                        # Ensure splash is actually gone
+                        self.after(0, self._ensure_splash_gone)
+                        self.after(750, self._ensure_splash_gone)
+                
+                # Run connection synchronously (blocks until done)
+                _connect_bg()
+                logging.info("[startup] Connection process completed, proceeding to show main window")
+                
+            except Exception as e:
+                logging.warning(f"[startup] Connection setup failed: {e}")
+                # On error, still close the splash
+                if self._splash:
+                    self._splash._connection_in_progress = False
+                    self._splash.close()
+                    self.after(0, self._ensure_splash_gone)
+                    self.after(750, self._ensure_splash_gone)
+        
+        elif self._splash:
+            # No connection needed, close splash normally
             try:
                 self._splash.set_message("Ready to launch")
-            except Exception:
-                pass
-            try:
-                # The close method respects the minimum display time
                 self._splash.close()
             except Exception:
                 pass
-            # Ensure we actually reclaim any lingering splash window once the
-            # fade-out completes (PyInstaller builds were occasionally leaving
-            # the splash as an invisible top-most window that resurfaced on
-            # fullscreen toggles).
             self.after(0, self._ensure_splash_gone)
             self.after(750, self._ensure_splash_gone)
-                
-        # Now that the splash is closed, show the main window with fade-in to prevent UI flash
+        
+        # Now show the main window with fade-in to prevent UI flash
         try:
             logging.info("[startup] About to set alpha=0.0")
             self.attributes('-alpha', 0.0)  # Start invisible
@@ -9399,23 +9519,8 @@ class SettingsPanel(tk.Frame):
             highlightthickness=0,
         ).grid(row=8, column=0, pady=10)
 
-        logging.info("[ui-diag] SettingsPanel: about to setup auto-connect")
-        # Silent auto-connect on first load (no prompts) - run in background to avoid blocking UI
-        try:
-            o = get_offline_cfg()
-            if (o.get("host_ip") or "").strip():
-                # Run connection attempt in background thread to avoid blocking UI
-                def _try_connect_bg():
-                    try:
-                        connect_working_share_interactive(parent=None, silent=True)
-                    except Exception as e:
-                        logging.warning(f"Background share connection failed: {e}")
-                
-                # Delay slightly so the UI is responsive first, then run in background
-                self.after(2000, lambda: run_in_thread(_try_connect_bg))
-        except Exception:
-            pass
-        logging.info("[ui-diag] SettingsPanel: auto-connect setup complete")
+        logging.info("[ui-diag] SettingsPanel: setup complete (connection handled by main startup)")
+        # Note: Auto-connect is now handled in run_with_splash() before main window shows
 
         # Initialize share status display (async; short defer since it's non-blocking)
         logging.info("[ui-diag] SettingsPanel: scheduling share status update")
@@ -10233,6 +10338,127 @@ class CreditsPanel(tk.Frame):
         tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444", fg="white",
                   width=25, height=2, command=lambda: controller.show('Main'),
                   bd=0, highlightthickness=0).pack(pady=(10, 0))
+
+class ConnectionProgressWindow(tk.Toplevel):
+    """Progress window that shows connection status during slow network operations."""
+    
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Connecting to Network")
+        self.geometry("500x200")
+        self.resizable(False, False)
+        self.configure(bg="#222222")
+        
+        # Center on screen
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # Keep window on top
+        self.attributes('-topmost', True)
+        
+        # Main frame
+        frame = tk.Frame(self, bg="#222222", padx=20, pady=20)
+        frame.pack(fill="both", expand=True)
+        
+        # Title
+        self.title_label = tk.Label(
+            frame,
+            text="Network Connection in Progress",
+            font=("Helvetica", 16, "bold"),
+            bg="#222222",
+            fg="white"
+        )
+        self.title_label.pack(pady=(0, 15))
+        
+        # Status message
+        self.status_label = tk.Label(
+            frame,
+            text="Initializing...",
+            font=("Helvetica", 12),
+            bg="#222222",
+            fg="#CCCCCC",
+            wraplength=450,
+            justify="left"
+        )
+        self.status_label.pack(pady=(0, 15))
+        
+        # Progress bar (indeterminate mode)
+        try:
+            from tkinter import ttk
+            style = ttk.Style()
+            style.theme_use('clam')
+            style.configure("Custom.Horizontal.TProgressbar",
+                          troughcolor='#333333',
+                          background='#4CAF50',
+                          borderwidth=0,
+                          thickness=20)
+            
+            self.progress = ttk.Progressbar(
+                frame,
+                mode='indeterminate',
+                style="Custom.Horizontal.TProgressbar",
+                length=400
+            )
+            self.progress.pack(pady=(0, 10))
+            self.progress.start(10)  # Animation speed
+        except Exception:
+            # Fallback if ttk fails
+            self.progress = None
+        
+        # Info label
+        self.info_label = tk.Label(
+            frame,
+            text="This may take 5-7 minutes on first connection\nPlease wait...",
+            font=("Helvetica", 9),
+            bg="#222222",
+            fg="#888888",
+            justify="center"
+        )
+        self.info_label.pack(pady=(10, 0))
+        
+        # Prevent window from being closed manually
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        
+        self.is_closed = False
+    
+    def update_status(self, message: str, is_complete: bool = False, is_error: bool = False):
+        """Update the status message and optionally mark as complete or error."""
+        if self.is_closed:
+            return
+            
+        try:
+            self.status_label.config(text=message)
+            
+            if is_complete:
+                self.title_label.config(text="✓ Connection Successful", fg="#4CAF50")
+                if self.progress:
+                    self.progress.stop()
+                    self.progress.config(mode='determinate', value=100)
+                self.info_label.config(text="Network connection established successfully!")
+            elif is_error:
+                self.title_label.config(text="✗ Connection Failed", fg="#FF5555")
+                if self.progress:
+                    self.progress.stop()
+                self.info_label.config(text="Check network settings and try again")
+            
+            self.update_idletasks()
+        except Exception:
+            pass
+    
+    def close(self):
+        """Close the progress window."""
+        if not self.is_closed:
+            self.is_closed = True
+            try:
+                if self.progress:
+                    self.progress.stop()
+                self.destroy()
+            except Exception:
+                pass
 
 class ContactSupportPanel(tk.Frame):
     def __init__(self, parent, controller):
