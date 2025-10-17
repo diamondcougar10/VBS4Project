@@ -3729,83 +3729,6 @@ def enforce_local_fuser_policy():
         logging.error(f"[DEBUG] enforce_local_fuser_policy() exception: {e}")
         pass
 
-
-def refresh_all_fusers_network_wide():
-    """
-    Verify and ensure all fusers are running on host and all user PCs.
-    This is called before starting One-Click Conversion to ensure the mesh
-    processing has all required fusers available.
-    
-    On host PC: Ensures 1 seed fuser is running
-    On user PCs: Verifies 3 fusers are running on each configured user machine
-    """
-    logging.info("[fuser_refresh] Starting network-wide fuser refresh check")
-    
-    try:
-        # 1. First, ensure local fusers on this host are running
-        logging.info("[fuser_refresh] Checking local fusers on host...")
-        enforce_local_fuser_policy()
-        
-        # 2. Get the fuser configuration to find all user machines
-        config_file = config['Fusers'].get('config_path', 'fuser_config.json')
-        full_path = os.path.join(BASE_DIR, config_file) if not os.path.isabs(config_file) else config_file
-        
-        try:
-            with open(full_path, 'r', encoding='utf-8') as f:
-                fuser_data = json.load(f)
-                fuser_configs = fuser_data.get('fusers', {})
-                shared_path = fuser_data.get('shared_path', '')
-        except Exception as e:
-            logging.warning(f"[fuser_refresh] Could not load fuser config: {e}")
-            fuser_configs = {}
-            shared_path = ''
-        
-        # 3. Check if we have any remote fuser machines configured
-        remote_ips = [ip for ip in fuser_configs.keys() if ip.lower() not in ('localhost', '127.0.0.1')]
-        
-        if not remote_ips:
-            logging.info("[fuser_refresh] No remote fuser machines configured, only local fusers active")
-            return
-        
-        logging.info(f"[fuser_refresh] Found {len(remote_ips)} remote fuser machine(s): {remote_ips}")
-        
-        # 4. For each remote machine, verify fusers are accessible
-        # Since we can't directly check processes on remote machines without admin tools,
-        # we'll verify that their fuser directories exist and are accessible
-        for ip in remote_ips:
-            fusers = fuser_configs.get(ip, [])
-            if not fusers:
-                logging.info(f"[fuser_refresh] No fusers configured for {ip}, skipping")
-                continue
-            
-            logging.info(f"[fuser_refresh] Checking {len(fusers)} fuser(s) on {ip}")
-            
-            for fuser_info in fusers:
-                fuser_name = fuser_info.get('name', 'Unknown')
-                machine_name = fuser_info.get('machine_name', ip)
-                
-                # Check if fuser directory exists (indicates fuser should be active)
-                if shared_path:
-                    # Construct expected fuser folder path
-                    fuser_folder = f"{machine_name}({ip})_{fuser_name}"
-                    fuser_path = os.path.join(shared_path, fuser_folder)
-                    
-                    # Convert to local path if we're on the host
-                    check_path = unc_to_local_if_host(fuser_path)
-                    
-                    if os.path.isdir(check_path):
-                        logging.info(f"[fuser_refresh] ✓ Fuser directory accessible: {fuser_name} on {machine_name}")
-                    else:
-                        logging.warning(f"[fuser_refresh] ✗ Fuser directory not found: {fuser_name} on {machine_name} at {check_path}")
-                        logging.warning(f"[fuser_refresh]   User may need to manually start fusers on {machine_name}")
-        
-        logging.info("[fuser_refresh] Network-wide fuser check complete")
-        
-    except Exception as e:
-        logging.error(f"[fuser_refresh] Error during network-wide fuser refresh: {e}")
-        # Don't raise - we want one-click conversion to proceed even if refresh fails
-
-
 def _assert_shared_path_is_unc():
     """
     Startup self-heal check: Ensure the working fuser path is a valid UNC.
@@ -8567,23 +8490,7 @@ class OneClickPanel(tk.Frame):
         run_in_thread(_pipeline)
 
     def on_run_oneclick(self):
-        """
-        Launch the One-Click Conversion tool.
-        Ensures all fusers across the network are running before starting conversion.
-        """
-        # First, verify and refresh fusers on host and all user PCs
-        self.log_message("Verifying fusers across all machines...")
-        try:
-            refresh_all_fusers_network_wide()
-            self.log_message("✓ Fuser check complete")
-        except Exception as e:
-            logging.warning(f"Fuser refresh encountered an issue: {e}")
-            # Continue anyway - the refresh function logs details
-        
-        # Ensure local fuser policy is enforced
         enforce_local_fuser_policy()
-        
-        # Start the one-click conversion process
         self.one_click_conversion()
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
