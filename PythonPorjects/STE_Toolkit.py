@@ -5987,11 +5987,81 @@ class MainApp(tk.Tk):
             host_ip = (o.get("host_ip") or "").strip()
             if host_ip:
                 connection_needed = True
-                logging.info("[startup] Host IP configured, will connect in background")
+                logging.info("[startup] Host IP configured, keeping splash open for connection progress")
         except Exception:
             pass
         
-        # Show the main window immediately (don't wait for connection)
+        if self._splash and connection_needed:
+            # Switch splash to progress mode and keep it open during connection
+            try:
+                self._splash.switch_to_progress_mode()
+                self._splash.update_progress("Initializing network connection...", 0.10)
+                self.update_idletasks()
+                
+                # Run connection process
+                def _connect_bg():
+                    try:
+                        # 1. Sync configuration
+                        self._splash.update_progress("Syncing configuration...", 0.20)
+                        self.update_idletasks()
+                        apply_offline_settings()
+                        logging.info("[startup] Applied offline settings")
+                        
+                        # 2. Connect to share (this is the slow part)
+                        self._splash.update_progress("Connecting to network share...\nThis may take 5-7 minutes on first connection", 0.40)
+                        self.update_idletasks()
+                        connect_working_share_interactive(parent=None, silent=True)
+                        logging.info("[startup] Connected to working share")
+                        
+                        # 3. Start fusers if enabled
+                        if config["Fusers"].getboolean("fuser_computer", False):
+                            self._splash.update_progress("Starting fuser services...", 0.80)
+                            self.update_idletasks()
+                            enforce_local_fuser_policy()
+                            logging.info("[startup] Enforced fuser policy")
+                        
+                        # Success
+                        self._splash.update_progress("✓ Connection established!", 1.0, color="green")
+                        self.update_idletasks()
+                        time.sleep(1)  # Brief pause to show success
+                        
+                    except Exception as e:
+                        logging.warning(f"[startup] Connection failed: {e}")
+                        self._splash.update_progress(f"✗ Connection failed: {str(e)}", 1.0, color="red")
+                        self.update_idletasks()
+                        time.sleep(2)  # Show error briefly
+                    finally:
+                        # Mark connection as complete and close splash
+                        self._splash._connection_in_progress = False
+                        self._splash.close()
+                        # Ensure splash is actually gone
+                        self.after(0, self._ensure_splash_gone)
+                        self.after(750, self._ensure_splash_gone)
+                
+                # Run connection synchronously (blocks until done)
+                _connect_bg()
+                logging.info("[startup] Connection process completed, proceeding to show main window")
+                
+            except Exception as e:
+                logging.warning(f"[startup] Connection setup failed: {e}")
+                # On error, still close the splash
+                if self._splash:
+                    self._splash._connection_in_progress = False
+                    self._splash.close()
+                    self.after(0, self._ensure_splash_gone)
+                    self.after(750, self._ensure_splash_gone)
+        
+        elif self._splash:
+            # No connection needed, close splash normally
+            try:
+                self._splash.set_message("Ready to launch")
+                self._splash.close()
+            except Exception:
+                pass
+            self.after(0, self._ensure_splash_gone)
+            self.after(750, self._ensure_splash_gone)
+        
+        # Now show the main window with fade-in to prevent UI flash
         try:
             logging.info("[startup] About to set alpha=0.0")
             self.attributes('-alpha', 0.0)  # Start invisible
@@ -6012,78 +6082,6 @@ class MainApp(tk.Tk):
                 self.deiconify()
             except:
                 pass
-        
-        if self._splash and connection_needed:
-            # Switch splash to progress mode and keep it open during connection
-            # Main window is already visible, splash will overlay with connection progress
-            try:
-                self._splash.switch_to_progress_mode()
-                self._splash.update_progress("Initializing network connection...", 0.10)
-                self.update_idletasks()
-                
-                # Run connection process in background thread to avoid freezing UI
-                def _connect_bg():
-                    try:
-                        # 1. Sync configuration
-                        post_ui(lambda: self._splash.update_progress("Syncing configuration...", 0.20))
-                        post_ui(self.update_idletasks)
-                        apply_offline_settings()
-                        logging.info("[startup] Applied offline settings")
-                        
-                        # 2. Connect to share (this is the slow part)
-                        post_ui(lambda: self._splash.update_progress("Connecting to network share...\nThis may take 5-7 minutes on first connection", 0.40))
-                        post_ui(self.update_idletasks)
-                        connect_working_share_interactive(parent=None, silent=True)
-                        logging.info("[startup] Connected to working share")
-                        
-                        # 3. Start fusers if enabled
-                        if config["Fusers"].getboolean("fuser_computer", False):
-                            post_ui(lambda: self._splash.update_progress("Starting fuser services...", 0.80))
-                            post_ui(self.update_idletasks)
-                            enforce_local_fuser_policy()
-                            logging.info("[startup] Enforced fuser policy")
-                        
-                        # Success
-                        post_ui(lambda: self._splash.update_progress("✓ Connection established!", 1.0, color="green"))
-                        post_ui(self.update_idletasks)
-                        time.sleep(1)  # Brief pause to show success
-                        
-                    except Exception as e:
-                        logging.warning(f"[startup] Connection failed: {e}")
-                        post_ui(lambda: self._splash.update_progress(f"✗ Connection failed: {str(e)}", 1.0, color="red"))
-                        post_ui(self.update_idletasks)
-                        time.sleep(2)  # Show error briefly
-                    finally:
-                        # Mark connection as complete and close splash
-                        def _finish_connection():
-                            self._splash._connection_in_progress = False
-                            self._splash.close()
-                            self.after(0, self._ensure_splash_gone)
-                            self.after(750, self._ensure_splash_gone)
-                        post_ui(_finish_connection)
-                
-                # Run connection in background thread (non-blocking)
-                run_in_thread(_connect_bg)
-                logging.info("[startup] Connection process started in background thread")
-                
-            except Exception as e:
-                logging.warning(f"[startup] Connection setup failed: {e}")
-                # On error, still close the splash
-                if self._splash:
-                    self._splash._connection_in_progress = False
-                    self._splash.close()
-                    self.after(0, self._ensure_splash_gone)
-                    self.after(750, self._ensure_splash_gone)
-        
-        elif self._splash:
-            # No connection needed, close splash normally
-            try:
-                self._splash.set_message("Ready to launch")
-                self._splash.close()
-            except Exception:
-                pass
-            self.after(0, self._ensure_splash_gone)
-            self.after(750, self._ensure_splash_gone)
 
         # base windowed size and scaling
         self.base_width, self.base_height = 1760, 900  # Increased width to 1760 and height to 900 for Settings panel
