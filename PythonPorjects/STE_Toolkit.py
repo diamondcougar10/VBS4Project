@@ -1,77 +1,47 @@
-"""STE Toolkit utility module."""
-# =============================================================================
-# Project: VBS4Project
-# File: STE_Toolkit.py
-# Purpose: Main GUI toolkit for launching apps, configuring PhotoMesh/Wizard,
-#          managing fusers, paths, and Reality Mesh workflows
-# =============================================================================
+"""
+STE Toolkit - VBS4 Simulation Training Environment Control Application
 
-# Memory optimization imports and configuration
+This application provides a unified interface for:
+- Launching VBS4, BlueIG, and BVI simulation components
+- Managing PhotoMesh/Reality Mesh 3D terrain processing
+- Configuring and monitoring PhotoMesh Fuser instances across networked PCs
+- Controlling shared network resources and UNC path management
+- Automated scenario deployment and configuration management
+"""
+
+# ============================================================================
+# MEMORY OPTIMIZATION BOOTSTRAP
+# Configure Python runtime for large-scale 3D data processing operations
+# ============================================================================
 import gc
 import sys
 import os
 
-# Optimize Python memory settings
+# Python runtime optimizations
 if hasattr(sys, 'set_int_max_str_digits'):
-    sys.set_int_max_str_digits(100000)  # Increase string conversion limits
+    sys.set_int_max_str_digits(100000)
 
-# Configure garbage collection for better memory management
-gc.set_threshold(700, 10, 10)  # More aggressive garbage collection
+gc.set_threshold(700, 10, 10)
 gc.enable()
 
-# Set environment variables for better memory handling
-os.environ['PYTHONDONTWRITEBYTECODE'] = '1'  # Don't create .pyc files
-os.environ['PYTHONOPTIMIZE'] = '2'  # Enable optimizations
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+os.environ['PYTHONOPTIMIZE'] = '2'
 
-# Windows-specific memory optimizations
+# Windows process memory configuration
 if sys.platform == 'win32':
     try:
         import ctypes
-        from ctypes import wintypes
-        
-        # Increase virtual memory allocation
         kernel32 = ctypes.windll.kernel32
-        
-        # Set process working set size (min 64MB, max 2GB)
         handle = kernel32.GetCurrentProcess()
-        min_ws = 64 * 1024 * 1024  # 64MB minimum
-        max_ws = 2048 * 1024 * 1024  # 2GB maximum
-        
-        try:
-            kernel32.SetProcessWorkingSetSize(handle, min_ws, max_ws)
-        except:
-            pass  # Ignore if we can't set working set size
-            
-    except ImportError:
-        pass  # Ignore if ctypes not available
+        min_ws = 64 * 1024 * 1024    # 64MB minimum working set
+        max_ws = 2048 * 1024 * 1024  # 2GB maximum working set
+        kernel32.SetProcessWorkingSetSize(handle, min_ws, max_ws)
+    except:
+        pass
 
-# =============================================================================
-# Table of Contents
-#   1) Metadata & Imports
-#   2) Constants & Globals
-#   3) Logging Configuration
-#   4) Singleton / Process Guard
-#   5) Threading Utilities
-#   6) PhotoMesh Progress Parsing
-#   7) Network / Path Helpers
-#   8) VBS4 / BlueIG / BVI Path Resolution
-#   9) Version & Executable Discovery
-#  10) Executable Finder
-#  11) Reality Mesh Link & UNC Resolution
-#  12) Reality Mesh Dataset Helpers
-#  13) Configuration & App Icon
-#  14) Auto-Launch Config
-#  15) Fuser Config & Control
-#  16) Settings Helpers (Registry & toggles)
-#  17) Generic Command Launch Helpers
-#  18) UI Assets & Background/Logos
-#  19) Help/Tutorials & Document Openers
-#  20) (Update or add any other UI here)
-# =============================================================================
-
-# =============================================================================
-# METADATA & IMPORTS
-# =============================================================================
+# ============================================================================
+# IMPORTS
+# ============================================================================
 
 import tkinter as tk
 from tkinter import ttk
@@ -146,53 +116,58 @@ try:
 except Exception:
     pyi_splash = None
 
-# Atomic write functionality - placeholder for future implementation
-write_config_atomic = None
+# ============================================================================
+# RESOURCE PATH RESOLVER
+# Handles bundled resources in both development and PyInstaller frozen builds
+# ============================================================================
 
-# --- Resource path resolver -------------------------------------------------
 def _resource_path(name: str) -> str:
-    """Return absolute path to bundled resource *name*.
-
-    When frozen with PyInstaller, resources live under ``sys._MEIPASS``.
+    """
+    Resolve absolute path to a bundled resource file.
+    In frozen builds, resources are extracted to sys._MEIPASS temporary directory.
     """
     base = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
     return os.path.join(base, name)
 
-# =============================================================================
-# DIALOG SAFETY WRAPPERS (Global functions to handle fullscreen issues)
-# =============================================================================
+
+# ============================================================================
+# MESSAGEBOX SAFETY WRAPPERS
+# Ensures dialogs properly parent to main window to prevent fullscreen issues
+# ============================================================================
 
 def safe_messagebox_showerror(title, message, **kwargs):
-    """Global wrapper for messagebox.showerror with proper parenting."""
+    """Show error dialog with automatic parent window handling."""
     global APP_INSTANCE
     if APP_INSTANCE and 'parent' not in kwargs:
         kwargs['parent'] = APP_INSTANCE
     return messagebox.showerror(title, message, **kwargs)
 
 def safe_messagebox_showwarning(title, message, **kwargs):
-    """Global wrapper for messagebox.showwarning with proper parenting."""
+    """Show warning dialog with automatic parent window handling."""
     global APP_INSTANCE
     if APP_INSTANCE and 'parent' not in kwargs:
         kwargs['parent'] = APP_INSTANCE
     return messagebox.showwarning(title, message, **kwargs)
 
 def safe_messagebox_showinfo(title, message, **kwargs):
-    """Global wrapper for messagebox.showinfo with proper parenting."""
+    """Show info dialog with automatic parent window handling."""
     global APP_INSTANCE
     if APP_INSTANCE and 'parent' not in kwargs:
         kwargs['parent'] = APP_INSTANCE
     return messagebox.showinfo(title, message, **kwargs)
 
 def safe_messagebox_askyesno(title, message, **kwargs):
-    """Global wrapper for messagebox.askyesno with proper parenting."""
+    """Show yes/no dialog with automatic parent window handling."""
     global APP_INSTANCE
     if APP_INSTANCE and 'parent' not in kwargs:
         kwargs['parent'] = APP_INSTANCE
     return messagebox.askyesno(title, message, **kwargs)
 
-# =============================================================================
-# LAN HOST DISCOVERY (UDP beacon + listener)
-# =============================================================================
+
+# ============================================================================
+# LAN HOST DISCOVERY
+# UDP beacon broadcasting and listening for automatic peer discovery
+# ============================================================================
 
 BEACON_MAGIC = "STE_TOOLKIT_BEACON_V1"
 BEACON_PORT = 40609
@@ -201,20 +176,18 @@ _BCN_THREAD = None
 _LST_STOP = threading.Event()
 _LST_THREAD = None
 
-# =============================================================================
-# SMB SESSION CACHE (prevents multiple net use collisions)
-# =============================================================================
 
-# Cache successful SMB sessions by host to avoid ERROR 1219 (multiple connections)
-# This prevents admin-token vs user-token session collisions that cause connection failures
+# ============================================================================
+# SMB SESSION MANAGEMENT
+# Handles Windows UNC path authentication and connection caching
+# ============================================================================
+
 SMB_SESSION_CACHE = {}
 SMB_SESSION_LOCK = threading.Lock()
-
-# Track if we've already shown the network connection failed error
 _NETWORK_ERROR_SHOWN = False
 
 def is_running_elevated():
-    """Check if the current process is running with administrator privileges."""
+    """Check if process is running with administrator privileges."""
     try:
         import ctypes
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
@@ -223,11 +196,8 @@ def is_running_elevated():
 
 def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5):
     """
-    Ensure a persistent SMB session exists for the given UNC path.
-    Uses a cache to prevent multiple 'net use' attempts that cause ERROR 1219.
-    
-    This function handles the common issue where:
-    - Installer creates a session under admin token
+    Establish and cache a persistent SMB session to the given UNC path.
+    Prevents ERROR 1219 by ensuring only one credential set per host.
     - App tries to create another session under user token
     - Windows rejects with ERROR 1219 (multiple connections)
     
@@ -295,7 +265,7 @@ def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5)
         # Log the detailed output
         logging.debug(f"[smb] net use returned: rc={rc}, stdout={result.stdout}, stderr={result.stderr}")
         
-        # Success cases
+        # Success 
         if rc == 0:
             logging.info(f"[smb] Session established successfully for {unc_root}")
             with SMB_SESSION_LOCK:
@@ -380,7 +350,6 @@ def _host_beacon_loop():
                     sock.sendto(data, ("255.255.255.255", BEACON_PORT))
             except Exception:
                 pass
-            # Burst a few times quickly on startup, then slow down
             _BCN_STOP.wait(2.0)
     finally:
         try:
@@ -443,13 +412,12 @@ def _user_listener_loop():
                 now = time.time()
                 if now - last_set < 3.0:
                     continue
-                # Persist discovered host_ip if not set or different
                 cur = config.get("Offline", "host_ip", fallback="").strip()
                 if not cur or cur != ip:
                     logging.info(f"[beacon] Discovered host {ip}; applying")
                     try:
                         set_host_ip(ip)
-                        # Attempt silent connect (best effort)
+                        # Attempt silent connect
                         connect_working_share_interactive(parent=None, silent=True)
                     except Exception:
                         pass
@@ -511,7 +479,7 @@ def safe_simpledialog_askstring(title, prompt, **kwargs):
         kwargs['parent'] = APP_INSTANCE
     return simpledialog.askstring(title, prompt, **kwargs)
 
-# --- UI dispatch (thread-safe) ---
+# --- UI setup pt 1 ---
 _UI_QUEUE = Queue()
 
 def post_ui(fn, *args, **kwargs):
@@ -545,15 +513,11 @@ class SplashScreen(tk.Toplevel):
         super().__init__(master)
         self.withdraw()  # Hide initially to prevent flash
         self.overrideredirect(True)              # borderless
-        # Do not set topmost - this causes dialog visibility issues
-        # self.attributes("-topmost", True)  # REMOVED - causes fullscreen issues
         self._is_splash = True
         self.attributes("-alpha", start_alpha)
         self._alpha_target = float(end_alpha)
         self._alpha_step   = 0.08
         self._closing      = False
-        
-        # Track timing for minimum display time
         self._start_time = time.time()
         self._min_display_time = float(min_display_time)  # in seconds
         self._ready_to_close = False
@@ -567,7 +531,6 @@ class SplashScreen(tk.Toplevel):
         if image_path and os.path.isfile(image_path):
             try:
                 img = Image.open(image_path)
-                # modest size to avoid large decode on slow GPUs
                 img.thumbnail((560, 340), Image.Resampling.LANCZOS)
                 self._ph = ImageTk.PhotoImage(img)
                 self._img_lbl = tk.Label(frm, image=self._ph, bg="#000")
@@ -622,7 +585,7 @@ class SplashScreen(tk.Toplevel):
         if version_text:
             self._ver.pack(pady=(5,0))
 
-        # position centered on the primary screen
+        # position centered on the screen
         self.update_idletasks()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
@@ -632,16 +595,12 @@ class SplashScreen(tk.Toplevel):
         y  = max(0, (sh - h)//2)
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-        # Start the progress animation
+        # Start the progress update
         self._animate_progress()
         
         # Add failsafe close: hard ceiling of 10 seconds
         self.after(int(10_000), lambda: (None if self._closing else self.close()))
-        
-        # Now show the window and fade in (borderless, semi-transparent is enough)
         self.deiconify()
-        # Do not set topmost - this causes dialog visibility issues in fullscreen
-        # self.attributes("-topmost", True)  # REMOVED - causes fullscreen issues
         self._fade_in()
         
     def _animate_progress(self):
@@ -668,7 +627,7 @@ class SplashScreen(tk.Toplevel):
         
         # Check if we've reached the minimum display time
         if self._ready_to_close and self._progress >= 1.0:
-            self.after(500, self._begin_close)  # Short delay before closing
+            self.after(500, self._begin_close) 
         
     def _begin_close(self):
         """Start the fade out process"""
@@ -729,7 +688,7 @@ class SplashScreen(tk.Toplevel):
                 # Make sure splash is completely gone before main window is shown
                 self.destroy()
         except Exception:
-            # Window already destroyed or invalid - just finish
+            # Window already destroyed - just finish
             try:
                 self.destroy()
             except Exception:
@@ -790,9 +749,8 @@ logging.basicConfig(
 # Force flush logs immediately to help diagnose startup hangs
 logging.getLogger().handlers[0].setLevel(logging.DEBUG)
 
-# --- Hidden subprocess helper (no visible console windows) ---
+# --- Hidden subprocess helper ---
 CREATE_NO_WINDOW = 0x08000000
-
 
 def run_hidden(cmd: list[str] | str, check=False, cwd=None, shell=False, env=None, capture_output=False, text=True):
     """Run a command without showing a console window."""
@@ -848,7 +806,6 @@ def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
     atexit.register(stop_user_listener)
     return True
 
-
 def release_singleton() -> None:
     global _lock_file
     if _lock_file:
@@ -865,8 +822,8 @@ def release_singleton() -> None:
 
 # --- UNC session guard / throttle ---
 _UNC_SESS_LOCK = threading.Lock()
-_UNC_SESS_CACHE = {}       # { unc_root: {"ok": bool, "ts": float} }
-_UNC_SESS_COOLDOWN = 120   # seconds to consider a session "fresh"
+_UNC_SESS_CACHE = {}      
+_UNC_SESS_COOLDOWN = 120  
 _NET_USE_LAST_TS = 0.0
 _NET_USE_MIN_GAP = 1.0     # at least 1s between 'net use' calls
 
@@ -878,11 +835,11 @@ def quick_ping_check(host_ip: str, timeout: float = 0.8) -> bool:
     try:
         # Use ping with short timeout and single attempt
         result = subprocess.run(
-            ["ping", "-n", "1", "-w", "400", host_ip],  # 400ms timeout
+            ["ping", "-n", "1", "-w", "400", host_ip],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=timeout,
-            creationflags=0x08000000  # CREATE_NO_WINDOW
+            creationflags=0x08000000 
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, Exception):
@@ -901,16 +858,11 @@ def quick_unc_check(unc_path, timeout=3):
             if not unc_path.startswith("\\\\"):
                 result.put(os.path.isdir(unc_path))
                 return
-            
-            # Method 1: Use 'net view' to check if the host is reachable
-            # This is faster and more reliable than os.path.exists() for UNC paths
             try:
                 # Extract host from UNC path (\\host\share\path -> \\host)
                 parts = unc_path.split("\\")
                 if len(parts) >= 3:
                     host = f"\\\\{parts[2]}"
-                    
-                    # Quick net view check with short timeout
                     subprocess_timeout = max(1, timeout - 1.0)
                     rc = subprocess.run(
                         ["net", "view", host],
@@ -928,8 +880,8 @@ def quick_unc_check(unc_path, timeout=3):
                 logging.debug(f"[quick_unc_check] net view timed out for {unc_path}")
             except Exception as e:
                 logging.debug(f"[quick_unc_check] net view failed: {e}")
-            
-            # Method 2: Try dir command as fallback (works even if net view fails)
+
+            # Method 2: Try dir command as fallback 
             try:
                 subprocess_timeout = max(1, timeout - 0.5)
                 rc = subprocess.run(
@@ -946,7 +898,7 @@ def quick_unc_check(unc_path, timeout=3):
             except Exception as e:
                 logging.debug(f"[quick_unc_check] dir command failed: {e}")
             
-            # Method 3: Last resort - os.path.exists (can be slow)
+            # Method 3: Last resort - os.path.exists
             try:
                 result.put(os.path.exists(unc_path))
             except:
@@ -1038,11 +990,9 @@ def auto_connect_shared_working_folder() -> bool:
             logging.info(f"[autoconnect] Share already accessible: {wf_unc}")
             update_fuser_shared_path(wf_unc)
             return True
-        
-        # SKIP net use during startup warmup to prevent CMD error windows
-        # User can manually click "Test Access" button if they need to connect
-        # This prevents the "not enough memory resources" errors at startup
-        logging.info(f"[autoconnect] Share not immediately accessible, skipping connection (will connect on-demand)")
+
+        # User can manually connect via Settings → Test Access if needed
+        logging.info(f"[autoconnect] Share not immediately accessible, skipping (on-demand connection)")
         return False
         
     except Exception as e:
@@ -1052,18 +1002,16 @@ def auto_connect_shared_working_folder() -> bool:
 def _run(cmd, **kw):
     """Run a command with memory safety; return (rc, stdout, stderr)."""
     try:
-        # Add memory optimizations for subprocess calls
+        # Add memory optimizations
         optimized_kw = {
             'capture_output': True,
             'text': True,
-            'timeout': 30,  # Prevent hanging processes
+            'timeout': 30,  # Prevent hanging
             'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0,
             **kw
         }
-        
-        # Force garbage collection before subprocess
+
         gc.collect()
-        
         cp = subprocess.run(cmd, **optimized_kw)
         return cp.returncode, (cp.stdout or ""), (cp.stderr or "")
         
@@ -1073,11 +1021,9 @@ def _run(cmd, **kw):
     except OSError as e:
         if "not enough memory" in str(e).lower() or "resource" in str(e).lower():
             logging.error(f"[_run] Memory/resource error for command {cmd}: {e}")
-            # Try basic garbage collection and retry once
             for _ in range(3):
                 gc.collect()
             try:
-                # Retry with minimal options, still hiding the window
                 basic_kw = {
                     'capture_output': True, 
                     'text': True, 
@@ -1103,8 +1049,6 @@ def _try_net_use_unc_throttled(unc_root: str, timeout: float = 8.0) -> bool:
     """
     global _NET_USE_LAST_TS
     now = time.monotonic()
-
-    # simple coarse throttle to avoid bursts
     gap = now - _NET_USE_LAST_TS
     if gap < _NET_USE_MIN_GAP:
         time.sleep(_NET_USE_MIN_GAP - gap)
@@ -1155,12 +1099,9 @@ def ensure_unc_session_once(unc_root: str, *, first_timeout=6.0) -> bool:
             logging.info(f"[unc_session] Quick check passed for {unc_root}")
             _UNC_SESS_CACHE[unc_root] = {"ok": True, "ts": time.monotonic()}
             return True
-
-        # Try one attach (throttled)
         logging.info(f"[unc_session] Attempting throttled net use for {unc_root}")
         ok = _try_net_use_unc_throttled(unc_root, timeout=first_timeout)
         if not ok:
-            # tiny settle and recheck
             time.sleep(0.6)
             ok = quick_unc_check(unc_root, timeout=3)
             if ok:
@@ -1242,8 +1183,6 @@ def debug_network_connection(unc_path):
     if not unc_path or not unc_path.startswith("\\\\"):
         print(f"Invalid UNC path: {unc_path}")
         return
-    
-    # Extract host from UNC path
     parts = unc_path.split("\\")
     if len(parts) < 4:
         print(f"Invalid UNC format: {unc_path}")
@@ -1357,15 +1296,13 @@ def validate_and_configure_network_connection(host_ip: str = None) -> bool:
             logging.error(f"[network_config] WorkingFolder not accessible: {working_folder}")
             return False
             
-        # Configure client for network use
+        # Configure for network use
         config.setdefault("Offline", {})
         config["Offline"]["enabled"] = "True"
         config["Offline"]["host_ip"] = host_ip
         config["Offline"]["share_name"] = "SharedMeshDrive"
         config["Offline"]["working_fuser_subdir"] = "WorkingFuser"
         config["Offline"]["use_ip_unc"] = "True"
-        
-        # Sync Network section
         config.setdefault("Network", {})
         config["Network"]["host"] = host_ip
         
@@ -1373,13 +1310,10 @@ def validate_and_configure_network_connection(host_ip: str = None) -> bool:
         config.setdefault("Fusers", {})
         config["Fusers"]["shared_working_unc"] = working_folder
         config["Fusers"]["working_folder_host"] = host_ip
-        
         save_config()
         update_fuser_shared_path()
-        
         logging.info(f"[network_config] Successfully configured for host {host_ip}")
-        return True
-        
+        return True 
     except Exception as e:
         logging.error(f"[network_config] Configuration failed: {e}")
         return False
@@ -1387,16 +1321,11 @@ def validate_and_configure_network_connection(host_ip: str = None) -> bool:
 def optimize_memory():
     """Optimize memory usage by running garbage collection and clearing caches."""
     try:
-        # Force garbage collection
         collected = gc.collect()
-        
-        # Clear any module caches if available
         if hasattr(sys, '_clear_type_cache'):
             sys._clear_type_cache()
             
-        # Clear import caches
         if hasattr(sys.modules, 'clear'):
-            # Don't clear essential modules
             pass
         
         logging.info(f"[memory] Garbage collection freed {collected} objects")
@@ -1452,19 +1381,15 @@ def start_memory_monitoring():
 def periodic_memory_cleanup():
     """Periodic memory cleanup function to be called during app runtime."""
     try:
-        # Run garbage collection
-        collected = gc.collect()
-        
-        # Log memory stats if available
+        collected = gc.collect()       
+        # Log memory
         memory_info = get_memory_usage()
         if 'percent' in memory_info:
             percent = memory_info['percent']
             if percent > 80:  # If using more than 80% of system memory
                 logging.warning(f"[memory] High memory usage: {percent:.1f}%")
-                # More aggressive cleanup
                 for _ in range(3):
-                    gc.collect()
-        
+                    gc.collect()       
         if collected > 0:
             logging.debug(f"[memory] Periodic cleanup freed {collected} objects")
             
@@ -1487,13 +1412,8 @@ def check_network_share_status():
                 return True, f"Local share accessible: {unc_path}"
             else:
                 return False, f"Local path not found: {unc_path}"
-        
-        # For UNC paths, do bounded UNC probe to avoid UI hangs (3 second timeout)
         if quick_unc_check(unc_path, timeout=3):
             return True, f"Connected to {unc_path}"
-        
-        # Fallback: Try os.path.exists with timeout as last resort
-        # Sometimes Windows has the connection but subprocess check fails
         try:
             result_queue = Queue()
             def _check_exists():
@@ -1521,7 +1441,7 @@ def _compute_working_unc_from_cfg():
     Returns (unc_root, working_unc) or ('','') if not available.
     """
     o = get_offline_cfg()
-    root = build_unc_from_cfg(o)  # e.g., \\10.0.0.5\SharedMeshDrive
+    root = build_unc_from_cfg(o)  # \\10.0.0.5\SharedMeshDrive
     if not root:
         return "", ""
     wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
@@ -1570,8 +1490,6 @@ def connect_working_share_interactive(parent=None, silent=True):
                     return True
     except Exception as e:
         logging.error(f"[connect] Error trying credential fallback: {e}")
-
-    # No prompts; just report failure
     logging.error(f"[connect] Failed to connect to {working_unc}")
     return False
 
@@ -1590,9 +1508,7 @@ def _unc_usable(unc_root: str) -> bool:
         rc, _out, _err = _run(["cmd", "/c", "dir", unc_root], timeout=5)
         if rc == 0:
             return True
-        # Attempt a background connection using cached creds
         if _try_net_use_unc(unc_root):
-            # small grace period for redirector
             time.sleep(0.6)
             return True
     except Exception:
@@ -1624,8 +1540,6 @@ def _working_clients_dir() -> str:
         wf = ""
     if not wf:
         return ""
-    
-    # NEW: Normalize UNC to local path when we're the host so loopback UNC isn't required
     try:
         wf = unc_to_local_if_host(wf)
     except Exception:
@@ -1725,7 +1639,7 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
     
     We scan the WorkingFuser root directory for these folders and extract unique PC names.
     """
-    # Get WorkingFuser root, not _clients subdirectory
+    # Get WorkingFuser root
     try:
         root = working_fuser_unc()
     except Exception:
@@ -1763,9 +1677,8 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
         for item in os.listdir(root):
             item_path = os.path.join(root, item)
             
-            # Check both folders (created by Fuser.exe) and JSON files (KeepAlive heartbeats)
+            # Check both folders (KeepAlive heartbeats)
             if os.path.isdir(item_path) or item.endswith('.json'):
-                # Skip the _clients subdirectory itself
                 if item == '_clients' or item == HEARTBEAT_DIR_NAME:
                     continue
                 
@@ -1859,20 +1772,16 @@ def start_presence_service():
     _HB_THREAD = threading.Thread(target=_presence_loop, name="presence", daemon=True)
     _HB_THREAD.start()
     logging.info("[presence] Heartbeat service started")
-    
-    # NEW: Opportunistic first write so count populates immediately
     try:
         write_presence_heartbeat()
         logging.info("[presence] Initial heartbeat written")
     except Exception as e:
         logging.warning(f"[presence] Initial heartbeat write failed: {e}")
 
-
 def stop_presence_service():
     """Stop heartbeat thread and cleanup our presence file."""
     try:
         _HB_STOP.set()
-        # Give the thread a moment to exit
         global _HB_THREAD
         if _HB_THREAD and _HB_THREAD.is_alive():
             try:
@@ -1880,7 +1789,6 @@ def stop_presence_service():
             except Exception:
                 pass
         _HB_THREAD = None
-        # Best-effort cleanup of our file
         p = _heartbeat_path_for_this_pc()
         if p and os.path.isfile(p):
             os.remove(p)
@@ -2041,10 +1949,7 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
             # Update config from cache
             config['General']['vbs4_path'] = cached_path
             try:
-                if write_config_atomic:
-                    write_config_atomic(Path(CONFIG_PATH), config)
-                else:
-                    save_config()
+                save_config()
             except Exception:
                 logging.exception("Failed to write VBS4 path to config from cache")
             return cached_path
@@ -2056,7 +1961,6 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
         r"C:\Bohemia Interactive Simulations",
     ]
 
-    # Only add full C:\ scan if explicitly allowed
     if allow_full_drive:
         roots.append(r"C:\\")
 
@@ -2098,10 +2002,7 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
         _save_paths_cache(cache)
         
         try:
-            if write_config_atomic:
-                write_config_atomic(Path(CONFIG_PATH), config)
-            else:
-                save_config()
+            save_config()
         except Exception:
             logging.exception("Failed to write VBS4 path to config")
             
@@ -2140,12 +2041,9 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
     def _save_and_return(p: str) -> str:
         if p:
             config['General']['vbs4_setup_path'] = os.path.normpath(p)
-            
-            # Save to cache as well
             cache = _load_paths_cache()
             cache["vbs4_launcher_path"] = p
             _save_paths_cache(cache)
-            
             save_config()
             try:
                 refresh_settings_panel_from_config()
@@ -2155,14 +2053,11 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
             elapsed = time.time() - t0
             logging.info("[discover] VBS4 Launcher found: %s (took %.2fs, budget %.2fs)", p, elapsed, time_budget_sec)
         return p
-
-    # 0) If config already points to a valid file, use it
     cfg_path = config['General'].get('vbs4_setup_path', '').strip()
     if cfg_path and os.path.isfile(cfg_path):
         logging.info("VBS4 Launcher (from config): %s", cfg_path)
         return cfg_path
 
-    # 0b) Check cache
     cache = _load_paths_cache()
     cache_key = "vbs4_launcher_path"
     if cache_key in cache:
@@ -2242,7 +2137,7 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
         logging.info("VBS4 Launcher (common roots): %s", candidates[0])
         return _save_and_return(candidates[0])
 
-    # 3) Last resort: walk the entire C:\ drive (only if allowed and time permits)
+    # 3) Last resort: walk the entire C:\ drive 
     if allow_full_drive and time.time() <= deadline:
         candidates = list(_iter_candidates([r"C:\\" ], respect_deadline=True))
         if time.time() <= deadline:
@@ -2354,7 +2249,7 @@ def find_executable(name, additional_paths=[], *, time_budget_sec=0.9, allow_ful
     deadline = t0 + time_budget_sec
     
     base, ext = os.path.splitext(name)
-    # build list of candidate filenames
+    # build list of filenames
     candidates = [name]
     if ext.lower() == '.exe':
         candidates.append(base + '.bat')
@@ -2415,7 +2310,7 @@ def find_executable(name, additional_paths=[], *, time_budget_sec=0.9, allow_ful
                                 best_mtime = mtime
                                 best_path = os.path.normpath(full_path)
 
-    # Last resort: full drive scan (only if allowed)
+    # Last resort: full drive scan
     if not best_path and allow_full_drive and os.path.isdir(full_drive_root):
         if time.time() > deadline:
             logging.info("[discover] %s budget exceeded before full drive scan; will index in background", name)
@@ -2643,10 +2538,10 @@ def resolve_active_rm_link() -> tuple[str, str]:
     link = find_unc_rm_link()
     return (link, 'UNC')
 
-def find_local_rm_link() -> str:  # pragma: no cover - legacy alias
+def find_local_rm_link() -> str: 
     return find_local_rm_shortcut(get_rm_local_root())
 
-def is_valid_rm_root(local_root: str, data_marker: str = RM_LNK_NAME) -> bool:  # pragma: no cover
+def is_valid_rm_root(local_root: str, data_marker: str = RM_LNK_NAME) -> bool: 
     return is_valid_rm_local_root(local_root)
 
 def load_system_settings(path: str) -> dict:
@@ -2949,7 +2844,7 @@ def set_host_ip(ip: str) -> None:
     apply_offline_settings()
     update_fuser_shared_path()
     
-    # Try to establish the UNC session now (no prompts)
+    # Try to establish the UNC session
     if trimmed:  # Only try to connect if an IP was actually set
         connect_working_share_interactive(parent=None, silent=True)
 
@@ -3000,7 +2895,6 @@ def unc_to_local_if_host(unc_path: str) -> str:
     
     # We ARE the host - convert to local path
     # Extract the share name and remaining path
-    # Format: \\192.168.10.243\SharedMeshDrive\WorkingFuser
     parts = unc_path.split("\\")
     if len(parts) < 4:
         return unc_path
@@ -3068,14 +2962,12 @@ def set_host(host: str) -> None:
         config["Fusers"] = {}
     if "Network" not in config:
         config["Network"] = {}
-
     config["Offline"]["working_fuser_host"] = host
     config["Offline"]["host_name"] = host
     config["Network"]["host"] = host
-    config["Fusers"]["working_folder_host"] = host  # so fuser toggle doesn't prompt
+    config["Fusers"]["working_folder_host"] = host 
 
     save_config()
-
     refresh_settings_panel_from_config()
 
 def bootstrap_first_run_if_needed(log=None):
@@ -3116,7 +3008,7 @@ def bootstrap_first_run_if_needed(log=None):
             start_user_listener()
         except Exception:
             pass
-    # UPDATE mode: no changes
+    # UPDATE mode: no changes so far
 
 def refresh_settings_panel_from_config() -> None:
     """Update the Settings panel UI to reflect the latest config.ini values."""
@@ -3164,7 +3056,6 @@ def _toplevel_init_with_icon(self, *args, **kwargs):
     _orig_toplevel_init(self, *args, **kwargs)
 
     def _maybe_icon():
-        # Skip undecorated pop-ups which use overrideredirect
         try:
             if not bool(self.wm_overrideredirect()):
                 apply_app_icon(self)
@@ -3279,21 +3170,16 @@ def apply_offline_settings_with_skip_guard() -> None:
         # Clear the flag so next launch will try
         config['General']['skip_startup_connect'] = 'False'
         save_config()
-        
-        # Apply basic settings without network probing
         enforce_photomesh_settings()
         update_fuser_shared_path()
-        _assert_shared_path_is_unc()  # Self-heal check before enforcing policy
+        _assert_shared_path_is_unc()  # Self-heal check 
         enforce_local_fuser_policy()
         
         # Schedule network connection check for after UI is loaded
         global APP_INSTANCE
         if APP_INSTANCE:
-            APP_INSTANCE.after(2000, lambda: run_in_thread(lambda: apply_offline_settings()))
-            
+            APP_INSTANCE.after(2000, lambda: run_in_thread(lambda: apply_offline_settings()))      
         return
-    
-    # Normal path - apply all settings including network checks
     apply_offline_settings()
 
 def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val: None):
@@ -3316,8 +3202,6 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     
     # Small initial delay to ensure the splash is visible first
     time.sleep(0.05)
-    
-    # Initialize progress - start higher to indicate UI is already loaded
     update_progress(0.15)
     
     try:
@@ -3363,7 +3247,7 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     # Final progress update and message
     update_progress(0.9)
     progress("Finalizing startup...")
-    time.sleep(0.05)  # Minimal delay for visual feedback
+    time.sleep(0.05) 
     update_progress(1.0)
     progress("Ready.")
     
@@ -3382,7 +3266,7 @@ def _background_index_paths():
         for label, fn in [
             ("VBS4", lambda: get_vbs4_install_path(time_budget_sec=6, allow_full_drive=True)),
             ("VBS4 Launcher", lambda: get_vbs4_launcher_path(time_budget_sec=6, allow_full_drive=True)),
-            ("BlueIG", lambda: get_blueig_install_path()),  # already fast; keep as-is
+            ("BlueIG", lambda: get_blueig_install_path()), 
             ("ARES Manager", lambda: get_ares_manager_path()),
         ]:
             try:
@@ -3466,8 +3350,13 @@ def find_fuser_exe() -> str:
             return os.path.join(dp, "PhotoMeshFuser.exe")
     return ""
 
+# ============================================================================
+# PHOTOMESH FUSER MANAGEMENT
+# Controls distributed PhotoMesh Fuser instances across multiple PCs
+# ============================================================================
+
 def list_local_fusers() -> list:
-    """Return list of psutil.Process for local PhotoMeshFuser.exe."""
+    """Query running PhotoMeshFuser.exe processes on this machine."""
     procs = []
     if psutil:
         try:
@@ -3491,27 +3380,30 @@ def list_local_fusers() -> list:
     return procs
 
 def count_local_fusers() -> int:
+    """Return count of running PhotoMeshFuser.exe processes."""
     return len(list_local_fusers())
 
-# --- Fuser constants / helpers ---------------------------------------------
+
+# Fuser instance limits
 MIN_LOCAL_FUSERS = 1
 MAX_LOCAL_FUSERS = 3
 
-# Global guard to prevent duplicate/overlapping fuser launches
-import threading as _threading
-_FUSER_ENFORCE_LOCK = _threading.Lock()
+# Fuser enforcement control flags
+_FUSER_ENFORCE_LOCK = threading.Lock()
 _last_enforce_target: int | None = None
 _last_enforce_ts: float = 0.0
-_skip_fuser_enforcement_at_startup: bool = True  # Skip fuser launches during startup
+_skip_fuser_enforcement_at_startup: bool = True
 
-# Keep references to fuser processes to prevent garbage collection
+# Keep process references to prevent garbage collection from terminating fusers
 _FUSER_PROCESSES: list = []
 
+# Gate enforcement until UNC is confirmed ready (prevents startup race condition)
+_allow_fuser_enforcement: bool = False
+
 def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
-    """Clamp desired local fuser count according to machine role."""
+    """Constrain fuser count to valid range based on machine role."""
     if not is_fuser_computer:
         return 0
-    
     return max(MIN_LOCAL_FUSERS, min(MAX_LOCAL_FUSERS, int(n)))
 
 def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
@@ -3547,8 +3439,7 @@ def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
         shared_normalized = os.path.normpath(shared).replace("/", "\\")
         
         # Limit the number of batch files to reduce resource usage
-        safe_max_fusers = min(max_fusers, 3)  # Limit to 3 to reduce memory pressure
-        
+        safe_max_fusers = min(max_fusers, 3)      
         created_count = 0
         for i in range(1, safe_max_fusers + 1):
             bat_name = f"LocalFuser{i}.bat"
@@ -3559,7 +3450,7 @@ def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
                 try:
                     stat = os.stat(bat_path)
                     age_hours = (time.time() - stat.st_mtime) / 3600
-                    if age_hours < 24:  # Skip if less than 24 hours old
+                    if age_hours < 24:  
                         logging.debug(f"[create_fuser_bats] Skipping recent {bat_path}")
                         created_count += 1
                         continue
@@ -3590,39 +3481,44 @@ def create_fuser_bat_wrappers(max_fusers: int = 8) -> None:
             
     except Exception as e:
         logging.error(f"[create_fuser_bats] Unexpected error: {e}")
-        # Don't let this crash the application
 
-# --- Fuser spawn control / throttle ---
+# Fuser launch throttling to prevent spawn storms
 _SPAWN_LOCK = threading.Lock()
-_SPAWN_FAILS = {}   # {index:int -> fail_count:int}
-_LAST_TRY = {}      # {index:int -> t:float}
+_SPAWN_FAILS = {}   # Track failure counts per fuser index
+_LAST_TRY = {}      # Track last launch attempt timestamp per index
 
 def start_fuser_instance(idx: int) -> bool:
     """
-    Start *idx*-th fuser via its own shortcut/command.
+    Launch a PhotoMeshFuser.exe instance with UNC path validation.
     
-    If ENFORCE_SHARED_WORKING_ONLY is True (default), this function will REFUSE to launch
-    if the working folder is not a valid, accessible UNC path. This prevents User-mode
-    installations from creating local working folders.
+    Args:
+        idx: Fuser instance number (LocalFuser1, LocalFuser2, etc.)
+    
+    Returns:
+        True if launch succeeded, False otherwise
+        
+    Enforces UNC-only working folders to ensure proper network sharing.
+    Pre-establishes SMB session to prevent authentication errors.
+    Process is detached and kept referenced to prevent termination.
     """
     logging.info(f"[start_fuser_instance] Launching fuser #{idx}")
     
-    # 1. Find the fuser executable
+    # Find the fuser executable
     exe = find_fuser_exe()
     if not exe:
         safe_messagebox_showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
         return False
     logging.info(f"[start_fuser_instance] Fuser exe: {exe}")
     
-    # 2. Get the shared working folder path
+    # Get the shared working folder path
     shared = working_fuser_unc()
     logging.info(f"[start_fuser_instance] Working folder (UNC): {shared}")
     
-    # 3. Convert to local path if we're on the Host PC (prevents SMB loopback issues)
+    # Convert UNC to local path if running on Host PC (avoids SMB loopback)
     shared = unc_to_local_if_host(shared)
     logging.info(f"[start_fuser_instance] Working folder (resolved): {shared}")
     
-    # 4. STRICT ENFORCEMENT: Ensure path is configured (UNC or local if host)
+    # Validate UNC path configuration
     if ENFORCE_SHARED_WORKING_ONLY:
         original_unc = working_fuser_unc()
         if not (original_unc and original_unc.startswith("\\\\")):
@@ -3634,10 +3530,9 @@ def start_fuser_instance(idx: int) -> bool:
             logging.error(f"[start_fuser_instance] BLOCKED: Working folder is not a UNC path: {original_unc}")
             return False
         
-        # 5. Pre-establish UNC session once before any expensive checks/launch
-        # Uses the SMB session cache to prevent ERROR 1219 conflicts
+        # Pre-establish SMB session to prevent authentication errors
         if shared.startswith("\\\\"):
-            # Extract \\host\share from \\host\share\WorkingFuser\...
+            # Extract \\host\share from full UNC path
             parts = shared.split("\\")
             if len(parts) > 3:
                 unc_root = f"\\\\{parts[2]}\\{parts[3]}"
@@ -3660,10 +3555,10 @@ def start_fuser_instance(idx: int) -> bool:
                 logging.error(f"[start_fuser_instance] UNC session failed for {unc_root}")
                 return False
             
-            # Now quick_unc_check on the specific subfolder is cheap
+            # Verify path accessibility after session established
             accessible = quick_unc_check(shared, timeout=2.0)
         else:
-            # Local path (Host PC)
+            # Local path (Host PC scenario)
             accessible = os.path.exists(shared)
         
         if not accessible:
@@ -3672,15 +3567,15 @@ def start_fuser_instance(idx: int) -> bool:
         
         logging.info(f"[start_fuser_instance] Path accessible: {shared}")
     
-    # 5. Build the launch command
+    # Build launch command
     name = f"LocalFuser{idx}"
     bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
     
     try:
-        # Launch fuser directly, windowless (no start, no shell=True, no BAT)
+        # Launch with proper Windows process flags for background execution
         DETACHED_PROCESS = 0x00000008
         CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        CREATE_NEW_PROCESS_GROUP = 0x00000200  # Properly detach from parent
+        CREATE_NEW_PROCESS_GROUP = 0x00000200 
         creation = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         
         shared_normalized = os.path.normpath(shared).replace("/", "\\")
@@ -3688,8 +3583,6 @@ def start_fuser_instance(idx: int) -> bool:
         
         logging.info(f"[start_fuser_instance] Direct launch (windowless): {' '.join(args)}")
         
-        # Launch the fuser EXE directly; no BAT, no cmd.exe, no window
-        # Keep reference to prevent garbage collection from terminating the process
         global _FUSER_PROCESSES
         proc = subprocess.Popen(
             args,
@@ -3726,83 +3619,88 @@ def kill_fusers() -> None:
 
 def ensure_fuser_instances(desired: int):
     """
-    Scale local PhotoMeshFuser.exe processes to exactly 'desired'.
-    If too few → spawn more; if too many → kill extras.
+    Scale PhotoMeshFuser.exe processes to match the desired count.
+    
+    Args:
+        desired: Target number of fuser instances
+        
+    Behavior:
+    - If current < desired: Launch additional fusers
+    - If current > desired: Kill all fusers and restart to desired count
+    - If current == desired: No action needed
+    
+    Uses locking to prevent concurrent enforcement attempts.
+    Respects _skip_fuser_enforcement_at_startup flag during application startup.
+    Saves final count for session restoration on next launch.
     """
     global _skip_fuser_enforcement_at_startup
     
-    logging.info(f"[DEBUG] ensure_fuser_instances({desired}) called")
+    logging.info(f"[fuser-scale] ensure_fuser_instances({desired}) called")
 
-    # Skip fuser enforcement during startup to prevent CMD errors
+    # Respect startup skip flag
     if _skip_fuser_enforcement_at_startup:
-        logging.info("[DEBUG] Skipping fuser enforcement during startup (will restore on user action)")
+        logging.info("[fuser-scale] Skipping during startup phase")
         return
 
-    # Only one scaler at a time to avoid racing spawns that trigger
-    # 'already running' popups from PhotoMesh
+    # Prevent concurrent enforcement
     if not _FUSER_ENFORCE_LOCK.acquire(blocking=False):
-        logging.info("[DEBUG] ensure_fuser_instances skipped (enforcer busy)")
+        logging.info("[fuser-scale] Already running, skipping")
         return
-    try:
     
+    try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        logging.info(f"[DEBUG] is_fuser_computer: {is_fuser}")
+        logging.info(f"[fuser-scale] is_fuser_computer: {is_fuser}")
     
         desired = _clamp_fusers(desired, is_fuser)
-        logging.info(f"[DEBUG] clamped desired count: {desired}")
+        logging.info(f"[fuser-scale] Clamped target: {desired}")
 
         current = count_local_fusers()
-        logging.info(f"[DEBUG] current fusers running: {current}")
+        logging.info(f"[fuser-scale] Current count: {current}")
     
         if current == desired:
-            logging.info(f"[DEBUG] current == desired ({current}), no action needed")
-            # Update last launched count even if no change needed
+            logging.info(f"[fuser-scale] Already at target ({current}), no action needed")
             if is_fuser:
                 save_last_launched_fuser_count(desired)
             return
 
         if current > desired:
-            logging.info(f"[DEBUG] too many fusers ({current} > {desired}), killing all")
+            logging.info(f"[fuser-scale] Killing all ({current} > {desired})")
             kill_fusers()
             current = 0
 
         to_start = max(0, desired - current)
-        logging.info(f"[DEBUG] need to start {to_start} fusers")
+        logging.info(f"[fuser-scale] Starting {to_start} new instances")
     
         for idx in range(current + 1, current + 1 + to_start):
-            logging.info(f"[DEBUG] attempting to start fuser {idx}")
+            logging.info(f"[fuser-scale] Launching fuser #{idx}")
             result = start_fuser_instance(idx)
-            logging.info(f"[DEBUG] start_fuser_instance({idx}) returned: {result}")
-            # Give the process a moment to initialize so subsequent calls see it
-            time.sleep(0.6)
+            logging.info(f"[fuser-scale] Launch result: {result}")
+            time.sleep(0.6)  # Allow process initialization
     
-        # Save the number of fusers we just launched for restoration on restart
+        # Persist count for next session
         if is_fuser:
             save_last_launched_fuser_count(desired)
-            logging.info(f"[DEBUG] saved last launched count: {desired}")
+            logging.info(f"[fuser-scale] Saved count for restoration: {desired}")
     finally:
         try:
             _FUSER_ENFORCE_LOCK.release()
         except Exception:
             pass
 
-
 def save_last_launched_fuser_count(count: int):
-    """Save the number of fusers launched for restoration on restart."""
+    """Persist fuser count to config for session restoration."""
     try:
         config["Fusers"]["last_launched_count"] = str(count)
         _save_config()
     except Exception as e:
         pass
 
-
 def get_last_launched_fuser_count() -> int:
-    """Get the number of fusers launched in the previous session."""
+    """Retrieve saved fuser count from previous session."""
     try:
         return int(config["Fusers"].get("last_launched_count", "0"))
     except (ValueError, KeyError):
         return 0
-
 
 def kill_all_fusers_on_exit():
     """Kill all fusers when the toolkit exits (only if this is a fuser computer)."""
@@ -3816,7 +3714,6 @@ def kill_all_fusers_on_exit():
     except Exception as e:
         pass
 
-
 def kill_fusers_on_disable():
     """Kill all fusers and reset count when fuser computer setting is disabled."""
     try:
@@ -3827,9 +3724,11 @@ def kill_fusers_on_disable():
     except Exception as e:
         pass
 
-
 def restore_fusers_on_startup():
-    """Restore fusers on startup if this is a fuser computer and fusers were previously launched."""
+    """
+    Restore fuser instances from previous session on designated fuser computers.
+    Only runs if this machine is marked as a fuser and had fusers running before shutdown.
+    """
     try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         if not is_fuser:
@@ -3842,52 +3741,75 @@ def restore_fusers_on_startup():
         pass
 
 def enforce_local_fuser_policy():
-    """Apply the configured fuser instance counts on this machine."""
+    """
+    Apply configured fuser instance policy based on machine role and network state.
+    
+    Determines target fuser count based on:
+    - Machine role (host vs fuser vs neither)
+    - UNC accessibility (won't kill running fusers if network is temporarily down)
+    - Configuration settings (desired_count, host_count)
+    
+    Gated by _allow_fuser_enforcement flag to prevent premature execution during startup.
+    Includes throttling to prevent redundant enforcement within 8-second windows.
+    """
+    global _allow_fuser_enforcement, _last_enforce_target, _last_enforce_ts
+    
     try:
-        logging.info(f"[DEBUG] enforce_local_fuser_policy() called")
+        logging.info(f"[fuser-policy] enforce_local_fuser_policy() called")
+        
+        # Gate: Don't enforce until UNC is confirmed ready
+        if not _allow_fuser_enforcement:
+            logging.info("[fuser-policy] GATED: enforcement disabled until UNC ready")
+            return
         
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        logging.info(f"[DEBUG] is_fuser_computer: {is_fuser}")
+        logging.info(f"[fuser-policy] is_fuser_computer: {is_fuser}")
         
         host_ct, desired_ct = get_fuser_counts()
-        logging.info(f"[DEBUG] get_fuser_counts() returned: host_ct={host_ct}, desired_ct={desired_ct}")
+        logging.info(f"[fuser-policy] get_fuser_counts() returned: host_ct={host_ct}, desired_ct={desired_ct}")
         
         is_host = is_host_machine()
-        logging.info(f"[DEBUG] is_host_machine(): {is_host}")
+        logging.info(f"[fuser-policy] is_host_machine(): {is_host}")
         
+        # Check UNC accessibility
+        unc_ok = False
+        try:
+            unc_root, _ = _compute_working_unc_from_cfg()
+            if unc_root and unc_root.startswith("\\\\"):
+                unc_ok = quick_unc_check(unc_root, timeout=2.0)
+                logging.info(f"[fuser-policy] UNC check for {unc_root}: {unc_ok}")
+        except Exception as e:
+            logging.warning(f"[fuser-policy] UNC check failed: {e}")
+        
+        # Compute target with explicit decision logging
         if is_host:
             target = host_ct
-            logging.info(f"[DEBUG] this is host machine, target = {target}")
-        elif is_fuser:
+            logging.info(f"[fuser-policy] DECISION: host machine → target={target}")
+        elif is_fuser and unc_ok:
             target = desired_ct
-            logging.info(f"[DEBUG] this is fuser machine, target = {target}")
+            logging.info(f"[fuser-policy] DECISION: fuser machine + UNC ready → target={target}")
+        elif is_fuser and not unc_ok:
+            # Don't kill fusers just because UNC is momentarily down
+            current = count_local_fusers()
+            target = max(current, desired_ct) if current > 0 else 0
+            logging.warning(f"[fuser-policy] DECISION: fuser machine but UNC not ready, preserving {current} running fusers (desired={desired_ct})")
         else:
             target = 0
-            logging.info(f"[DEBUG] this is neither host nor fuser, target = {target}")
-
-        # REMOVED: Pre-establishing UNC session to prevent "not enough memory" CMD errors
-        # The connection will be established on-demand when actually needed
-        # try:
-        #     unc_root, _ = _compute_working_unc_from_cfg()
-        #     if unc_root and unc_root.startswith("\\\\"):
-        #         logging.info(f"[DEBUG] Pre-establishing UNC session to {unc_root}")
-        #         ensure_unc_session_once(unc_root)
-        # except Exception as e:
-        #     logging.debug(f"[DEBUG] UNC pre-connection attempt: {e}")
+            logging.info(f"[fuser-policy] DECISION: neither host nor fuser → target={target}")
 
         # Throttle duplicate enforcements with the same target within a short window
-        global _last_enforce_target, _last_enforce_ts
         now = time.time()
         if _last_enforce_target == target and (now - _last_enforce_ts) < 8.0:
-            logging.info("[DEBUG] enforce_local_fuser_policy skip (recent identical target)")
+            logging.info(f"[fuser-policy] SKIP: recent identical target={target} within 8s window")
             return
 
-        logging.info(f"[DEBUG] calling ensure_fuser_instances({target})")
+        logging.info(f"[fuser-policy] EXECUTE: ensure_fuser_instances({target})")
         ensure_fuser_instances(target)
         _last_enforce_target = target
         _last_enforce_ts = now
+        logging.info(f"[fuser-policy] COMPLETE: target={target} applied")
     except Exception as e:
-        logging.error(f"[DEBUG] enforce_local_fuser_policy() exception: {e}")
+        logging.error(f"[fuser-policy] EXCEPTION: {e}")
         pass
 
 def _assert_shared_path_is_unc():
@@ -4396,7 +4318,7 @@ def first_run_setup_user(master=None) -> None:
     offline = config["Offline"]
     
     if network_choice:
-        # Standard ethernet network - don't enable offline mode by default
+        # Standard ethernet network 
         offline["enabled"] = "False"
         log_to_console("[first-run] Client configured for standard ethernet network")
     else:
@@ -4410,12 +4332,10 @@ def first_run_setup_user(master=None) -> None:
     offline["local_data_root"] = r"D:\\SharedMeshDrive"
     offline["working_fuser_subdir"] = "WorkingFuser"
     offline["use_ip_unc"] = "True"
-
     sd = config.setdefault("SharedDrive", {})
     sd["preferred_mode"] = "DRIVE"
     sd.setdefault("drive_letter", "M:")
     sd.setdefault("auto_map_on_save", "True")
-
     _save_config()
     refresh_settings_panel_from_config()
     log_to_console("[first-run] User configuration saved. Configure host IP in Settings if needed.")
@@ -4520,10 +4440,8 @@ def create_app_button(parent, app_name, get_path_func, action_func, set_path_fun
     """
 
     parent_bg = parent.cget("bg")
-
     row = tk.Frame(parent, bg=parent_bg)
     row.pack(pady=(10, 0), fill="x")
-
     button = tk.Button(
         row,
         text=f"Launch {app_name}",
@@ -4538,7 +4456,6 @@ def create_app_button(parent, app_name, get_path_func, action_func, set_path_fun
         highlightthickness=0,
     )
     button.pack(side="left")
-
     set_btn = tk.Button(
         row,
         text="⚙",
@@ -4589,9 +4506,7 @@ def create_app_button(parent, app_name, get_path_func, action_func, set_path_fun
             checking_label.destroy()
 
         post_ui(_apply)
-
     run_in_thread(_resolve_and_enable)
-
     return button, version_label
 
 #==============================================================================
@@ -4787,8 +4702,6 @@ logo_AFC_army         = os.path.join(_BUNDLE_DIR, "logos", "US_Army_AFC_Logo.png
 logo_first_army       = os.path.join(_BUNDLE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png")
 prompt_box_image_path = os.path.join(_BUNDLE_DIR, "promptbox.jpg")
-
-# Cache for background image - consistent size across all panels
 _cached_bg_photo = None
 _cached_bg_size = (0, 0)
 _PANEL_BG_WIDTH = 1920  # Fixed background width
@@ -4813,7 +4726,6 @@ def set_background(window, widget=None):
         lbl = tk.Label(widget or window, image=_cached_bg_photo)
         lbl.image = _cached_bg_photo
         lbl.place(x=0, y=0, relwidth=1, relheight=1)
-        # Always lower the background so it never occludes content
         try:
             lbl.lower()
         except Exception:
@@ -4825,7 +4737,6 @@ def set_wallpaper(window):
 
     w = window.winfo_width()
     h = window.winfo_height()
-
     img = Image.open(background_image_path).resize((w, h), Image.Resampling.LANCZOS)
     ph  = ImageTk.PhotoImage(img)
     lbl = tk.Label(window, image=ph, bd=0, highlightthickness=0)
@@ -5039,7 +4950,6 @@ def open_vbs4_pdfs():
             for fname in pdfs:
                 display = os.path.splitext(fname)[0].replace("_", " ")
                 path = os.path.join(pdf_dir, fname)
-                # Only add if we haven't seen this display name before (prefer first found)
                 if display not in all_pdfs:
                     all_pdfs[display] = path
         except Exception as e:
@@ -5394,7 +5304,6 @@ def prompt_hostname(parent, initial=""):
         lbl.place(relwidth=1, relheight=1)
     else:
         top.configure(bg="#333333")
-
     var = tk.StringVar(value=initial)
 
     tk.Label(
@@ -5404,10 +5313,8 @@ def prompt_hostname(parent, initial=""):
         bg="#333333",
         fg="white"
     ).place(relx=0.5, rely=0.37, anchor="center")
-
     entry = tk.Entry(top, textvariable=var, font=("Helvetica", 20))
     entry.place(relx=0.5, rely=0.45, anchor="center", width=400)
-
     result = {"value": None}
 
     def on_ok():
@@ -5442,7 +5349,6 @@ def prompt_project_name(parent):
         lbl.place(relwidth=1, relheight=1)
     else:
         top.configure(bg="#333333")
-
     var = tk.StringVar()
 
     tk.Label(
@@ -5455,7 +5361,6 @@ def prompt_project_name(parent):
 
     entry = tk.Entry(top, textvariable=var, font=("Helvetica", 20))
     entry.place(relx=0.5, rely=0.45, anchor="center", width=400)
-
     result = {"value": None}
 
     def on_ok():
@@ -5471,51 +5376,68 @@ def prompt_project_name(parent):
 
     def validate(*_):
         ok_btn.config(state="normal" if var.get().strip() else "disabled")
-
     var.trace_add("write", validate)
-
     entry.focus()
     validate()
     parent.wait_window(top)
     return result["value"]
 
-# ─── MAINMENU PANEL ────────────────────────────────────────
+# ============================================================================
+# MAIN APPLICATION CLASS
+# ============================================================================
+
 class MainApp(tk.Tk):
+    """
+    STE Toolkit main application window.
+    
+    Provides tabbed interface for:
+    - One-Click: Launch VBS4, BlueIG, BVI with automated configuration
+    - PhotoMesh: Manage terrain processing and fuser instances
+    - Reality Mesh: Control 3D mesh datasets and integration
+    - Settings: Configure network paths, executables, and system behavior
+    
+    Features:
+    - Fullscreen mode with ESC key support
+    - Network status monitoring (online/offline modes)
+    - Splash screen with progress tracking
+    - Memory optimization and resource management
+    - Thread-safe UI updates via message queue
+    """
+    
     def __init__(self):
         super().__init__()
         global APP_INSTANCE
         APP_INSTANCE = self
         
-        # Start withdrawn to prevent white window flash during initialization
+        # Start hidden to prevent window flash during initialization
         self.withdraw()
         
         apply_app_icon(self)
         self.title("STE Mission Planning Toolkit")
         self.resizable(False, False)
 
-        # Set up window close protocol to handle fuser cleanup
+        # Register cleanup handler for window close
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # List of buttons that can receive keyboard focus
+        # Track focusable UI elements for keyboard navigation
         self.focusable_buttons = []
 
         self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
         
-        # Flag to track if UI has been initialized
+        # UI initialization state flag
         self._ui_initialized = False
         
-        # Network status tracking for non-blocking startup
-        self.network_status = "unknown"  # "online", "offline", "unknown"
+        # Network connectivity state
+        self.network_status = "unknown"  # States: "online", "offline", "unknown"
         
-        # Ensure the cross-thread UI queue is pumped while the app runs
+        # Start UI message queue pump
         self.after(0, pump_ui_queue, self)
 
-        # Handle an optional splash (attached by the launcher function below)
+        # Splash screen reference (attached externally)
         self._splash = None
 
-    # --- splash helpers -----------------------------------------------------
     def attach_splash(self, splash: SplashScreen | None):
-        """Attach an already shown splash; keep main focused."""
+        """Attach existing splash screen and maintain focus on main window."""
         self._splash = splash
         try:
             self.focus_force()
@@ -5523,7 +5445,7 @@ class MainApp(tk.Tk):
             pass
 
     def _splash_message(self, msg: str):
-        """Update the splash screen message."""
+        """Update splash screen progress message if active."""
         if self._splash:
             try:
                 self._splash.set_message(msg)
@@ -5549,11 +5471,11 @@ class MainApp(tk.Tk):
             except Exception:
                 pass
             try:
-                sp.withdraw()   # prevent any single-frame flash
+                sp.withdraw()   
             except Exception:
                 pass
             try:
-                sp.destroy()    # and truly remove it
+                sp.destroy()   
             except Exception:
                 pass
             if self._splash is sp:      # clear only after the window is really gone
@@ -5689,7 +5611,6 @@ class MainApp(tk.Tk):
         logging.info("[ui-diag] Content frame created")
         self.content.pack(expand=True, fill="both")
         logging.info("[ui-diag] Content frame packed")
-
         nav = tk.Frame(self.content, bg='#333333')
         logging.info("[ui-diag] Nav frame created")
         nav.pack(side='left', fill='y')
@@ -5764,7 +5685,6 @@ class MainApp(tk.Tk):
             def make_command(k):
                 """Create command function with immediate visual feedback."""
                 def cmd():
-                    # Immediate visual feedback - show the panel right away
                     self.after_idle(lambda: self.show(k))
                 return cmd
             
@@ -5778,8 +5698,6 @@ class MainApp(tk.Tk):
                             width=12,
                             command=make_command(key))
             btn.pack(pady=5, padx=5)
-            
-            # Store button reference for later visual updates
             self._nav_buttons[key] = btn
             
             # Enhanced hover effects for better feedback
@@ -5789,9 +5707,8 @@ class MainApp(tk.Tk):
                 nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10)
             
             def on_leave(e, btn=btn, k=key):
-                # Reset to appropriate color based on current panel
                 if hasattr(self, 'current') and self.current == k:
-                    btn.config(bg="#888")  # Slightly lighter for current panel
+                    btn.config(bg="#888") 
                 else:
                     btn.config(bg="#555")  # Normal color
                 nav_tip.hide()
@@ -5943,7 +5860,7 @@ class MainApp(tk.Tk):
     def _win_allow_next_foreground(self):
         """Allow any process to take foreground next (Windows focus rules)."""
         try:
-            ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)  
         except Exception:
             pass
 
@@ -6075,10 +5992,6 @@ class MainApp(tk.Tk):
                 self._splash.close()
             except Exception:
                 pass
-            # Ensure we actually reclaim any lingering splash window once the
-            # fade-out completes (PyInstaller builds were occasionally leaving
-            # the splash as an invisible top-most window that resurfaced on
-            # fullscreen toggles).
             self.after(0, self._ensure_splash_gone)
             self.after(750, self._ensure_splash_gone)
                 
@@ -6105,7 +6018,7 @@ class MainApp(tk.Tk):
                 pass
 
         # base windowed size and scaling
-        self.base_width, self.base_height = 1760, 900  # Increased width to 1760 and height to 900 for Settings panel
+        self.base_width, self.base_height = 1760, 900  
         self.base_scaling = float(self.tk.call('tk', 'scaling'))
 
         # screen dims
@@ -6142,7 +6055,7 @@ class MainApp(tk.Tk):
         def _on_configure(event=None):
             if self._cfg_job is not None:
                 self.after_cancel(self._cfg_job)
-            self._cfg_job = self.after(10, self._recompute_scale)  # Reduced from 25ms to 10ms
+            self._cfg_job = self.after(10, self._recompute_scale)  
 
         bootstrap_first_run_if_needed(log=self.log_message)
 
@@ -6279,8 +6192,6 @@ class MainApp(tk.Tk):
         if size_changed and not getattr(self, '_scroll_active', False):
             self._last_bg_size = new_size
             self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
-
-        # Do NOT use bbox('all') here; scrollregion is handled in _on_frame_configure/_resize_canvas_to_panel
         self._update_scrollability()
 
     def _on_frame_configure(self, event):
@@ -6321,9 +6232,7 @@ class MainApp(tk.Tk):
         if is_settings_scroll:
             # Let the event propagate to the inner settings scroller
             return
-            
-        # For other panels (or Settings panel outside the inner scroller area),
-        # check if another scrollable widget has focus
+
         focused = self.focus_get()
         if focused and hasattr(focused, 'master'):
             parent = focused.master
@@ -10114,7 +10023,7 @@ class SettingsPanel(tk.Frame):
                                 config["Fusers"]["working_folder_host"] = host
                                 config["Fusers"]["shared_working_unc"] = f"\\\\{host}\\{share}\\WorkingFuser"
                                 
-                                write_config_atomic(config)
+                                save_config()
                                 
                                 status_label.config(
                                     text=f"✓ Connected and saved! Connection to {unc_path} established.",
@@ -10891,7 +10800,7 @@ def run_with_splash():
     if not config.has_section('General'):
         config.add_section('General')
         
-    # Ensure the version number is set to 1.1
+    # update version number
     config['General']['app_version'] = '1.1'
     
     should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
@@ -10948,28 +10857,51 @@ def run_with_splash():
             # Use a single short delay for background tasks
             app.after(5, update_fuser_shared_path)
             app.after(10, app.panels['OneClick'].update_fuser_state)
-            # Restore fusers from previous session, then enforce policy once
+            
+            # Improved fuser startup sequence: connect UNC first, then enable enforcement
             def _restore_then_enforce():
+                global _allow_fuser_enforcement
+                
                 try:
-                    restore_fusers_on_startup()
-                except Exception:
-                    pass
-                # --- Hardened fuser startup: ensure all LocalFuser folders are created on UNC ---
-                try:
-                    from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
-                    desired_count = get_fuser_counts()[1]
-                    # 1) Auto-connect to the host's WorkingFuser share (User mode reliability)
+                    # 1) Auto-connect to the host's WorkingFuser share FIRST
+                    logging.info("[fuser-startup] Establishing UNC connection before fuser operations")
                     try:
                         run_in_thread(auto_connect_shared_working_folder)
-                    except Exception:
-                        pass
-                    ensure_localfuser_dirs_on_unc(pm_config, desired_count)
-                    migrate_local_localfuser_to_unc_if_needed(pm_config)
+                        # Give the connection a moment to establish
+                        time.sleep(0.5)
+                    except Exception as e:
+                        logging.warning(f"[fuser-startup] UNC auto-connect failed: {e}")
+                    
+                    # 2) Ensure LocalFuser directories exist on UNC
+                    try:
+                        from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
+                        desired_count = get_fuser_counts()[1]
+                        ensure_localfuser_dirs_on_unc(pm_config, desired_count)
+                        migrate_local_localfuser_to_unc_if_needed(pm_config)
+                    except Exception as e:
+                        logging.error(f"[fuser-startup] Failed to ensure LocalFuser folders on UNC: {e}")
+                    
+                    # 3) Now enable enforcement (this gates the policy to prevent premature kills)
+                    logging.info("[fuser-startup] Enabling fuser enforcement now that UNC is ready")
+                    _allow_fuser_enforcement = True
+                    
+                    # 4) Restore fusers from previous session if applicable
+                    logging.info("[fuser-startup] Restoring fusers from previous session")
+                    try:
+                        restore_fusers_on_startup()
+                    except Exception as e:
+                        logging.warning(f"[fuser-startup] Restore failed: {e}")
+                    
+                    # 5) Apply policy enforcement (won't kill if UNC check fails)
+                    logging.info("[fuser-startup] Running first policy enforcement")
+                    enforce_local_fuser_policy()
+                    
+                    # 6) Start presence heartbeat service
+                    start_presence_service()
+                    
                 except Exception as e:
-                    logging.error(f"[fuser_startup] Failed to ensure LocalFuser folders on UNC: {e}")
-                enforce_local_fuser_policy()
-                # Start presence heartbeat service after fuser startup
-                start_presence_service()
+                    logging.error(f"[fuser-startup] Startup sequence failed: {e}")
+            
             app.after(15, _restore_then_enforce)
 
             if should_prompt_settings:
