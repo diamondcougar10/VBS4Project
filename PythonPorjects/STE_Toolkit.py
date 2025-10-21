@@ -10,6 +10,47 @@ This application provides a unified interface for:
 """
 
 # ============================================================================
+# TABLE OF CONTENTS
+# ============================================================================
+#
+#  1. Memory Optimization Bootstrap
+#  2. Imports
+#  3. Resource Path Resolver
+#  4. Messagebox Safety Wrappers
+#  5. LAN Host Discovery (UDP Beacon)
+#  6. SMB Session Management
+#  7. Splash Screen Class
+#  8. Constants & Globals
+#  9. Logging Configuration
+# 10. Singleton / Process Guard
+# 11. Network Connection Helpers (UNC/SMB)
+# 12. Presence Heartbeat Service
+# 13. Threading Utilities
+# 14. PhotoMesh Progress Parsing
+# 15. Network / Path Helpers
+# 16. VBS4 / BlueIG / BVI Path Resolution
+# 17. Version & Executable Discovery
+# 18. Executable Finder
+# 19. Reality Mesh Link & UNC Resolution
+# 20. Reality Mesh Dataset Helpers
+# 21. Configuration & App Icon Management
+# 22. Background Warmup Tasks
+# 23. Auto-Launch Configuration
+# 24. Fuser Configuration & Control
+# 25. PhotoMesh Fuser Management
+# 26. Settings Helpers (Registry & Toggles)
+# 27. Generic Command Launch Helpers
+# 28. BVI (ARES Manager) Launch
+# 29. UI Assets & Background/Logos
+# 30. Help/Tutorials & Document Openers
+# 31. File Dialog / EXE Selection Helpers
+# 32. Main Application Class (MainApp)
+# 33. UI Panel Classes (MainMenu, VBS4, OneClick, BVI, Settings, etc.)
+# 34. Launcher with Splash
+#
+# ============================================================================
+
+# ============================================================================
 # MEMORY OPTIMIZATION BOOTSTRAP
 # Configure Python runtime for large-scale 3D data processing operations
 # ============================================================================
