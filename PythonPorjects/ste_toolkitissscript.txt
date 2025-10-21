@@ -56,6 +56,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
   Flags: runhidden
 
 [Registry]
+; Force elevation because the toolkit needs to modify PhotoMesh config files in Program Files
+; Our SMB session cache and credential handling now properly work in elevated mode
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\STE_Toolkit.exe"; ValueData: "~ RUNASADMIN"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Code]
@@ -847,20 +849,31 @@ begin
           LogInstallEvent('PhotoMesh Fuser found - skipping installer');
         end;
 
-        // If we discovered a host, establish a session or map M:
+        // If we discovered a host, establish NON-PERSISTENT session to avoid token conflicts
+        // This prevents ERROR 1219 when the app (user token) tries to connect later
         if DscIP <> '' then
         begin
+          LogInstallEvent('User mode: establishing connection to \\' + DscIP + '\' + SHARE_NAME);
+          
+          // 0) Always clear any stale M: mapping first to avoid letter collisions
+          Exec(ExpandConstant('{cmd}'), '/C "net use M: /delete /yes"', '', SW_HIDE, ewWaitUntilTerminated, RC);
+          
+          // 1) Delete any existing server sessions for this host (clears admin-token sessions)
           NetUseDeleteServer(DscIP);
-          // 1) Try normal no-credential mapping first
-          if not MapDriveOrUNC(DscIP, SHARE_NAME, 'M:', '', '', True) then
-          begin
-            // 2) Optional fallback: allow guest + re-try mapping
-            //    (Uncomment ONLY if your environment permits guest access)
-            // EnableInsecureGuestAuthIfRequested(True);
-            // if not MapDriveOrUNC(DscIP, SHARE_NAME, 'M:', 'Guest', '', True) then
-            //   MapDriveOrUNC(DscIP, SHARE_NAME, '', 'Guest', '', True);
-          end;
-          LogInstallEvent('User mode: mapped or session established to \\' + DscIP + '\' + SHARE_NAME);
+          
+          // 2) Establish a NON-PERSISTENT UNC session first (no drive letter)
+          //    This avoids admin-token vs user-token session collisions (ERROR 1219)
+          if not MapDriveOrUNC(DscIP, SHARE_NAME, '', '', '', False) then
+            LogInstallEvent('User mode: UNC session creation failed (non-persistent)')
+          else
+            LogInstallEvent('User mode: UNC session established (non-persistent)');
+          
+          // 3) Optionally map M: NON-PERSISTENT now that a session exists
+          //    Non-persistent avoids stale mappings after reboot
+          if not MapDriveOrUNC(DscIP, SHARE_NAME, 'M:', '', '', False) then
+            LogInstallEvent('User mode: M: mapping failed (non-persistent)')
+          else
+            LogInstallEvent('User mode: M: mapped successfully (non-persistent)');
         end
         else
           LogInstallEvent('User mode: no host discovered; skipping SMB session');

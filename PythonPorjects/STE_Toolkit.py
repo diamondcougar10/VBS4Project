@@ -210,6 +210,9 @@ _LST_THREAD = None
 SMB_SESSION_CACHE = {}
 SMB_SESSION_LOCK = threading.Lock()
 
+# Track if we've already shown the network connection failed error
+_NETWORK_ERROR_SHOWN = False
+
 def is_running_elevated():
     """Check if the current process is running with administrator privileges."""
     try:
@@ -3501,6 +3504,9 @@ _last_enforce_target: int | None = None
 _last_enforce_ts: float = 0.0
 _skip_fuser_enforcement_at_startup: bool = True  # Skip fuser launches during startup
 
+# Keep references to fuser processes to prevent garbage collection
+_FUSER_PROCESSES: list = []
+
 def _clamp_fusers(n: int, is_fuser_computer: bool) -> int:
     """Clamp desired local fuser count according to machine role."""
     if not is_fuser_computer:
@@ -3674,7 +3680,8 @@ def start_fuser_instance(idx: int) -> bool:
         # Launch fuser directly, windowless (no start, no shell=True, no BAT)
         DETACHED_PROCESS = 0x00000008
         CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        creation = DETACHED_PROCESS | CREATE_NO_WINDOW
+        CREATE_NEW_PROCESS_GROUP = 0x00000200  # Properly detach from parent
+        creation = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         
         shared_normalized = os.path.normpath(shared).replace("/", "\\")
         args = [exe, name, shared_normalized, "0", "true"]
@@ -3682,14 +3689,16 @@ def start_fuser_instance(idx: int) -> bool:
         logging.info(f"[start_fuser_instance] Direct launch (windowless): {' '.join(args)}")
         
         # Launch the fuser EXE directly; no BAT, no cmd.exe, no window
-        subprocess.Popen(
+        # Keep reference to prevent garbage collection from terminating the process
+        global _FUSER_PROCESSES
+        proc = subprocess.Popen(
             args,
             creationflags=creation,
-            cwd=os.path.dirname(exe),
-            close_fds=True
+            cwd=os.path.dirname(exe)
         )
+        _FUSER_PROCESSES.append(proc)
         
-        logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully")
+        logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully (PID: {proc.pid})")
         return True
         
     except Exception as e:
@@ -3699,6 +3708,8 @@ def start_fuser_instance(idx: int) -> bool:
 
 def kill_fusers() -> None:
     """Kill ALL local PhotoMeshFuser.exe instances (safer + faster)."""
+    global _FUSER_PROCESSES
+    
     try:
         subprocess.run(['taskkill', '/IM', 'PhotoMeshFuser.exe', '/F'],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -3709,6 +3720,9 @@ def kill_fusers() -> None:
                     p.terminate()
             except Exception:
                 pass
+    
+    # Clear the process reference list after killing
+    _FUSER_PROCESSES.clear()
 
 def ensure_fuser_instances(desired: int):
     """
@@ -7526,13 +7540,19 @@ class VBS4Panel(tk.Frame):
                     # Clear offline config when network access fails after connection attempt
                     clear_offline_ip_configuration()
                     logging.info("[fuser_manager] Cleared offline configuration due to network access failure")
-                    messagebox.showerror("Network Connection Failed", 
-                        f"Cannot access WorkingFolder at {default_path}\n\n"
-                        "Please verify:\n"
-                        "1. Host PC is running and accessible\n"
-                        "2. Network connection is stable\n"
-                        "3. SharedMeshDrive share is available\n\n"
-                        "Offline configuration has been cleared.")
+                    
+                    # Only show error dialog once per session
+                    global _NETWORK_ERROR_SHOWN
+                    if not _NETWORK_ERROR_SHOWN:
+                        _NETWORK_ERROR_SHOWN = True
+                        messagebox.showerror("Network Connection Failed", 
+                            f"Cannot access WorkingFolder at {default_path}\n\n"
+                            "Please verify:\n"
+                            "1. Host PC is running and accessible\n"
+                            "2. Network connection is stable\n"
+                            "3. SharedMeshDrive share is available\n\n"
+                            "Offline configuration has been cleared.\n\n"
+                            "Use Settings → Offline/Shared → Manual Connect to retry.")
                     return
         
         # Convert to local path if we're on the Host PC (prevents SMB loopback issues)
