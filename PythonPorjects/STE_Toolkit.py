@@ -201,6 +201,146 @@ _BCN_THREAD = None
 _LST_STOP = threading.Event()
 _LST_THREAD = None
 
+# =============================================================================
+# SMB SESSION CACHE (prevents multiple net use collisions)
+# =============================================================================
+
+# Cache successful SMB sessions by host to avoid ERROR 1219 (multiple connections)
+# This prevents admin-token vs user-token session collisions that cause connection failures
+SMB_SESSION_CACHE = {}
+SMB_SESSION_LOCK = threading.Lock()
+
+def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5):
+    """
+    Ensure a persistent SMB session exists for the given UNC path.
+    Uses a cache to prevent multiple 'net use' attempts that cause ERROR 1219.
+    
+    This function handles the common issue where:
+    - Installer creates a session under admin token
+    - App tries to create another session under user token
+    - Windows rejects with ERROR 1219 (multiple connections)
+    
+    Args:
+        unc_path: UNC path like \\\\host\\share or \\\\host\\share\\subfolder
+        username: Optional username (e.g., DOMAIN\\user or host\\user)
+        password: Optional password
+        timeout: Timeout in seconds for connection attempts
+        
+    Returns:
+        True if session is established or already exists, False otherwise
+    """
+    if not unc_path or not unc_path.startswith("\\\\"):
+        logging.warning(f"[smb] Invalid UNC path: {unc_path}")
+        return False
+    
+    # Extract host from UNC path
+    parts = unc_path.strip("\\").split("\\")
+    if len(parts) < 2:
+        logging.warning(f"[smb] Cannot extract host from: {unc_path}")
+        return False
+    
+    host = parts[0]
+    share = parts[1] if len(parts) > 1 else ""
+    unc_root = f"\\\\{host}\\{share}" if share else f"\\\\{host}"
+    
+    # Check cache first
+    with SMB_SESSION_LOCK:
+        if SMB_SESSION_CACHE.get(host):
+            logging.debug(f"[smb] Using cached session for {host}")
+            return True
+    
+    # Try to access without connecting first
+    try:
+        if quick_unc_check(unc_root, timeout=2):
+            logging.info(f"[smb] Path already accessible: {unc_root}")
+            with SMB_SESSION_LOCK:
+                SMB_SESSION_CACHE[host] = True
+            return True
+    except Exception as e:
+        logging.debug(f"[smb] Quick check failed for {unc_root}: {e}")
+    
+    # Build net use command
+    cmd = ['net', 'use', unc_root]
+    if username:
+        cmd.extend([f'/user:{username}', password or ""])
+    cmd.append('/persistent:no')  # Non-persistent to avoid cross-token issues
+    
+    # Try to establish session
+    logging.info(f"[smb] Establishing session for {unc_root}")
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        
+        rc = result.returncode
+        stderr_text = (result.stderr or "").lower()
+        stdout_text = (result.stdout or "").lower()
+        combined = stderr_text + stdout_text
+        
+        # Log the detailed output
+        logging.debug(f"[smb] net use returned: rc={rc}, stdout={result.stdout}, stderr={result.stderr}")
+        
+        # Success cases
+        if rc == 0:
+            logging.info(f"[smb] Session established successfully for {unc_root}")
+            with SMB_SESSION_LOCK:
+                SMB_SESSION_CACHE[host] = True
+            return True
+        
+        if "already" in combined or "remembered" in combined:
+            logging.info(f"[smb] Session already exists for {unc_root}")
+            with SMB_SESSION_LOCK:
+                SMB_SESSION_CACHE[host] = True
+            return True
+        
+        # ERROR 1219: Multiple connections with different credentials
+        if "1219" in combined or "multiple connections" in combined:
+            logging.warning(f"[smb] ERROR 1219 detected for {unc_root} - clearing and retrying")
+            
+            # Clear ALL connections to this host
+            subprocess.run(['net', 'use', f'\\\\{host}', '/delete', '/y'],
+                         capture_output=True, timeout=3,
+                         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+            subprocess.run(['net', 'use', f'\\\\{host}\\IPC$', '/delete', '/y'],
+                         capture_output=True, timeout=3,
+                         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+            
+            # Wait a moment for Windows to clean up
+            time.sleep(0.5)
+            
+            # Retry the connection
+            result2 = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            )
+            
+            if result2.returncode == 0 or "already" in (result2.stdout + result2.stderr).lower():
+                logging.info(f"[smb] Session established after clearing conflicts for {unc_root}")
+                with SMB_SESSION_LOCK:
+                    SMB_SESSION_CACHE[host] = True
+                return True
+            else:
+                logging.error(f"[smb] Retry failed for {unc_root}: {result2.stderr}")
+                return False
+        
+        # Other errors
+        logging.error(f"[smb] Failed to establish session for {unc_root}: rc={rc}, stderr={result.stderr}")
+        return False
+        
+    except subprocess.TimeoutExpired:
+        logging.error(f"[smb] Connection timeout for {unc_root}")
+        return False
+    except Exception as e:
+        logging.error(f"[smb] Exception establishing session for {unc_root}: {e}")
+        return False
+
 def _compose_beacon_payload() -> bytes:
     try:
         o = get_offline_cfg()
@@ -1350,29 +1490,47 @@ def connect_working_share_interactive(parent=None, silent=True):
     """
     Auto-connect to the configured WorkingFuser UNC without ever prompting
     for credentials. Uses the current Windows session or cached credentials.
+    Uses the new SMB session cache to prevent ERROR 1219 collisions.
     Returns True if the working UNC is accessible.
     """
     unc_root, working_unc = _compute_working_unc_from_cfg()
     if not unc_root:
+        logging.warning("[connect] No UNC root configured")
         return False
 
     # Already accessible?
-    if quick_unc_check(working_unc):
+    if quick_unc_check(working_unc, timeout=2):
+        logging.info(f"[connect] Already accessible: {working_unc}")
         return True
 
-    # 1) Try default connection (cached creds / current logon)
-    if _try_net_use_unc(unc_root):
-        return quick_unc_check(working_unc)
+    # Use the new cached session manager
+    logging.info(f"[connect] Attempting to establish session for {unc_root}")
+    if ensure_smb_session_cached(unc_root):
+        # Verify the working folder is accessible
+        if quick_unc_check(working_unc, timeout=2):
+            logging.info(f"[connect] Successfully connected to {working_unc}")
+            return True
+        else:
+            logging.warning(f"[connect] Session established but {working_unc} not accessible")
+            return False
 
-    # 2) Optional: clear stale sessions and retry once (no prompt)
+    # If still failing, check if we need credentials
     try:
-        _run(["net", "use", unc_root, "/delete", "/yes"])
-    except Exception:
-        pass
-    if _try_net_use_unc(unc_root):
-        return quick_unc_check(working_unc)
+        cfg = get_offline_cfg()
+        username = cfg.get("username", "").strip()
+        password = cfg.get("password", "").strip()
+        
+        if username:
+            logging.info(f"[connect] Retrying with configured credentials for user: {username}")
+            if ensure_smb_session_cached(unc_root, username=username, password=password):
+                if quick_unc_check(working_unc, timeout=2):
+                    logging.info(f"[connect] Successfully connected with credentials to {working_unc}")
+                    return True
+    except Exception as e:
+        logging.error(f"[connect] Error trying credential fallback: {e}")
 
     # No prompts; just report failure
+    logging.error(f"[connect] Failed to connect to {working_unc}")
     return False
 
 def _unc_usable(unc_root: str) -> bool:
@@ -3432,6 +3590,7 @@ def start_fuser_instance(idx: int) -> bool:
             return False
         
         # 5. Pre-establish UNC session once before any expensive checks/launch
+        # Uses the SMB session cache to prevent ERROR 1219 conflicts
         if shared.startswith("\\\\"):
             # Extract \\host\share from \\host\share\WorkingFuser\...
             parts = shared.split("\\")
@@ -3441,11 +3600,17 @@ def start_fuser_instance(idx: int) -> bool:
                 unc_root = shared
             
             logging.info(f"[start_fuser_instance] Pre-establishing UNC session to {unc_root}")
-            if not ensure_unc_session_once(unc_root, first_timeout=5.0):
+            if not ensure_smb_session_cached(unc_root, timeout=5):
                 safe_messagebox_showerror(
-                    "Network Error",
+                    "Network Connection Failed",
                     f"Cannot access {unc_root}\n\n"
-                    "Check connectivity and ensure the share is available."
+                    "This could be due to:\n"
+                    "• ERROR 1219 (multiple connection conflict)\n"
+                    "• Network connectivity issue\n"
+                    "• Incorrect credentials or permissions\n"
+                    "• Firewall blocking SMB (port 445)\n\n"
+                    "Try using Settings → Offline/Shared → Manual Connect\n"
+                    "to diagnose and fix the connection."
                 )
                 logging.error(f"[start_fuser_instance] UNC session failed for {unc_root}")
                 return False
@@ -9149,6 +9314,7 @@ class SettingsPanel(tk.Frame):
         row8.pack(fill="x", pady=6)
         tk.Button(row8, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
         tk.Button(row8, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
+        tk.Button(row8, text="Manual Connect", bg="#446644", fg="white", command=self._manual_connect_dialog).pack(side="left", padx=8)
         tk.Button(row8, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
         tk.Button(row8, text="Clear Settings", bg="#664444", fg="white", command=self._clear_offline_settings).pack(side="left", padx=8)
 
@@ -9636,6 +9802,7 @@ class SettingsPanel(tk.Frame):
         run_in_thread(_work)
 
     def _test_offline_access(self):
+        """Test access to the shared working folder with enhanced diagnostics."""
         path = resolve_shared_access_path()
         if not path:
             messagebox.showinfo(
@@ -9643,34 +9810,281 @@ class SettingsPanel(tk.Frame):
                 "Host IP is not configured. Set it above to test the shared folder.",
             )
             return
+        
         working = tk.Toplevel(self)
-        working.title("Working…")
-        tk.Label(working, text="Working…", padx=20, pady=20).pack()
+        working.title("Testing Connection…")
+        tk.Label(working, text="Testing connection to shared folder…", padx=20, pady=20).pack()
 
         def _work():
-            # First try to connect automatically, then test access
-            connect_working_share_interactive(parent=None, silent=True)
-            ok = can_access_unc(path)
+            # Extract host and share for diagnostics
+            try:
+                parts = path.strip("\\").split("\\")
+                host = parts[0] if parts else "unknown"
+                share = parts[1] if len(parts) > 1 else "unknown"
+                
+                # Use the new SMB session cache function
+                logging.info(f"[test_access] Testing connection to {path}")
+                
+                # Try to establish session using cached connection
+                unc_root = f"\\\\{host}\\{share}"
+                session_ok = ensure_smb_session_cached(unc_root, timeout=8)
+                
+                if session_ok:
+                    # Verify the specific path is accessible
+                    ok = quick_unc_check(path, timeout=3)
+                else:
+                    ok = False
+                    
+                # Get detailed error info
+                error_detail = ""
+                if not ok:
+                    # Try to determine why it failed
+                    if not session_ok:
+                        error_detail = (
+                            "Session establishment failed. This could mean:\n\n"
+                            "• Network connectivity issue\n"
+                            "• ERROR 1219 (multiple connection conflict)\n"
+                            "• Incorrect credentials\n"
+                            "• Firewall blocking SMB (port 445)\n\n"
+                            "Check the log file for details."
+                        )
+                    else:
+                        error_detail = (
+                            f"Session established but path not accessible:\n{path}\n\n"
+                            "• Path may not exist on the host\n"
+                            "• Insufficient permissions\n"
+                            "• Share name or folder mismatch"
+                        )
+                
+            except Exception as e:
+                ok = False
+                error_detail = f"Exception during test: {str(e)}"
+                logging.error(f"[test_access] Exception: {e}", exc_info=True)
 
             def _done():
                 working.destroy()
                 if ok:
-                    messagebox.showinfo("Offline Access", f"Access OK:\n{path}\n\nOpening Explorer…")
+                    messagebox.showinfo(
+                        "Connection Test", 
+                        f"✓ Access successful!\n\n{path}\n\nOpening in Explorer…"
+                    )
                     self.open_folder_foreground(path)
                 else:
-                    messagebox.showerror(
-                        "Offline Access",
-                        f"Cannot access:\n{path}\n\n",
-                        "If this is a local, offline LAN:\n",
-                        " • Ensure all PCs are on the same switch\n",
-                        " • Static IPs (e.g., 192.168.50.10/24 host)\n",
-                        " • Share exists and permissions allow read/write\n",
-                        " • Confirm the Host IP above matches the host PC",
-                    )
+                    msg = f"✗ Cannot access:\n{path}\n\n"
+                    if error_detail:
+                        msg += error_detail
+                    else:
+                        msg += (
+                            "If this is a local, offline LAN:\n\n"
+                            "• Ensure all PCs are on the same switch\n"
+                            "• Use static IPs (e.g., 192.168.50.10/24)\n"
+                            "• Verify share exists with read/write permissions\n"
+                            "• Confirm Host IP matches the actual host PC\n"
+                            "• Check Windows Firewall allows File & Printer Sharing"
+                        )
+                    messagebox.showerror("Connection Test", msg)
 
             post_ui(_done)
 
         run_in_thread(_work)
+
+    def _manual_connect_dialog(self):
+        """Open a manual connection dialog when auto-connect fails."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Manual Connection Setup")
+        dialog.configure(bg="black")
+        dialog.geometry("600x400")
+        
+        # Make modal
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Title
+        tk.Label(
+            dialog,
+            text="Manual Network Connection",
+            font=("Helvetica", 14, "bold"),
+            bg="black",
+            fg="white"
+        ).pack(pady=10)
+        
+        tk.Label(
+            dialog,
+            text="Use this when automatic connection fails.\nManually configure and test the connection.",
+            bg="black",
+            fg="gray",
+            justify="left"
+        ).pack(pady=5)
+        
+        # Input frame
+        input_frame = tk.Frame(dialog, bg="black")
+        input_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # Host IP/Name
+        tk.Label(input_frame, text="Host IP or Name:", bg="black", fg="white").grid(row=0, column=0, sticky="w", pady=5)
+        host_var = tk.StringVar(value=self.host_ip_var.get() or "192.168.10.201")
+        tk.Entry(input_frame, textvariable=host_var, width=30, bg="#333", fg="white", insertbackground="white").grid(row=0, column=1, sticky="ew", pady=5, padx=5)
+        
+        # Share name
+        tk.Label(input_frame, text="Share Name:", bg="black", fg="white").grid(row=1, column=0, sticky="w", pady=5)
+        share_var = tk.StringVar(value=self.off_share_name.get() or "SharedMeshDrive")
+        tk.Entry(input_frame, textvariable=share_var, width=30, bg="#333", fg="white", insertbackground="white").grid(row=1, column=1, sticky="ew", pady=5, padx=5)
+        
+        # Username (optional)
+        tk.Label(input_frame, text="Username (optional):", bg="black", fg="white").grid(row=2, column=0, sticky="w", pady=5)
+        user_var = tk.StringVar()
+        tk.Entry(input_frame, textvariable=user_var, width=30, bg="#333", fg="white", insertbackground="white").grid(row=2, column=1, sticky="ew", pady=5, padx=5)
+        
+        # Password (optional)
+        tk.Label(input_frame, text="Password (optional):", bg="black", fg="white").grid(row=3, column=0, sticky="w", pady=5)
+        pass_var = tk.StringVar()
+        tk.Entry(input_frame, textvariable=pass_var, width=30, bg="#333", fg="white", insertbackground="white", show="*").grid(row=3, column=1, sticky="ew", pady=5, padx=5)
+        
+        # Map drive option
+        map_drive_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            input_frame,
+            text="Map as M: drive (non-persistent)",
+            variable=map_drive_var,
+            bg="black",
+            fg="white",
+            selectcolor="black"
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=10)
+        
+        input_frame.columnconfigure(1, weight=1)
+        
+        # Status label
+        status_label = tk.Label(dialog, text="", bg="black", fg="yellow", wraplength=550, justify="left")
+        status_label.pack(pady=10)
+        
+        # Button frame
+        btn_frame = tk.Frame(dialog, bg="black")
+        btn_frame.pack(pady=10)
+        
+        def test_connection():
+            """Test the connection without saving."""
+            host = host_var.get().strip()
+            share = share_var.get().strip()
+            
+            if not host or not share:
+                status_label.config(text="❌ Please enter both Host IP and Share Name", fg="red")
+                return
+            
+            status_label.config(text="Testing connection...", fg="yellow")
+            dialog.update()
+            
+            def _test():
+                try:
+                    unc_path = f"\\\\{host}\\{share}"
+                    username = user_var.get().strip() or None
+                    password = pass_var.get().strip() or None
+                    
+                    # Use the cached session function
+                    success = ensure_smb_session_cached(unc_path, username=username, password=password, timeout=8)
+                    
+                    def _result():
+                        if success:
+                            status_label.config(
+                                text=f"✓ Connection successful to {unc_path}",
+                                fg="green"
+                            )
+                        else:
+                            status_label.config(
+                                text=f"❌ Connection failed to {unc_path}\nCheck log for details (ERROR 1219, credentials, firewall, etc.)",
+                                fg="red"
+                            )
+                    post_ui(_result)
+                except Exception as e:
+                    def _error():
+                        status_label.config(text=f"❌ Error: {str(e)}", fg="red")
+                    post_ui(_error)
+            
+            run_in_thread(_test)
+        
+        def save_and_connect():
+            """Save settings and establish connection."""
+            host = host_var.get().strip()
+            share = share_var.get().strip()
+            username = user_var.get().strip() or None
+            password = pass_var.get().strip() or None
+            
+            if not host or not share:
+                status_label.config(text="❌ Please enter both Host IP and Share Name", fg="red")
+                return
+            
+            status_label.config(text="Connecting and saving...", fg="yellow")
+            dialog.update()
+            
+            def _connect():
+                try:
+                    unc_path = f"\\\\{host}\\{share}"
+                    
+                    # Establish connection
+                    success = ensure_smb_session_cached(unc_path, username=username, password=password, timeout=10)
+                    
+                    if success:
+                        # Save credentials if provided
+                        if username and password:
+                            try:
+                                _store_creds_in_cmdkey(host, username, password)
+                            except Exception as e:
+                                logging.warning(f"[manual_connect] Could not store credentials: {e}")
+                        
+                        # Map drive if requested
+                        if map_drive_var.get():
+                            try:
+                                subprocess.run(
+                                    ['net', 'use', 'M:', unc_path, '/persistent:no'],
+                                    capture_output=True,
+                                    timeout=5,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                                )
+                            except Exception as e:
+                                logging.warning(f"[manual_connect] Could not map M: drive: {e}")
+                        
+                        # Update config
+                        def _save():
+                            try:
+                                self.host_ip_var.set(host)
+                                self.off_share_name.set(share)
+                                
+                                # Save to config
+                                config["Offline"]["host_ip"] = host
+                                config["Offline"]["host_name"] = host
+                                config["Offline"]["share_name"] = share
+                                config["Fusers"]["working_folder_host"] = host
+                                config["Fusers"]["shared_working_unc"] = f"\\\\{host}\\{share}\\WorkingFuser"
+                                
+                                write_config_atomic(config)
+                                
+                                status_label.config(
+                                    text=f"✓ Connected and saved! Connection to {unc_path} established.",
+                                    fg="green"
+                                )
+                                
+                                # Close dialog after brief delay
+                                dialog.after(2000, dialog.destroy)
+                            except Exception as e:
+                                status_label.config(text=f"❌ Save failed: {str(e)}", fg="red")
+                        
+                        post_ui(_save)
+                    else:
+                        def _fail():
+                            status_label.config(
+                                text=f"❌ Connection failed to {unc_path}\nCheck the log for ERROR 1219, credential issues, etc.",
+                                fg="red"
+                            )
+                        post_ui(_fail)
+                except Exception as e:
+                    def _error():
+                        status_label.config(text=f"❌ Error: {str(e)}", fg="red")
+                    post_ui(_error)
+            
+            run_in_thread(_connect)
+        
+        tk.Button(btn_frame, text="Test Connection", bg="#444", fg="white", command=test_connection, padx=15, pady=5).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Connect & Save", bg="#446644", fg="white", command=save_and_connect, padx=15, pady=5).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Cancel", bg="#664444", fg="white", command=dialog.destroy, padx=15, pady=5).pack(side="left", padx=5)
 
     def _clear_offline_settings(self):
         """Clear all offline IP and network configuration settings."""
