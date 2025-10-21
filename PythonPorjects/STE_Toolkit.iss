@@ -56,6 +56,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
   Flags: runhidden
 
 [Registry]
+; Force elevation because the toolkit needs to modify PhotoMesh config files in Program Files
+; Our SMB session cache and credential handling now properly work in elevated mode
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\STE_Toolkit.exe"; ValueData: "~ RUNASADMIN"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Code]

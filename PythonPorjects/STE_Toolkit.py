@@ -210,6 +210,14 @@ _LST_THREAD = None
 SMB_SESSION_CACHE = {}
 SMB_SESSION_LOCK = threading.Lock()
 
+def is_running_elevated():
+    """Check if the current process is running with administrator privileges."""
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
 def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5):
     """
     Ensure a persistent SMB session exists for the given UNC path.
@@ -1168,15 +1176,46 @@ def _try_net_use_unc(unc_root, username=None, password=None):
     return _try_net_use_unc_throttled(unc_root)
 
 def _store_creds_in_cmdkey(host, username, password):
-    """Persist credentials for SMB to avoid re-prompt on next boot."""
+    """Persist credentials for SMB to avoid re-prompt on next boot.
+    
+    Stores credentials for BOTH IP and hostname (if resolvable) to ensure
+    elevated and non-elevated contexts can both access the share.
+    This fixes the split-token issue where Explorer works but elevated Toolkit doesn't.
+    """
     try:
-        # First, try to delete any existing credentials for this host
-        _run(["cmdkey", f"/delete:{host}"])
-        # Then add the new credentials
-        rc, stdout, stderr = _run(["cmdkey", f"/add:{host}", f"/user:{username}", f"/pass:{password}"])
+        # Store for the provided host (IP or name)
+        _run(["cmdkey", f"/delete:{host}"], timeout=3)
+        rc, stdout, stderr = _run(["cmdkey", f"/add:{host}", f"/user:{username}", f"/pass:{password}"], timeout=5)
         logging.info(f"[cmdkey] Stored credentials for {username}@{host}, return code: {rc}")
         if stderr:
             logging.warning(f"[cmdkey] Stderr: {stderr}")
+        
+        # Also store for the opposite (hostname if given IP, or IP if given hostname)
+        try:
+            import socket
+            # If host is an IP, try to get hostname
+            if host.replace('.', '').isdigit():  # Simple IP check
+                try:
+                    hostname = socket.gethostbyaddr(host)[0]
+                    if hostname and hostname != host:
+                        _run(["cmdkey", f"/delete:{hostname}"], timeout=3)
+                        rc2, _, _ = _run(["cmdkey", f"/add:{hostname}", f"/user:{username}", f"/pass:{password}"], timeout=5)
+                        logging.info(f"[cmdkey] Also stored credentials for hostname: {username}@{hostname}, rc={rc2}")
+                except Exception:
+                    pass
+            # If host is a name, try to get IP
+            else:
+                try:
+                    ip = socket.gethostbyname(host)
+                    if ip and ip != host:
+                        _run(["cmdkey", f"/delete:{ip}"], timeout=3)
+                        rc3, _, _ = _run(["cmdkey", f"/add:{ip}", f"/user:{username}", f"/pass:{password}"], timeout=5)
+                        logging.info(f"[cmdkey] Also stored credentials for IP: {username}@{ip}, rc={rc3}")
+                except Exception:
+                    pass
+        except Exception as e:
+            logging.debug(f"[cmdkey] Could not resolve alternate host form: {e}")
+            
     except Exception as e:
         logging.error(f"[cmdkey] Exception storing credentials: {e}")
 
