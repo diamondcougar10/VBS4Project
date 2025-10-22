@@ -1440,21 +1440,38 @@ def periodic_memory_cleanup():
 def check_network_share_status():
     """
     Check if the configured network share is accessible.
-    Returns tuple: (is_accessible: bool, status_message: str)
+    Returns tuple: (status_code: str, status_message: str, color: str)
+    
+    Status codes:
+    - 'connected': Share is fully accessible
+    - 'checking': Currently verifying connection
+    - 'local': Host PC using local path
+    - 'disconnected': Share not accessible
+    - 'unconfigured': No share configured
+    - 'error': Error during check
+    
+    Uses aggressive timeouts (1s quick check, 2s fallback) to rapidly detect
+    drive disconnection events like USB unplugging.
     """
     try:
         unc_path = resolve_shared_access_path()
         if not unc_path:
-            return False, "No network path configured"
+            return 'unconfigured', "● No network path configured", "#FFA500"  # Orange
         
         # If it's a local path (Host PC), just check if it exists
         if not unc_path.startswith("\\\\"):
             if os.path.exists(unc_path):
-                return True, f"Local share accessible: {unc_path}"
+                return 'local', f"● Local: {os.path.basename(unc_path)}", "#00BFFF"  # Sky blue
             else:
-                return False, f"Local path not found: {unc_path}"
-        if quick_unc_check(unc_path, timeout=3):
-            return True, f"Connected to {unc_path}"
+                return 'error', f"● Local path missing: {os.path.basename(unc_path)}", "#FF4500"  # Orange-red
+        
+        # Quick check first (fast path) - aggressive 1 second timeout for fast disconnect detection
+        if quick_unc_check(unc_path, timeout=1):
+            # Extract just the share name for cleaner display
+            share_name = unc_path.split('\\')[3] if len(unc_path.split('\\')) > 3 else unc_path
+            return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
+        
+        # Fallback: slower filesystem check with 2 second timeout
         try:
             result_queue = Queue()
             def _check_exists():
@@ -1465,16 +1482,25 @@ def check_network_share_status():
             
             t = threading.Thread(target=_check_exists, daemon=True)
             t.start()
-            t.join(2.0)  # 2 second timeout for fallback
+            t.join(2.0)  # 2 second timeout for fallback check
             
             if not result_queue.empty() and result_queue.get_nowait():
-                return True, f"Connected to {unc_path}"
+                share_name = unc_path.split('\\')[3] if len(unc_path.split('\\')) > 3 else unc_path
+                return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
         except:
             pass
         
-        return False, f"Cannot access {unc_path}"
+        # Not accessible - drive may be disconnected/unplugged
+        host_ip = config.get("Offline", "host_ip", fallback="").strip()
+        share_name = config.get("Offline", "share_name", fallback="").strip()
+        if host_ip and share_name:
+            return 'disconnected', f"○ Disconnected from {host_ip}", "#FF0000"  # Red
+        else:
+            return 'unconfigured', "○ Share not configured", "#FFA500"  # Orange
+            
     except Exception as e:
-        return False, f"Error checking share: {str(e)}"
+        logging.error(f"[share-status] Error checking share: {e}")
+        return 'error', f"● Error: {str(e)[:30]}", "#FF4500"  # Orange-red
 
 def _compute_working_unc_from_cfg():
     """
@@ -3768,17 +3794,40 @@ def kill_fusers_on_disable():
 def restore_fusers_on_startup():
     """
     Restore fuser instances from previous session on designated fuser computers.
-    Only runs if this machine is marked as a fuser and had fusers running before shutdown.
+    If this is first run (last_count=0), uses desired_count from config.
     """
     try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        if not is_fuser:
+        is_host = is_host_machine()
+        
+        if not is_fuser and not is_host:
+            logging.info("[restore-fusers] Not a fuser or host machine, skipping")
             return
             
         last_count = get_last_launched_fuser_count()
+        
+        # Determine target count for restoration
         if last_count > 0:
-            ensure_fuser_instances(last_count)
+            target = last_count
+            logging.info(f"[restore-fusers] Restoring {target} fusers from previous session")
+        else:
+            # First run or clean boot: use config defaults
+            if is_host:
+                host_ct, _ = get_fuser_counts()
+                target = host_ct
+                logging.info(f"[restore-fusers] First run as HOST, starting {target} fuser(s)")
+            elif is_fuser:
+                _, desired_ct = get_fuser_counts()
+                target = desired_ct
+                logging.info(f"[restore-fusers] First run as FUSER, starting {target} fuser(s)")
+            else:
+                target = 0
+        
+        if target > 0:
+            ensure_fuser_instances(target)
+            logging.info(f"[restore-fusers] Started {target} fuser instance(s)")
     except Exception as e:
+        logging.error(f"[restore-fusers] Failed: {e}")
         pass
 
 def enforce_local_fuser_policy():
@@ -3830,10 +3879,14 @@ def enforce_local_fuser_policy():
             target = desired_ct
             logging.info(f"[fuser-policy] DECISION: fuser machine + UNC ready → target={target}")
         elif is_fuser and not unc_ok:
-            # Don't kill fusers just because UNC is momentarily down
+            # UNC not ready: preserve running fusers if any, otherwise still start desired count
+            # This handles first-boot scenarios where UNC might be slow to respond
             current = count_local_fusers()
-            target = max(current, desired_ct) if current > 0 else 0
-            logging.warning(f"[fuser-policy] DECISION: fuser machine but UNC not ready, preserving {current} running fusers (desired={desired_ct})")
+            target = max(current, desired_ct)
+            if current > 0:
+                logging.warning(f"[fuser-policy] DECISION: fuser machine but UNC not ready, preserving {current} running fusers (desired={desired_ct})")
+            else:
+                logging.info(f"[fuser-policy] DECISION: fuser machine, UNC not ready but no fusers running yet → starting {desired_ct} fusers anyway")
         else:
             target = 0
             logging.info(f"[fuser-policy] DECISION: neither host nor fuser → target={target}")
@@ -8054,6 +8107,58 @@ class OneClickPanel(tk.Frame):
         )
         self.back_button.pack(pady=(15, 0))
 
+        # --- Host-only system status box -------------------------------------
+        # Show fuser count and share drive status only on Host PC
+        if is_host_machine():
+            host_status_frame = tk.Frame(
+                self, bg="#2a2a2a", bd=2, relief="solid", highlightthickness=0
+            )
+            host_status_frame.pack(fill="x", padx=20, pady=(20, 5))
+            
+            # Title
+            tk.Label(
+                host_status_frame,
+                text="System Status (Host)",
+                font=("Helvetica", 14, "bold"),
+                bg="#2a2a2a",
+                fg="#00BFFF",
+                bd=0,
+                highlightthickness=0,
+            ).pack(anchor="w", padx=10, pady=(5, 2))
+            
+            # Fuser status label
+            self.host_fuser_status_label = tk.Label(
+                host_status_frame,
+                text="Fusers: Checking...",
+                font=("Helvetica", 12),
+                bg="#2a2a2a",
+                fg="#FFFF00",
+                bd=0,
+                highlightthickness=0,
+                anchor="w",
+            )
+            self.host_fuser_status_label.pack(anchor="w", padx=10, pady=2)
+            
+            # Share drive status label
+            self.host_share_status_label = tk.Label(
+                host_status_frame,
+                text="Share Drive: Checking...",
+                font=("Helvetica", 12),
+                bg="#2a2a2a",
+                fg="#FFFF00",
+                bd=0,
+                highlightthickness=0,
+                anchor="w",
+            )
+            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5))
+            
+            # Start periodic status updates
+            self._update_host_status_box()
+        else:
+            # Not a Host machine, so we don't create the status box
+            self.host_fuser_status_label = None
+            self.host_share_status_label = None
+
         # --- Status line (RM link source/path) -------------------------------
         status_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
         status_frame.pack(fill="x", padx=20, pady=(10, 0))
@@ -8219,6 +8324,114 @@ class OneClickPanel(tk.Frame):
             )
             self.log_message(tip)
         enforce_local_fuser_policy()
+
+    def _update_host_status_box(self):
+        """Update the Host-only status box showing fuser count and share status.
+        
+        This method runs every 3 seconds on the Host machine to display:
+        - Current fuser count vs desired count
+        - Share drive connectivity status with color coding
+        
+        Synced with Settings panel logic to ensure consistent status reporting.
+        Only runs if the status box exists (i.e., on Host machines).
+        """
+        if not hasattr(self, 'host_fuser_status_label') or self.host_fuser_status_label is None:
+            return  # Not on Host machine, nothing to update
+        
+        # Prevent overlapping background checks
+        if getattr(self, "_host_status_check_busy", False):
+            self.after(3000, self._update_host_status_box)
+            return
+        
+        self._host_status_check_busy = True
+        
+        # Track last status to avoid unnecessary UI updates (smooth experience)
+        last_fuser_status = getattr(self, "_last_host_fuser_status", None)
+        last_share_status = getattr(self, "_last_host_share_status", None)
+        
+        def _work():
+            """Background thread work - checks fuser count and share status."""
+            fuser_result = None
+            share_result = None
+            
+            try:
+                # Get fuser status (same logic as Settings panel)
+                running = count_local_fusers()
+                host_ct, desired_ct = get_fuser_counts()
+                target = host_ct if host_ct > 0 else desired_ct
+                
+                if running == target and running > 0:
+                    fuser_result = (f"Fusers: {running}/{target} (Running)", "#00FF00")  # Green
+                elif running == 0:
+                    fuser_result = (f"Fusers: 0/{target} (Not Running)", "#FF0000")  # Red
+                else:
+                    fuser_result = (f"Fusers: {running}/{target} (Partial)", "#FFFF00")  # Yellow
+                
+            except Exception as e:
+                fuser_result = ("Fusers: Error", "#FF4500")  # Orange-Red
+            
+            try:
+                # Get share status (same function used by Settings panel)
+                status_code, status_msg, status_color = check_network_share_status()
+                
+                # Format the message for the status box (consistent with Settings panel)
+                if status_code == 'connected':
+                    share_text = "Share Drive: Connected"
+                elif status_code == 'local':
+                    share_text = "Share Drive: Local Path"
+                elif status_code == 'checking':
+                    share_text = "Share Drive: Checking..."
+                elif status_code == 'disconnected':
+                    share_text = "Share Drive: Disconnected"
+                elif status_code == 'unconfigured':
+                    share_text = "Share Drive: Not Configured"
+                elif status_code == 'error':
+                    share_text = "Share Drive: Error"
+                else:
+                    share_text = f"Share Drive: {status_msg}"
+                
+                share_result = (share_text, status_color)
+                
+            except Exception as e:
+                share_result = ("Share Drive: Error", "#FF4500")  # Orange-Red
+            
+            def _apply():
+                """Apply results on UI thread."""
+                try:
+                    # Update fuser status (only if changed)
+                    if fuser_result and fuser_result != last_fuser_status:
+                        fuser_text, fuser_color = fuser_result
+                        if hasattr(self, 'host_fuser_status_label') and self.host_fuser_status_label:
+                            self.host_fuser_status_label.config(text=fuser_text, fg=fuser_color)
+                        self._last_host_fuser_status = fuser_result
+                    
+                    # Update share status (only if changed)
+                    if share_result and share_result != last_share_status:
+                        share_text, share_color = share_result
+                        if hasattr(self, 'host_share_status_label') and self.host_share_status_label:
+                            self.host_share_status_label.config(text=share_text, fg=share_color)
+                        self._last_host_share_status = share_result
+                        
+                        # Log disconnection events (synced with Settings panel logging)
+                        if 'Disconnected' in share_text and last_share_status and 'Connected' in last_share_status[0]:
+                            logging.warning(f"[oneclick-status] Share became disconnected - drive may have been unplugged")
+                        elif 'Connected' in share_text and last_share_status and 'Disconnect' in last_share_status[0]:
+                            logging.info(f"[oneclick-status] Share reconnected")
+                    
+                finally:
+                    self._host_status_check_busy = False
+                    # Schedule next update in 3 seconds (matches Settings panel polling rate)
+                    self.after(3000, self._update_host_status_box)
+            
+            # Apply result on UI thread
+            try:
+                self.after(0, _apply)
+            except Exception:
+                # If widget is destroyed, just drop it
+                self._host_status_check_busy = False
+        
+        # Run the check in background thread (same pattern as Settings panel)
+        run_in_thread(_work)
 
     def relaunch_fusers(self):
         try:
@@ -9145,6 +9358,7 @@ class SettingsPanel(tk.Frame):
         self.share_status_label.pack(side="left", fill="x", expand=True)
 
         def _test_connection():
+            """Test network connectivity and show detailed results."""
             o = get_offline_cfg()
             unc_root = build_unc_from_cfg(o)
             working_fuser = working_fuser_unc()
@@ -9165,6 +9379,12 @@ class SettingsPanel(tk.Frame):
             # Show results
             msg = "\n".join(result_lines)
             messagebox.showinfo("Connection Test", msg)
+            # Trigger immediate status refresh after test
+            self._force_share_status_update()
+
+        def _refresh_status():
+            """Force an immediate share status check."""
+            self._force_share_status_update()
 
         tk.Button(
             share_row,
@@ -9175,6 +9395,18 @@ class SettingsPanel(tk.Frame):
             fg="white",
             bd=0,
         ).pack(side="left", padx=8)
+        
+        # Add refresh button for instant status check
+        tk.Button(
+            share_row,
+            text="↻ Refresh",
+            command=_refresh_status,
+            font=("Helvetica", 10),
+            bg="#555555",
+            fg="white",
+            bd=0,
+            width=8
+        ).pack(side="left", padx=(0, 8))
         
         # Add tooltip functionality to the status label
         def create_tooltip(widget, text_func):
@@ -9207,11 +9439,17 @@ class SettingsPanel(tk.Frame):
         # Tooltip that shows detailed share status
         def get_tooltip_text():
             try:
-                is_accessible, status_msg = check_network_share_status()
-                if is_accessible:
-                    return f"Network Share Status: Connected\n{status_msg}"
-                else:
-                    return f"Network Share Status: Disconnected\n{status_msg}"
+                status_code, status_msg, _ = check_network_share_status()
+                status_name = {
+                    'connected': 'Connected',
+                    'local': 'Local (Host PC)',
+                    'disconnected': 'Disconnected',
+                    'unconfigured': 'Not Configured',
+                    'checking': 'Checking...',
+                    'error': 'Error'
+                }.get(status_code, 'Unknown')
+                
+                return f"Network Share Status: {status_name}\n{status_msg.replace('●', '').replace('○', '').replace('◐', '').strip()}"
             except Exception as e:
                 return f"Network Share Status: Error\n{str(e)}"
         
@@ -9692,42 +9930,75 @@ class SettingsPanel(tk.Frame):
         """Update the share status indicator based on current network share availability.
 
         Runs the check on a background thread to avoid blocking the UI thread. UI is updated via after().
+        Only shows "Checking..." if the check takes longer than 500ms to avoid flashing.
+        Only updates UI if status actually changed for smooth experience.
+        
+        Checks every 3 seconds to quickly detect drive disconnection events (e.g., USB unplugged).
         """
         # Prevent overlapping background checks
         if getattr(self, "_share_check_busy", False):
             # Try again a bit later if a previous check is still running
-            self.after(5000, self._update_share_status)
+            self.after(3000, self._update_share_status)
             return
 
         self._share_check_busy = True
+        
+        # Track the last known status to avoid unnecessary UI updates
+        last_status = getattr(self, "_last_share_status", None)
+        check_start_time = time.time()
+        checking_shown = False
 
         def _work():
-            result = (None, None)
+            nonlocal checking_shown
+            result = ('checking', '◐ Checking...', '#FFFF00')
             try:
+                # Start the actual check
                 result = check_network_share_status()
+                
+                # If check took longer than 500ms, show "Checking..." briefly
+                # This prevents flash for fast checks but gives feedback for slow ones
+                elapsed = time.time() - check_start_time
+                if elapsed > 0.5 and not checking_shown:
+                    checking_shown = True
+                    try:
+                        if hasattr(self, "share_status_label"):
+                            self.after(0, lambda: self.share_status_label.config(text="◐ Checking...", fg="#FFFF00"))
+                    except:
+                        pass
+                        
             except Exception as e:
                 logging.warning(f"Share status check failed: {e}")
+                result = ('error', f'● Error: {str(e)[:30]}', '#FF4500')
 
             def _apply():
                 try:
-                    is_accessible, status_msg = result
-                    if is_accessible is True:
-                        self.share_status_label.config(text="● Connected", fg="#00FF00")  # Green
-                        # Update compact host status line
+                    status_code, status_msg, status_color = result
+                    
+                    # Only update UI if status actually changed (prevents flashing)
+                    current_status_key = f"{status_code}:{status_msg}"
+                    if last_status != current_status_key:
+                        # Update share status label
+                        if hasattr(self, "share_status_label"):
+                            self.share_status_label.config(text=status_msg, fg=status_color)
+                        
+                        # Update compact host status line (map status to simple bool for backwards compat)
                         if hasattr(self, "host_status_label"):
-                            self.host_status_label.config(text=self._format_host_status(True))
-                    elif is_accessible is False:
-                        self.share_status_label.config(text="○ Disconnected", fg="#FF0000")  # Red
-                        if hasattr(self, "host_status_label"):
-                            self.host_status_label.config(text=self._format_host_status(False))
-                    else:
-                        self.share_status_label.config(text="○ Status unavailable", fg="#888888")  # Gray
-                        if hasattr(self, "host_status_label"):
-                            self.host_status_label.config(text=self._format_host_status(None))
+                            is_ok = status_code in ('connected', 'local')
+                            self.host_status_label.config(text=self._format_host_status(is_ok if status_code != 'checking' else None))
+                        
+                        # Remember this status
+                        self._last_share_status = current_status_key
+                        
+                        # Log status changes for troubleshooting
+                        if status_code == 'disconnected' and last_status and 'connected' in last_status.lower():
+                            logging.warning(f"[share-status] Share became disconnected - drive may have been unplugged")
+                        elif status_code in ('connected', 'local') and last_status and 'disconnect' in last_status.lower():
+                            logging.info(f"[share-status] Share reconnected")
+                        
                 finally:
                     self._share_check_busy = False
-                    # Schedule next update in 10 seconds
-                    self.after(10000, self._update_share_status)
+                    # Schedule next update in 3 seconds (faster detection of drive disconnection)
+                    self.after(3000, self._update_share_status)
 
             # Apply result on UI thread
             try:
@@ -9737,6 +10008,24 @@ class SettingsPanel(tk.Frame):
                 self._share_check_busy = False
 
         run_in_thread(_work)
+
+    def _force_share_status_update(self):
+        """Force an immediate share status check, bypassing the busy flag.
+        
+        Shows "Checking..." immediately for manual refresh to provide visual feedback.
+        """
+        # Reset the busy flag to allow immediate check
+        self._share_check_busy = False
+        # Clear last status so UI updates even if status is the same
+        self._last_share_status = None
+        # Show immediate "Checking..." feedback for manual refresh
+        try:
+            if hasattr(self, "share_status_label"):
+                self.share_status_label.config(text="◐ Checking...", fg="#FFFF00")
+        except:
+            pass
+        # Trigger the update
+        self.after(50, self._update_share_status)  # Small delay to ensure UI updates
 
     def _browse_local_root(self):
         p = filedialog.askdirectory(
