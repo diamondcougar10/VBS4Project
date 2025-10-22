@@ -7,7 +7,7 @@
 ; ================================================================================
 
 #define AppName "STE Mission Planning Toolkit"
-#define AppVersion "1.1"
+#define AppVersion "2.0"
 
 [Setup]
 AppName={#AppName}

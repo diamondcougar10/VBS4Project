@@ -2021,12 +2021,34 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
                 logging.exception("Failed to write VBS4 path to config from cache")
             return cached_path
 
-    roots = [
+    # Build search roots with expanded VBS4 version paths
+    roots = []
+    
+    # Add version-specific paths first (most likely to contain latest VBS4)
+    builds_vbs4_base = r"C:\Builds\VBS4"
+    if os.path.isdir(builds_vbs4_base):
+        try:
+            # Look for version-numbered subdirectories first
+            version_folders = []
+            for entry in os.listdir(builds_vbs4_base):
+                entry_path = os.path.join(builds_vbs4_base, entry)
+                if os.path.isdir(entry_path):
+                    # Add version folders like "VBS4 25.1 YYMEA_General"
+                    if "VBS4" in entry or "YYMEA" in entry or re.search(r'\d+\.\d+', entry):
+                        version_folders.append(entry_path)
+                        roots.append(entry_path)
+            if version_folders:
+                logging.info("[discover] Found %d VBS4 version folders in %s", len(version_folders), builds_vbs4_base)
+        except (OSError, PermissionError) as e:
+            logging.warning("[discover] Could not list %s: %s", builds_vbs4_base, e)
+    
+    # Add standard search roots
+    roots.extend([
         r"C:\BISIM\VBS4",
         r"C:\Builds\VBS4",
         r"C:\Builds",
         r"C:\Bohemia Interactive Simulations",
-    ]
+    ])
 
     if allow_full_drive:
         roots.append(r"C:\\")
@@ -2150,15 +2172,40 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
         return ""
 
     # 2) Search common roots for either name
-    roots = [
-        r"C:\\BISIM\\VBS4",
-        r"C:\\Builds\\VBS4",
-        r"C:\\Builds",
-        r"C:\\Bohemia Interactive Simulations",
-        r"C:\\Program Files\\Bohemia Interactive Simulations",
-    ]
+    # Build search roots with expanded VBS4 version paths
+    roots = []
+    
+    # If we already found VBS4.exe, prioritize its directory
     if vbs4_exe:
-        roots.insert(0, os.path.dirname(vbs4_exe))
+        roots.append(os.path.dirname(vbs4_exe))
+    
+    # Add version-specific paths that may contain VBSLauncher.exe
+    # These cover patterns like "C:\Builds\VBS4\VBS4 25.1 YYMEA_General"
+    builds_vbs4_base = r"C:\Builds\VBS4"
+    if os.path.isdir(builds_vbs4_base):
+        try:
+            # Look for version-numbered subdirectories first (most specific)
+            version_folders = []
+            for entry in os.listdir(builds_vbs4_base):
+                entry_path = os.path.join(builds_vbs4_base, entry)
+                if os.path.isdir(entry_path):
+                    # Add version folders like "VBS4 25.1 YYMEA_General"
+                    if "VBS4" in entry or "YYMEA" in entry or re.search(r'\d+\.\d+', entry):
+                        version_folders.append(entry_path)
+                        roots.append(entry_path)
+            if version_folders:
+                logging.info("[discover] Found %d VBS4 version folders in %s", len(version_folders), builds_vbs4_base)
+        except (OSError, PermissionError) as e:
+            logging.warning("[discover] Could not list %s: %s", builds_vbs4_base, e)
+    
+    # Add standard search roots
+    roots.extend([
+        r"C:\BISIM\VBS4",
+        r"C:\Builds\VBS4",
+        r"C:\Builds",
+        r"C:\Bohemia Interactive Simulations",
+        r"C:\Program Files\Bohemia Interactive Simulations",
+    ])
 
     def _iter_candidates(search_roots, respect_deadline=True):
         seen = set()
@@ -4644,14 +4691,16 @@ def ensure_executable(config_key: str, exe_name: str | list[str], prompt_title: 
         elif candidate == 'blueig.exe':
             path = get_blueig_install_path()
         elif candidate in ('vbslauncher.exe', 'vbs4launcher.exe'):
-            path = get_vbs4_launcher_path()
+            # Increased time budget for launcher search (needs to scan deeper folders)
+            path = get_vbs4_launcher_path(time_budget_sec=2.5, allow_full_drive=False)
         else:
             path = find_executable(exe_name)
     else:
         for name in exe_name:
             low = name.lower()
             if low in ('vbslauncher.exe', 'vbs4launcher.exe'):
-                path = get_vbs4_launcher_path()
+                # Increased time budget for launcher search (needs to scan deeper folders)
+                path = get_vbs4_launcher_path(time_budget_sec=2.5, allow_full_drive=False)
             else:
                 path = find_executable(name)
             if path:
@@ -6961,9 +7010,16 @@ class MainMenu(tk.Frame):
                 bg=bg, fg="white",
                 width=25, height=2,
                 command=cmd,
-                state=state
+                state=state,
+                bd=0,
+                highlightthickness=0,
+                relief="flat",
+                overrelief="flat",
+                takefocus=False,
             )
             button.pack(pady=10)
+            # Add hover effect for better UI responsiveness
+            add_button_hover_effect(button, normal_bg="#444444", hover_bg="#555555")
 
     def create_blueig_button(self):
         for widget in self.blueig_frame.winfo_children():
@@ -6976,8 +7032,15 @@ class MainMenu(tk.Frame):
             bg="#888888", fg="white",
             width=25, height=2,
             state="disabled",
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+            overrelief="flat",
+            takefocus=False,
         )
         btn.pack()
+        # Add hover effect for better UI responsiveness
+        add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
 
         is_srv = config["General"].getboolean("is_server", fallback=False)
         if is_srv:
@@ -11026,7 +11089,7 @@ class CreditsPanel(tk.Frame):
                  bg="#222222", fg="white", anchor="w")\
             .pack(fill="x", pady=(0, 20))
 
-        tk.Label(card, text="Version: 1.0", font=("Helvetica", 18, "bold"),
+        tk.Label(card, text="Version: 2.0", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(0, 20))
 
         tk.Label(card, text="Special thanks to:", font=("Helvetica", 18, "bold"),
@@ -11224,7 +11287,7 @@ def run_with_splash():
         config.add_section('General')
         
     # update version number
-    config['General']['app_version'] = '1.1'
+    config['General']['app_version'] = '2.0'
     
     should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
     
@@ -11239,7 +11302,7 @@ def run_with_splash():
     
     # Create and attach a splash that never steals focus
     splash_img = _resource_path(SPLASH_NAME)
-    ver = "Version: 1.1"  # Explicitly set version to 1.1
+    ver = "Version: 2.0"  # Explicitly set version to 2.0
     # Set min_display_time to 3.0 seconds to ensure splash shows long enough
     splash = SplashScreen(app, image_path=splash_img, version_text=ver, min_display_time=3.0)
     app.attach_splash(splash)
