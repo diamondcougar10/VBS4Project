@@ -694,12 +694,18 @@ begin
   { Host-only page for the shared drive root }
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
-    'Choose Shared Drive Root',
-    'The installer will create "SharedMeshDrive" under this location.',
-    'Pick a drive letter or folder, e.g., D:\',
+    'Choose External Drive for Shared Storage',
+    'IMPORTANT: The shared drive MUST be on a separate drive (NOT C:)' + #13#10 +
+    'Please connect an external drive or use a secondary internal drive.',
+    'Select the root of your external/secondary drive (e.g., D:\, E:\, F:\)' + #13#10 + #13#10 +
+    'Requirements:' + #13#10 +
+    '  • Must NOT be C: drive' + #13#10 +
+    '  • Must be a physical drive letter (not a network path)' + #13#10 +
+    '  • Must have sufficient space for terrain data' + #13#10 + #13#10 +
+    'The installer will create a "SharedMeshDrive" folder at this location.',
     False, ''
   );
-  SharedRootPage.Add('Root drive or folder:');
+  SharedRootPage.Add('');
   SharedRootPage.Values[0] := 'D:\';
 end;
 
@@ -711,7 +717,9 @@ begin
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
-var Candidate: string;
+var 
+  Candidate, DriveLetter: string;
+  ErrorMsg: string;
 begin
   Result := True;
 
@@ -728,13 +736,76 @@ begin
   if Assigned(SharedRootPage) and (CurPageID = SharedRootPage.ID) then
   begin
     Candidate := Trim(SharedRootPage.Values[0]);
+    
+    { Validate that a path was entered }
     if Candidate = '' then
     begin
-      MsgBox('Please choose a drive or folder.', mbError, MB_OK);
+      MsgBox('Please choose a drive or folder for the shared storage.' + #13#10 + #13#10 +
+             'This MUST be an external drive or secondary internal drive (NOT C:).',
+             mbError, MB_OK);
       Result := False;
       Exit;
     end;
+    
+    { Extract drive letter (first character or characters before colon) }
+    DriveLetter := '';
+    if Length(Candidate) >= 2 then
+    begin
+      if Candidate[2] = ':' then
+        DriveLetter := UpperCase(Copy(Candidate, 1, 1))
+      else if Candidate[1] = '\' then
+      begin
+        { Handle UNC paths }
+        MsgBox('Network (UNC) paths are not supported for the shared drive.' + #13#10 + #13#10 +
+               'Please select a local drive letter (e.g., D:\, E:\, F:\).',
+               mbError, MB_OK);
+        Result := False;
+        Exit;
+      end;
+    end;
+    
+    { Validate drive letter was extracted }
+    if DriveLetter = '' then
+    begin
+      MsgBox('Invalid drive path format.' + #13#10 + #13#10 +
+             'Please enter a valid drive letter path (e.g., D:\, E:\, F:\).',
+             mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    
+    { Block C: drive }
+    if DriveLetter = 'C' then
+    begin
+      MsgBox('ERROR: C: drive is not allowed for shared storage!' + #13#10 + #13#10 +
+             'The shared drive must be on an external drive or secondary internal drive.' + #13#10 + #13#10 +
+             'Reasons:' + #13#10 +
+             '  • Prevents filling up your system drive' + #13#10 +
+             '  • Allows drive to be portable between systems' + #13#10 +
+             '  • Isolates large terrain data from OS partition' + #13#10 + #13#10 +
+             'Please connect an external drive and select it (e.g., D:\, E:\, F:\).',
+             mbCriticalError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    
+    { Validate that the drive exists and is accessible }
+    if not DirExists(DriveLetter + ':\') then
+    begin
+      MsgBox('Drive ' + DriveLetter + ':\ is not accessible or does not exist.' + #13#10 + #13#10 +
+             'Please ensure:' + #13#10 +
+             '  • The drive is properly connected' + #13#10 +
+             '  • The drive is formatted and has a drive letter assigned' + #13#10 +
+             '  • You have permission to access the drive' + #13#10 + #13#10 +
+             'Then try again.',
+             mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    
+    { All validations passed }
     SharedRoot := Candidate;
+    LogInstallEvent('Host drive validated: ' + DriveLetter + ':\ (Path: ' + SharedRoot + ')');
   end;
 end;
 

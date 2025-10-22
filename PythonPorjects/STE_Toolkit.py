@@ -2728,6 +2728,10 @@ def _get_bundled_resource_dir():
 # Use bundled resource directory for UI assets and bundled files
 _BUNDLE_DIR = _get_bundled_resource_dir()
 
+# Image cache for UI performance optimization
+# Caches resized images to avoid repeated PIL operations
+_IMAGE_CACHE = {}
+
 DEFAULT_CONFIG_PATH = _resource_path('config.ini')          # bundled
 SITE_CONFIG_PATH    = os.path.join(BASE_DIR, 'config.ini')  # next to EXE
 
@@ -4840,6 +4844,78 @@ def set_wallpaper(window):
         lbl.lower()
     except Exception:
         pass
+
+# ─── UI Performance Helpers ──────────────────────────────────────────────────
+
+def load_cached_image(path: str, size: tuple[int, int]) -> ImageTk.PhotoImage:
+    """Load and cache resized images for better UI performance.
+    
+    Args:
+        path: Absolute path to the image file
+        size: Tuple of (width, height) for resizing
+    
+    Returns:
+        Cached PhotoImage object
+    
+    This prevents repeated PIL resize operations by caching the result.
+    Significantly improves panel switching and dialog creation speed.
+    """
+    global _IMAGE_CACHE
+    cache_key = f"{path}_{size[0]}x{size[1]}"
+    
+    if cache_key not in _IMAGE_CACHE:
+        if not os.path.exists(path):
+            logging.warning(f"[ui-cache] Image not found: {path}")
+            return None
+        try:
+            img = Image.open(path).resize(size, Image.Resampling.LANCZOS)
+            _IMAGE_CACHE[cache_key] = ImageTk.PhotoImage(img)
+            logging.debug(f"[ui-cache] Cached image: {cache_key}")
+        except Exception as e:
+            logging.error(f"[ui-cache] Failed to load {path}: {e}")
+            return None
+    
+    return _IMAGE_CACHE[cache_key]
+
+def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover_bg: str = "#555555"):
+    """Add smooth hover effect to a button for better visual feedback.
+    
+    Args:
+        button: tkinter Button widget
+        normal_bg: Normal background color (default: #444444)
+        hover_bg: Hover background color (default: #555555)
+    
+    Makes the UI feel more responsive by providing immediate visual feedback.
+    Only applies effect if button is not disabled.
+    """
+    def on_enter(event):
+        if button['state'] != 'disabled':
+            button.config(bg=hover_bg)
+    
+    def on_leave(event):
+        if button['state'] != 'disabled':
+            button.config(bg=normal_bg)
+    
+    button.bind("<Enter>", on_enter)
+    button.bind("<Leave>", on_leave)
+
+def set_busy_cursor(widget, busy: bool = True):
+    """Set or clear busy cursor to indicate processing.
+    
+    Args:
+        widget: tkinter widget (typically root window)
+        busy: True to show wait cursor, False to restore normal cursor
+    
+    Provides visual feedback during blocking operations like file dialogs.
+    Prevents users from thinking the app has frozen.
+    """
+    try:
+        if busy:
+            widget.config(cursor="wait")
+        else:
+            widget.config(cursor="")
+    except Exception:
+        pass  # Widget may be destroyed
     
 # =============================================================================
 # HELP/TUTORIALS & DOCUMENT OPENERS
@@ -5391,11 +5467,14 @@ def prompt_hostname(parent, initial=""):
     top.grab_set()
 
     if os.path.exists(prompt_box_image_path):
-        img = Image.open(prompt_box_image_path).resize((801, 506), Image.Resampling.LANCZOS)
-        ph = ImageTk.PhotoImage(img)
-        lbl = tk.Label(top, image=ph)
-        lbl.image = ph
-        lbl.place(relwidth=1, relheight=1)
+        # Use cached image for better performance
+        ph = load_cached_image(prompt_box_image_path, (801, 506))
+        if ph:
+            lbl = tk.Label(top, image=ph)
+            lbl.image = ph
+            lbl.place(relwidth=1, relheight=1)
+        else:
+            top.configure(bg="#333333")
     else:
         top.configure(bg="#333333")
     var = tk.StringVar(value=initial)
@@ -5436,11 +5515,14 @@ def prompt_project_name(parent):
     top.grab_set()
 
     if os.path.exists(prompt_box_image_path):
-        img = Image.open(prompt_box_image_path).resize((801, 506), Image.Resampling.LANCZOS)
-        ph = ImageTk.PhotoImage(img)
-        lbl = tk.Label(top, image=ph)
-        lbl.image = ph
-        lbl.place(relwidth=1, relheight=1)
+        # Use cached image for better performance
+        ph = load_cached_image(prompt_box_image_path, (801, 506))
+        if ph:
+            lbl = tk.Label(top, image=ph)
+            lbl.image = ph
+            lbl.place(relwidth=1, relheight=1)
+        else:
+            top.configure(bg="#333333")
     else:
         top.configure(bg="#333333")
     var = tk.StringVar()
@@ -5919,22 +6001,26 @@ class MainApp(tk.Tk):
         return result
 
     def safe_filedialog_askdirectory(self, **kwargs):
-        """Show directory dialog with proper window management."""
+        """Show directory dialog with proper window management and busy cursor feedback."""
         self._ensure_dialog_visibility()
+        set_busy_cursor(self, True)  # Show wait cursor
         try:
             kwargs.setdefault('parent', self)
             result = filedialog.askdirectory(**kwargs)
         finally:
+            set_busy_cursor(self, False)  # Restore normal cursor
             self._restore_window_state()
         return result
 
     def safe_filedialog_askopenfilename(self, **kwargs):
-        """Show open file dialog with proper window management."""
+        """Show open file dialog with proper window management and busy cursor feedback."""
         self._ensure_dialog_visibility()
+        set_busy_cursor(self, True)  # Show wait cursor
         try:
             kwargs.setdefault('parent', self)
             result = filedialog.askopenfilename(**kwargs)
         finally:
+            set_busy_cursor(self, False)  # Restore normal cursor
             self._restore_window_state()
         return result
 
@@ -7075,7 +7161,7 @@ class VBS4Panel(tk.Frame):
         self.update_button_states()
 
     def make_button(self, text, command):
-        return tk.Button(
+        btn = tk.Button(
             self,
             text=text,
             font=("Helvetica", 24),
@@ -7092,6 +7178,9 @@ class VBS4Panel(tk.Frame):
             overrelief="flat",
             takefocus=False,
         )
+        # Add hover effect for better UI responsiveness
+        add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
+        return btn
 
     def update_vbs4_version(self):
         """Set the launcher version label using the VBS4.exe file version."""
@@ -7347,13 +7436,12 @@ class VBS4Panel(tk.Frame):
         folder_window.configure(bg=self.cget("bg"))
 
         if os.path.exists(prompt_box_image_path):
-            img = Image.open(prompt_box_image_path).resize(
-                (801, 506), Image.Resampling.LANCZOS
-            )
-            ph = ImageTk.PhotoImage(img)
-            bg_label = tk.Label(folder_window, image=ph, borderwidth=0)
-            bg_label.image = ph
-            bg_label.place(relwidth=1, relheight=1)
+            # Use cached image for better performance
+            ph = load_cached_image(prompt_box_image_path, (801, 506))
+            if ph:
+                bg_label = tk.Label(folder_window, image=ph, borderwidth=0)
+                bg_label.image = ph
+                bg_label.place(relwidth=1, relheight=1)
 
         # Header
         tk.Label(
@@ -8275,8 +8363,8 @@ class OneClickPanel(tk.Frame):
         self.refresh_rm_status()
 
     def make_button(self, text, command):
-        """Return a main-action button styled like the other panels."""
-        return tk.Button(
+        """Return a main-action button styled like the other panels with hover effect."""
+        btn = tk.Button(
             self,
             text=text,
             font=("Helvetica", 24),
@@ -8293,6 +8381,9 @@ class OneClickPanel(tk.Frame):
             overrelief="flat",
             takefocus=False,
         )
+        # Add hover effect for better UI responsiveness
+        add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
+        return btn
 
         self.progress_job = None
         self.project_log_folder = None
@@ -8525,13 +8616,12 @@ class OneClickPanel(tk.Frame):
         folder_window.configure(bg=self.cget("bg"))
 
         if os.path.exists(prompt_box_image_path):
-            img = Image.open(prompt_box_image_path).resize(
-                (801, 506), Image.Resampling.LANCZOS
-            )
-            ph = ImageTk.PhotoImage(img)
-            bg_label = tk.Label(folder_window, image=ph, borderwidth=0)
-            bg_label.image = ph
-            bg_label.place(relwidth=1, relheight=1)
+            # Use cached image for better performance
+            ph = load_cached_image(prompt_box_image_path, (801, 506))
+            if ph:
+                bg_label = tk.Label(folder_window, image=ph, borderwidth=0)
+                bg_label.image = ph
+                bg_label.place(relwidth=1, relheight=1)
 
         tk.Label(
             folder_window,
@@ -8959,7 +9049,7 @@ class BVIPanel(tk.Frame):
         self.update_bvi_version()
 
     def make_button(self, text, command):
-        return tk.Button(
+        btn = tk.Button(
             self,
             text=text,
             font=("Helvetica", 24),
@@ -8976,6 +9066,9 @@ class BVIPanel(tk.Frame):
             overrelief="flat",
             takefocus=False,
         )
+        # Add hover effect for better UI responsiveness
+        add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
+        return btn
 
     def update_bvi_version(self):
         bvi_path = get_ares_manager_path()
