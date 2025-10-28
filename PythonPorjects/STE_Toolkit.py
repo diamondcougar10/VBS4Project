@@ -3446,7 +3446,34 @@ def get_working_folder_host() -> str:
     return config['Fusers'].get('working_folder_host', '').split('.')[0].upper()
 
 def is_host_machine() -> bool:
-    return get_machine_name() == get_working_folder_host()
+    """
+    Determine if this PC is the Host machine.
+    Checks multiple indicators:
+    1. If local_data_root is set (Host has local shared drive)
+    2. If machine name matches working_folder_host
+    3. If this PC's IP matches the configured host_ip
+    """
+    # Method 1: Check if local_data_root is configured (strongest indicator)
+    local_root = config.get('Offline', 'local_data_root', fallback='').strip()
+    if local_root and os.path.isdir(local_root):
+        return True
+    
+    # Method 2: Check if machine name matches working_folder_host
+    if get_machine_name() == get_working_folder_host():
+        return True
+    
+    # Method 3: Check if this PC's IP matches the configured host_ip
+    try:
+        host_ip = config.get('Offline', 'host_ip', fallback='').strip()
+        if host_ip:
+            # Get this PC's primary IP
+            my_ip = get_primary_ipv4()
+            if my_ip and my_ip == host_ip:
+                return True
+    except Exception:
+        pass
+    
+    return False
 
 def find_fuser_exe() -> str:
     """
@@ -3501,10 +3528,47 @@ def count_local_fusers() -> int:
     """Return count of running PhotoMeshFuser.exe processes."""
     return len(list_local_fusers())
 
+def count_all_fusers_from_shared() -> int:
+    """
+    Count total fusers across ALL PCs by scanning the shared WorkingFuser directory.
+    Returns the total count of fuser subdirectories (e.g., MACHINE(IP)_FuserName).
+    """
+    try:
+        # Get the shared working path
+        o = get_offline_cfg()
+        if not o.get("enabled"):
+            return 0
+        
+        shared_path = None
+        if o.get("local_data_root"):
+            # Host PC using local path
+            local_root = o.get("local_data_root", "").strip()
+            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip()
+            shared_path = os.path.join(local_root, wf_sub) if local_root else None
+        else:
+            # User PC using UNC path
+            shared_path = config.get('Fusers', 'shared_working_unc', fallback='').strip()
+        
+        if not shared_path or not os.path.isdir(shared_path):
+            return 0
+        
+        # Count fuser directories matching pattern: MACHINE(IP)_FuserName
+        pattern = re.compile(r"([^()]+)\(([^()]+)\)_(.+)")
+        count = 0
+        for entry in os.scandir(shared_path):
+            if entry.is_dir() and pattern.match(entry.name):
+                count += 1
+        
+        return count
+    except Exception as e:
+        logging.debug(f"[count_all_fusers] Error: {e}")
+        return 0
+
 
 # Fuser instance limits
 MIN_LOCAL_FUSERS = 1
 MAX_LOCAL_FUSERS = 3
+MAX_TOTAL_FUSERS = 10  # Maximum fusers across all PCs
 
 # Fuser enforcement control flags
 _FUSER_ENFORCE_LOCK = threading.Lock()
@@ -8258,58 +8322,6 @@ class OneClickPanel(tk.Frame):
         )
         self.back_button.pack(pady=(15, 0))
 
-        # --- Host-only system status box -------------------------------------
-        # Show fuser count and share drive status only on Host PC
-        if is_host_machine():
-            host_status_frame = tk.Frame(
-                self, bg="#2a2a2a", bd=2, relief="solid", highlightthickness=0
-            )
-            host_status_frame.pack(fill="x", padx=20, pady=(20, 5))
-            
-            # Title
-            tk.Label(
-                host_status_frame,
-                text="System Status (Host)",
-                font=("Helvetica", 14, "bold"),
-                bg="#2a2a2a",
-                fg="#00BFFF",
-                bd=0,
-                highlightthickness=0,
-            ).pack(anchor="w", padx=10, pady=(5, 2))
-            
-            # Fuser status label
-            self.host_fuser_status_label = tk.Label(
-                host_status_frame,
-                text="Fusers: Checking...",
-                font=("Helvetica", 12),
-                bg="#2a2a2a",
-                fg="#FFFF00",
-                bd=0,
-                highlightthickness=0,
-                anchor="w",
-            )
-            self.host_fuser_status_label.pack(anchor="w", padx=10, pady=2)
-            
-            # Share drive status label
-            self.host_share_status_label = tk.Label(
-                host_status_frame,
-                text="Share Drive: Checking...",
-                font=("Helvetica", 12),
-                bg="#2a2a2a",
-                fg="#FFFF00",
-                bd=0,
-                highlightthickness=0,
-                anchor="w",
-            )
-            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5))
-            
-            # Start periodic status updates
-            self._update_host_status_box()
-        else:
-            # Not a Host machine, so we don't create the status box
-            self.host_fuser_status_label = None
-            self.host_share_status_label = None
-
         # --- Status line (RM link source/path) -------------------------------
         status_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
         status_frame.pack(fill="x", padx=20, pady=(10, 0))
@@ -8415,6 +8427,59 @@ class OneClickPanel(tk.Frame):
             highlightthickness=0,
         ).pack(side="right")
 
+        # --- Host-only system status box -------------------------------------
+        # Show fuser count and share drive status only on Host PC
+        # Positioned below the log so it doesn't block main controls
+        if is_host_machine():
+            host_status_frame = tk.Frame(
+                self.log_frame, bg="#2a2a2a", bd=2, relief="solid", highlightthickness=0
+            )
+            host_status_frame.pack(fill="x", pady=(10, 0))
+            
+            # Title
+            tk.Label(
+                host_status_frame,
+                text="System Status (Host)",
+                font=("Helvetica", 14, "bold"),
+                bg="#2a2a2a",
+                fg="#00BFFF",
+                bd=0,
+                highlightthickness=0,
+            ).pack(anchor="w", padx=10, pady=(5, 2))
+            
+            # Fuser status label
+            self.host_fuser_status_label = tk.Label(
+                host_status_frame,
+                text="Fusers: Checking...",
+                font=("Helvetica", 12),
+                bg="#2a2a2a",
+                fg="#FFFF00",
+                bd=0,
+                highlightthickness=0,
+                anchor="w",
+            )
+            self.host_fuser_status_label.pack(anchor="w", padx=10, pady=2)
+            
+            # Share drive status label
+            self.host_share_status_label = tk.Label(
+                host_status_frame,
+                text="Share Drive: Checking...",
+                font=("Helvetica", 12),
+                bg="#2a2a2a",
+                fg="#FFFF00",
+                bd=0,
+                highlightthickness=0,
+                anchor="w",
+            )
+            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5))
+            
+            # Start periodic status updates
+            self._update_host_status_box()
+        else:
+            # Not a Host machine, so we don't create the status box
+            self.host_fuser_status_label = None
+            self.host_share_status_label = None
+
         # --- State -----------------------------------------------------------
         self.progress_job = None
         self.project_log_folder = None
@@ -8509,17 +8574,16 @@ class OneClickPanel(tk.Frame):
             share_result = None
             
             try:
-                # Get fuser status (same logic as Settings panel)
-                running = count_local_fusers()
-                host_ct, desired_ct = get_fuser_counts()
-                target = host_ct if host_ct > 0 else desired_ct
+                # Count total fusers across ALL PCs from the shared directory
+                total_running = count_all_fusers_from_shared()
+                target = MAX_TOTAL_FUSERS  # Max 10 fusers across all PCs
                 
-                if running == target and running > 0:
-                    fuser_result = (f"Fusers: {running}/{target} (Running)", "#00FF00")  # Green
-                elif running == 0:
-                    fuser_result = (f"Fusers: 0/{target} (Not Running)", "#FF0000")  # Red
+                if total_running >= target:
+                    fuser_result = (f"Fusers: {total_running}/{target} (Full)", "#00FF00")  # Green - at capacity
+                elif total_running > 0:
+                    fuser_result = (f"Fusers: {total_running}/{target} (Running)", "#00FF00")  # Green - running
                 else:
-                    fuser_result = (f"Fusers: {running}/{target} (Partial)", "#FFFF00")  # Yellow
+                    fuser_result = (f"Fusers: 0/{target} (Not Running)", "#FF0000")  # Red - none running
                 
             except Exception as e:
                 fuser_result = ("Fusers: Error", "#FF4500")  # Orange-Red

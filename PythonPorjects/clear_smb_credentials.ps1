@@ -73,8 +73,8 @@ try {
     
     # Look for IP-based credentials
     if ($credList -match "Target:.*192\.168\.10\.201") {
-        $matches = [regex]::Matches($credList, "Target:\s*([^\r\n]*192\.168\.10\.201[^\r\n]*)")
-        foreach ($match in $matches) {
+        $credMatches = [regex]::Matches($credList, "Target:\s*([^\r\n]*192\.168\.10\.201[^\r\n]*)")
+        foreach ($match in $credMatches) {
             $target = $match.Groups[1].Value.Trim()
             Write-Host "Deleting: $target" -ForegroundColor Cyan
             cmdkey /delete:$target 2>&1 | Out-Null
@@ -89,8 +89,8 @@ try {
     
     # Look for hostname-based credentials (KIT1-1 is the host machine)
     if ($credList -match "Target:.*KIT1-1") {
-        $matches = [regex]::Matches($credList, "Target:\s*([^\r\n]*KIT1-1[^\r\n]*)")
-        foreach ($match in $matches) {
+        $credMatches = [regex]::Matches($credList, "Target:\s*([^\r\n]*KIT1-1[^\r\n]*)")
+        foreach ($match in $credMatches) {
             $target = $match.Groups[1].Value.Trim()
             Write-Host "Deleting: $target" -ForegroundColor Cyan
             cmdkey /delete:$target 2>&1 | Out-Null
@@ -149,11 +149,11 @@ Write-Host ""
 Write-Host "Step 6: Windows Firewall File Sharing Status" -ForegroundColor Yellow
 Write-Host "--------------------------------------------" -ForegroundColor Yellow
 try {
-    $profiles = Get-NetFirewallProfile
-    foreach ($profile in $profiles) {
-        $status = if ($profile.Enabled) { "ON" } else { "OFF" }
-        $color = if ($profile.Enabled) { "Yellow" } else { "Green" }
-        Write-Host "$($profile.Name) Profile: Firewall $status" -ForegroundColor $color
+    $firewallProfiles = Get-NetFirewallProfile
+    foreach ($fwProfile in $firewallProfiles) {
+        $status = if ($fwProfile.Enabled) { "ON" } else { "OFF" }
+        $color = if ($fwProfile.Enabled) { "Yellow" } else { "Green" }
+        Write-Host "$($fwProfile.Name) Profile: Firewall $status" -ForegroundColor $color
     }
     
     # Check if File and Printer Sharing is enabled
