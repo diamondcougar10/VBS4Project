@@ -2053,6 +2053,9 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
     if allow_full_drive:
         roots.append(r"C:\\")
 
+
+
+
     best_path = ""
     best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
 
@@ -2209,6 +2212,9 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
 
     def _iter_candidates(search_roots, respect_deadline=True):
         seen = set()
+
+
+
         for root in search_roots:
             if respect_deadline and time.time() > deadline:
                 logging.info("[discover] VBS4 Launcher budget exceeded during iteration; will index in background")
@@ -2838,6 +2844,8 @@ except Exception:
 
 # Parse CLI arguments for fast startup
 FAST_START_CLI = "--fast-start" in sys.argv
+VALIDATE_NET_CLI = "--validate-network" in sys.argv
+HOST_ARG = _arg_value('--host')
 
 # Global handle to the running MainApp instance so background helpers can
 # synchronize UI state (e.g., refresh Settings fields after config updates).
@@ -11418,4 +11426,10 @@ def run_with_splash():
     logging.info("[startup] mainloop() exited (app closed)")
 
 if __name__ == "__main__":
+    # Optional CLI: --validate-network --host <IP>
+    if VALIDATE_NET_CLI and HOST_ARG:
+        ok = validate_and_configure_network_connection(HOST_ARG)
+        # Print one-line result for external callers (installer, scripts)
+        print("OK" if ok else "FAIL")
+        sys.exit(0 if ok else 1)
     run_with_splash()
