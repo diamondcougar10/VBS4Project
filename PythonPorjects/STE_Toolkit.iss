@@ -29,8 +29,6 @@ Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createalls
 ; 2) Third-party installers (always staged; runtime decides to run or skip)
 Source: "installs\Photomesh\*";  DestDir: "{tmp}\PhotomeshInstalls";  Flags: recursesubdirs createallsubdirs
 Source: "installs\RealityMesh\*"; DestDir: "{tmp}\RealityMeshInstalls"; Flags: recursesubdirs createallsubdirs
-; 3) Host-led deploy script (extracted to {tmp} for post-install execution)
-Source: "scripts\deploy_users.ps1"; DestDir: "{tmp}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
@@ -82,16 +80,6 @@ var
 
   SharedRootPage: TInputDirWizardPage;
   SharedRoot:     string;
-
-  { Host deploy (user targets) page inputs }
-  TargetsPage: TWizardPage;
-  LIP1, LIP2, LIP3, LUser, LPass: TNewStaticText;
-  EIP1, EIP2, EIP3, EUser, EPass: TNewEdit;
-  Target1, Target2, Target3, CredUser, CredPass: string;
-
-  { CLI overrides }
-  CLI_Mode: string;
-  CLI_HostIP: string;
 
 
 // --- Helpers ---------------------------------------------------------------
@@ -244,32 +232,6 @@ begin
     FileExists2(ExpandConstant('{pf}\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe')) or
     FileExists2(ExpandConstant('{pf}\Skyline\PhotoMeshWizard\PhotoMeshWizard.exe')) or
     FileExists2(ExpandConstant('{pf32}\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe'));
-end;
-
-// --- Command-line parsing ---------------------------------------------------
-function Upper(const S: string): string;
-begin
-  Result := UpperCase(S);
-end;
-
-function GetSwitchValue(const Name: string; var Value: string): Boolean;
-var
-  I, L: Integer;
-  P, U: string;
-begin
-  Result := False;
-  L := Length(Name);
-  for I := 1 to ParamCount do
-  begin
-    P := ParamStr(I);
-    U := Upper(P);
-    if (Copy(U, 1, L + 2) = '/' + Upper(Name) + '=') then
-    begin
-      Value := Copy(P, L + 3, MaxInt);
-      Result := True;
-      Exit;
-    end;
-  end;
 end;
 
 function TrimTrailingSlash(Path: string): string;
@@ -675,12 +637,6 @@ procedure InitializeWizard;
 var
   LeftX, TopY, SpY, AvailW: Integer;
 begin
-  { Parse CLI overrides early }
-  CLI_Mode := '';
-  CLI_HostIP := '';
-  if not GetSwitchValue('MODE', CLI_Mode) then CLI_Mode := '';
-  if not GetSwitchValue('HOSTIP', CLI_HostIP) then CLI_HostIP := '';
-
   ModePage := CreateCustomPage(
     wpWelcome,
     'Choose Setup Mode',
@@ -735,20 +691,6 @@ begin
 
   RefreshModeDescription;
 
-  { Preselect via CLI }
-  if Upper(CLI_Mode) = 'HOST' then
-  begin
-    RBHost.Checked := True;
-  end
-  else if Upper(CLI_Mode) = 'USER' then
-  begin
-    RBUser.Checked := True;
-  end
-  else if Upper(CLI_Mode) = 'UPDATE' then
-  begin
-    RBUpdate.Checked := True;
-  end;
-
   { Host-only page for the shared drive root }
   SharedRootPage := CreateInputDirPage(
     ModePage.ID,
@@ -765,46 +707,12 @@ begin
   );
   SharedRootPage.Add('');
   SharedRootPage.Values[0] := 'D:\';
-
-  { Host-only user targets page }
-  TargetsPage := CreateCustomPage(
-    SharedRootPage.ID,
-    'Deploy to User PCs (optional)',
-    'Enter up to three User PC IPs to push a silent User install. Optionally provide credentials.'
-  );
-
-  LeftX := ScaleX(24);
-  TopY  := ScaleY(22);
-  SpY   := ScaleY(8);
-  AvailW := TargetsPage.SurfaceWidth - (LeftX * 2);
-
-  LIP1 := TNewStaticText.Create(WizardForm);
-  LIP1.Parent := TargetsPage.Surface; LIP1.Left := LeftX; LIP1.Top := TopY; LIP1.Caption := 'User PC IP #1:';
-  EIP1 := TNewEdit.Create(WizardForm); EIP1.Parent := TargetsPage.Surface; EIP1.Left := LeftX + ScaleX(160); EIP1.Top := LIP1.Top - ScaleY(2); EIP1.Width := AvailW - ScaleX(180);
-
-  LIP2 := TNewStaticText.Create(WizardForm);
-  LIP2.Parent := TargetsPage.Surface; LIP2.Left := LeftX; LIP2.Top := LIP1.Top + ScaleY(28); LIP2.Caption := 'User PC IP #2:';
-  EIP2 := TNewEdit.Create(WizardForm); EIP2.Parent := TargetsPage.Surface; EIP2.Left := LeftX + ScaleX(160); EIP2.Top := LIP2.Top - ScaleY(2); EIP2.Width := AvailW - ScaleX(180);
-
-  LIP3 := TNewStaticText.Create(WizardForm);
-  LIP3.Parent := TargetsPage.Surface; LIP3.Left := LeftX; LIP3.Top := LIP2.Top + ScaleY(28); LIP3.Caption := 'User PC IP #3:';
-  EIP3 := TNewEdit.Create(WizardForm); EIP3.Parent := TargetsPage.Surface; EIP3.Left := LeftX + ScaleX(160); EIP3.Top := LIP3.Top - ScaleY(2); EIP3.Width := AvailW - ScaleX(180);
-
-  LUser := TNewStaticText.Create(WizardForm);
-  LUser.Parent := TargetsPage.Surface; LUser.Left := LeftX; LUser.Top := LIP3.Top + ScaleY(40); LUser.Caption := 'Username (optional):';
-  EUser := TNewEdit.Create(WizardForm); EUser.Parent := TargetsPage.Surface; EUser.Left := LeftX + ScaleX(160); EUser.Top := LUser.Top - ScaleY(2); EUser.Width := AvailW - ScaleX(180);
-
-  LPass := TNewStaticText.Create(WizardForm);
-  LPass.Parent := TargetsPage.Surface; LPass.Left := LeftX; LPass.Top := LUser.Top + ScaleY(28); LPass.Caption := 'Password (optional):';
-  EPass := TNewEdit.Create(WizardForm); EPass.Parent := TargetsPage.Surface; EPass.Left := LeftX + ScaleX(160); EPass.Top := LPass.Top - ScaleY(2); EPass.Width := AvailW - ScaleX(180); EPass.Password := True;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if Assigned(SharedRootPage) and (PageID = SharedRootPage.ID) then
-    Result := SelectedMode() <> imHost;  { only for Host }
-  if Assigned(TargetsPage) and (PageID = TargetsPage.ID) then
     Result := SelectedMode() <> imHost;  { only for Host }
 end;
 
@@ -899,15 +807,6 @@ begin
     SharedRoot := Candidate;
     LogInstallEvent('Host drive validated: ' + DriveLetter + ':\ (Path: ' + SharedRoot + ')');
   end;
-
-  if Assigned(TargetsPage) and (CurPageID = TargetsPage.ID) then
-  begin
-    Target1 := Trim(EIP1.Text);
-    Target2 := Trim(EIP2.Text);
-    Target3 := Trim(EIP3.Text);
-    CredUser := Trim(EUser.Text);
-    CredPass := EPass.Text;  { allow spaces }
-  end;
 end;
 
 procedure EnsureSiteConfigExists(const AppDir: string);
@@ -938,8 +837,6 @@ var
   DscIP, DscName: string;  { NEW: for host discovery }
   IniPath, BundledIni: string;         { NEW: for update case and config copying }
   ModeStr: string;
-  DeployScript, InstallerCopy, SummaryOut, TargetsCSV, PSArgs, Quote: string;
-  SummTxt: AnsiString;
 begin
   if CurStep = ssPostInstall then  { CHANGED FROM ssInstall - seed AFTER files are copied }
   begin
@@ -992,104 +889,25 @@ begin
           else
             LogInstallEvent('Drive mapping failed to execute');
         end;
-
-        { Host-led push install to user PCs }
-        if (Trim(Target1) <> '') or (Trim(Target2) <> '') or (Trim(Target3) <> '') then
-        begin
-          try
-            Quote := '"';
-            { Ensure script and installer are in {tmp} }
-            DeployScript := ExpandConstant('{tmp}\deploy_users.ps1');
-            InstallerCopy := ExpandConstant('{tmp}\STE_Toolkit_Setup.exe');
-            SummaryOut := ExpandConstant('{tmp}\deploy_summary.txt');
-            { Copy the running installer next to the script }
-            try
-              FileCopy(ExpandConstant('{srcexe}'), InstallerCopy, False);
-            except
-            end;
-
-            { Build targets CSV }
-            TargetsCSV := '';
-            if Trim(Target1) <> '' then TargetsCSV := TargetsCSV + Trim(Target1);
-            if Trim(Target2) <> '' then
-              if TargetsCSV = '' then TargetsCSV := Trim(Target2) else TargetsCSV := TargetsCSV + ',' + Trim(Target2);
-            if Trim(Target3) <> '' then
-              if TargetsCSV = '' then TargetsCSV := Trim(Target3) else TargetsCSV := TargetsCSV + ',' + Trim(Target3);
-
-            if Ip = '' then Ip := GetPrimaryIPv4();
-
-            { Execute PowerShell hidden }
-            PSArgs := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + Quote + DeployScript + Quote +
-                      ' -HostIP ' + Quote + Ip + Quote +
-                      ' -Targets ' + Quote + TargetsCSV + Quote +
-                      IfThen(Trim(CredUser) <> '', ' -UserName ' + Quote + CredUser + Quote, '') +
-                      IfThen(Trim(CredPass) <> '', ' -Password ' + Quote + CredPass + Quote, '') +
-                      ' -SummaryOut ' + Quote + SummaryOut + Quote;
-
-            if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), PSArgs, '', SW_HIDE, ewWaitUntilTerminated, RC) then
-            begin
-              LogInstallEvent('Deploy script executed, RC=' + IntToStr(RC));
-              if FileExists(SummaryOut) then
-              begin
-                if LoadStringFromFile(SummaryOut, SummTxt) then
-                begin
-                  if not WizardSilent then
-                    MsgBox('User deployment summary:\n\n' + string(SummTxt), mbInformation, MB_OK);
-                end
-                else if not WizardSilent then
-                  MsgBox('Deployment finished. Summary file could not be read.', mbInformation, MB_OK);
-              end
-              else if not WizardSilent then
-                MsgBox('Deployment finished. No summary file found.', mbInformation, MB_OK);
-            end
-            else if not WizardSilent then
-              MsgBox('Failed to execute deployment script.', mbError, MB_OK);
-          except
-            if not WizardSilent then
-              MsgBox('An error occurred during user deployment. See install log for details.', mbError, MB_OK);
-          end;
-        end;
       end;
 
       imUser:
       begin
         { NEW: quick auto-discovery of Host beacon }
         DscIP := ''; DscName := '';
-        if Upper(CLI_Mode) = 'USER' then
+        if DiscoverHostViaBeacon(DscIP, DscName) then
         begin
-          DscIP := Trim(CLI_HostIP);
-          LogInstallEvent('USER mode via CLI override. HOSTIP=' + DscIP);
+          LogInstallEvent('Beacon discovered - IP: ' + DscIP + ', Name: ' + DscName);
+          Log(Format('Beacon found: host_ip=%s name=%s', [DscIP, DscName]));
         end
         else
         begin
-          if DiscoverHostViaBeacon(DscIP, DscName) then
-          begin
-            LogInstallEvent('Beacon discovered - IP: ' + DscIP + ', Name: ' + DscName);
-            Log(Format('Beacon found: host_ip=%s name=%s', [DscIP, DscName]));
-          end
-          else
-          begin
-            LogInstallEvent('No beacon found - leaving host_ip blank');
-            Log('Beacon not found; leaving host_ip blank');
-          end;
+          LogInstallEvent('No beacon found - leaving host_ip blank');
+          Log('Beacon not found; leaving host_ip blank');
         end;
 
         SeedConfigIni_User(AppDir, DscIP, DscName);
         LogInstallEvent('User mode configuration completed');
-
-        { If USER mode was explicitly requested with /HOSTIP, enforce UNC + fusers }
-        if Upper(CLI_Mode) = 'USER' then
-        begin
-          var Ini := AddBackslash(AppDir) + 'config.ini';
-          if DscIP <> '' then
-          begin
-            SetIniString('Offline', 'enabled', 'True', Ini);
-            SetIniString('Offline', 'use_ip_unc', 'True', Ini);
-            SetIniString('Fusers', 'shared_working_unc', '\\' + DscIP + '\\' + SHARE_NAME + '\\WorkingFuser', Ini);
-            SetIniString('Fusers', 'fuser_computer', 'True', Ini);
-            SetIniString('Fusers', 'desired_count', '3', Ini);
-          end;
-        end;
 
         { NEW: ensure fuser runtime exists on user PCs }
         if not HasPhotoMeshFuser() then
