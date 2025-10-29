@@ -2901,8 +2901,9 @@ def _ensure_fuser_defaults() -> None:
         config["Fusers"] = {}
     fusers = config["Fusers"]
     changed = False
-    # Don't set default desired_count here - let bootstrap_first_run_if_needed() handle it
-    # This ensures first-time users start with 0 and must configure before launching
+    if "desired_count" not in fusers:
+        fusers["desired_count"] = "3"
+        changed = True
     if "host_count" not in fusers:
         fusers["host_count"] = "1"
         changed = True
@@ -3092,17 +3093,11 @@ def bootstrap_first_run_if_needed(log=None):
     """Host: ensure IP present and share exists. User: leave blanks."""
     o = config.setdefault('Offline', {})
     general = config.setdefault('General', {})
-    fusers = config.setdefault('Fusers', {})
     mode = general.get('first_run_mode', '').upper()
 
     # Only set default if missing; do not flip an explicit False to True
     if "use_ip_unc" not in o:
         o['use_ip_unc'] = 'True'
-
-    # Set default fuser count to 3 on first install
-    if 'desired_count' not in fusers:
-        fusers['desired_count'] = '3'
-        logging.info("[first-run] Set desired_count=3 (default for most systems)")
 
     if mode == 'HOST':
         if not o.get('host_ip'):
@@ -3111,12 +3106,6 @@ def bootstrap_first_run_if_needed(log=None):
                 o['host_ip'] = ip
         o['use_ip_unc'] = 'True'
         ensure_offline_share_exists(log=log or (lambda m: None))
-        
-        # Set fuser_computer to True for HOST (they run fusers too)
-        if 'fuser_computer' not in fusers:
-            fusers['fuser_computer'] = 'True'
-            logging.info("[first-run] Set fuser_computer=True for HOST")
-        
         save_config()
         # Start host beacon to advertise IP on LAN
         try:
@@ -3124,11 +3113,13 @@ def bootstrap_first_run_if_needed(log=None):
         except Exception:
             pass
     elif mode == 'USER':
-        # Default User mode behavior: set as fuser PC and listen for Host beacons
+        # Default User mode behavior: run fusers locally and listen for Host beacons
         try:
-            if 'fuser_computer' not in fusers:
-                fusers['fuser_computer'] = 'True'
-                logging.info("[first-run] Set fuser_computer=True for USER")
+            fsec = config.setdefault('Fusers', {})
+            if 'fuser_computer' not in fsec:
+                fsec['fuser_computer'] = 'True'
+            if 'desired_count' not in fsec:
+                fsec['desired_count'] = '3'
             save_config()
         except Exception:
             pass
@@ -3532,12 +3523,10 @@ def ensure_fuser_defaults():
             changed = True
             logging.info("[fuser] defaults: set fuser_computer=True")
         
-        # Don't override desired_count if already set (including if set to 0)
-        # Only set if completely missing
-        if "desired_count" not in fusers:
-            fusers["desired_count"] = "0"
+        if not fusers.get("desired_count"):
+            fusers["desired_count"] = "3"
             changed = True
-            logging.info("[fuser] defaults: set desired_count=0 (user must configure)")
+            logging.info("[fuser] defaults: set desired_count=3")
         
         if not fusers.get("work_mode"):
             fusers["work_mode"] = "local"
@@ -3856,11 +3845,7 @@ def start_fuser_instance(idx: int) -> bool:
         creation = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         
         shared_normalized = os.path.normpath(shared).replace("/", "\\")
-        # PhotoMesh Fuser command line: PhotoMeshFuser.exe [unique_id] [working_folder] [auto_start] [keep_alive]
-        # unique_id should be 0, 1, 2, etc. (not "LocalFuser1", "LocalFuser2")
-        # The idx is 1-based, so we subtract 1 to make it 0-based (0, 1, 2...)
-        unique_id = str(idx - 1)
-        args = [exe, unique_id, shared_normalized, "true"]
+        args = [exe, name, shared_normalized, "0", "true"]
         
         logging.info(f"[start_fuser_instance] Direct launch (windowless): {' '.join(args)}")
         
@@ -3872,7 +3857,7 @@ def start_fuser_instance(idx: int) -> bool:
         )
         _FUSER_PROCESSES.append(proc)
         
-        logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully with ID {unique_id} (PID: {proc.pid})")
+        logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully (PID: {proc.pid})")
         return True
         
     except Exception as e:
@@ -4030,9 +4015,6 @@ def restore_fusers_on_startup():
     Restore fuser instances from previous session on designated fuser computers.
     If this is first run (last_count=0), uses desired_count from config.
     
-    Will NOT auto-start fusers if desired_count is 0 (first install state).
-    User must configure fuser count in Settings before fusers will start.
-    
     This function is called during startup initialization and directly launches
     fusers without going through ensure_fuser_instances() to avoid the startup
     skip flag that would block normal enforcement.
@@ -4063,11 +4045,6 @@ def restore_fusers_on_startup():
                 logging.info(f"[restore-fusers] First run as FUSER, starting {target} fuser(s)")
             else:
                 target = 0
-        
-        # Don't start fusers if target is 0 (user hasn't configured yet)
-        if target == 0:
-            logging.info("[restore-fusers] Target is 0, user must configure fuser count in Settings first")
-            return
         
         if target > 0:
             # Clamp to valid range
@@ -8487,11 +8464,6 @@ class OneClickPanel(tk.Frame):
         )
         self.tutorial_button.pack(pady=15)
 
-        self.how_to_start_button = self.make_button(
-            "📘 How to Start Fusers", self.show_fuser_startup_guide
-        )
-        self.how_to_start_button.pack(pady=15)
-
         self.back_button = self.make_button(
             "Back", lambda: controller.show("Main")
         )
@@ -9284,142 +9256,6 @@ class OneClickPanel(tk.Frame):
 
     def show_terrain_tutorial(self):
         messagebox.showinfo("Terrain Tutorial", "coming soon....", parent=self)
-
-    def show_fuser_startup_guide(self):
-        """Display simple 5-step guide for starting fusers."""
-        guide_text = """
-═══════════════════════════════════════════════════════
-    HOW TO START FUSERS - SIMPLE 5-STEP GUIDE
-═══════════════════════════════════════════════════════
-
-STEP 1: GO TO SETTINGS
-   Click the "Settings" button on the left side menu
-
-STEP 2: FIND THE FUSER COUNTER
-   Look for the line that says "Local fusers: 0 running / 0 desired"
-
-STEP 3: SET YOUR FUSER COUNT
-   • Click the "+" button to add fusers
-   • For most computers: Set to 3 fusers
-   • Click "Save Settings" at the bottom
-
-STEP 4: REPEAT ON ALL COMPUTERS
-   • Do Steps 1-3 on EVERY computer that will run fusers
-   • Each PC can have different fuser counts based on performance
-
-STEP 5: VERIFY FUSERS ARE RUNNING
-   • You should see "3 running / 3 desired"
-   • Fusers start automatically after you save
-   • Fusers will auto-launch next time you start the Toolkit
-
-═══════════════════════════════════════════════════════
-
-THAT'S IT! Once all fusers show "running", you can use 
-the One-Click Conversion to process terrain.
-
-═══════════════════════════════════════════════════════
-
-TIPS:
-• Fuser computers are auto-detected (no checkbox needed)
-• LocalFuser directories seed automatically to WorkingFuser
-• Check "System Status" box on this page to see all PCs
-
-TROUBLESHOOTING:
-• Fusers won't start? Verify PhotoMesh Fuser.exe path in Settings
-• Can't see other PCs? Check network share is connected
-• Need to restart fusers? Set count to 0, save, then back to desired
-
-═══════════════════════════════════════════════════════
-        """
-        
-        # Create a custom dialog with scrollable text
-        dialog = tk.Toplevel(self)
-        dialog.title("How to Start Fusers - Quick Guide")
-        dialog.geometry("700x600")
-        dialog.configure(bg="#1a1a1a")
-        
-        # Make it modal
-        dialog.transient(self)
-        dialog.grab_set()
-        
-        # Add title
-        title_label = tk.Label(
-            dialog,
-            text="🚀 Quick Start: Setting Up Fusers",
-            font=("Helvetica", 18, "bold"),
-            bg="#1a1a1a",
-            fg="#00FF00",
-            pady=15
-        )
-        title_label.pack()
-        
-        # Create frame for text widget and scrollbar
-        text_frame = tk.Frame(dialog, bg="#1a1a1a")
-        text_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        # Add scrollbar
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Add text widget
-        text_widget = tk.Text(
-            text_frame,
-            wrap="word",
-            font=("Consolas", 11),
-            bg="#2a2a2a",
-            fg="#FFFFFF",
-            yscrollcommand=scrollbar.set,
-            padx=15,
-            pady=15,
-            spacing1=5,
-            spacing3=5
-        )
-        text_widget.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=text_widget.yview)
-        
-        # Insert the guide text
-        text_widget.insert("1.0", guide_text)
-        text_widget.config(state="disabled")
-        
-        # Button frame
-        btn_frame = tk.Frame(dialog, bg="#1a1a1a")
-        btn_frame.pack(pady=15)
-        
-        # Go to Settings button
-        settings_btn = tk.Button(
-            btn_frame,
-            text="Go to Settings Now",
-            command=lambda: [dialog.destroy(), self.controller.show("Settings")],
-            bg="#0066CC",
-            fg="white",
-            font=("Helvetica", 11, "bold"),
-            padx=20,
-            pady=8,
-            relief="raised",
-            bd=2
-        )
-        settings_btn.pack(side="left", padx=5)
-        
-        # Close button
-        close_button = tk.Button(
-            btn_frame,
-            text="Got It!",
-            command=dialog.destroy,
-            font=("Helvetica", 11, "bold"),
-            bg="#00aa00",
-            fg="white",
-            padx=20,
-            pady=8,
-            relief="raised",
-            bd=2
-        )
-        close_button.pack(side="left", padx=5)
-        
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
 
 class BVIPanel(tk.Frame):
     def __init__(self, parent, controller):
@@ -11760,19 +11596,11 @@ def run_with_splash():
                     except Exception as e:
                         logging.warning(f"[fuser-startup] UNC auto-connect failed: {e}")
                     
-                    # 2) Ensure LocalFuser directories exist on UNC (seed directories)
-                    # This creates the LocalFuser folders even before fusers run,
-                    # so the infrastructure is ready when user configures fuser count
+                    # 2) Ensure LocalFuser directories exist on UNC
                     try:
                         from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
                         desired_count = get_fuser_counts()[1]
-                        # Always attempt to ensure directories exist, even if count is 0
-                        # This prepares the system for when user sets fuser count > 0
-                        if desired_count > 0:
-                            ensure_localfuser_dirs_on_unc(pm_config, desired_count)
-                            logging.info(f"[fuser-startup] Seeded {desired_count} LocalFuser directories to WorkingFuser")
-                        else:
-                            logging.info(f"[fuser-startup] Fuser count is 0, skipping LocalFuser directory seeding (user must configure)")
+                        ensure_localfuser_dirs_on_unc(pm_config, desired_count)
                         migrate_local_localfuser_to_unc_if_needed(pm_config)
                     except Exception as e:
                         logging.error(f"[fuser-startup] Failed to ensure LocalFuser folders on UNC: {e}")
