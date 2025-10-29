@@ -2896,6 +2896,7 @@ def _save_paths_cache(d: dict) -> None:
         logging.exception("paths_cache write failed")
 
 def _ensure_fuser_defaults() -> None:
+    """Legacy fuser defaults - basic config only."""
     if "Fusers" not in config:
         config["Fusers"] = {}
     fusers = config["Fusers"]
@@ -3495,6 +3496,64 @@ def find_fuser_exe() -> str:
             return os.path.join(dp, "PhotoMeshFuser.exe")
     return ""
 
+def photomesh_fuser_installed() -> bool:
+    """Check if PhotoMesh Fuser is installed on this PC."""
+    return bool(find_fuser_exe())
+
+def ensure_fuser_defaults():
+    """
+    Set default fuser configuration if not already set.
+    Only applies defaults when PhotoMesh Fuser is installed.
+    Should be called once after config is loaded.
+    """
+    try:
+        if not photomesh_fuser_installed():
+            logging.info("[fuser] defaults: PhotoMesh Fuser not installed, skipping defaults")
+            return
+        
+        if "Fusers" not in config:
+            config.add_section("Fusers")
+        
+        fusers = config["Fusers"]
+        changed = False
+        
+        # Set defaults if missing
+        if not fusers.get("fuser_computer"):
+            fusers["fuser_computer"] = "True"
+            changed = True
+            logging.info("[fuser] defaults: set fuser_computer=True")
+        
+        if not fusers.get("desired_count"):
+            fusers["desired_count"] = "3"
+            changed = True
+            logging.info("[fuser] defaults: set desired_count=3")
+        
+        if not fusers.get("work_mode"):
+            fusers["work_mode"] = "local"
+            changed = True
+            logging.info("[fuser] defaults: set work_mode=local")
+        
+        if not fusers.get("autostart_on_launch"):
+            fusers["autostart_on_launch"] = "True"
+            changed = True
+            logging.info("[fuser] defaults: set autostart_on_launch=True")
+        
+        # In local mode, disable shared working folder enforcement
+        if fusers.get("work_mode", "").lower() == "local":
+            if not fusers.get("enforce_shared_only") or fusers.get("enforce_shared_only", "").lower() != "false":
+                fusers["enforce_shared_only"] = "False"
+                changed = True
+                logging.info("[fuser] defaults: set enforce_shared_only=False for local mode")
+        
+        if changed:
+            _save_config()
+            logging.info("[fuser] defaults: saved config with fuser defaults")
+    except Exception as e:
+        logging.error(f"[fuser] defaults: failed to set defaults: {e}")
+
+# Call ensure_fuser_defaults() once at module load
+ensure_fuser_defaults()
+
 # ============================================================================
 # PHOTOMESH FUSER MANAGEMENT
 # Controls distributed PhotoMesh Fuser instances across multiple PCs
@@ -3525,13 +3584,21 @@ def list_local_fusers() -> list:
     return procs
 
 def count_local_fusers() -> int:
-    """Return count of running PhotoMeshFuser.exe processes."""
-    return len(list_local_fusers())
+    """
+    Return count of running PhotoMeshFuser.exe processes on this machine.
+    This checks actual running processes in Task Manager, NOT seeded directories.
+    """
+    count = len(list_local_fusers())
+    # Log for debugging when count seems wrong
+    if count > 0:
+        logging.debug(f"[fuser-count] Detected {count} PhotoMeshFuser.exe process(es) running locally")
+    return count
 
 def count_all_fusers_from_shared() -> int:
     """
-    Count total fusers across ALL PCs by scanning the shared WorkingFuser directory.
-    Returns the total count of fuser subdirectories (e.g., MACHINE(IP)_FuserName).
+    Count total ACTIVE fusers across ALL PCs by scanning the shared WorkingFuser directory.
+    Returns the total count of fuser subdirectories (e.g., MACHINE(IP)_FuserName) that have
+    been modified within the last 60 seconds (indicating an active fuser process).
     """
     try:
         # Get the shared working path
@@ -3553,12 +3620,29 @@ def count_all_fusers_from_shared() -> int:
             return 0
         
         # Count fuser directories matching pattern: MACHINE(IP)_FuserName
+        # Only count directories modified within the last 60 seconds (active fusers)
         pattern = re.compile(r"([^()]+)\(([^()]+)\)_(.+)")
         count = 0
+        current_time = time.time()
+        activity_threshold = 60  # seconds - fusers should write/update files within this window
+        
         for entry in os.scandir(shared_path):
             if entry.is_dir() and pattern.match(entry.name):
-                count += 1
+                try:
+                    # Check if directory has been modified recently
+                    mtime = entry.stat().st_mtime
+                    age_seconds = current_time - mtime
+                    
+                    if age_seconds <= activity_threshold:
+                        count += 1
+                        logging.debug(f"[count_all_fusers] Active fuser: {entry.name} (age: {age_seconds:.1f}s)")
+                    else:
+                        logging.debug(f"[count_all_fusers] Stale fuser directory: {entry.name} (age: {age_seconds:.1f}s)")
+                except Exception as e:
+                    logging.debug(f"[count_all_fusers] Error checking {entry.name}: {e}")
+                    continue
         
+        logging.debug(f"[count_all_fusers] Total active fusers: {count}")
         return count
     except Exception as e:
         logging.debug(f"[count_all_fusers] Error: {e}")
@@ -3798,6 +3882,16 @@ def kill_fusers() -> None:
     
     # Clear the process reference list after killing
     _FUSER_PROCESSES.clear()
+    
+    # Trigger immediate status update on OneClick panel if it exists
+    try:
+        from __main__ import app
+        if hasattr(app, 'panels') and 'OneClick' in app.panels:
+            oc_panel = app.panels['OneClick']
+            if hasattr(oc_panel, 'force_update_host_status'):
+                post_ui(oc_panel.force_update_host_status)
+    except Exception:
+        pass
 
 def ensure_fuser_instances(desired: int):
     """
@@ -3863,6 +3957,16 @@ def ensure_fuser_instances(desired: int):
         if is_fuser:
             save_last_launched_fuser_count(desired)
             logging.info(f"[fuser-scale] Saved count for restoration: {desired}")
+        
+        # Trigger immediate status update on OneClick panel if it exists
+        try:
+            from __main__ import app
+            if hasattr(app, 'panels') and 'OneClick' in app.panels:
+                oc_panel = app.panels['OneClick']
+                if hasattr(oc_panel, 'force_update_host_status'):
+                    post_ui(oc_panel.force_update_host_status)
+        except Exception:
+            pass
     finally:
         try:
             _FUSER_ENFORCE_LOCK.release()
@@ -3910,6 +4014,10 @@ def restore_fusers_on_startup():
     """
     Restore fuser instances from previous session on designated fuser computers.
     If this is first run (last_count=0), uses desired_count from config.
+    
+    This function is called during startup initialization and directly launches
+    fusers without going through ensure_fuser_instances() to avoid the startup
+    skip flag that would block normal enforcement.
     """
     try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
@@ -3939,19 +4047,43 @@ def restore_fusers_on_startup():
                 target = 0
         
         if target > 0:
-            ensure_fuser_instances(target)
-            logging.info(f"[restore-fusers] Started {target} fuser instance(s)")
+            # Clamp to valid range
+            target = _clamp_fusers(target, True)
+            logging.info(f"[restore-fusers] Clamped target: {target}")
+            
+            # Directly launch fusers without going through ensure_fuser_instances()
+            # to avoid the startup enforcement skip flag
+            current = count_local_fusers()
+            logging.info(f"[restore-fusers] Current count: {current}")
+            
+            if current < target:
+                logging.info(f"[restore-fusers] Launching {target - current} additional fuser(s)")
+                for idx in range(current + 1, target + 1):
+                    try:
+                        if start_fuser_instance(idx):
+                            logging.info(f"[restore-fusers] Started fuser #{idx}")
+                        else:
+                            logging.warning(f"[restore-fusers] Failed to start fuser #{idx}")
+                    except Exception as e:
+                        logging.error(f"[restore-fusers] Error starting fuser #{idx}: {e}")
+                        
+                # Save the count we actually launched
+                save_last_launched_fuser_count(target)
+                logging.info(f"[restore-fusers] Completed startup launch of {target} fuser(s)")
+            else:
+                logging.info(f"[restore-fusers] Already have {current} fusers running (target: {target})")
     except Exception as e:
         logging.error(f"[restore-fusers] Failed: {e}")
         pass
 
 def enforce_local_fuser_policy():
     """
-    Apply configured fuser instance policy based on machine role and network state.
+    Apply configured fuser instance policy based on machine role and work mode.
     
     Determines target fuser count based on:
     - Machine role (host vs fuser vs neither)
-    - UNC accessibility (won't kill running fusers if network is temporarily down)
+    - Work mode (local vs shared/UNC)
+    - UNC accessibility (only checked in shared mode)
     - Configuration settings (desired_count, host_count)
     
     Gated by _allow_fuser_enforcement flag to prevent premature execution during startup.
@@ -3962,9 +4094,11 @@ def enforce_local_fuser_policy():
     try:
         logging.info(f"[fuser-policy] enforce_local_fuser_policy() called")
         
-        # Gate: Don't enforce until UNC is confirmed ready
-        if not _allow_fuser_enforcement:
-            logging.info("[fuser-policy] GATED: enforcement disabled until UNC ready")
+        # Gate: Don't enforce until UNC is confirmed ready (only for shared mode)
+        work_mode = config.get("Fusers", "work_mode", fallback="local").strip().lower()
+        
+        if not _allow_fuser_enforcement and work_mode != "local":
+            logging.info("[fuser-policy] GATED: enforcement disabled until UNC ready (shared mode)")
             return
         
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
@@ -3974,37 +4108,50 @@ def enforce_local_fuser_policy():
         logging.info(f"[fuser-policy] get_fuser_counts() returned: host_ct={host_ct}, desired_ct={desired_ct}")
         
         is_host = is_host_machine()
-        logging.info(f"[fuser-policy] is_host_machine(): {is_host}")
+        logging.info(f"[fuser-policy] is_host_machine(): {is_host}, work_mode: {work_mode}")
         
-        # Check UNC accessibility
-        unc_ok = False
-        try:
-            unc_root, _ = _compute_working_unc_from_cfg()
-            if unc_root and unc_root.startswith("\\\\"):
-                unc_ok = quick_unc_check(unc_root, timeout=2.0)
-                logging.info(f"[fuser-policy] UNC check for {unc_root}: {unc_ok}")
-        except Exception as e:
-            logging.warning(f"[fuser-policy] UNC check failed: {e}")
-        
-        # Compute target with explicit decision logging
-        if is_host:
-            target = host_ct
-            logging.info(f"[fuser-policy] DECISION: host machine → target={target}")
-        elif is_fuser and unc_ok:
-            target = desired_ct
-            logging.info(f"[fuser-policy] DECISION: fuser machine + UNC ready → target={target}")
-        elif is_fuser and not unc_ok:
-            # UNC not ready: preserve running fusers if any, otherwise still start desired count
-            # This handles first-boot scenarios where UNC might be slow to respond
-            current = count_local_fusers()
-            target = max(current, desired_ct)
-            if current > 0:
-                logging.warning(f"[fuser-policy] DECISION: fuser machine but UNC not ready, preserving {current} running fusers (desired={desired_ct})")
+        # Compute target based on work mode
+        if work_mode == "local":
+            # LOCAL MODE: Target is always desired_count if fuser_computer=True
+            # No UNC checks, no network dependencies
+            if is_fuser:
+                target = desired_ct
+                logging.info(f"[fuser-policy] policy: mode=local is_fuser={is_fuser} desired={desired_ct} -> target={target}")
             else:
-                logging.info(f"[fuser-policy] DECISION: fuser machine, UNC not ready but no fusers running yet → starting {desired_ct} fusers anyway")
+                target = 0
+                logging.info(f"[fuser-policy] policy: mode=local is_fuser={is_fuser} -> target={target} (not a fuser PC)")
         else:
-            target = 0
-            logging.info(f"[fuser-policy] DECISION: neither host nor fuser → target={target}")
+            # SHARED/UNC MODE: Original behavior with network checks
+            # Check UNC accessibility
+            unc_ok = False
+            try:
+                unc_root, _ = _compute_working_unc_from_cfg()
+                if unc_root and unc_root.startswith("\\\\"):
+                    unc_ok = quick_unc_check(unc_root, timeout=2.0)
+                    logging.info(f"[fuser-policy] UNC check for {unc_root}: {unc_ok}")
+            except Exception as e:
+                logging.warning(f"[fuser-policy] UNC check failed: {e}")
+            
+            # Compute target with explicit decision logging
+            if is_host:
+                target = host_ct
+                logging.info(f"[fuser-policy] policy: mode={work_mode} is_host=True -> target={target}")
+            elif is_fuser and unc_ok:
+                target = desired_ct
+                logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=True desired={desired_ct} -> target={target}")
+            elif is_fuser and not unc_ok:
+                # UNC not ready: preserve running fusers if any, otherwise still start desired count
+                # This handles first-boot scenarios where UNC might be slow to respond
+                current = count_local_fusers()
+                target = max(current, desired_ct)
+                if current > 0:
+                    logging.warning(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=False -> preserving {current} running fusers (desired={desired_ct})")
+                else:
+                    logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=False no_running -> starting {desired_ct} fusers anyway")
+                    target = desired_ct
+            else:
+                target = 0
+                logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} -> target={target} (neither host nor fuser)")
 
         # Throttle duplicate enforcements with the same target within a short window
         now = time.time()
@@ -8544,6 +8691,19 @@ class OneClickPanel(tk.Frame):
             self.log_message(tip)
         enforce_local_fuser_policy()
 
+    def force_update_host_status(self):
+        """Force an immediate update of the Host status box (called when fusers change)."""
+        if hasattr(self, 'host_fuser_status_label') and self.host_fuser_status_label:
+            # Cancel any pending periodic update to avoid conflicts
+            if hasattr(self, '_pending_host_status_update'):
+                try:
+                    self.after_cancel(self._pending_host_status_update)
+                except:
+                    pass
+            
+            # Trigger immediate update
+            self._update_host_status_box()
+    
     def _update_host_status_box(self):
         """Update the Host-only status box showing fuser count and share status.
         
@@ -8574,19 +8734,29 @@ class OneClickPanel(tk.Frame):
             share_result = None
             
             try:
-                # Count total fusers across ALL PCs from the shared directory
-                total_running = count_all_fusers_from_shared()
-                target = MAX_TOTAL_FUSERS  # Max 10 fusers across all PCs
+                # Count ACTUAL RUNNING PhotoMeshFuser.exe processes (not seeded directories)
+                local_running = count_local_fusers()
                 
-                if total_running >= target:
-                    fuser_result = (f"Fusers: {total_running}/{target} (Full)", "#00FF00")  # Green - at capacity
-                elif total_running > 0:
-                    fuser_result = (f"Fusers: {total_running}/{target} (Running)", "#00FF00")  # Green - running
+                # Get the target count for Host PC
+                host_target, _ = get_fuser_counts()
+                
+                # Log current state for debugging
+                logging.debug(f"[host-status] Detected {local_running} running processes, target={host_target}")
+                
+                # Build status message with clear distinction
+                if local_running >= host_target and host_target > 0:
+                    # At capacity - all processes running
+                    fuser_result = (f"Fusers: {local_running}/{host_target} Running ✓", "#00FF00")  # Green
+                elif local_running > 0:
+                    # Some processes running but not all
+                    fuser_result = (f"Fusers: {local_running}/{host_target} Running", "#FFAA00")  # Orange
                 else:
-                    fuser_result = (f"Fusers: 0/{target} (Not Running)", "#FF0000")  # Red - none running
+                    # NO processes running (but directories might exist)
+                    fuser_result = (f"Fusers: 0/{host_target} (No Processes)", "#FF0000")  # Red
                 
             except Exception as e:
-                fuser_result = ("Fusers: Error", "#FF4500")  # Orange-Red
+                logging.error(f"[host-status] Error detecting fusers: {e}")
+                fuser_result = ("Fusers: Error Detecting", "#FF4500")  # Orange-Red
             
             try:
                 # Get share status (same function used by Settings panel)
@@ -8659,6 +8829,10 @@ class OneClickPanel(tk.Frame):
                 relaunch()
             running = count_local_fusers()
             self.log_message(f"Fusers relaunched. Running: {running}")
+            
+            # Force immediate status update
+            if hasattr(self, 'force_update_host_status'):
+                self.force_update_host_status()
         except Exception as e:
             self.log_message(f"Failed to relaunch fusers: {e}")
 
