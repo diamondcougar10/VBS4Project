@@ -3568,13 +3568,16 @@ ensure_fuser_defaults()
 # ============================================================================
 
 def list_local_fusers() -> list:
-    """Query running PhotoMeshFuser.exe processes on this machine."""
+    """Query running PhotoMeshFuser.exe processes on this machine (robust match)."""
     procs = []
+    target = 'photomeshfuser.exe'
     if psutil:
         try:
             for p in psutil.process_iter(['name', 'exe']):
-                nm = (p.info.get('name') or '').lower()
-                if nm == 'photomeshfuser.exe':
+                nm = (p.info.get('name') or '').lower().strip()
+                ex = (p.info.get('exe') or '').lower().strip()
+                base = os.path.basename(ex) if ex else ''
+                if nm == target or base == target or ('photomeshfuser' in nm) or ('photomeshfuser' in base):
                     procs.append(p)
         except Exception:
             pass
@@ -3950,6 +3953,15 @@ def start_fuser_instance(idx: int) -> bool:
             else:
                 # Stabilization successful (process still running after full window)
                 logging.info(f"[start_fuser_instance] ✓ Fuser {idx} stabilized successfully after {stabilization_time}s (PID: {proc.pid})")
+                try:
+                    try:
+                        import platform
+                    except Exception:
+                        platform = None
+                    pc = os.environ.get('COMPUTERNAME') or (platform.node() if platform else None) or 'UnknownPC'
+                    print(f"{pc}: ✓ Fuser {idx} stabilized and running (PID: {proc.pid})")
+                except Exception:
+                    pass
                 
                 # Keep reference to prevent GC termination
                 global _FUSER_PROCESSES
@@ -3959,6 +3971,15 @@ def start_fuser_instance(idx: int) -> bool:
         
         except Exception as e:
             logging.error(f"[start_fuser_instance] Launch failed: {e}")
+            try:
+                try:
+                    import platform
+                except Exception:
+                    platform = None
+                pc = os.environ.get('COMPUTERNAME') or (platform.node() if platform else None) or 'UnknownPC'
+                print(f"{pc}: ✗ Fuser {idx} launch failed: {e}")
+            except Exception:
+                pass
             if retry_attempted:
                 return False
             retry_attempted = True
@@ -4040,7 +4061,7 @@ def ensure_fuser_instances(desired: int):
     Behavior:
     - Detects OUR fusers (matching LocalFuser1/2/3 directories)
     - Adopts foreign fusers and counts them toward target
-    - If current < desired: Launch missing instances sequentially
+    - If current < desired: Launch missing instances in parallel
     - If current > desired: Kill only OUR extra fusers (never foreign)
     - If current == desired: No action needed
     
@@ -4124,22 +4145,72 @@ def ensure_fuser_instances(desired: int):
 
         # Need to launch more fusers
         to_start = desired - total_count
-        logging.info(f"[fuser-scale] Starting {to_start} new instances SEQUENTIALLY")
+        logging.info(f"[fuser-scale] Starting {to_start} new instance(s) in PARALLEL")
         
         # Find which IDs are missing (1, 2, 3)
         available_ids = [i for i in range(1, 4) if i not in our_fusers]
         
+        # Launch in parallel so multiple fusers start at about the same time
         launched = 0
-        for idx in available_ids[:to_start]:
-            logging.info(f"[fuser-scale] ► Launching fuser #{idx}")
-            result = start_fuser_instance(idx)
-            if result:
-                logging.info(f"[fuser-scale] ✓ Fuser #{idx} stabilized successfully")
-                launched += 1
-            else:
-                logging.error(f"[fuser-scale] ✗ Fuser #{idx} failed to launch")
-        
-        logging.info(f"[fuser-scale] Launched {launched}/{to_start} new fuser(s)")
+        # Resolve PC name once for consistent prefixing
+        try:
+            import platform
+        except Exception:
+            platform = None
+        pc_name = os.environ.get('COMPUTERNAME') or (platform.node() if platform else None) or 'UnknownPC'
+        try:
+            import concurrent.futures
+            start_time = time.time()
+            ids_to_launch = available_ids[:to_start]
+            logging.info(f"[fuser-scale] Parallel launch IDs: {ids_to_launch}")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(ids_to_launch) or 1) as executor:
+                future_map = {executor.submit(start_fuser_instance, idx): idx for idx in ids_to_launch}
+                for future in concurrent.futures.as_completed(future_map):
+                    idx = future_map[future]
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        logging.error(f"[fuser-scale] ✗ Fuser #{idx} raised during launch: {e}")
+                        try:
+                            print(f"{pc_name}: ✗ Fuser {idx} failed to start (exception): {e}")
+                        except Exception:
+                            pass
+                        result = False
+                    if result:
+                        logging.info(f"[fuser-scale] ✓ Fuser #{idx} stabilized successfully (parallel)")
+                        try:
+                            print(f"{pc_name}: ✓ Fuser {idx} started successfully (parallel)")
+                        except Exception:
+                            pass
+                        launched += 1
+                    else:
+                        logging.error(f"[fuser-scale] ✗ Fuser #{idx} failed to launch (parallel)")
+                        try:
+                            print(f"{pc_name}: ✗ Fuser {idx} failed to start (parallel)")
+                        except Exception:
+                            pass
+            dur = time.time() - start_time
+            logging.info(f"[fuser-scale] Parallel launch complete in {dur:.1f}s: {launched}/{to_start} started")
+        except Exception as e:
+            # Fallback to sequential on error
+            logging.warning(f"[fuser-scale] Parallel launch unavailable, falling back to sequential: {e}")
+            for idx in available_ids[:to_start]:
+                logging.info(f"[fuser-scale] ► Launching fuser #{idx} (sequential fallback)")
+                result = start_fuser_instance(idx)
+                if result:
+                    logging.info(f"[fuser-scale] ✓ Fuser #{idx} stabilized successfully")
+                    try:
+                        print(f"{pc_name}: ✓ Fuser {idx} started successfully")
+                    except Exception:
+                        pass
+                    launched += 1
+                else:
+                    logging.error(f"[fuser-scale] ✗ Fuser #{idx} failed to launch")
+                    try:
+                        print(f"{pc_name}: ✗ Fuser {idx} failed to start")
+                    except Exception:
+                        pass
+            logging.info(f"[fuser-scale] Launched {launched}/{to_start} new fuser(s) (sequential fallback)")
     
         # Persist count for next session
         if is_fuser:
@@ -8944,28 +9015,69 @@ class OneClickPanel(tk.Frame):
                 # Count local running fusers
                 local_running = count_local_fusers()
 
+                # Desired counts
+                host_target, user_target = get_fuser_counts()
+                try:
+                    host_target = int(host_target)
+                except Exception:
+                    host_target = 1
+                try:
+                    user_target = int(user_target)
+                except Exception:
+                    user_target = 1
+
                 # Build network-wide summary from WorkingFuser
                 summary = get_connected_pcs_summary()
-                total_running = sum(int(info.get("fusers", 0)) for info in summary.values())
-                pc_breakdown = " | ".join(
-                    f"{pc}: {int(info.get('fusers', 0))}" for pc, info in sorted(summary.items())
-                ) if summary else ""
+                hostname = platform.node()
 
-                # If we couldn't see any peers, treat total as local
-                if total_running <= 0:
-                    total_running = local_running
+                # Ensure host appears in the list even if 0 running (not present in summary)
+                if hostname not in summary:
+                    summary[hostname] = {"ip": _machine_ip_fast(), "fusers": local_running, "last_seen": 0}
+                else:
+                    # Overwrite with authoritative local count to avoid stale values
+                    summary[hostname]["fusers"] = local_running
+
+                # Compute totals and breakdown per PC with targets
+                pcs = sorted(summary.keys())
+                total_running = 0
+                breakdown_parts = []
+                for pc in pcs:
+                    running = int(summary[pc].get("fusers", 0))
+                    target = host_target if pc == hostname else user_target
+                    total_running += running
+                    breakdown_parts.append(f"{pc}: {running}/{target}")
+
+                # Total desired across fleet: prefer configured expected_user_pc_count if present
+                try:
+                    exp_users_val = None
+                    if "Fusers" in config and hasattr(config["Fusers"], 'get'):
+                        raw = config["Fusers"].get("expected_user_pc_count", "").strip()
+                        if raw:
+                            exp_users_val = int(raw)
+                except Exception:
+                    exp_users_val = None
+
+                other_count = max(0, len(pcs) - 1)
+                planned_users = exp_users_val if isinstance(exp_users_val, int) and exp_users_val >= 0 else other_count
+                total_target = host_target + (user_target * planned_users)
 
                 logging.debug(
-                    f"[host-status] fusers local={local_running}, total={total_running}, pcs={len(summary)}"
+                    f"[host-status] fusers local={local_running}, total={total_running}, pcs={len(pcs)}, total_target={total_target}"
                 )
 
-                # Compose display: local/total and per-PC list
-                base_text = f"Fusers: {local_running}/{total_running} total fusers"
-                if pc_breakdown:
-                    base_text += f"\n• {pc_breakdown}"
+                # Compose display: TOTAL line then per-PC list
+                base_text = f"{total_running}/{total_target} TOTAL fusers running"
+                if breakdown_parts:
+                    base_text += "\n• " + " | ".join(breakdown_parts)
 
-                # Color coding: green if any are running, red if none
-                color = "#00FF00" if total_running > 0 else "#FF0000"
+                # Color coding: green if at/over target, orange if some running, red if none
+                if total_target > 0 and total_running >= total_target:
+                    color = "#00FF00"  # Green
+                elif total_running > 0:
+                    color = "#FFAA00"  # Orange
+                else:
+                    color = "#FF0000"  # Red
+
                 fuser_result = (base_text, color)
 
             except Exception as e:
@@ -9813,7 +9925,8 @@ class SettingsPanel(tk.Frame):
 
         logging.info("[ui-diag] SettingsPanel: about to call _refresh_fuser_counter_row()")
         self._refresh_fuser_counter_row()
-        logging.info("[ui-diag] SettingsPanel: _refresh_fuser_counter_row() complete")
+        self._schedule_fuser_count_refresh()
+        logging.info("[ui-diag] SettingsPanel: _refresh_fuser_counter_row() complete (periodic refresh scheduled)")
 
         # --- Connected Fuser PCs (Host-visible indicator) ----------------
         logging.info("[ui-diag] SettingsPanel: creating conn_row frame")
@@ -11037,6 +11150,23 @@ class SettingsPanel(tk.Frame):
         self.fuser_count_label.config(
             text=f"Local fusers: {running} running / {desired} desired{suffix}"
         )
+        try:
+            pc = os.environ.get('COMPUTERNAME') or platform.node()
+            logging.info(f"[ui-diag] SettingsPanel: fuser counter refresh -> {pc}: running={running}, desired={desired}, is_fuser={is_fuser}")
+        except Exception:
+            pass
+
+    def _schedule_fuser_count_refresh(self):
+        """Periodically refresh the fuser counter label to keep it in sync."""
+        try:
+            self._refresh_fuser_counter_row()
+        except Exception:
+            pass
+        try:
+            # Refresh every 2 seconds; lightweight call using process count
+            self.after(2000, self._schedule_fuser_count_refresh)
+        except Exception:
+            pass
 
     def _refresh_connected_pcs(self):
         """Periodically refresh the connected fuser PCs count and list asynchronously."""
@@ -11886,6 +12016,14 @@ def run_with_splash():
         print("🚀 AUTO-START TRIGGERED after UI ready (6-second delay elapsed)")
         print("="*80 + "\n")
         logging.info("[startup] 🚀 Auto-starting fusers...")
+        try:
+            show_info_toast(app, "Starting fusers now…", duration_ms=3000)
+        except Exception:
+            pass
+        try:
+            post_ui(log_to_console, "> Starting fusers now…")
+        except Exception:
+            pass
         
         # Determine target count based on machine role
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
@@ -11938,6 +12076,22 @@ def run_with_splash():
                 final_running = count_local_fusers()
                 print(f"✅ AUTO-START COMPLETE: {final_running}/{target} fusers running")
                 logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
+
+                # Show a visible success toast and log line in the UI
+                try:
+                    show_info_toast(app, f"Fusers {final_running}/{target} started", duration_ms=3500)
+                except Exception:
+                    pass
+                try:
+                    post_ui(log_to_console, f"> Fusers {final_running}/{target} started")
+                except Exception:
+                    pass
+
+                # Refresh Settings panel fuser counter immediately to reflect running count
+                try:
+                    refresh_settings_panel_from_config()
+                except Exception:
+                    pass
                 
             except Exception as e:
                 import traceback
@@ -11957,6 +12111,15 @@ def run_with_splash():
         try:
             print("(fusers starting ~6 seconds)")
             logging.info("[startup] Scheduled fuser auto-start ~6 seconds after UI ready")
+            # Visible UI hint for users (toast + log panel)
+            try:
+                show_info_toast(app, "Fusers will start in ~6 seconds", duration_ms=3500)
+            except Exception:
+                pass
+            try:
+                post_ui(log_to_console, "> Fusers will start in ~6 seconds")
+            except Exception:
+                pass
         except Exception:
             pass
         app.after(6000, _autostart_fusers)
