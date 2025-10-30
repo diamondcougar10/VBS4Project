@@ -1041,14 +1041,22 @@ def auto_connect_shared_working_folder() -> bool:
         return False
 
 def _run(cmd, **kw):
-    """Run a command with memory safety; return (rc, stdout, stderr)."""
+    """Run a command with memory safety; return (rc, stdout, stderr). No console windows."""
     try:
+        # Prepare STARTUPINFO to hide console window
+        si = None
+        if sys.platform == 'win32' and 'startupinfo' not in kw:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE
+        
         # Add memory optimizations
         optimized_kw = {
             'capture_output': True,
             'text': True,
             'timeout': 30,  # Prevent hanging
             'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0,
+            'startupinfo': si,
             **kw
         }
 
@@ -3585,7 +3593,8 @@ def list_local_fusers() -> list:
 
 def count_local_fusers() -> int:
     """
-    Return count of running PhotoMeshFuser.exe processes on this machine.
+    Return count of ALL running PhotoMeshFuser.exe processes on this machine.
+    This includes both our fusers and any foreign fusers (e.g., from scheduled tasks).
     This checks actual running processes in Task Manager, NOT seeded directories.
     """
     count = len(list_local_fusers())
@@ -3753,132 +3762,340 @@ _SPAWN_LOCK = threading.Lock()
 _SPAWN_FAILS = {}   # Track failure counts per fuser index
 _LAST_TRY = {}      # Track last launch attempt timestamp per index
 
-def start_fuser_instance(idx: int) -> bool:
-    """
-    Launch a PhotoMeshFuser.exe instance with UNC path validation.
+# Cache base path to avoid thread-safety issues with config parsing
+_FUSER_BASE_PATH_CACHE = None
+_FUSER_BASE_PATH_LOCK = threading.Lock()
+
+def _resolve_fuser_workdir(idx: int) -> str:
+    r"""
+    Resolve the per-instance working directory for a fuser.
     
-    Args:
-        idx: Fuser instance number (LocalFuser1, LocalFuser2, etc.)
+    On Host: Uses local path (e.g., E:\SharedMeshDrive\WorkingFuser\LocalFuser1)
+    On User: Uses UNC path (e.g., \\192.168.10.201\SharedMeshDrive\WorkingFuser\LocalFuser1)
+    
+    Creates the directory if it doesn't exist.
+    Thread-safe with caching to avoid config parsing conflicts during parallel launch.
+    """
+    global _FUSER_BASE_PATH_CACHE
+    
+    # Get base path from cache (thread-safe)
+    with _FUSER_BASE_PATH_LOCK:
+        if _FUSER_BASE_PATH_CACHE is None:
+            if is_host_machine():
+                # Host: Use local path to avoid UNC loopback
+                try:
+                    o = get_offline_cfg()
+                    local_root = o.get("local_data_root", r"D:\SharedMeshDrive")
+                    if isinstance(local_root, str):
+                        local_root = local_root.strip()
+                    else:
+                        local_root = r"D:\SharedMeshDrive"
+                    wf_sub = o.get("working_fuser_subdir", "WorkingFuser")
+                    if isinstance(wf_sub, str):
+                        wf_sub = wf_sub.strip()
+                    else:
+                        wf_sub = "WorkingFuser"
+                    _FUSER_BASE_PATH_CACHE = os.path.join(local_root, wf_sub)
+                except Exception as e:
+                    logging.error(f"[_resolve_fuser_workdir] Error getting host config: {e}")
+                    _FUSER_BASE_PATH_CACHE = r"D:\SharedMeshDrive\WorkingFuser"
+            else:
+                # User: Use UNC path
+                try:
+                    _FUSER_BASE_PATH_CACHE = working_fuser_unc()
+                except Exception as e:
+                    logging.error(f"[_resolve_fuser_workdir] Error getting UNC path: {e}")
+                    _FUSER_BASE_PATH_CACHE = r"\\192.168.10.201\SharedMeshDrive\WorkingFuser"
+        
+        base_path = _FUSER_BASE_PATH_CACHE
+    
+    workdir = os.path.join(base_path, f"LocalFuser{idx}")
+    os.makedirs(workdir, exist_ok=True)
+    return os.path.normpath(workdir).replace("/", "\\")
+
+
+def _detect_running_fusers() -> dict:
+    """
+    Detect running PhotoMesh fusers by analyzing their command lines.
     
     Returns:
-        True if launch succeeded, False otherwise
-        
-    Enforces UNC-only working folders to ensure proper network sharing.
-    Pre-establishes SMB session to prevent authentication errors.
-    Process is detached and kept referenced to prevent termination.
+        dict mapping idx (1,2,3) -> psutil.Process for OUR fusers only.
+        Foreign fusers (different working dirs) are logged but not returned.
+    """
+    result = {}
+    foreign_count = 0
+    
+    if not psutil:
+        return result
+    
+    try:
+        for proc in psutil.process_iter(['name', 'cmdline', 'pid']):
+            try:
+                if proc.info.get('name', '').lower() != 'photomeshfuser.exe':
+                    continue
+                
+                cmdline = proc.info.get('cmdline') or []
+                if len(cmdline) < 3:
+                    continue
+                
+                # Expected format: ["PhotoMeshFuser.exe", "ID", "WorkingFolder"]
+                fuser_id_str = cmdline[1]
+                fuser_workdir = cmdline[2]
+                
+                # Try to parse ID
+                try:
+                    fuser_id = int(fuser_id_str)
+                except (ValueError, IndexError):
+                    # Non-standard ID format (might be old-style)
+                    foreign_count += 1
+                    logging.info(f"[fuser-detect] Foreign fuser PID={proc.info['pid']}, ID={fuser_id_str}, counting toward target")
+                    continue
+                
+                # Normalize paths for comparison
+                fuser_workdir_normalized = os.path.normpath(fuser_workdir).replace("/", "\\").lower()
+                
+                # Check if this matches one of our expected work dirs
+                expected_workdir = _resolve_fuser_workdir(fuser_id).lower()
+                
+                if fuser_workdir_normalized == expected_workdir:
+                    result[fuser_id] = proc
+                    logging.debug(f"[fuser-detect] Our fuser #{fuser_id} found: PID={proc.info['pid']}, dir={fuser_workdir}")
+                else:
+                    foreign_count += 1
+                    logging.info(f"[fuser-detect] Foreign fuser PID={proc.info['pid']}, ID={fuser_id}, dir={fuser_workdir}, counting toward target")
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    
+    except Exception as e:
+        logging.error(f"[fuser-detect] Error detecting fusers: {e}")
+    
+    total_detected = len(result) + foreign_count
+    
+    # DEBUG: Print detection results to console
+    print(f"🔍 _detect_running_fusers() → Found {len(result)} OUR fusers, {foreign_count} foreign → TOTAL={total_detected}")
+    if result:
+        print(f"   Our fuser IDs: {sorted(result.keys())}")
+    
+    if total_detected > 0:
+        logging.info(f"[fuser-detect] Total fusers: {total_detected} (ours: {len(result)}, foreign: {foreign_count})")
+    
+    return result
+
+
+def start_fuser_instance(idx: int) -> bool:
+    """
+    Launch a single PhotoMeshFuser.exe instance using official calling convention.
+    
+    Args:
+        idx: Fuser instance ID (1, 2, or 3)
+    
+    Returns:
+        True if launch succeeded and process stabilized, False otherwise
+    
+    Launch format: PhotoMeshFuser.exe "ID" "WorkingFolder"
+    - No CMD windows (CREATE_NO_WINDOW + STARTF_USESHOWWINDOW)
+    - Waits up to 7s for stabilization
+    - Retries once on early exit with 2s backoff
     """
     logging.info(f"[start_fuser_instance] Launching fuser #{idx}")
     
     # Find the fuser executable
     exe = find_fuser_exe()
     if not exe:
-        safe_messagebox_showerror("Fuser", "PhotoMeshFuser.exe not found. Check PhotoMesh installation.")
+        logging.error("[start_fuser_instance] PhotoMeshFuser.exe not found")
         return False
     logging.info(f"[start_fuser_instance] Fuser exe: {exe}")
     
-    # Get the shared working folder path
-    shared = working_fuser_unc()
-    logging.info(f"[start_fuser_instance] Working folder (UNC): {shared}")
+    # Resolve the per-instance working directory
+    workdir = _resolve_fuser_workdir(idx)
+    logging.info(f"[start_fuser_instance] Working directory: {workdir}")
     
-    # Convert UNC to local path if running on Host PC (avoids SMB loopback)
-    shared = unc_to_local_if_host(shared)
-    logging.info(f"[start_fuser_instance] Working folder (resolved): {shared}")
+    # Clear stale lock files in this instance's directory
+    lock_files = ["Fuser.lock", "fuser.lock", ".lock", "PhotoMesh.lock"]
+    for lock_name in lock_files:
+        lock_path = os.path.join(workdir, lock_name)
+        if os.path.exists(lock_path):
+            try:
+                os.remove(lock_path)
+                logging.debug(f"[start_fuser_instance] Removed stale lock: {lock_name}")
+            except Exception as e:
+                logging.warning(f"[start_fuser_instance] Could not remove {lock_name}: {e}")
     
-    # Validate UNC path configuration
-    if ENFORCE_SHARED_WORKING_ONLY:
-        original_unc = working_fuser_unc()
-        if not (original_unc and original_unc.startswith("\\\\")):
-            safe_messagebox_showerror(
-                "Fuser",
-                "Working folder is not configured to a network share.\n\n"
-                "Set Host IP in Settings and try again."
+    # Build args: PhotoMeshFuser.exe "ID" "WorkingFolder"
+    args = [exe, str(idx), workdir]
+    
+    # Prepare hidden console spawn
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    
+    creation_flags = subprocess.CREATE_NO_WINDOW | 0x00000008 | 0x00000200  # NO_WINDOW | DETACHED | NEW_PROCESS_GROUP
+    
+    retry_attempted = False
+    
+    for attempt in range(2):  # Try twice: initial + one retry
+        try:
+            logging.info(f"[start_fuser_instance] Launching: {' '.join(args)}")
+            proc = subprocess.Popen(
+                args,
+                cwd=os.path.dirname(exe),
+                startupinfo=si,
+                creationflags=creation_flags
             )
-            logging.error(f"[start_fuser_instance] BLOCKED: Working folder is not a UNC path: {original_unc}")
-            return False
-        
-        # Pre-establish SMB session to prevent authentication errors
-        if shared.startswith("\\\\"):
-            # Extract \\host\share from full UNC path
-            parts = shared.split("\\")
-            if len(parts) > 3:
-                unc_root = f"\\\\{parts[2]}\\{parts[3]}"
+            logging.info(f"[start_fuser_instance] Process spawned with PID {proc.pid}, stabilizing...")
+            
+            # Stabilization window: wait up to 3 seconds, checking every 0.3s
+            stabilization_time = 3.0
+            check_interval = 0.3
+            elapsed = 0.0
+            
+            while elapsed < stabilization_time:
+                time.sleep(check_interval)
+                elapsed += check_interval
+                
+                # Check if process is still alive
+                retcode = proc.poll()
+                if retcode is not None:
+                    # Process exited early
+                    if not retry_attempted:
+                        logging.warning(f"[start_fuser_instance] Fuser {idx} exited early (code {retcode}) after {elapsed:.1f}s, retrying...")
+                        retry_attempted = True
+                        time.sleep(1.0)  # Backoff before retry
+                        
+                        # Clear locks again before retry
+                        for lock_name in lock_files:
+                            lock_path = os.path.join(workdir, lock_name)
+                            if os.path.exists(lock_path):
+                                try:
+                                    os.remove(lock_path)
+                                except Exception:
+                                    pass
+                        break  # Break inner loop to retry
+                    else:
+                        print(f"      ❌ Fuser #{idx} process exited with code {retcode} after {elapsed:.1f}s")
+                        logging.error(f"[start_fuser_instance] Fuser {idx} exited early again (code {retcode}), giving up")
+                        return False
             else:
-                unc_root = shared
-            
-            logging.info(f"[start_fuser_instance] Pre-establishing UNC session to {unc_root}")
-            if not ensure_smb_session_cached(unc_root, timeout=5):
-                safe_messagebox_showerror(
-                    "Network Connection Failed",
-                    f"Cannot access {unc_root}\n\n"
-                    "This could be due to:\n"
-                    "• ERROR 1219 (multiple connection conflict)\n"
-                    "• Network connectivity issue\n"
-                    "• Incorrect credentials or permissions\n"
-                    "• Firewall blocking SMB (port 445)\n\n"
-                    "Try using Settings → Offline/Shared → Manual Connect\n"
-                    "to diagnose and fix the connection."
-                )
-                logging.error(f"[start_fuser_instance] UNC session failed for {unc_root}")
+                # Stabilization successful (process still running after full window)
+                logging.info(f"[start_fuser_instance] ✓ Fuser {idx} stabilized successfully after {stabilization_time}s (PID: {proc.pid})")
+                
+                # Keep reference to prevent GC termination
+                global _FUSER_PROCESSES
+                _FUSER_PROCESSES.append(proc)
+                
+                return True
+        
+        except Exception as e:
+            print(f"      ❌ Fuser #{idx} launch exception: {e}")
+            logging.error(f"[start_fuser_instance] Launch failed: {e}")
+            if retry_attempted:
                 return False
-            
-            # Verify path accessibility after session established
-            accessible = quick_unc_check(shared, timeout=2.0)
-        else:
-            # Local path (Host PC scenario)
-            accessible = os.path.exists(shared)
-        
-        if not accessible:
-            logging.warning(f"[start_fuser_instance] Path not accessible: {shared}")
-            return False
-        
-        logging.info(f"[start_fuser_instance] Path accessible: {shared}")
+            retry_attempted = True
+            time.sleep(2.0)
     
-    # Build launch command
-    name = f"LocalFuser{idx}"
-    bat = os.path.join(os.path.dirname(exe), f"{name}.bat")
+    print(f"      ❌ Fuser #{idx} failed after all retries")
+    return False
+
+def kill_foreign_fusers() -> int:
+    """
+    Kill only FOREIGN fusers (those not matching our LocalFuser1/2/3 working directories).
+    Returns the number of foreign fusers killed.
+    """
+    if not psutil:
+        logging.warning("[kill_foreign] psutil not available")
+        return 0
+    
+    killed_count = 0
+    our_fusers = _detect_running_fusers()  # Get dict of OUR fusers
+    our_pids = {proc.pid for proc in our_fusers.values()}  # PIDs we should NOT kill
     
     try:
-        # Launch with proper Windows process flags for background execution
-        DETACHED_PROCESS = 0x00000008
-        CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        CREATE_NEW_PROCESS_GROUP = 0x00000200 
-        creation = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-        
-        shared_normalized = os.path.normpath(shared).replace("/", "\\")
-        args = [exe, name, shared_normalized, "0", "true"]
-        
-        logging.info(f"[start_fuser_instance] Direct launch (windowless): {' '.join(args)}")
-        
-        global _FUSER_PROCESSES
-        proc = subprocess.Popen(
-            args,
-            creationflags=creation,
-            cwd=os.path.dirname(exe)
-        )
-        _FUSER_PROCESSES.append(proc)
-        
-        logging.info(f"[start_fuser_instance] Fuser #{idx} launched successfully (PID: {proc.pid})")
-        return True
-        
+        for proc in psutil.process_iter(['name', 'pid', 'cmdline']):
+            try:
+                if proc.info.get('name', '').lower() == 'photomeshfuser.exe':
+                    pid = proc.info['pid']
+                    
+                    # Skip if this is one of OUR fusers
+                    if pid in our_pids:
+                        logging.info(f"[kill_foreign] Skipping our fuser PID {pid}")
+                        continue
+                    
+                    # This is a foreign fuser - kill it
+                    logging.info(f"[kill_foreign] Killing foreign fuser PID {pid}")
+                    print(f"   🗑️ Killing foreign fuser PID {pid}")
+                    
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        killed_count += 1
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                        killed_count += 1
+                    except Exception as e:
+                        logging.error(f"[kill_foreign] Failed to kill PID {pid}: {e}")
+                        
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+                
     except Exception as e:
-        safe_messagebox_showerror("Fuser", f"Failed to start {name}:\n{e}")
-        logging.error(f"[start_fuser_instance] Launch failed: {e}")
-        return False
+        logging.error(f"[kill_foreign] Error: {e}")
+    
+    logging.info(f"[kill_foreign] Killed {killed_count} foreign fuser(s)")
+    return killed_count
+
 
 def kill_fusers() -> None:
-    """Kill ALL local PhotoMeshFuser.exe instances (safer + faster)."""
+    """
+    Kill ALL local PhotoMeshFuser.exe instances using psutil (no CMD windows).
+    Attempts graceful termination first, then force kill if needed.
+    """
     global _FUSER_PROCESSES
     
+    # DEBUG: Log who is calling this function
+    import traceback
+    stack_trace = ''.join(traceback.format_stack())
+    print("\n" + "="*80)
+    print("🔴 kill_fusers() CALLED - Full stack trace:")
+    print(stack_trace)
+    print("="*80 + "\n")
+    logging.error(f"[kill_fusers] 🔴 KILL REQUEST - Full stack trace:\n{stack_trace}")
+    
+    if not psutil:
+        logging.warning("[kill_fusers] psutil not available, cannot kill fusers")
+        return
+    
+    killed_count = 0
+    
     try:
-        subprocess.run(['taskkill', '/IM', 'PhotoMeshFuser.exe', '/F'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        for p in list_local_fusers():
+        for proc in psutil.process_iter(['name', 'pid']):
             try:
-                if psutil and isinstance(p, psutil.Process):
-                    p.terminate()
-            except Exception:
-                pass
+                if proc.info.get('name', '').lower() == 'photomeshfuser.exe':
+                    pid = proc.info['pid']
+                    logging.info(f"[kill_fusers] Terminating PID {pid}")
+                    
+                    try:
+                        proc.terminate()  # Graceful termination
+                        proc.wait(timeout=5)  # Wait up to 5 seconds
+                        logging.info(f"[kill_fusers] PID {pid} terminated gracefully")
+                        killed_count += 1
+                    except psutil.TimeoutExpired:
+                        # Force kill if termination didn't work
+                        logging.warning(f"[kill_fusers] PID {pid} did not terminate, force killing")
+                        proc.kill()
+                        proc.wait(timeout=2)
+                        logging.info(f"[kill_fusers] PID {pid} force killed")
+                        killed_count += 1
+                        
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                logging.debug(f"[kill_fusers] Process already gone or access denied: {e}")
+                continue
+                
+    except Exception as e:
+        logging.error(f"[kill_fusers] Error during kill: {e}")
+    
+    logging.info(f"[kill_fusers] Killed {killed_count} fuser process(es)")
     
     # Clear the process reference list after killing
     _FUSER_PROCESSES.clear()
@@ -3901,8 +4118,10 @@ def ensure_fuser_instances(desired: int):
         desired: Target number of fuser instances
         
     Behavior:
-    - If current < desired: Launch additional fusers
-    - If current > desired: Kill all fusers and restart to desired count
+    - Detects OUR fusers (matching LocalFuser1/2/3 directories)
+    - Adopts foreign fusers and counts them toward target
+    - If current < desired: Launch missing instances sequentially
+    - If current > desired: Kill only OUR extra fusers (never foreign)
     - If current == desired: No action needed
     
     Uses locking to prevent concurrent enforcement attempts.
@@ -3930,28 +4149,117 @@ def ensure_fuser_instances(desired: int):
         desired = _clamp_fusers(desired, is_fuser)
         logging.info(f"[fuser-scale] Clamped target: {desired}")
 
-        current = count_local_fusers()
-        logging.info(f"[fuser-scale] Current count: {current}")
+        # Detect OUR fusers (returns dict: {idx -> Process})
+        our_fusers = _detect_running_fusers()
+        
+        # Count total fusers (including foreign)
+        total_count = count_local_fusers()
+        our_count = len(our_fusers)
+        foreign_count = total_count - our_count
+        
+        logging.info(f"[fuser-scale] Current fusers: total={total_count}, ours={our_count}, foreign={foreign_count}")
+        
+        # Kill ONLY foreign fusers (preserve OUR fusers with correct working directories)
+        if foreign_count > 0:
+            print(f"\n🧹 Cleaning up {foreign_count} foreign fuser(s) with wrong working directories...")
+            logging.warning(f"[fuser-scale] Killing {foreign_count} foreign fuser(s)")
+            killed = kill_foreign_fusers()  # Kill only foreign fusers, preserves OUR fusers
+            print(f"   ✅ Killed {killed} foreign fuser(s), preserved {our_count} OUR fuser(s)")
+            time.sleep(1.0)  # Brief wait for cleanup
+            
+            # Re-detect after cleanup to verify
+            our_fusers = _detect_running_fusers()
+            total_count = count_local_fusers()
+            our_count = len(our_fusers)
+            foreign_count = total_count - our_count
+            print(f"   After cleanup: {our_count} OUR fusers, {foreign_count} foreign")
+            logging.info(f"[fuser-scale] After cleanup: total={total_count}, ours={our_count}, foreign={foreign_count}")
     
-        if current == desired:
-            logging.info(f"[fuser-scale] Already at target ({current}), no action needed")
+        if our_count >= desired:
+            if our_count == desired:
+                logging.info(f"[fuser-scale] ✓ Already at target ({our_count} OUR fusers), no action needed")
+            else:
+                # More than desired - need to trim OUR extras
+                to_kill = our_count - desired
+                
+                # DEBUG: Print to console when trimming
+                import traceback
+                trim_trace = ''.join(traceback.format_stack())
+                print("\n" + "="*80)
+                print(f"🔴 ensure_fuser_instances() TRIM: our_count={our_count} > desired={desired}, will trim {to_kill} OUR fusers")
+                print("Called from:")
+                print(trim_trace)
+                print("="*80 + "\n")
+                
+                logging.warning(f"[fuser-scale] ⚠️ TRIM NEEDED: our_count={our_count} > desired={desired}, will trim {to_kill} OUR fuser(s)")
+                logging.error(f"[fuser-scale] TRIM stack trace:\n{trim_trace}")
+                
+                # Kill only OUR extra fusers, starting from highest ID
+                killed = 0
+                for idx in sorted(our_fusers.keys(), reverse=True):
+                    if killed >= to_kill:
+                        break
+                    
+                    proc = our_fusers[idx]
+                    try:
+                        logging.info(f"[fuser-scale] Trimming our fuser #{idx}, PID={proc.pid}")
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        killed += 1
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                        killed += 1
+                    except Exception as e:
+                        logging.error(f"[fuser-scale] Failed to kill fuser #{idx}: {e}")
+                
+                logging.info(f"[fuser-scale] Trimmed {killed} fuser(s)")
+            
             if is_fuser:
                 save_last_launched_fuser_count(desired)
             return
 
-        if current > desired:
-            logging.info(f"[fuser-scale] Killing all ({current} > {desired})")
-            kill_fusers()
-            current = 0
-
-        to_start = max(0, desired - current)
-        logging.info(f"[fuser-scale] Starting {to_start} new instances")
-    
-        for idx in range(current + 1, current + 1 + to_start):
-            logging.info(f"[fuser-scale] Launching fuser #{idx}")
+        # Need to launch more OUR fusers - LAUNCH IN PARALLEL
+        to_start = desired - our_count
+        print(f"\n🚀 LAUNCHING {to_start} OUR fuser(s) IN PARALLEL to reach target of {desired} (currently have {our_count})")
+        logging.info(f"[fuser-scale] Starting {to_start} new instances IN PARALLEL")
+        
+        # Find which IDs are missing (1, 2, 3)
+        available_ids = [i for i in range(1, 4) if i not in our_fusers]
+        print(f"   Available IDs: {available_ids}, will use: {available_ids[:to_start]}")
+        
+        # Launch all fusers in parallel threads
+        import threading
+        launch_results = {}
+        launch_lock = threading.Lock()
+        
+        def launch_worker(idx):
+            print(f"   🔄 Starting fuser #{idx} (parallel launch)...")
+            logging.info(f"[fuser-scale] ► Launching fuser #{idx}")
             result = start_fuser_instance(idx)
-            logging.info(f"[fuser-scale] Launch result: {result}")
-            time.sleep(0.6)  # Allow process initialization
+            with launch_lock:
+                launch_results[idx] = result
+            if result:
+                print(f"   ✅ Fuser #{idx} stabilized successfully!")
+                logging.info(f"[fuser-scale] ✓ Fuser #{idx} stabilized successfully")
+            else:
+                print(f"   ❌ Fuser #{idx} FAILED to launch")
+                logging.error(f"[fuser-scale] ✗ Fuser #{idx} failed to launch")
+        
+        # Start all launch threads
+        threads = []
+        for idx in available_ids[:to_start]:
+            t = threading.Thread(target=launch_worker, args=(idx,), daemon=True)
+            t.start()
+            threads.append(t)
+        
+        # Wait for all launches to complete (with timeout)
+        print(f"   ⏳ Waiting for all {to_start} fuser(s) to stabilize (~3 seconds)...")
+        for t in threads:
+            t.join(timeout=5)  # Wait up to 5 seconds per thread
+        
+        launched = sum(1 for success in launch_results.values() if success)
+        print(f"✅ Launch complete: {launched}/{to_start} new fuser(s) started\n")
+        logging.info(f"[fuser-scale] Launched {launched}/{to_start} new fuser(s)")
     
         # Persist count for next session
         if is_fuser:
@@ -4089,10 +4397,15 @@ def enforce_local_fuser_policy():
     Gated by _allow_fuser_enforcement flag to prevent premature execution during startup.
     Includes throttling to prevent redundant enforcement within 8-second windows.
     """
-    global _allow_fuser_enforcement, _last_enforce_target, _last_enforce_ts
+    global _allow_fuser_enforcement, _last_enforce_target, _last_enforce_ts, _skip_fuser_enforcement_at_startup
     
     try:
         logging.info(f"[fuser-policy] enforce_local_fuser_policy() called")
+        
+        # CRITICAL: Block ALL enforcement during startup, regardless of mode
+        if _skip_fuser_enforcement_at_startup:
+            logging.info("[fuser-policy] GATED: enforcement blocked during startup phase")
+            return
         
         # Gate: Don't enforce until UNC is confirmed ready (only for shared mode)
         work_mode = config.get("Fusers", "work_mode", fallback="local").strip().lower()
@@ -4140,18 +4453,21 @@ def enforce_local_fuser_policy():
                 target = desired_ct
                 logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=True desired={desired_ct} -> target={target}")
             elif is_fuser and not unc_ok:
-                # UNC not ready: preserve running fusers if any, otherwise still start desired count
-                # This handles first-boot scenarios where UNC might be slow to respond
+                # UNC not ready: ALWAYS use desired_ct, don't kill running fusers
+                # The fusers can still work with UNC paths even if our quick check fails
                 current = count_local_fusers()
-                target = max(current, desired_ct)
+                target = desired_ct  # Always use desired, don't depend on current count
                 if current > 0:
-                    logging.warning(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=False -> preserving {current} running fusers (desired={desired_ct})")
+                    logging.warning(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=False -> keeping target={target} (current={current})")
                 else:
-                    logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=False no_running -> starting {desired_ct} fusers anyway")
-                    target = desired_ct
+                    logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} unc_ok=False no_running -> target={target}")
+            elif is_fuser:
+                # Fuser computer but in a mode we don't understand - use desired_ct to be safe
+                target = desired_ct
+                logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} -> target={target} (fallback to desired)")
             else:
                 target = 0
-                logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} -> target={target} (neither host nor fuser)")
+                logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} -> target={target} (not a fuser PC)")
 
         # Throttle duplicate enforcements with the same target within a short window
         now = time.time()
@@ -6167,9 +6483,7 @@ class MainApp(tk.Tk):
                  bg="#333333", fg="white",
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
-        logging.info("[ui-diag] About to call enforce_local_fuser_policy() (2nd call)")
-        enforce_local_fuser_policy()
-        logging.info("[ui-diag] enforce_local_fuser_policy() complete")
+        logging.info("[ui-diag] Skipping enforce_local_fuser_policy() during UI init (will auto-start at 3s mark)")
 
         logging.info("[ui-diag] About to call apply_offline_settings()")
         try:
@@ -11538,6 +11852,25 @@ def run_with_splash():
     app = MainApp()
     # MainApp.__init__ already calls withdraw()
     
+    # Clean up any orphaned fusers from previous sessions BEFORE starting new ones
+    try:
+        initial_count = count_local_fusers()
+        logging.info(f"[startup-cleanup] Initial fuser count: {initial_count}")
+        if initial_count > 0:
+            logging.info(f"[startup-cleanup] Killing {initial_count} orphaned fuser(s)")
+            kill_fusers()
+            time.sleep(2.5)  # Wait for processes to terminate
+            final_count = count_local_fusers()
+            if final_count > 0:
+                logging.warning(f"[startup-cleanup] {final_count} fuser(s) still running after cleanup, retrying...")
+                kill_fusers()
+                time.sleep(1.0)
+            logging.info("[startup-cleanup] Cleanup complete")
+        else:
+            logging.info("[startup-cleanup] No orphaned fusers detected - clean start")
+    except Exception as e:
+        logging.error(f"[startup-cleanup] Failed to clean orphaned fusers: {e}")
+    
     # Create and attach a splash that never steals focus
     splash_img = _resource_path(SPLASH_NAME)
     ver = "Version: 2.0"  # Explicitly set version to 2.0
@@ -11609,12 +11942,14 @@ def run_with_splash():
                     logging.info("[fuser-startup] Enabling fuser enforcement now that UNC is ready")
                     _allow_fuser_enforcement = True
                     
-                    # 4) Restore fusers from previous session if applicable
-                    logging.info("[fuser-startup] Restoring fusers from previous session")
-                    try:
-                        restore_fusers_on_startup()
-                    except Exception as e:
-                        logging.warning(f"[fuser-startup] Restore failed: {e}")
+                    # 4) Restore fusers - DISABLED, now using _autostart_fusers() instead
+                    # restore_fusers_on_startup() uses old code that doesn't use per-instance workdirs
+                    # Our new _autostart_fusers() at 3-second mark handles this properly
+                    logging.info("[fuser-startup] Skipping restore_fusers_on_startup (using _autostart_fusers instead)")
+                    # try:
+                    #     restore_fusers_on_startup()
+                    # except Exception as e:
+                    #     logging.warning(f"[fuser-startup] Restore failed: {e}")
                     
                     # 5) Apply policy enforcement (won't kill if UNC check fails)
                     logging.info("[fuser-startup] Running first policy enforcement")
@@ -11643,16 +11978,186 @@ def run_with_splash():
     # Schedule this sooner after the app's initialization is complete
     app.after(20, setup_delayed_tasks)
     
-    # Clear the startup skip flag after UI is fully loaded (3 seconds after startup)
-    def _enable_fuser_enforcement():
+    # Auto-start fusers after UI is fully loaded
+    def _autostart_fusers():
         global _skip_fuser_enforcement_at_startup
+        
+        print("\n" + "="*80)
+        print("🚀 AUTO-START TRIGGERED at 3-second mark")
+        print("="*80 + "\n")
+        logging.info("[startup] 🚀 Auto-starting fusers...")
+        logging.info(f"[startup] Python version: {sys.version}")
+        logging.info(f"[startup] Working directory: {os.getcwd()}")
+        
+        # Determine target count based on machine role
+        try:
+            is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+            print(f"📋 fuser_computer setting: {is_fuser}")
+            logging.info(f"[startup] fuser_computer setting: {is_fuser}")
+        except Exception as e:
+            print(f"❌ Error reading fuser_computer setting: {e}")
+            logging.error(f"[startup] Error reading fuser_computer setting: {e}")
+            is_fuser = False
+        
+        if not is_fuser:
+            print("⚠️ Not a fuser computer - SKIPPING auto-start")
+            logging.info("[startup] Not a fuser computer, skipping auto-start")
+            _skip_fuser_enforcement_at_startup = False
+            return
+        
+        # Get target count from config
+        try:
+            host_ct, desired_ct = get_fuser_counts()
+            is_host = is_host_machine()
+            
+            print(f"📊 Host count: {host_ct}, User count: {desired_ct}")
+            print(f"🖥️ Is host machine: {is_host}")
+            logging.info(f"[startup] Host count: {host_ct}, User count: {desired_ct}")
+            logging.info(f"[startup] Is host machine: {is_host}")
+            logging.info(f"[startup] Machine IP: {get_primary_ipv4()}")
+            logging.info(f"[startup] Configured host IP: {config.get('Offline', 'host_ip', fallback='N/A')}")
+        except Exception as e:
+            print(f"❌ Error determining machine role: {e}")
+            logging.error(f"[startup] Error determining machine role: {e}")
+            import traceback
+            logging.error(f"[startup] Traceback: {traceback.format_exc()}")
+            return
+        
+        try:
+            if is_host:
+                target = host_ct
+                print(f"✓ HOST mode: Will launch {target} fuser(s)")
+                logging.info(f"[startup] HOST mode: auto-starting {target} fuser(s)")
+            else:
+                target = desired_ct
+                print(f"✓ USER mode: Will launch {target} fuser(s)")
+                logging.info(f"[startup] USER mode: auto-starting {target} fuser(s)")
+        except Exception as e:
+            print(f"❌ Error determining target count: {e}")
+            logging.error(f"[startup] Error determining target count: {e}")
+            return
+        
+        # Validate target count
+        if target <= 0 or target > 3:
+            print(f"❌ Invalid target count: {target} (must be 1-3)")
+            logging.error(f"[startup] Invalid target count: {target} (must be 1-3)")
+            return
+        
+        # Clear the skip flag FIRST so enforcement can run
+        print("🔓 Clearing enforcement skip flag")
+        logging.info("[startup] Clearing enforcement skip flag")
         _skip_fuser_enforcement_at_startup = False
-        logging.info("[startup] Fuser enforcement now enabled (startup complete)")
+        
+        # Show visual notification that fusers are launching
+        try:
+            show_info_toast(app, f"🚀 Starting {target} fuser(s)... (~6 seconds)", duration_ms=7000)
+        except Exception as e:
+            logging.warning(f"[startup] Failed to show toast notification: {e}")
+        
+        # Launch fusers sequentially in a background thread to avoid blocking UI
+        def _launch_in_background():
+            try:
+                print("🧵 Background launch thread STARTED")
+                logging.info("[startup] ========== FUSER AUTO-START BEGIN ==========")
+                logging.info("[startup] Background fuser launch thread started")
+                logging.info(f"[startup] Target fuser count: {target}")
+                logging.info(f"[startup] Is HOST: {is_host}, Is USER: {not is_host}")
+                
+                # Check PhotoMesh executable exists
+                exe = find_fuser_exe()
+                if not exe:
+                    print("❌ PhotoMeshFuser.exe not found!")
+                    logging.error("[startup] CRITICAL: PhotoMeshFuser.exe not found - cannot launch fusers")
+                    logging.error(f"[startup] Searched path: {config.get('Fusers', 'local_fuser_exe', fallback='N/A')}")
+                    return
+                logging.info(f"[startup] Fuser executable found: {exe}")
+                
+                # Check working directory accessibility
+                try:
+                    test_workdir = _resolve_fuser_workdir(1)
+                    logging.info(f"[startup] Test working directory: {test_workdir}")
+                    if not os.path.exists(os.path.dirname(test_workdir)):
+                        logging.warning(f"[startup] Working directory parent does not exist, will create: {os.path.dirname(test_workdir)}")
+                except Exception as wd_err:
+                    logging.error(f"[startup] Error resolving working directory: {wd_err}")
+                    import traceback
+                    logging.error(f"[startup] Traceback: {traceback.format_exc()}")
+                
+                # NOTE: Startup cleanup already killed orphaned fusers, so we just launch here
+                # Per user requirement: "fusers should only get killed when the program closes"
+                existing_count = count_local_fusers()
+                print(f"📊 Existing fuser count: {existing_count}")
+                logging.info(f"[startup] Existing fuser count: {existing_count}")
+                
+                # Launch the target count
+                print(f"▶️ Calling ensure_fuser_instances({target})...")
+                logging.info(f"[startup] ===== Calling ensure_fuser_instances({target}) =====")
+                ensure_fuser_instances(target)
+                
+                # Verify launch success
+                final_running = count_local_fusers()
+                print(f"✅ AUTO-START COMPLETE: {final_running}/{target} fusers running")
+                logging.info(f"[startup] ========== FUSER AUTO-START COMPLETE ==========")
+                logging.info(f"[startup] Final result: {final_running}/{target} fusers running")
+                
+                # Log success/failure details
+                if final_running == target:
+                    logging.info(f"[startup] ✅ SUCCESS: All {target} fusers launched successfully")
+                elif final_running > 0:
+                    logging.warning(f"[startup] ⚠️ PARTIAL SUCCESS: {final_running}/{target} fusers running")
+                else:
+                    logging.error(f"[startup] ❌ FAILURE: No fusers running (expected {target})")
+                    logging.error("[startup] Check above logs for errors. Common issues:")
+                    logging.error("[startup]   - PhotoMeshFuser.exe not found or not executable")
+                    logging.error("[startup]   - Working directory not accessible (UNC path issue)")
+                    logging.error("[startup]   - Fusers crashing immediately after launch (check PhotoMesh logs)")
+                    logging.error("[startup]   - Network/permissions issues accessing shared drive")
+                
+                # Force UI refresh to show correct count (must run on main thread)
+                def refresh_ui():
+                    try:
+                        if hasattr(app, 'panels') and 'Settings' in app.panels:
+                            app.panels['Settings']._refresh_fuser_counter_row()
+                            print("🔄 UI refreshed to show fuser count")
+                            logging.info("[startup] UI fuser counter refreshed")
+                        
+                        # Show success notification
+                        if final_running == target:
+                            show_info_toast(app, f"✅ {final_running} fuser(s) running", duration_ms=3000)
+                        elif final_running > 0:
+                            show_info_toast(app, f"⚠️ {final_running}/{target} fuser(s) running", duration_ms=4000)
+                        else:
+                            show_info_toast(app, f"❌ Fusers failed to start", duration_ms=4000)
+                    except Exception as refresh_err:
+                        logging.warning(f"[startup] Failed to refresh UI: {refresh_err}")
+                
+                app.after(100, refresh_ui)  # Schedule UI refresh on main thread
+                
+            except Exception as e:
+                import traceback
+                error_msg = traceback.format_exc()
+                print(f"❌ AUTO-START FAILED: {e}")
+                print(error_msg)
+                logging.error(f"[startup] ========== FUSER AUTO-START EXCEPTION ==========")
+                logging.error(f"[startup] Exception: {e}")
+                logging.error(f"[startup] Full traceback:\n{error_msg}")
+                logging.error("[startup] Auto-start completely failed due to exception")
+        
+        import threading
+        print("🧵 Starting background launch thread...")
+        threading.Thread(target=_launch_in_background, daemon=True).start()
+        logging.info("[startup] Background fuser launch thread dispatched")
     
-    app.after(3000, _enable_fuser_enforcement)
+    app.after(3000, _autostart_fusers)
 
+    print("\n" + "="*80)
+    print("✅ MAINLOOP STARTING - App window should open now")
+    print("="*80 + "\n")
     logging.info("[startup] About to start mainloop()")
     app.mainloop()
+    print("\n" + "="*80)
+    print("🛑 MAINLOOP EXITED - App was closed by user")
+    print("="*80 + "\n")
     logging.info("[startup] mainloop() exited (app closed)")
 
 if __name__ == "__main__":
