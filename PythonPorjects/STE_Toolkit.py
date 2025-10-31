@@ -64,8 +64,6 @@ if hasattr(sys, 'set_int_max_str_digits'):
 
 gc.set_threshold(700, 10, 10)
 gc.enable()
-
-os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 os.environ['PYTHONOPTIMIZE'] = '2'
 
 # Windows process memory configuration
@@ -812,21 +810,65 @@ logging.basicConfig(
 # Force flush logs immediately to help diagnose startup hangs
 logging.getLogger().handlers[0].setLevel(logging.DEBUG)
 
-# --- Hidden subprocess helper ---
+# --- Hidden subprocess helper (Windows console-free execution) ---
 CREATE_NO_WINDOW = 0x08000000
+IS_WIN = (os.name == "nt")
 
-def run_hidden(cmd: list[str] | str, check=False, cwd=None, shell=False, env=None, capture_output=False, text=True):
-    """Run a command without showing a console window."""
+# --- Debounce lock for periodic fuser checks (prevents overlapping calls) ---
+_FUSER_CHECK_LOCK = threading.Lock()
+_LAST_FUSER_CHECK = 0.0
+
+def run_hidden(cmd, *, timeout=15, cwd=None, check=False, text=True, capture_output=True, env=None):
+    """
+    Run a console command invisibly on Windows; safe cross-platform fallback elsewhere.
+    
+    This prevents console window flashes by:
+    - Using CREATE_NO_WINDOW flag (no console creation)
+    - Setting STARTF_USESHOWWINDOW + SW_HIDE (hide window if one exists)
+    - Avoiding shell=True (prevents cmd.exe window)
+    
+    Args:
+        cmd: Command as list (e.g., ["tasklist", "/FI", "..."])
+        timeout: Max seconds to wait
+        cwd: Working directory
+        check: Raise on non-zero exit
+        text: Return stdout/stderr as strings (not bytes)
+        capture_output: Capture stdout/stderr
+        env: Environment variables
+    
+    Returns:
+        CompletedProcess with .returncode, .stdout, .stderr
+    """
+    if not IS_WIN:
+        # Non-Windows: normal run (no console flashes anyway)
+        return subprocess.run(
+            cmd, 
+            stdout=subprocess.PIPE if capture_output else None,
+            stderr=subprocess.PIPE if capture_output else None,
+            cwd=cwd, 
+            timeout=timeout, 
+            check=check, 
+            text=text,
+            env=env
+        )
+
+    # Windows: hide console completely
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+
     return subprocess.run(
         cmd,
-        check=check,
-        cwd=cwd,
-        shell=shell,
-        env=env,
-        creationflags=CREATE_NO_WINDOW,
         stdout=subprocess.PIPE if capture_output else None,
         stderr=subprocess.PIPE if capture_output else None,
+        cwd=cwd,
+        timeout=timeout,
+        check=check,
         text=text,
+        env=env,
+        shell=False,  # Critical: avoid cmd.exe
+        startupinfo=si,
+        creationflags=CREATE_NO_WINDOW
     )
 
 def get_primary_ipv4() -> str:
@@ -1935,19 +1977,21 @@ def wait_for_obj(build_root: str, timeout_sec: int = 8*3600, poll_sec: int = 10,
     return None
 
 def wait_for_terraexplorer_start(timeout_sec: int = 8*3600, poll_sec: int = 5, log=print) -> bool:
-    """Return True when TerraExplorer.exe is observed."""
+    """Return True when TerraExplorer.exe is observed (windowless check)."""
     want = "terraexplorer.exe"
     start = time.time()
     while time.time() - start < timeout_sec:
         try:
             if psutil:
+                # Best: psutil API (no console)
                 for p in psutil.process_iter(["name"]):
                     if (p.info.get("name") or "").lower() == want:
                         log("[watch] TerraExplorer.exe detected")
                         return True
             else:
-                out = subprocess.check_output(["tasklist"], text=True, stderr=subprocess.DEVNULL)
-                if any(want in line.lower() for line in out.splitlines()):
+                # Fallback: hidden tasklist (no console window)
+                result = run_hidden(["tasklist", "/FI", f"IMAGENAME eq {want}"], timeout=3)
+                if result.returncode == 0 and result.stdout and want in result.stdout.lower():
                     log("[watch] TerraExplorer.exe detected (tasklist)")
                     return True
         except Exception:
@@ -3509,22 +3553,35 @@ def is_host_machine() -> bool:
 def find_fuser_exe() -> str:
     """
     Try common install paths; fall back to walking PhotoMesh install folder.
-    Adjust paths if your install differs.
+    Emits detailed logs to help diagnose install-path issues on packaged builds.
     """
-    candidates = [
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe",
-        r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\Fuser\\PhotoMeshFuser.exe",
-        r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe",
-    ]
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
+    try:
+        import time as _time
+        t0 = _time.time()
+        candidates = [
+            r"C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe",
+            r"C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\Fuser\\PhotoMeshFuser.exe",
+            r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe",
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                logging.info(f"[find_fuser_exe] Found in candidates: {c}")
+                return c
 
-    root = r"C:\\Program Files\\Skyline\\PhotoMesh"
-    for dp, dn, fn in os.walk(root):
-        if "PhotoMeshFuser.exe" in fn:
-            return os.path.join(dp, "PhotoMeshFuser.exe")
-    return ""
+        root = r"C:\\Program Files\\Skyline\\PhotoMesh"
+        logging.info(f"[find_fuser_exe] Walking install root: {root}")
+        for dp, dn, fn in os.walk(root):
+            if "PhotoMeshFuser.exe" in fn:
+                found = os.path.join(dp, "PhotoMeshFuser.exe")
+                dt = _time.time() - t0
+                logging.info(f"[find_fuser_exe] Discovered via walk in {dt:.2f}s: {found}")
+                return found
+        dt = _time.time() - t0
+        logging.error(f"[find_fuser_exe] NOT FOUND after {dt:.2f}s. Checked candidates and walked: {root}")
+        return ""
+    except Exception as e:
+        logging.error(f"[find_fuser_exe] Exception: {e}")
+        return ""
 
 def photomesh_fuser_installed() -> bool:
     """Check if PhotoMesh Fuser is installed on this PC."""
@@ -3599,12 +3656,19 @@ ensure_fuser_defaults()
 # ============================================================================
 
 def list_local_fusers() -> list:
-    """Query running PhotoMeshFuser.exe processes on this machine (robust match)."""
+    """
+    Query running PhotoMeshFuser.exe processes on this machine (windowless).
+    
+    Prefers psutil (pure API, no console). Falls back to hidden tasklist.
+    Returns list of processes (psutil.Process objects or dict-like info).
+    """
     procs = []
     target = 'photomeshfuser.exe'
+    
     if psutil:
+        # Best path: use psutil API (no console, no window)
         try:
-            for p in psutil.process_iter(['name', 'exe']):
+            for p in psutil.process_iter(['name', 'exe', 'cmdline', 'pid']):
                 nm = (p.info.get('name') or '').lower().strip()
                 ex = (p.info.get('exe') or '').lower().strip()
                 base = os.path.basename(ex) if ex else ''
@@ -3613,14 +3677,21 @@ def list_local_fusers() -> list:
         except Exception:
             pass
     else:  
+        # Fallback: hidden tasklist (no console window)
         try:
-            out = subprocess.check_output(
-                ['tasklist', '/FI', 'IMAGENAME eq PhotoMeshFuser.exe'],
-                text=True, stderr=subprocess.DEVNULL
-            )
-            for line in out.splitlines():
-                if 'PhotoMeshFuser.exe' in line:
-                    procs.append(line)
+            result = run_hidden(['tasklist', '/FI', 'IMAGENAME eq PhotoMeshFuser.exe', '/FO', 'CSV', '/NH'], timeout=3)
+            if result.returncode == 0 and result.stdout:
+                import csv, io
+                for row in csv.reader(io.StringIO(result.stdout)):
+                    if not row or not row[0].strip():
+                        continue
+                    name = row[0].strip().strip('"').lower()
+                    if name == 'photomeshfuser.exe':
+                        try:
+                            pid = int(row[1].strip().strip('"'))
+                        except Exception:
+                            pid = None
+                        procs.append({'pid': pid, 'name': name})
         except Exception:
             pass
     return procs
@@ -3630,12 +3701,31 @@ def count_local_fusers() -> int:
     Return count of ALL running PhotoMeshFuser.exe processes on this machine.
     This includes both our fusers and any foreign fusers (e.g., from scheduled tasks).
     This checks actual running processes in Task Manager, NOT seeded directories.
+    
+    Uses debounce lock to prevent overlapping checks (avoids console window bursts).
     """
-    count = len(list_local_fusers())
-    # Log for debugging when count seems wrong
-    if count > 0:
-        logging.debug(f"[fuser-count] Detected {count} PhotoMeshFuser.exe process(es) running locally")
-    return count
+    global _LAST_FUSER_CHECK
+    
+    # Quick non-blocking check: skip if another check is in progress
+    if not _FUSER_CHECK_LOCK.acquire(blocking=False):
+        # Return cached count if a check is already running
+        cached = getattr(count_local_fusers, '_cached_count', 0)
+        return cached
+    
+    try:
+        _LAST_FUSER_CHECK = time.time()
+        count = len(list_local_fusers())
+        
+        # Cache the result for rapid subsequent calls
+        count_local_fusers._cached_count = count
+        
+        # Log for debugging when count seems wrong
+        if count > 0:
+            logging.debug(f"[fuser-count] Detected {count} PhotoMeshFuser.exe process(es) running locally")
+        
+        return count
+    finally:
+        _FUSER_CHECK_LOCK.release()
 
 def count_all_fusers_from_shared() -> int:
     """
@@ -3712,6 +3802,66 @@ _allow_fuser_enforcement: bool = False
 # -----------------------------------------------------------------------------
 # First-run readiness gating and diagnostics
 # -----------------------------------------------------------------------------
+def _is_admin() -> bool:
+    """Return True if process has administrative privileges on Windows."""
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+def _safe_stat(path: str) -> dict:
+    """Return a small dict with exists/size/mtime for a path, swallowing errors."""
+    info = {"exists": False, "size": None, "mtime": None, "len": len(path) if isinstance(path, str) else None}
+    try:
+        if path and os.path.exists(path):
+            info["exists"] = True
+            try:
+                st = os.stat(path)
+                info["size"] = st.st_size
+                info["mtime"] = st.st_mtime
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return info
+
+def _explain_winerror(err: BaseException) -> str:
+    """Translate common Windows error codes to friendly text."""
+    try:
+        import errno
+        we = getattr(err, 'winerror', None) or getattr(err, 'errno', None)
+        if we is None:
+            return ""
+        mapping = {
+            2: "File not found",
+            3: "Path not found",
+            5: "Access denied",
+            13: "Permission denied",
+            32: "Sharing violation",
+            193: "Not a valid Win32 application (architecture mismatch or corrupt)",
+            206: "Filename or path too long",
+            740: "Elevation required (run as Administrator)",
+        }
+        txt = mapping.get(we)
+        if not txt and isinstance(we, int):
+            txt = f"WinError {we}"
+        return txt or ""
+    except Exception:
+        return ""
+
+def _write_launch_diag(workdir: str, idx: int, diag: dict) -> None:
+    """Best-effort write of per-ID launch diagnostics to the workdir for offline review."""
+    try:
+        sub = os.path.join(workdir, "_launch_debug")
+        os.makedirs(sub, exist_ok=True)
+        fname = os.path.join(sub, f"launch_diag_{idx}.txt")
+        with open(fname, 'w', encoding='utf-8') as f:
+            for k, v in diag.items():
+                f.write(f"{k}: {v}\n")
+    except Exception:
+        # Ignore failures (e.g., no permissions); diagnostics are also in logging
+        pass
 def _resolve_working_root_for_checks() -> tuple[str | None, str]:
     """Return (working_root_path, mode) where mode is 'host' or 'user'."""
     try:
@@ -3920,24 +4070,40 @@ def _resolve_fuser_workdir(idx: int) -> str:
     r"""
     Resolve the per-instance working directory for a fuser.
     
-    On Host: Uses local path (e.g., E:\SharedMeshDrive\WorkingFuser\LocalFuser1)
-    On User: Uses UNC path (e.g., \\192.168.10.201\SharedMeshDrive\WorkingFuser\LocalFuser1)
+    Naming scheme (restored): <MACHINE>-<idx>(<IPv4>)_LocalFuser<idx>
+    Examples:
+      - Host local:  E:\SharedMeshDrive\WorkingFuser\KIT1-1-1(192.168.10.10)_LocalFuser1
+      - User UNC:    \\192.168.10.201\SharedMeshDrive\WorkingFuser\KIT2-3-1(192.168.10.22)_LocalFuser1
     
     Creates the directory if it doesn't exist.
     """
     if is_host_machine():
         # Host: Use local path to avoid UNC loopback
         o = get_offline_cfg()
-        local_root = o.get("local_data_root", r"D:\SharedMeshDrive").strip()
+        local_root = o.get("local_data_root", r"D:\\SharedMeshDrive").strip()
         wf_sub = o.get("working_fuser_subdir", "WorkingFuser").strip()
         base_path = os.path.join(local_root, wf_sub)
     else:
         # User: Use UNC path
         base_path = working_fuser_unc()
-    
-    workdir = os.path.join(base_path, f"LocalFuser{idx}")
+
+    # Build the folder name with PC name and IP prefix for uniqueness across machines
+    try:
+        pc = get_machine_name()
+    except Exception:
+        pc = os.environ.get('COMPUTERNAME', 'PC').upper()
+    try:
+        ip = get_primary_ipv4() or "0.0.0.0"
+    except Exception:
+        ip = "0.0.0.0"
+
+    # IMPORTANT: Do NOT include the index in the machine prefix, so host UI groups by PC correctly
+    folder_name = f"{pc}({ip})_LocalFuser{idx}"
+    workdir = os.path.join(base_path, folder_name)
     os.makedirs(workdir, exist_ok=True)
-    return os.path.normpath(workdir).replace("/", "\\")
+    normalized = os.path.normpath(workdir).replace("/", "\\")
+    logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized}")
+    return normalized
 
 
 def _detect_running_fusers() -> dict:
@@ -4042,6 +4208,8 @@ def start_fuser_instance(idx: int) -> bool:
             logging.warning(f"[start_fuser_instance] exe came back non-str ({type(exe)}), coercing")
             exe = str(exe)
         logging.info(f"[start_fuser_instance] Fuser exe: {exe}")
+        exe_stat = _safe_stat(exe)
+        logging.info(f"[start_fuser_instance] exe_stat: exists={exe_stat['exists']} size={exe_stat['size']} mtime={exe_stat['mtime']} len={exe_stat['len']}")
         
         # Resolve the per-instance working directory
         workdir = _resolve_fuser_workdir(idx)
@@ -4049,6 +4217,19 @@ def start_fuser_instance(idx: int) -> bool:
             logging.warning(f"[start_fuser_instance] workdir came back non-str ({type(workdir)}), coercing")
             workdir = str(workdir)
         logging.info(f"[start_fuser_instance] Working directory: {workdir}")
+        wd_stat = _safe_stat(workdir)
+        logging.info(f"[start_fuser_instance] workdir_stat: exists={wd_stat['exists']} size={wd_stat['size']} mtime={wd_stat['mtime']} len={wd_stat['len']}")
+        # Probe write permission in workdir
+        try:
+            probe_name = os.path.join(workdir, f".probe_{idx}.tmp")
+            with open(probe_name, 'w', encoding='utf-8') as f:
+                f.write("probe\n")
+            os.remove(probe_name)
+            logging.info("[start_fuser_instance] workdir write probe: OK")
+            wd_write_ok = True
+        except Exception as e:
+            logging.warning(f"[start_fuser_instance] workdir write probe FAILED: {e}")
+            wd_write_ok = False
 
         # Clear stale lock files in this instance's directory
         lock_files = ["Fuser.lock", "fuser.lock", ".lock", "PhotoMesh.lock"]
@@ -4064,6 +4245,21 @@ def start_fuser_instance(idx: int) -> bool:
         # Build args: PhotoMeshFuser.exe "ID" "WorkingFolder"
         args = [exe, str(idx), workdir]
         logging.info(f"[start_fuser_instance] debug args types: {[type(a).__name__ for a in args]}")
+        # Build Windows cmdline for logging
+        try:
+            cmdline_txt = subprocess.list2cmdline(args)
+        except Exception:
+            cmdline_txt = ' '.join(args)
+        logging.info(f"[start_fuser_instance] cmdline: {cmdline_txt}")
+        logging.info(f"[start_fuser_instance] cwd(for spawn): {os.path.dirname(exe)}")
+        logging.info(f"[start_fuser_instance] process: pid={os.getpid()} thread={threading.current_thread().name} admin={_is_admin()}")
+        # Disk free info
+        try:
+            import shutil
+            total, used, free = shutil.disk_usage(workdir)
+            logging.info(f"[start_fuser_instance] disk: total={total} used={used} free={free}")
+        except Exception:
+            pass
 
         # Prepare hidden console spawn
         si = subprocess.STARTUPINFO()
@@ -4154,14 +4350,31 @@ def start_fuser_instance(idx: int) -> bool:
                     return True
             
             except Exception as e:
-                logging.error(f"[start_fuser_instance] Launch failed: {e}", exc_info=True)
+                hint = _explain_winerror(e)
+                logging.error(f"[start_fuser_instance] Launch failed: {e} {('['+hint+']') if hint else ''}", exc_info=True)
+                # Persist quick diag for offline review
+                try:
+                    _write_launch_diag(workdir, idx, {
+                        'exe': exe,
+                        'workdir': workdir,
+                        'args': cmdline_txt,
+                        'flags': flags_text,
+                        'admin': _is_admin(),
+                        'wd_write_ok': wd_write_ok,
+                        'exe_stat': exe_stat,
+                        'wd_stat': wd_stat,
+                        'error': str(e),
+                        'hint': hint,
+                    })
+                except Exception:
+                    pass
                 try:
                     try:
                         import platform
                     except Exception:
                         platform = None
                     pc = os.environ.get('COMPUTERNAME') or (platform.node() if platform else None) or 'UnknownPC'
-                    print(f"{pc}: ✗ Fuser {idx} launch failed: {e}")
+                    print(f"{pc}: ✗ Fuser {idx} launch failed: {e} {('['+hint+']') if hint else ''}")
                 except Exception:
                     pass
                 if retry_attempted:
@@ -4403,7 +4616,7 @@ def ensure_fuser_instances(desired: int):
                         except Exception:
                             pass
             dur = time.time() - start_time
-            logging.info(f"[fuser-scale] Parallel launch complete in {dur:.1f}s: {launched}/{to_start} started")
+            logging.info(f"[fuser-scale] Launch complete in {dur:.1f}s: started={launched} requested={to_start} ids={ids_to_launch} failed={failed_ids if 'failed_ids' in locals() else []}")
         except Exception as e:
             # Fallback to sequential on error
             logging.warning(f"[fuser-scale] Parallel launch unavailable, falling back to sequential: {e}")
@@ -5515,7 +5728,15 @@ def launch_blueig():
 def launch_bvi():
     try:
         batch_file = get_bvi_batch_file()
-        subprocess.Popen([batch_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        # Use cmd /c to run .bat without shell=True (avoids console flash)
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        subprocess.Popen(
+            ["cmd", "/c", batch_file],
+            creationflags=CREATE_NO_WINDOW,
+            startupinfo=si
+        )
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
@@ -5742,7 +5963,8 @@ def launch_vbs4_documentation():
         if APP_INSTANCE:
             APP_INSTANCE.launch_app_foreground(doc_path)
         else:
-            subprocess.Popen([doc_path], shell=True)
+            # Open with default browser/viewer (no console window)
+            os.startfile(doc_path)
     else:
         messagebox.showerror("Error", 
             f"VBS4 documentation not found.\n\n"
@@ -5758,7 +5980,8 @@ def launch_vbs4_admin_manual():
         if APP_INSTANCE:
             APP_INSTANCE.launch_app_foreground(manual_path)
         else:
-            subprocess.Popen([manual_path], shell=True)
+            # Open with default PDF viewer (no console window)
+            os.startfile(manual_path)
     else:
         messagebox.showerror("Error",
             f"VBS4 Administrator Manual not found.\n\n"
@@ -5774,7 +5997,8 @@ def launch_vbs4_script_wiki():
         if APP_INSTANCE:
             APP_INSTANCE.launch_app_foreground(wiki_path)
         else:
-            subprocess.Popen([wiki_path], shell=True)
+            # Open with default browser (no console window)
+            os.startfile(wiki_path)
     else:
         messagebox.showerror("Error",
             f"VBS4 Script Wiki not found.\n\n"
@@ -5795,7 +6019,8 @@ def launch_blueig_documentation():
         if APP_INSTANCE:
             APP_INSTANCE.launch_app_foreground(doc_path)
         else:
-            subprocess.Popen([doc_path], shell=True)
+            # Open with default browser (no console window)
+            os.startfile(doc_path)
     else:
         messagebox.showerror("Error", 
             f"BlueIG documentation not found.\n\n"
@@ -5811,7 +6036,8 @@ def open_vbs4_manuals():
         if APP_INSTANCE:
             APP_INSTANCE.launch_app_foreground(doc_path)
         else:
-            subprocess.Popen([doc_path], shell=True)
+            # Open with default browser (no console window)
+            os.startfile(doc_path)
     else:
         messagebox.showerror("Error", 
             "VBS4 Manuals not found.\n\n"

@@ -655,7 +655,7 @@ def unc_reachable_quick(unc_path: str, timeout_sec: float = 2.5) -> bool:
     try:
         # Avoid os.path.exists on UNC (can hang with SMB); use cmd dir
         cmd = ['cmd', '/c', 'dir', f'"{unc_path}"']
-        p = subprocess.run(cmd, capture_output=True, timeout=timeout_sec)
+        p = subprocess.run(cmd, capture_output=True, timeout=timeout_sec, creationflags=NO_WINDOW_FLAG)
         return p.returncode == 0
     except Exception:
         return False
@@ -682,12 +682,13 @@ def ensure_localfuser_dirs_on_unc(cfg: dict, desired_count: int) -> list[Path]:
     # Create fuser folders under the UNC
     localfuser_paths: list[Path] = []
     for idx in range(1, max(1, desired_count) + 1):
-        folder_name = f"{client}-{idx}({client_ip})_LocalFuser{idx}"
+        # IMPORTANT: Keep the machine prefix stable (no -idx) so UI groups by PC
+        folder_name = f"{client}({client_ip})_LocalFuser{idx}"
         p = Path(working_unc) / folder_name
         # Create via PowerShell to avoid long hangs on Python IO errors
         subprocess.run(['powershell', '-NoProfile', '-Command',
                         f"New-Item -ItemType Directory -Path '{p}' -Force | Out-Null"],
-                       timeout=3, capture_output=True)
+                       timeout=3, capture_output=True, creationflags=NO_WINDOW_FLAG)
         localfuser_paths.append(p)
     return localfuser_paths
 
@@ -704,7 +705,7 @@ def migrate_local_localfuser_to_unc_if_needed(cfg: dict) -> None:
         for p in suspects:
             subprocess.run(['powershell','-NoProfile','-Command',
                             f"Move-Item -Force -LiteralPath '{p}' -Destination '{Path(working_unc)}'"],
-                           timeout=5, capture_output=True)
+                           timeout=5, capture_output=True, creationflags=NO_WINDOW_FLAG)
     except Exception:
         pass
 # ---------- END: helpers ----------

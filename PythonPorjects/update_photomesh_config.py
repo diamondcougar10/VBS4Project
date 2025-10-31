@@ -23,6 +23,7 @@ import os
 import sys
 import time
 import subprocess
+NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
@@ -93,9 +94,16 @@ def seed_fuser_default(wf_unc: str) -> None:
     try:
         # Start 'first' fuser with the UNC so Skyline persists it.
         # Arguments: name, working_folder, auto_exit(0=no), show_ui(true)
-        p = subprocess.Popen([exe, "SeedFuser", wf_unc, "0", "true"], 
-                           stdout=subprocess.DEVNULL, 
-                           stderr=subprocess.DEVNULL)
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        p = subprocess.Popen(
+            [exe, "SeedFuser", wf_unc, "0", "true"], 
+            stdout=subprocess.DEVNULL, 
+            stderr=subprocess.DEVNULL,
+            startupinfo=si,
+            creationflags=NO_WINDOW_FLAG
+        )
         
         # Give it time to initialize and save defaults (with hard timeout)
         max_wait_time = 10  # Hard limit: 10 seconds max
@@ -109,7 +117,8 @@ def seed_fuser_default(wf_unc: str) -> None:
                          check=False, 
                          timeout=3,
                          stdout=subprocess.DEVNULL, 
-                         stderr=subprocess.DEVNULL)
+                         stderr=subprocess.DEVNULL,
+                         creationflags=NO_WINDOW_FLAG)
             time.sleep(1)
             
             # If still running, force kill
@@ -117,7 +126,8 @@ def seed_fuser_default(wf_unc: str) -> None:
                          check=False, 
                          timeout=2,
                          stdout=subprocess.DEVNULL, 
-                         stderr=subprocess.DEVNULL)
+                         stderr=subprocess.DEVNULL,
+                         creationflags=NO_WINDOW_FLAG)
         except subprocess.TimeoutExpired:
             print("[seed_fuser] Warning: Timeout during fuser cleanup")
         except Exception:
