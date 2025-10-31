@@ -4322,7 +4322,14 @@ def start_fuser_instance(idx: int) -> bool:
                                         pass
                             break  # Break inner loop to retry
                         else:
-                            logging.error(f"[start_fuser_instance] Fuser {idx} exited early again (code {retcode}), giving up")
+                            # Summary log: FUSER FAILED (early exit after retry)
+                            print("\n" + "="*80)
+                            print(f"❌ FUSER {idx} FAILED - Exited early after retry")
+                            print(f"   Exit Code: {retcode}")
+                            print(f"   Working Dir: {workdir}")
+                            print(f"   Time Before Exit: {elapsed:.1f}s")
+                            print("="*80 + "\n")
+                            logging.error(f"[FUSER-FAILED] ID={idx} reason=early_exit_after_retry exitcode={retcode} workdir={workdir} elapsed={elapsed:.1f}s")
                             return False
                 else:
                     # Stabilization successful (process still running after full window)
@@ -4333,6 +4340,16 @@ def start_fuser_instance(idx: int) -> bool:
                         created_log = False
                     logging.info(f"[launch] stabilize: alive=✓, created_log={'✓' if created_log else '✗'} after {stabilization_time}s")
                     logging.info(f"[start_fuser_instance] ✓ Fuser {idx} stabilized successfully after {stabilization_time}s (PID: {proc.pid})")
+                    
+                    # Summary log: FUSER STARTED
+                    print("\n" + "="*80)
+                    print(f"✅ FUSER {idx} STARTED SUCCESSFULLY")
+                    print(f"   PID: {proc.pid}")
+                    print(f"   Working Dir: {workdir}")
+                    print(f"   Stabilization: {stabilization_time}s")
+                    print("="*80 + "\n")
+                    logging.info(f"[FUSER-SUCCESS] ID={idx} PID={proc.pid} workdir={workdir} stabilized_after={stabilization_time}s")
+                    
                     try:
                         try:
                             import platform
@@ -4352,6 +4369,18 @@ def start_fuser_instance(idx: int) -> bool:
             except Exception as e:
                 hint = _explain_winerror(e)
                 logging.error(f"[start_fuser_instance] Launch failed: {e} {('['+hint+']') if hint else ''}", exc_info=True)
+                
+                # Summary log: FUSER FAILED (exception)
+                if retry_attempted:
+                    print("\n" + "="*80)
+                    print(f"❌ FUSER {idx} FAILED - Launch exception after retry")
+                    print(f"   Error: {e}")
+                    print(f"   Hint: {hint if hint else 'N/A'}")
+                    print(f"   Working Dir: {workdir}")
+                    print(f"   Command: {cmdline_txt}")
+                    print("="*80 + "\n")
+                    logging.error(f"[FUSER-FAILED] ID={idx} reason=launch_exception_after_retry error={e} hint={hint} workdir={workdir}")
+                
                 # Persist quick diag for offline review
                 try:
                     _write_launch_diag(workdir, idx, {
@@ -4384,6 +4413,12 @@ def start_fuser_instance(idx: int) -> bool:
 
         return False
     except Exception as e:
+        # Summary log: FUSER FAILED (uncaught exception)
+        print("\n" + "="*80)
+        print(f"❌ FUSER {idx} FAILED - Uncaught exception")
+        print(f"   Error: {e}")
+        print("="*80 + "\n")
+        logging.error(f"[FUSER-FAILED] ID={idx} reason=uncaught_exception error={e}", exc_info=True)
         logging.error(f"[start_fuser_instance] UNCAUGHT exception for idx {idx}: {e}", exc_info=True)
         try:
             pc = os.environ.get('COMPUTERNAME') or platform.node() or 'UnknownPC'
@@ -4476,7 +4511,10 @@ def ensure_fuser_instances(desired: int):
     """
     global _skip_fuser_enforcement_at_startup
     
-    logging.info(f"[fuser-scale] ensure_fuser_instances({desired}) called")
+    print("\n" + "="*80)
+    print(f"===== Calling ensure_fuser_instances({desired}) =====")
+    print("="*80 + "\n")
+    logging.info(f"[fuser-scale] ===== ensure_fuser_instances({desired}) called =====")
 
     # Respect startup skip flag
     if _skip_fuser_enforcement_at_startup:
@@ -4642,6 +4680,18 @@ def ensure_fuser_instances(desired: int):
         if is_fuser:
             save_last_launched_fuser_count(desired)
             logging.info(f"[fuser-scale] Saved count for restoration: {desired}")
+        
+        # Final summary: Overall result
+        final_running = count_local_fusers()
+        print("\n" + "="*80)
+        print(f"📊 FUSER ENFORCEMENT COMPLETE")
+        print(f"   Target: {desired}")
+        print(f"   Running: {final_running}")
+        print(f"   Started this session: {launched}")
+        if 'failed_ids' in locals() and failed_ids:
+            print(f"   ⚠️ Failed IDs: {failed_ids}")
+        print("="*80 + "\n")
+        logging.info(f"[FUSER-SUMMARY] target={desired} running={final_running} started={launched} failed={failed_ids if 'failed_ids' in locals() and failed_ids else 'none'}")
         
         # Trigger immediate status update on OneClick panel if it exists
         try:
@@ -12606,6 +12656,7 @@ def run_with_splash():
         app.after(1000, _autostart_fusers)
 
     setattr(app, "_schedule_post_ui_autostart", _schedule_post_ui_autostart)
+    logging.info("[startup] Registered post-UI fuser auto-start callback")
 
     print("\n" + "="*80)
     print("✅ MAINLOOP STARTING - App window should open now")
