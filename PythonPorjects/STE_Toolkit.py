@@ -2896,6 +2896,61 @@ try:
 except Exception as e:
     logging.warning(f"[migrate] hostname->ip skipped: {e}")
 
+# Sync all IP references from the single source of truth ([Offline] host_ip)
+def sync_host_ip_references():
+    """
+    Ensure all IP references in config are synced from [Offline] host_ip (single source of truth).
+    This fixes configs where IP addresses got out of sync across different sections.
+    """
+    try:
+        primary_ip = config.get("Offline", "host_ip", fallback="").strip()
+        if not primary_ip:
+            logging.info("[sync_ip] No primary host IP configured, skipping sync")
+            return
+        
+        changed = False
+        
+        # Sync [Network] host
+        if config.get("Network", "host", fallback="").strip() != primary_ip:
+            if "Network" not in config:
+                config["Network"] = {}
+            config["Network"]["host"] = primary_ip
+            changed = True
+            logging.info(f"[sync_ip] Synced [Network] host to {primary_ip}")
+        
+        # Sync [Fusers] working_folder_host
+        if config.get("Fusers", "working_folder_host", fallback="").strip() != primary_ip:
+            if "Fusers" not in config:
+                config["Fusers"] = {}
+            config["Fusers"]["working_folder_host"] = primary_ip
+            changed = True
+            logging.info(f"[sync_ip] Synced [Fusers] working_folder_host to {primary_ip}")
+        
+        # Rebuild [Fusers] shared_working_unc from IP + share_name
+        offline = config.get("Offline", "share_name", fallback="SharedMeshDrive").strip() or "SharedMeshDrive"
+        wf_subdir = config.get("Offline", "working_fuser_subdir", fallback="WorkingFuser").strip() or "WorkingFuser"
+        expected_unc = f"\\\\{primary_ip}\\{offline}\\{wf_subdir}"
+        current_unc = config.get("Fusers", "shared_working_unc", fallback="").strip()
+        if current_unc != expected_unc:
+            config["Fusers"]["shared_working_unc"] = expected_unc
+            changed = True
+            logging.info(f"[sync_ip] Rebuilt [Fusers] shared_working_unc to {expected_unc}")
+        
+        if changed:
+            save_config()
+            logging.info("[sync_ip] Config IP references synced and saved")
+        else:
+            logging.info("[sync_ip] All IP references already in sync")
+            
+    except Exception as e:
+        logging.warning(f"[sync_ip] Failed to sync IP references: {e}")
+
+# Run IP sync at startup to fix any inconsistencies
+try:
+    sync_host_ip_references()
+except Exception as e:
+    logging.warning(f"[sync_ip] Startup sync failed: {e}")
+
 # --- Config flags (global enforcement) ---
 # Strict enforcement: refuse to launch fusers if shared working folder is not accessible
 # This prevents User installations from creating local working folders
@@ -3014,23 +3069,47 @@ def get_host_ip() -> str:
         return ""
 
 def set_host_ip(ip: str) -> None:
-    """Persist *ip* to Offline.host_ip and refresh dependent systems."""
-
+    """
+    Persist *ip* to Offline.host_ip (single source of truth) and sync all dependent config values.
+    
+    This updates:
+    - [Offline] host_ip (PRIMARY - single source of truth)
+    - [Network] host (synced from Offline.host_ip)
+    - [Fusers] working_folder_host (synced from Offline.host_ip)
+    - [Fusers] shared_working_unc (rebuilt from Offline.host_ip + share_name)
+    """
     trimmed = ip.strip()
     if "Offline" not in config:
         config["Offline"] = {}
     offline = config["Offline"]
+    
+    # PRIMARY: Set the single source of truth
     offline["host_ip"] = trimmed
     if trimmed:
         offline["use_ip_unc"] = "True"
     else:
         offline["use_ip_unc"] = offline.get("use_ip_unc", "True")
-        
-    # Also ensure the IP is set in the Network section for proper initialization
+    
+    # SYNC: Update all dependent config values to match
     if trimmed:
+        # Sync [Network] host
         if "Network" not in config:
             config["Network"] = {}
         config["Network"]["host"] = trimmed
+        
+        # Sync [Fusers] working_folder_host
+        if "Fusers" not in config:
+            config["Fusers"] = {}
+        config["Fusers"]["working_folder_host"] = trimmed
+        
+        # Rebuild [Fusers] shared_working_unc from IP + share_name
+        share_name = offline.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
+        wf_subdir = offline.get("working_fuser_subdir", "WorkingFuser").strip() or "WorkingFuser"
+        config["Fusers"]["shared_working_unc"] = f"\\\\{trimmed}\\{share_name}\\{wf_subdir}"
+        
+        logging.info(f"[set_host_ip] Updated host IP to {trimmed} (synced to Network.host, Fusers.working_folder_host, Fusers.shared_working_unc)")
+    else:
+        logging.info("[set_host_ip] Cleared host IP")
         
     save_config()
 
@@ -3141,25 +3220,40 @@ def resolve_shared_access_path() -> str:
     return unc or ""
 
 def get_host() -> str:
-    return _read_photomesh_host()
+    """
+    Return the host identifier (IP preferred, fallback to hostname).
+    Always reads from [Offline] host_ip as the single source of truth.
+    """
+    ip = get_host_ip()
+    if ip:
+        return ip
+    # Fallback to hostname if no IP configured
+    return config.get("Offline", "host_name", fallback="").strip()
 
 def set_host(host: str) -> None:
-    """Persist the single 'Host PC Name' across all places legacy code reads from."""
+    """
+    DEPRECATED: Use set_host_ip() instead for IP addresses.
+    This function is kept for backwards compatibility with legacy hostname-based configs.
+    For IP addresses, call set_host_ip() which properly syncs all dependent config values.
+    """
     host = host.strip()
     if not host:
         return
 
+    # Check if this looks like an IP address
+    import re
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', host):
+        # It's an IP - delegate to set_host_ip() which handles all syncing
+        logging.info(f"[set_host] Detected IP address, delegating to set_host_ip(): {host}")
+        set_host_ip(host)
+        return
+    
+    # It's a hostname - store in Offline.host_name only (legacy support)
     if "Offline" not in config:
         config["Offline"] = {}
-    if "Fusers" not in config:
-        config["Fusers"] = {}
-    if "Network" not in config:
-        config["Network"] = {}
-    config["Offline"]["working_fuser_host"] = host
     config["Offline"]["host_name"] = host
-    config["Network"]["host"] = host
-    config["Fusers"]["working_folder_host"] = host 
-
+    logging.info(f"[set_host] Set hostname (not IP): {host}")
+    
     save_config()
     refresh_settings_panel_from_config()
 
@@ -10264,16 +10358,15 @@ class SettingsPanel(tk.Frame):
                     if ip:
                         self.host_ip_var.set(ip)
                         try:
-                            set_host_ip(ip)
+                            set_host_ip(ip)  # This syncs all config values including working_folder_host
                         except Exception:
                             pass
                 else:
                     try:
-                        set_host_ip(ip)
+                        set_host_ip(ip)  # This syncs all config values including working_folder_host
                     except Exception:
                         pass
-
-                config["Fusers"]["working_folder_host"] = ip or get_host().strip()
+                # No need to set working_folder_host directly - set_host_ip() handles it
                 n = simpledialog.askinteger(
                     "Local Fusers",
                     "How many local fusers should this computer run? (1–3)",
