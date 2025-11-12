@@ -10015,10 +10015,15 @@ class OneClickPanel(tk.Frame):
                     f"[host-status] LIVE counts from beacons: local={local_running}, total={total_running}, pcs={len(pcs)}, total_target={total_target}"
                 )
 
-                # Compose display: TOTAL line then per-PC list
+                # Compose display: TOTAL line then per-PC list (one per line)
                 base_text = f"{total_running}/{total_target} TOTAL fusers running"
                 if breakdown_parts:
-                    base_text += "\n• " + " | ".join(breakdown_parts)
+                    # Show each PC on its own line with safe cap and ellipsis
+                    max_pcs = 15
+                    display_parts = breakdown_parts[:max_pcs]
+                    if len(breakdown_parts) > max_pcs:
+                        display_parts.append("…")
+                    base_text += "\n• " + "\n• ".join(display_parts)
 
                 # Color coding: green if at/over target, orange if some running, red if none
                 if total_target > 0 and total_running >= total_target:
@@ -10956,6 +10961,8 @@ class SettingsPanel(tk.Frame):
             font=("Helvetica", 10),
             bg="black",
             fg="#666666",
+            justify="left",
+            anchor="w"
         )
         logging.info("[ui-diag] SettingsPanel: connected_pcs_names_label created")
         self.connected_pcs_names_label.pack(side="left", padx=(10, 0))
@@ -12233,12 +12240,15 @@ class SettingsPanel(tk.Frame):
                     try:
                         self.connected_pcs_label.config(text=f"Connected fuser PCs: {cnt}")
                         if names:
-                            name_str = ", ".join(names[:5])
-                            if len(names) > 5:
-                                name_str += "..."
-                            self.connected_pcs_names_label.config(text=f"({name_str})")
+                            # Show each PC name on its own line for readability
+                            # Limit total lines to avoid unbounded growth; append ellipsis if truncated
+                            max_lines = 25
+                            display_names = names[:max_lines]
+                            suffix = "\n…" if len(names) > max_lines else ""
+                            list_text = "\n".join(display_names) + suffix
+                            self.connected_pcs_names_label.config(text=list_text)
                         else:
-                            self.connected_pcs_names_label.config(text="")
+                            self.connected_pcs_names_label.config(text="(none)")
                     except Exception:
                         pass
                     finally:
