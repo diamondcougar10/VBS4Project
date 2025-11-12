@@ -9637,19 +9637,9 @@ class OneClickPanel(tk.Frame):
                     total_running += running
                     breakdown_parts.append(f"{pc}: {running}/{target}")
 
-                # Total desired across fleet: prefer configured expected_user_pc_count if present
-                try:
-                    exp_users_val = None
-                    if "Fusers" in config and hasattr(config["Fusers"], 'get'):
-                        raw = config["Fusers"].get("expected_user_pc_count", "").strip()
-                        if raw:
-                            exp_users_val = int(raw)
-                except Exception:
-                    exp_users_val = None
-
-                other_count = max(0, len(pcs) - 1)
-                planned_users = exp_users_val if isinstance(exp_users_val, int) and exp_users_val >= 0 else other_count
-                total_target = host_target + (user_target * planned_users)
+                # Total desired across fleet: use MAX_TOTAL_FUSERS constant (10) as the target
+                # This shows the maximum possible fusers that can run across all PCs
+                total_target = MAX_TOTAL_FUSERS
 
                 logging.debug(
                     f"[host-status] fusers local={local_running}, total={total_running}, pcs={len(pcs)}, total_target={total_target}"
@@ -11262,8 +11252,30 @@ class SettingsPanel(tk.Frame):
             nonlocal checking_shown
             result = ('checking', '◐ Checking...', '#FFFF00')
             try:
-                # Start the actual check
-                result = check_network_share_status()
+                # Use timeout wrapper to prevent hanging forever
+                result_queue = Queue()
+                
+                def _do_check():
+                    try:
+                        result_queue.put(check_network_share_status())
+                    except Exception as e:
+                        logging.warning(f"Share status check failed: {e}")
+                        result_queue.put(('error', f'● Error: {str(e)[:30]}', '#FF4500'))
+                
+                # Run the check with a timeout
+                check_thread = threading.Thread(target=_do_check, daemon=True)
+                check_thread.start()
+                check_thread.join(5.0)  # 5 second global timeout
+                
+                # If thread is still alive, it timed out
+                if check_thread.is_alive():
+                    logging.warning("[share-status] Check timed out after 5 seconds")
+                    result = ('error', '● Timeout checking share', '#FF4500')
+                elif not result_queue.empty():
+                    result = result_queue.get_nowait()
+                else:
+                    logging.warning("[share-status] No result after thread completion")
+                    result = ('error', '● Check failed', '#FF4500')
                 
                 # If check took longer than 500ms, show "Checking..." briefly
                 # This prevents flash for fast checks but gives feedback for slow ones
@@ -11277,7 +11289,7 @@ class SettingsPanel(tk.Frame):
                         pass
                         
             except Exception as e:
-                logging.warning(f"Share status check failed: {e}")
+                logging.warning(f"Share status check wrapper error: {e}")
                 result = ('error', f'● Error: {str(e)[:30]}', '#FF4500')
 
             def _apply():
