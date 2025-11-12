@@ -9665,7 +9665,11 @@ class OneClickPanel(tk.Frame):
                 try:
                     user_target = int(user_target)
                 except Exception:
-                    user_target = 1
+                    user_target = 3
+                
+                # Ensure user_target is at least 1 (if 0, default to 3)
+                if user_target <= 0:
+                    user_target = 3
 
                 # Build network-wide summary from WorkingFuser
                 summary = get_connected_pcs_summary()
