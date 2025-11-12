@@ -23,6 +23,7 @@ import os
 import sys
 import time
 import subprocess
+import threading
 NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +43,9 @@ CONFIGS = [
     r"C:\\Program Files (x86)\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json",
     r"C:\\Program Files (x86)\\Skyline\\PhotoMeshWizard\\config.json",
 ]
+
+# Global lock to prevent concurrent seeding operations
+_SEEDING_LOCK = threading.Lock()
 # endregion
 
 # region Paths & Environment
@@ -79,64 +83,79 @@ def seed_fuser_default(wf_unc: str) -> None:
     """
     Launch a fuser once with the correct UNC to let Skyline persist it as the default.
     This makes the fuser UI's 'Open Working Folder' open the right share thereafter.
+    
+    Uses a lock to prevent concurrent seeding operations that could interfere with each other.
     """
-    if not wf_unc or not wf_unc.startswith("\\\\"):
-        print(f"[seed_fuser] Invalid UNC path: {wf_unc}")
+    # Prevent concurrent seeding operations
+    if not _SEEDING_LOCK.acquire(blocking=False):
+        print("[seed_fuser] Seeding already in progress, skipping duplicate request")
         return
-
-    exe = find_fuser_exe()
-    if not exe:
-        print("[seed_fuser] PhotoMeshFuser.exe not found - fuser seeding skipped")
-        return
-
-    print(f"[seed_fuser] Seeding fuser default with: {wf_unc}")
     
     try:
-        # Start 'first' fuser with the UNC so Skyline persists it.
-        # Arguments: name, working_folder, auto_exit(0=no), show_ui(true)
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        si.wShowWindow = 0  # SW_HIDE
-        p = subprocess.Popen(
-            [exe, "SeedFuser", wf_unc, "0", "true"], 
-            stdout=subprocess.DEVNULL, 
-            stderr=subprocess.DEVNULL,
-            startupinfo=si,
-            creationflags=NO_WINDOW_FLAG
-        )
+        if not wf_unc or not wf_unc.startswith("\\\\"):
+            print(f"[seed_fuser] Invalid UNC path: {wf_unc}")
+            return
+
+        exe = find_fuser_exe()
+        if not exe:
+            print("[seed_fuser] PhotoMeshFuser.exe not found - fuser seeding skipped")
+            return
+
+        print(f"[seed_fuser] Seeding fuser default with: {wf_unc}")
         
-        # Give it time to initialize and save defaults (with hard timeout)
-        max_wait_time = 10  # Hard limit: 10 seconds max
-        wait_time = min(4, max_wait_time)  # Prefer 4 seconds but respect limit
-        time.sleep(wait_time)
-        
-        # Best-effort shutdown with timeout; ignore errors if user already closed it
         try:
-            # First try graceful termination
-            subprocess.run(["taskkill", "/im", "PhotoMeshFuser.exe"], 
-                         check=False, 
-                         timeout=3,
-                         stdout=subprocess.DEVNULL, 
-                         stderr=subprocess.DEVNULL,
-                         creationflags=NO_WINDOW_FLAG)
-            time.sleep(1)
+            # Start 'first' fuser with the UNC so Skyline persists it.
+            # Arguments: name, working_folder, auto_exit(0=no), show_ui(true)
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE
+            p = subprocess.Popen(
+                [exe, "SeedFuser", wf_unc, "0", "true"], 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL,
+                startupinfo=si,
+                creationflags=NO_WINDOW_FLAG
+            )
             
-            # If still running, force kill
-            subprocess.run(["taskkill", "/im", "PhotoMeshFuser.exe", "/f"], 
-                         check=False, 
-                         timeout=2,
-                         stdout=subprocess.DEVNULL, 
-                         stderr=subprocess.DEVNULL,
-                         creationflags=NO_WINDOW_FLAG)
-        except subprocess.TimeoutExpired:
-            print("[seed_fuser] Warning: Timeout during fuser cleanup")
-        except Exception:
-            pass
+            seed_pid = p.pid
+            print(f"[seed_fuser] SeedFuser launched with PID {seed_pid}")
             
-        print("[seed_fuser] Fuser default seeded successfully")
-        
-    except Exception as e:
-        print(f"[seed_fuser] Failed to seed fuser default: {e}")
+            # Give it time to initialize and save defaults (with hard timeout)
+            max_wait_time = 10  # Hard limit: 10 seconds max
+            wait_time = min(4, max_wait_time)  # Prefer 4 seconds but respect limit
+            time.sleep(wait_time)
+            
+            # CRITICAL: Only kill the SeedFuser process we created, not ALL PhotoMeshFuser.exe processes
+            # This prevents killing legitimate LocalFuser instances that may be running
+            try:
+                # First try graceful termination of our specific PID
+                subprocess.run(["taskkill", "/PID", str(seed_pid)], 
+                             check=False, 
+                             timeout=3,
+                             stdout=subprocess.DEVNULL, 
+                             stderr=subprocess.DEVNULL,
+                             creationflags=NO_WINDOW_FLAG)
+                time.sleep(0.5)
+                
+                # If still running, force kill our specific PID
+                subprocess.run(["taskkill", "/PID", str(seed_pid), "/f"], 
+                             check=False, 
+                             timeout=2,
+                             stdout=subprocess.DEVNULL, 
+                             stderr=subprocess.DEVNULL,
+                             creationflags=NO_WINDOW_FLAG)
+                print(f"[seed_fuser] SeedFuser PID {seed_pid} terminated")
+            except subprocess.TimeoutExpired:
+                print("[seed_fuser] Warning: Timeout during fuser cleanup")
+            except Exception as e:
+                print(f"[seed_fuser] Warning: Failed to terminate SeedFuser PID {seed_pid}: {e}")
+                
+            print("[seed_fuser] Fuser default seeded successfully")
+            
+        except Exception as e:
+            print(f"[seed_fuser] Failed to seed fuser default: {e}")
+    finally:
+        _SEEDING_LOCK.release()
 # endregion
 
 # region File I/O & JSON helpers
