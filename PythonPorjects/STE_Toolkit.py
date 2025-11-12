@@ -6131,7 +6131,7 @@ def launch_vbs4():
         if APP_INSTANCE:
             APP_INSTANCE.launch_app_foreground(path)
         else:
-            subprocess.Popen([path])
+            subprocess.Popen([path], creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
         if is_close_on_launch_enabled():
             sys.exit(0)
     except FileNotFoundError:
@@ -6588,7 +6588,7 @@ def open_vbs4_pdfs():
     for display, path in sorted(all_pdfs.items()):
         items[display] = lambda p=path: (
             APP_INSTANCE.launch_app_foreground(p) if APP_INSTANCE and os.path.exists(p)
-            else subprocess.Popen([p], shell=True) if os.path.exists(p)
+            else subprocess.Popen([p], shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0) if os.path.exists(p)
             else messagebox.showerror("Error", f"File not found: {p}")
         )
 
@@ -6626,7 +6626,7 @@ def open_bvi_quickstart():
                 if APP_INSTANCE:
                     APP_INSTANCE.launch_app_foreground(path)
                 else:
-                    subprocess.Popen([path], shell=True)
+                    subprocess.Popen([path], shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
                 return
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
@@ -6645,7 +6645,7 @@ def open_bvi_quickstart():
             if APP_INSTANCE:
                 APP_INSTANCE.launch_app_foreground(user_path)
             else:
-                subprocess.Popen([user_path], shell=True)
+                subprocess.Popen([user_path], shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Quick-Start Guide:\n{e}")
     else:
@@ -11748,17 +11748,28 @@ class SettingsPanel(tk.Frame):
                         elif status_code in ('connected', 'local') and last_status and 'disconnect' in last_status.lower():
                             logging.info(f"[share-status] Share reconnected")
                         
+                except Exception as e:
+                    logging.error(f"[share-status] Error updating UI: {e}")
                 finally:
+                    # ALWAYS clear busy flag and schedule next update - ensures loop continues
                     self._share_check_busy = False
-                    # Schedule next update in 3 seconds (faster detection of drive disconnection)
-                    self.after(3000, self._update_share_status)
+                    try:
+                        # Schedule next update in 3 seconds (faster detection of drive disconnection)
+                        self.after(3000, self._update_share_status)
+                    except Exception:
+                        # Widget destroyed, stop the loop
+                        pass
 
             # Apply result on UI thread
             try:
                 self.after(0, _apply)
             except Exception:
-                # If widget is destroyed, just drop it
+                # If widget is destroyed, clean up and reschedule
                 self._share_check_busy = False
+                try:
+                    self.after(3000, self._update_share_status)
+                except:
+                    pass
 
         run_in_thread(_work)
 
