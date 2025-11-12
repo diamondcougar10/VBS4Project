@@ -106,6 +106,62 @@ import itertools
 from queue import Queue, Empty
 import io
 import time
+import traceback
+
+# Crash logging setup (early so hooks apply before other threads start)
+_CRASH_DIR = os.path.join(os.getcwd(), "logs", "crash")
+try:
+    os.makedirs(_CRASH_DIR, exist_ok=True)
+except Exception:
+    pass
+
+def _write_crash_log(exc_type, exc_value, exc_tb, origin="main"):
+    try:
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        fname = f"crash-{ts}-{origin}.txt"
+        path = os.path.join(_CRASH_DIR, fname)
+        stack = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        diag = [
+            f"Origin: {origin}",
+            f"Timestamp: {ts}",
+            f"Exe: {sys.argv[0]}",
+            f"Python: {sys.version}",
+            f"Working Dir: {os.getcwd()}",
+            f"Platform Node: {platform.node()}",
+            f"Primary IP: {socket.gethostbyname(socket.gethostname()) if socket.gethostname() else 'unknown'}",
+            f"Host IP (cfg): N/A (config may not yet be loaded)",
+            "--- STACK TRACE ---",
+            stack,
+        ]
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(diag))
+        try:
+            logging = globals().get('logging')
+            if logging:
+                logging.error(f"[crash] Unhandled exception captured -> {path}")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def _global_excepthook(exc_type, exc_value, exc_tb):
+    _write_crash_log(exc_type, exc_value, exc_tb, origin="sys.excepthook")
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _global_excepthook
+
+def _threading_excepthook(args):
+    _write_crash_log(args.exc_type, args.exc_value, args.exc_traceback, origin="thread")
+    if hasattr(threading, '__excepthook__'):
+        try:
+            threading.__excepthook__(args)
+        except Exception:
+            pass
+
+try:
+    threading.excepthook = _threading_excepthook  # Python 3.8+
+except Exception:
+    pass
 try:
     import psutil
 except Exception:
@@ -236,6 +292,10 @@ _BCN_STOP = threading.Event()
 _BCN_THREAD = None
 _LST_STOP = threading.Event()
 _LST_THREAD = None
+
+# Cache for received beacon data with fuser counts (pc_name -> {ip, fuser_count, ts})
+_BEACON_CACHE = {}
+_BEACON_CACHE_LOCK = threading.Lock()
 
 
 # ============================================================================
@@ -386,12 +446,35 @@ def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5)
 def _compose_beacon_payload() -> bytes:
     try:
         o = get_offline_cfg()
+        
+        # Include real-time fuser count for host to display
+        fuser_count = 0
+        try:
+            fuser_count = count_local_fusers()
+        except Exception:
+            pass
+        
+        # Determine this node's role: 'host' only if the share exists locally (real host)
+        role = "user"
+        try:
+            share_name = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+            rc, out, err = _run(["net", "share", share_name], timeout=2.0)
+            if rc == 0 and "Path" in out:
+                role = "host"
+        except Exception:
+            pass
+
+        # Advertise our *primary* IPv4 (never the config host_ip if that equals self) to avoid self‑adoption loops
+        primary_ip = get_primary_ipv4() or _machine_ip_fast() or (o.get("host_ip") or "")
+
         payload = {
             "magic": BEACON_MAGIC,
             "pc": platform.node(),
-            "ip": o.get("host_ip") or get_primary_ipv4() or _machine_ip_fast(),
+            "ip": primary_ip,
+            "role": role,
             "share": (o.get("share_name") or "SharedMeshDrive"),
             "wf_sub": (o.get("working_fuser_subdir") or "WorkingFuser"),
+            "fuser_count": fuser_count,  # Real-time running fuser count
             "ts": int(time.time()),
         }
         return json.dumps(payload).encode("utf-8")
@@ -445,6 +528,10 @@ def stop_host_beacon():
         pass
 
 def _user_listener_loop():
+    """
+    User PC listener: receives host beacons for auto-discovery.
+    Also caches all beacon data (including fuser counts) for potential display.
+    """
     sock = None
     last_set = 0
     try:
@@ -468,17 +555,34 @@ def _user_listener_loop():
                 if not isinstance(d, dict) or d.get("magic") != BEACON_MAGIC:
                     continue
                 ip = (d.get("ip") or "").strip()
-                if not ip:
+                pc = (d.get("pc") or "").strip()
+                role = (d.get("role") or "user").strip()
+                if not ip or not pc:
                     continue
+                
+                # Cache beacon data with fuser count for display
+                with _BEACON_CACHE_LOCK:
+                    _BEACON_CACHE[pc] = {
+                        "ip": ip,
+                        "fuser_count": int(d.get("fuser_count", 0)),
+                        "ts": d.get("ts", int(time.time())),
+                        "last_seen": time.time(),
+                    }
+                
+                # Auto-discover host IP (user PCs only)
                 now = time.time()
                 if now - last_set < 3.0:
                     continue
                 cur = config.get("Offline", "host_ip", fallback="").strip()
-                if not cur or cur != ip:
-                    logging.info(f"[beacon] Discovered host {ip}; applying")
+                # Ignore beacons from ourselves (compare against our primary IP)
+                self_ip = get_primary_ipv4() or _machine_ip_fast()
+                if ip == self_ip:
+                    continue
+                # Only adopt host from a beacon explicitly marked as role='host'
+                if role == "host" and (not cur or cur != ip):
+                    logging.info(f"[beacon] Discovered host {ip} (role={role}); applying")
                     try:
                         set_host_ip(ip)
-                        # Attempt silent connect
                         connect_working_share_interactive(parent=None, silent=True)
                     except Exception:
                         pass
@@ -518,6 +622,25 @@ def stop_user_listener():
         _LST_THREAD = None
     except Exception:
         pass
+
+def get_live_fuser_counts_from_beacons(timeout_sec=10):
+    """
+    Get real-time fuser counts from cached beacon data.
+    Returns dict: {pc_name: fuser_count} for PCs seen within timeout_sec.
+    
+    This provides live running counts (actual processes) instead of seeded directories.
+    Ideal for host status display showing which user PCs have live fusers.
+    """
+    result = {}
+    now = time.time()
+    
+    with _BEACON_CACHE_LOCK:
+        for pc, data in list(_BEACON_CACHE.items()):
+            last_seen = data.get("last_seen", 0)
+            if now - last_seen <= timeout_sec:
+                result[pc] = int(data.get("fuser_count", 0))
+    
+    return result
 
 def safe_filedialog_askdirectory(**kwargs):
     """Global wrapper for filedialog.askdirectory with proper parenting."""
@@ -809,6 +932,153 @@ logging.basicConfig(
 )
 # Force flush logs immediately to help diagnose startup hangs
 logging.getLogger().handlers[0].setLevel(logging.DEBUG)
+
+# =============================================================================
+# CRASH LOGGING (unhandled exceptions)
+# =============================================================================
+# Writes detailed crash reports to a dedicated folder for post‑mortem analysis.
+# Captures:
+#   - Exception type/value/traceback
+#   - Timestamp & uptime
+#   - Process & memory stats
+#   - Key config values (host_ip, desired/local counts, role)
+#   - Fuser process counts & PIDs
+#   - Tail of main application log (for recent context)
+#   - Thread name (if from threading.excepthook)
+
+_APP_BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) \
+                else os.path.abspath(os.path.dirname(__file__))
+_CRASH_LOG_DIR = os.path.join(_APP_BASE_DIR, "crash_logs")
+
+def _ensure_crash_dir():
+    try:
+        os.makedirs(_CRASH_LOG_DIR, exist_ok=True)
+    except Exception:
+        pass
+
+_APP_START_TIME = time.time()
+
+def _tail_file(path: str, max_lines: int = 200) -> str:
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        return ''.join(lines[-max_lines:])
+    except Exception:
+        return '<unavailable>'
+
+def _fuser_diag() -> str:
+    try:
+        running = []
+        for p in psutil.process_iter(['pid','name','cmdline']):
+            try:
+                if (p.info.get('name') or '').lower() == 'photomeshfuser.exe':
+                    running.append(p)
+            except Exception:
+                pass
+        out = [f"count={len(running)}"]
+        for p in running[:25]:  # cap detail
+            out.append(f"pid={p.pid} cmd={' '.join(p.info.get('cmdline') or [])[:200]}")
+        return '\n'.join(out)
+    except Exception as e:
+        return f'<fuser diag failed: {e}>'
+
+def _build_crash_report(exc_type, exc_value, exc_tb, thread_name: str | None = None) -> str:
+    import traceback
+    now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+    uptime = f"{time.time() - _APP_START_TIME:.1f}s"
+    cfg_host_ip = ''
+    desired = ''
+    role = ''
+    try:
+        cfg_host_ip = config.get('Offline','host_ip', fallback='')
+        desired = config.get('Fusers','desired_count', fallback='')
+        role = 'HOST' if is_this_pc_the_real_host() else ('FUSER' if config.getboolean('Fusers','fuser_computer', fallback=False) else 'CLIENT')
+    except Exception:
+        pass
+    mem_info = ''
+    try:
+        p = psutil.Process()
+        mi = p.memory_info()
+        mem_info = f"rss={mi.rss} vms={mi.vms}"
+    except Exception:
+        pass
+    log_tail = _tail_file('ste_toolkit.log')
+    tb_str = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    return (
+        f"=== STE Toolkit Crash Report ===\n"
+        f"Timestamp: {now}\n"
+        f"Uptime: {uptime}\n"
+        f"Thread: {thread_name or 'Main'}\n"
+        f"Exception: {exc_type.__name__}: {exc_value}\n"
+        f"Role: {role}\n"
+        f"Host IP (config): {cfg_host_ip}\n"
+        f"Desired Fusers: {desired}\n"
+        f"Fuser Processes:\n{_fuser_diag()}\n"
+        f"Memory: {mem_info}\n"
+        f"Python: {sys.version}\n"
+        f"Executable: {sys.executable}\n"
+        f"Args: {' '.join(sys.argv)}\n"
+        f"Traceback:\n{tb_str}\n"
+        f"--- Log Tail (last 200 lines) ---\n{log_tail}\n"
+    )
+
+def _write_crash_report(content: str):
+    _ensure_crash_dir()
+    ts = datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+    path = os.path.join(_CRASH_LOG_DIR, f"crash-{ts}.txt")
+    try:
+        with open(path,'w', encoding='utf-8') as f:
+            f.write(content)
+        logging.error(f"[crash] Crash report written to {path}")
+    except Exception as e:
+        logging.error(f"[crash] Failed writing crash report: {e}")
+
+_ORIG_EXCEPTHOOK = sys.excepthook
+
+def _global_excepthook(exc_type, exc_value, exc_tb):
+    try:
+        rep = _build_crash_report(exc_type, exc_value, exc_tb, thread_name=None)
+        _write_crash_report(rep)
+    finally:
+        try:
+            _ORIG_EXCEPTHOOK(exc_type, exc_value, exc_tb)
+        except Exception:
+            pass
+
+sys.excepthook = _global_excepthook
+
+# Threading hook (Python >=3.8)
+try:
+    import threading as _th
+    _ORIG_THREAD_HOOK = getattr(_th, 'excepthook', None)
+    def _thread_excepthook(args):
+        try:
+            rep = _build_crash_report(args.exc_type, args.exc_value, args.exc_traceback, thread_name=getattr(args, 'thread', None) and args.thread.name)
+            _write_crash_report(rep)
+        finally:
+            if _ORIG_THREAD_HOOK:
+                try:
+                    _ORIG_THREAD_HOOK(args)
+                except Exception:
+                    pass
+    if hasattr(_th,'excepthook'):
+        _th.excepthook = _thread_excepthook
+except Exception:
+    pass
+
+def attach_tk_exception_hook(root):
+    """Redirect uncaught Tk callbacks to crash logger instead of silent fail."""
+    try:
+        import tkinter as _tk
+        def _report_callback_exception(exc_type, exc_value, exc_tb):
+            rep = _build_crash_report(exc_type, exc_value, exc_tb, thread_name='TkCallback')
+            _write_crash_report(rep)
+            # Also log for immediate visibility
+            logging.error(f"[tk-crash] {exc_type.__name__}: {exc_value}")
+        root.report_callback_exception = _report_callback_exception  # type: ignore[attr-defined]
+        logging.info("[crash] Tk exception hook attached")
+    except Exception as e:
+        logging.warning(f"[crash] Failed attaching Tk hook: {e}")
 
 # --- Hidden subprocess helper (Windows console-free execution) ---
 CREATE_NO_WINDOW = 0x08000000
@@ -3154,6 +3424,42 @@ def build_unc_from_cfg(o: dict | None = None) -> str:
         return ""
     return f"\\\\{ip}\\{share}"
 
+def is_this_pc_the_real_host() -> bool:
+    """
+    Determine if this PC is the actual host by checking if the SharedMeshDrive share exists locally.
+    
+    This is more reliable than just comparing IPs, because:
+    - Config might have stale/incorrect host IP
+    - IP addresses can change
+    - Only the true host will have the share folder as a local directory
+    
+    Returns:
+        True if this PC has the SharedMeshDrive share configured locally
+    """
+    try:
+        o = get_offline_cfg()
+        share_name = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+        
+        # Query Windows for the share
+        rc, out, err = _run(["net", "share", share_name], timeout=3.0)
+        if rc == 0:
+            # Parse output for the "Path" line
+            for line in out.split('\n'):
+                line_stripped = line.strip()
+                if line_stripped.lower().startswith("path"):
+                    parts_line = line.split(maxsplit=1)
+                    if len(parts_line) >= 2:
+                        local_path = parts_line[1].strip()
+                        if os.path.exists(local_path):
+                            logging.info(f"[host-detect] This PC IS the host - share '{share_name}' exists at {local_path}")
+                            return True
+        
+        logging.info(f"[host-detect] This PC is NOT the host - share '{share_name}' not found locally")
+        return False
+    except Exception as e:
+        logging.warning(f"[host-detect] Failed to check if host: {e}")
+        return False
+
 def unc_to_local_if_host(unc_path: str) -> str:
     r"""
     Convert UNC path to local path if we're on the Host PC.
@@ -3177,15 +3483,9 @@ def unc_to_local_if_host(unc_path: str) -> str:
     if not unc_path.lower().startswith(f"\\\\{host_ip.lower()}\\"):
         return unc_path
     
-    # Check if we ARE the host
-    # Method 1: Check if fuser_computer is True (Host mode)
-    is_fuser_computer = config.getboolean("Fusers", "fuser_computer", fallback=False)
-    
-    # Method 2: Check if our IP matches the host IP
-    our_ip = get_primary_ipv4()
-    is_same_ip = (our_ip == host_ip) if our_ip else False
-    
-    if not (is_fuser_computer or is_same_ip):
+    # IMPROVED: Check if we ARE the host by verifying the share exists locally
+    # Don't rely solely on IP matching - config might be stale
+    if not is_this_pc_the_real_host():
         return unc_path  # We're not the host, use UNC
     
     # We ARE the host - convert to local path
@@ -3303,6 +3603,11 @@ def bootstrap_first_run_if_needed(log=None):
             start_host_beacon()
         except Exception:
             pass
+        # ALSO listen for user beacons to collect their fuser counts for display
+        try:
+            start_user_listener()
+        except Exception:
+            pass
     elif mode == 'USER':
         # Default User mode behavior: run fusers locally and listen for Host beacons
         try:
@@ -3314,8 +3619,14 @@ def bootstrap_first_run_if_needed(log=None):
             save_config()
         except Exception:
             pass
+        # Listen for host beacons (auto-discovery)
         try:
             start_user_listener()
+        except Exception:
+            pass
+        # ALSO broadcast our own beacon with fuser counts for host to display
+        try:
+            start_host_beacon()
         except Exception:
             pass
     # UPDATE mode: no changes so far
@@ -9653,7 +9964,11 @@ class OneClickPanel(tk.Frame):
             share_result = None
             
             try:
-                # Count local running fusers
+                # Get LIVE fuser counts from beacon broadcasts (real running processes)
+                # This is more accurate than scanning directories which only shows seeded folders
+                live_counts = get_live_fuser_counts_from_beacons(timeout_sec=10)
+                
+                # Count local running fusers (authoritative for this machine)
                 local_running = count_local_fusers()
 
                 # Desired counts
@@ -9671,23 +9986,23 @@ class OneClickPanel(tk.Frame):
                 if user_target <= 0:
                     user_target = 3
 
-                # Build network-wide summary from WorkingFuser
-                summary = get_connected_pcs_summary()
+                # Build summary from live beacon data
                 hostname = platform.node()
-
-                # Ensure host appears in the list even if 0 running (not present in summary)
-                if hostname not in summary:
-                    summary[hostname] = {"ip": _machine_ip_fast(), "fusers": local_running, "last_seen": 0}
-                else:
-                    # Overwrite with authoritative local count to avoid stale values
-                    summary[hostname]["fusers"] = local_running
+                
+                # Start with local (authoritative)
+                summary = {hostname: local_running}
+                
+                # Add all PCs broadcasting beacons
+                for pc, count in live_counts.items():
+                    if pc != hostname:  # Don't overwrite local authoritative count
+                        summary[pc] = count
 
                 # Compute totals and breakdown per PC with targets
                 pcs = sorted(summary.keys())
                 total_running = 0
                 breakdown_parts = []
                 for pc in pcs:
-                    running = int(summary[pc].get("fusers", 0))
+                    running = int(summary[pc])
                     target = host_target if pc == hostname else user_target
                     total_running += running
                     breakdown_parts.append(f"{pc}: {running}/{target}")
@@ -9697,7 +10012,7 @@ class OneClickPanel(tk.Frame):
                 total_target = MAX_TOTAL_FUSERS
 
                 logging.debug(
-                    f"[host-status] fusers local={local_running}, total={total_running}, pcs={len(pcs)}, total_target={total_target}"
+                    f"[host-status] LIVE counts from beacons: local={local_running}, total={total_running}, pcs={len(pcs)}, total_target={total_target}"
                 )
 
                 # Compose display: TOTAL line then per-PC list
@@ -10427,17 +10742,27 @@ class SettingsPanel(tk.Frame):
                 n = _clamp_fusers(n, True)
                 config["Fusers"]["desired_count"] = str(n)
                 
-                # NOTE: Connection will be checked in ensure_fuser_instances()
-                # If share is not accessible, fusers won't launch and user will
-                # need to click "Test Access" to establish connection first
+                # Async enforcement: don't block UI while scaling
+                def _enforce():
+                    try:
+                        ensure_fuser_instances(n)
+                    except Exception as e:
+                        logging.error(f"[fuser-toggle] Enforcement error after enable: {e}")
+                run_in_thread(_enforce)
             else:
                 # When turning off, kill all fusers and reset count
-                kill_fusers_on_disable()
+                def _disable():
+                    try:
+                        kill_fusers_on_disable()
+                    except Exception as e:
+                        logging.error(f"[fuser-toggle] Disable error: {e}")
+                run_in_thread(_disable)
 
             save_config()
 
             update_fuser_shared_path()
-            enforce_local_fuser_policy()
+            # Policy enforcement can be heavy; execute off UI thread
+            run_in_thread(lambda: enforce_local_fuser_policy())
             self._refresh_fuser_counter_row()
             if "OneClick" in self.controller.panels:
                 oc_panel = self.controller.panels["OneClick"]
@@ -10455,11 +10780,10 @@ class SettingsPanel(tk.Frame):
             ("Fuser Computer", self.fuser_var, _on_fuser_toggle),
         ]
 
-        # Check if we're on the Host PC (by IP comparison)
-        o = get_offline_cfg()
-        host_ip = (o.get("host_ip") or "").strip()
+        # Check if we're on the Host PC (by verifying share exists locally)
+        # This is more reliable than IP comparison - config might have stale IP
+        is_host_by_ip = is_this_pc_the_real_host()
         our_ip = get_primary_ipv4()
-        is_host_by_ip = (our_ip == host_ip) if (our_ip and host_ip) else False
 
         logging.info("[ui-diag] SettingsPanel: about to create checkbuttons")
         for i, (text, var, cmd) in enumerate(toggle_specs):
@@ -10488,7 +10812,7 @@ class SettingsPanel(tk.Frame):
                 self.fuser_var.set(True)
                 config["Fusers"]["fuser_computer"] = "True"
                 save_config()
-                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer checkbox disabled (Host PC detected by IP)")
+                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer checkbox disabled (Host PC detected - share exists locally)")
                 # Store reference for potential future updates
                 self.fuser_computer_checkbox = chk
             
@@ -10526,16 +10850,61 @@ class SettingsPanel(tk.Frame):
         self.fuser_count_label.pack(side="left")
 
         def _bump(delta: int):
+            """Debounced adjust of desired fuser count; heavy scaling moved off UI thread."""
+            # Read current desired
             is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
             try:
                 current = int(config["Fusers"].get("desired_count", "3") or 3)
             except Exception:
                 current = 3
-            newv = _clamp_fusers(current + delta, is_fuser)
-            config["Fusers"]["desired_count"] = str(newv)
+            target = _clamp_fusers(current + delta, is_fuser)
+            # Persist immediately so UI & other logic see latest intent
+            config["Fusers"]["desired_count"] = str(target)
             save_config()
-            ensure_fuser_instances(newv)
             self._refresh_fuser_counter_row()
+
+            # Debounce: if a previous bump is pending, reschedule instead of stacking launches
+            now = time.time()
+            pending = getattr(self, "_fuser_scale_pending_target", None)
+            self._fuser_scale_pending_target = target
+            last_sched = getattr(self, "_fuser_scale_last_sched", 0.0)
+            # If we scheduled <0.4s ago, just update pending target and return
+            if now - last_sched < 0.4:
+                return
+            self._fuser_scale_last_sched = now
+
+            # Disable buttons temporarily (if we can find them) to prevent spam
+            try:
+                for child in frow.winfo_children():
+                    if isinstance(child, tk.Button) and child.cget("text") in {"+", "–"}:
+                        child.config(state="disabled")
+            except Exception:
+                pass
+
+            def _do_scale():
+                try:
+                    tgt = getattr(self, "_fuser_scale_pending_target", target)
+                    logging.info(f"[fuser-scale-ui] Debounced enforcement start -> {tgt}")
+                    ensure_fuser_instances(tgt)
+                except Exception as e:
+                    logging.error(f"[fuser-scale-ui] Enforcement error: {e}")
+                finally:
+                    # Re-enable buttons on UI thread
+                    def _reenable():
+                        try:
+                            for child in frow.winfo_children():
+                                if isinstance(child, tk.Button) and child.cget("text") in {"+", "–"}:
+                                    child.config(state="normal")
+                        except Exception:
+                            pass
+                        self._refresh_fuser_counter_row()
+                    try:
+                        self.after(0, _reenable)
+                    except Exception:
+                        pass
+
+            # Run scaling off the UI thread
+            run_in_thread(_do_scale)
 
         tk.Button(
             frow,
@@ -12536,6 +12905,10 @@ def run_with_splash():
     
     # Create the main app but keep it hidden during the entire splash sequence
     app = MainApp()
+    try:
+        attach_tk_exception_hook(app)
+    except Exception:
+        pass
     # MainApp.__init__ already calls withdraw()
     
     # Clean up any orphaned fusers from previous sessions BEFORE starting new ones
