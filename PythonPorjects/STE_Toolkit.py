@@ -1821,6 +1821,11 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
                 if item == '_clients' or item == HEARTBEAT_DIR_NAME:
                     continue
                 
+                # Skip SeedFuser directories - they are not real fusers
+                if 'SeedFuser' in item or 'seedfuser' in item.lower():
+                    logging.debug(f"[presence] scan: skipping SeedFuser: {item}")
+                    continue
+                
                 # Extract PC name and IP from folder/file name
                 # Patterns: 
                 #   PCNAME(IP)_FuserName
@@ -1834,14 +1839,32 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
                     # Extract IP
                     ip_part = name.split('(')[1].split(')')[0]
                     
+                    # Only count LocalFuser1, LocalFuser2, LocalFuser3 folders
+                    # Skip if fuser name doesn't match LocalFuserN pattern
+                    if '_' in name:
+                        fuser_name = name.split('_', 1)[1] if '_' in name else ''
+                        # Only count LocalFuser with numbers 1-3
+                        if fuser_name.startswith('LocalFuser'):
+                            try:
+                                fuser_num = int(fuser_name.replace('LocalFuser', ''))
+                                if fuser_num < 1 or fuser_num > 3:
+                                    logging.debug(f"[presence] scan: skipping invalid fuser number: {item}")
+                                    continue
+                            except ValueError:
+                                logging.debug(f"[presence] scan: skipping non-numeric fuser: {item}")
+                                continue
+                        else:
+                            logging.debug(f"[presence] scan: skipping non-LocalFuser: {item}")
+                            continue
+                    
                     if pc_name not in pc_fusers:
                         pc_fusers[pc_name] = {"pc": pc_name, "ip": ip_part, "fusers": 0}
                     pc_fusers[pc_name]["fusers"] += 1
                     
-                    logging.debug(f"[presence] scan: found fuser from {pc_name} ({ip_part})")
+                    logging.debug(f"[presence] scan: found valid fuser from {pc_name} ({ip_part}): {item}")
         
         out = list(pc_fusers.values())
-        logging.debug(f"[presence] scan: found {len(out)} unique PCs with fusers")
+        logging.debug(f"[presence] scan: found {len(out)} unique PCs with {sum(pc['fusers'] for pc in out)} total valid fusers")
         
     except Exception as e:
         logging.warning(f"[presence] scan: error scanning directory {root}: {e}")
@@ -4637,12 +4660,16 @@ def ensure_fuser_instances(desired: int):
         
         logging.info(f"[fuser-scale] Current fusers: total={total_count}, ours={our_count}, foreign={foreign_count}")
     
-        if total_count >= desired:
-            if total_count == desired:
-                logging.info(f"[fuser-scale] ✓ Already at target ({total_count}), no action needed")
+        # IMPORTANT: Only manage OUR fusers, ignore foreign ones
+        # Check if OUR count matches desired, not total count
+        if our_count >= desired:
+            if our_count == desired:
+                logging.info(f"[fuser-scale] ✓ Already at target (ours={our_count}), no action needed")
+                if foreign_count > 0:
+                    logging.info(f"[fuser-scale] Note: {foreign_count} foreign fuser(s) also running (ignored)")
             else:
-                # More than desired - need to trim
-                to_kill = total_count - desired
+                # More of ours than desired - need to trim OUR extras only
+                to_kill = our_count - desired
                 
                 # DEBUG: Print to console when trimming
                 import traceback
@@ -4680,8 +4707,8 @@ def ensure_fuser_instances(desired: int):
                 save_last_launched_fuser_count(desired)
             return
 
-        # Need to launch more fusers
-        to_start = desired - total_count
+        # Need to launch more of OUR fusers (ignore foreign count)
+        to_start = desired - our_count
         logging.info(f"[fuser-scale] Starting {to_start} new instance(s) in PARALLEL")
         
         # Find which IDs are missing (1, 2, 3)
@@ -7259,6 +7286,9 @@ class MainApp(tk.Tk):
         self._initialize_ui()
         logging.info("[startup] _initialize_ui() completed successfully")
         
+        # Update panel button states now that warmup has discovered paths
+        self._refresh_panel_button_states()
+        
         # Check if we're in offline mode and show appropriate warning
         if hasattr(self, 'network_status') and self.network_status == "offline":
             self.show_warning_banner("Host not reachable — running in offline mode")
@@ -7766,6 +7796,27 @@ class MainApp(tk.Tk):
             self.after(50, self._update_scrollability)
         except Exception as e:
             pass
+
+    def _refresh_panel_button_states(self):
+        """Refresh all panel button states after warmup discovers paths."""
+        try:
+            # Update VBS4 panel buttons if they exist
+            if hasattr(self, 'panels') and 'VBS4' in self.panels:
+                panel = self.panels['VBS4']
+                if hasattr(panel, 'vbs4_launcher_button'):
+                    self.update_button_state(panel.vbs4_launcher_button, 'vbs4_setup_path')
+                if hasattr(panel, 'vbs_license_button'):
+                    self.update_button_state(panel.vbs_license_button, 'vbs_license_manager_path')
+                if hasattr(panel, 'blueig_button'):
+                    self.update_button_state(panel.blueig_button, 'blueig_path')
+            
+            # Update BVI panel button if it exists
+            if hasattr(self, 'panels') and 'BVI' in self.panels:
+                panel = self.panels['BVI']
+                if hasattr(panel, 'bvi_button'):
+                    self.update_button_state(panel.bvi_button, 'bvi_manager_path')
+        except Exception as e:
+            logging.error(f"[startup] Error refreshing panel button states: {e}")
 
     def _update_vbs4_panel(self, panel):
         """Update VBS4 panel state (deferred to avoid blocking UI)."""
