@@ -18,13 +18,13 @@ DisableProgramGroupPage=yes
 Compression=lzma
 SolidCompression=yes
 OutputBaseFilename=STE_Toolkit_Setup
-SetupIconFile=assets\icon.ico
+SetupIconFile=..\assets\icon.ico
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
 
 [Files]
 ; 1) Toolkit (PyInstaller dist)
-Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "..\dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
