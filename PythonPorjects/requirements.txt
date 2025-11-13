@@ -1,3 +1,5 @@
 pillow
 configparser
 psutil
+pywin32
+pyinstaller
