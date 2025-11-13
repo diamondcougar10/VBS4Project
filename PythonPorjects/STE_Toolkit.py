@@ -3263,7 +3263,12 @@ APP_INSTANCE = None
 def save_config() -> None:
     """Save to the active CONFIG_PATH (respects --config CLI override) with atomic write.
     Preserves [Offline.host_ip] reference placeholders in dependent sections."""
-    target = CONFIG_PATH
+    # Always save to SITE_CONFIG_PATH (next to EXE) unless --config was specified
+    # This prevents creating duplicate config files in _internal directory
+    if CONFIG_PATH == DEFAULT_CONFIG_PATH:
+        target = SITE_CONFIG_PATH
+    else:
+        target = CONFIG_PATH
     
     # Fallback to site config if active path isn't writable
     if not os.path.dirname(target) or not os.access(os.path.dirname(target), os.W_OK):
@@ -9845,7 +9850,7 @@ class OneClickPanel(tk.Frame):
             host_status_frame = tk.Frame(
                 self.log_frame, bg="#2a2a2a", bd=2, relief="solid", highlightthickness=0
             )
-            host_status_frame.pack(fill="both", expand=True, pady=(10, 0))
+            host_status_frame.pack(fill="x", pady=(10, 0))
             
             # Title
             tk.Label(
@@ -9858,22 +9863,23 @@ class OneClickPanel(tk.Frame):
                 highlightthickness=0,
             ).pack(anchor="w", padx=10, pady=(5, 2))
             
-            # Fuser status label
-            self.host_fuser_status_label = tk.Label(
+            # Create a text widget for fuser status (fixed height for up to 6 lines: 1 total + 5 PCs)
+            fuser_status_text = tk.Text(
                 host_status_frame,
-                text="Fusers: Checking...",
-                font=("Helvetica", 12),
+                height=6,
+                font=("Helvetica", 11),
                 bg="#2a2a2a",
                 fg="#FFFF00",
                 bd=0,
                 highlightthickness=0,
-                anchor="nw",
-                justify="left",
-                wraplength=1400
+                wrap="none",
+                state="disabled",
+                cursor="arrow"
             )
-            self.host_fuser_status_label.pack(anchor="w", padx=10, pady=2, fill="both", expand=True)
+            fuser_status_text.pack(anchor="w", padx=10, pady=2, fill="both", expand=False)
+            self.host_fuser_status_label = fuser_status_text
             
-            # Share drive status label
+            # Share drive status label (single line)
             self.host_share_status_label = tk.Label(
                 host_status_frame,
                 text="Share Drive: Checking...",
@@ -9882,11 +9888,10 @@ class OneClickPanel(tk.Frame):
                 fg="#FFFF00",
                 bd=0,
                 highlightthickness=0,
-                anchor="nw",
-                justify="left",
-                wraplength=1400
+                anchor="w",
+                justify="left"
             )
-            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5), fill="both", expand=True)
+            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 10), fill="x")
             
             # Initialize status update tracking
             self._host_status_update_scheduled = False
@@ -10141,7 +10146,17 @@ class OneClickPanel(tk.Frame):
                     if fuser_result and fuser_result != last_fuser_status:
                         fuser_text, fuser_color = fuser_result
                         if hasattr(self, 'host_fuser_status_label') and self.host_fuser_status_label:
-                            self.host_fuser_status_label.config(text=fuser_text, fg=fuser_color)
+                            # Text widget requires different method to update
+                            try:
+                                self.host_fuser_status_label.config(state="normal")
+                                self.host_fuser_status_label.delete("1.0", "end")
+                                self.host_fuser_status_label.insert("1.0", fuser_text)
+                                self.host_fuser_status_label.tag_add("all", "1.0", "end")
+                                self.host_fuser_status_label.tag_config("all", foreground=fuser_color)
+                                self.host_fuser_status_label.config(state="disabled")
+                            except:
+                                # Fallback for label-style widget
+                                self.host_fuser_status_label.config(text=fuser_text, fg=fuser_color)
                         self._last_host_fuser_status = fuser_result
                     
                     # Update share status (only if changed)
