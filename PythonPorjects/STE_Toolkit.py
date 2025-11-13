@@ -8039,6 +8039,13 @@ class MainApp(tk.Tk):
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
         logging.info(f"[ui-diag] show() called for panel: {name}")
+        
+        # Stop OneClick status updates if we're leaving that panel
+        if hasattr(self, 'current') and self.current == 'OneClick':
+            oneclick = self.panels.get('OneClick')
+            if oneclick and hasattr(oneclick, 'stop_host_status_updates'):
+                oneclick.stop_host_status_updates()
+        
         panel = self.panels[name]
         logging.info(f"[ui-diag] show(): got panel object")
         try:
@@ -8168,6 +8175,9 @@ class MainApp(tk.Tk):
         try:
             panel.update_fuser_state()
             panel.refresh_rm_status()
+            # Start host status updates after panel is visible (prevents black screen flash)
+            if hasattr(panel, 'start_host_status_updates'):
+                panel.start_host_status_updates()
         except Exception:
             pass
 
@@ -9878,8 +9888,9 @@ class OneClickPanel(tk.Frame):
             )
             self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5), fill="both", expand=True)
             
-            # Start periodic status updates
-            self._update_host_status_box()
+            # Initialize status update tracking
+            self._host_status_update_scheduled = False
+            self._pending_host_status_update = None
         else:
             # Not a Host machine, so we don't create the status box
             self.host_fuser_status_label = None
@@ -9894,6 +9905,31 @@ class OneClickPanel(tk.Frame):
         self.rm_source = None
         self.update_fuser_state()
         self.refresh_rm_status()
+
+    def start_host_status_updates(self):
+        """Start the periodic host status updates (called when panel becomes visible)."""
+        if not hasattr(self, 'host_fuser_status_label') or self.host_fuser_status_label is None:
+            return  # Not on Host machine
+        
+        if not self._host_status_update_scheduled:
+            self._host_status_update_scheduled = True
+            # Defer initial update by 300ms to allow panel to fully render first
+            self._pending_host_status_update = self.after(300, self._update_host_status_box)
+    
+    def stop_host_status_updates(self):
+        """Stop the periodic host status updates (called when leaving the panel)."""
+        if not hasattr(self, 'host_fuser_status_label') or self.host_fuser_status_label is None:
+            return  # Not on Host machine
+        
+        self._host_status_update_scheduled = False
+        
+        # Cancel any pending update
+        if hasattr(self, '_pending_host_status_update') and self._pending_host_status_update:
+            try:
+                self.after_cancel(self._pending_host_status_update)
+                self._pending_host_status_update = None
+            except:
+                pass
 
     def make_button(self, text, command):
         """Return a main-action button styled like the other panels with hover effect."""
@@ -9953,9 +9989,10 @@ class OneClickPanel(tk.Frame):
         """Force an immediate update of the Host status box (called when fusers change)."""
         if hasattr(self, 'host_fuser_status_label') and self.host_fuser_status_label:
             # Cancel any pending periodic update to avoid conflicts
-            if hasattr(self, '_pending_host_status_update'):
+            if hasattr(self, '_pending_host_status_update') and self._pending_host_status_update:
                 try:
                     self.after_cancel(self._pending_host_status_update)
+                    self._pending_host_status_update = None
                 except:
                     pass
             
@@ -9975,9 +10012,13 @@ class OneClickPanel(tk.Frame):
         if not hasattr(self, 'host_fuser_status_label') or self.host_fuser_status_label is None:
             return  # Not on Host machine, nothing to update
         
+        # Stop updates if panel is no longer visible or updates were cancelled
+        if not getattr(self, '_host_status_update_scheduled', False):
+            return
+        
         # Prevent overlapping background checks
         if getattr(self, "_host_status_check_busy", False):
-            self.after(3000, self._update_host_status_box)
+            self._pending_host_status_update = self.after(3000, self._update_host_status_box)
             return
         
         self._host_status_check_busy = True
@@ -10119,7 +10160,7 @@ class OneClickPanel(tk.Frame):
                 finally:
                     self._host_status_check_busy = False
                     # Schedule next update in 3 seconds (matches Settings panel polling rate)
-                    self.after(3000, self._update_host_status_box)
+                    self._pending_host_status_update = self.after(3000, self._update_host_status_box)
             
             # Apply result on UI thread
             try:
@@ -11009,55 +11050,37 @@ class SettingsPanel(tk.Frame):
         net_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
-        tk.Label(
-            net_frame,
-            text="Host IP",
-            font=("Helvetica", 14),
-            bg="black",
-            fg="white",
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
-
+        # Host IP management - now auto-discovered via beacons
         host_row = tk.Frame(net_frame, bg="black")
-        host_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 6))
+        host_row.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
+        # Store host IP in a variable for internal use (not displayed in entry field)
         self.host_ip_var = tk.StringVar(
             value=config.get("Offline", "host_ip", fallback="")
         )
 
-        tk.Entry(
+        tk.Label(
+            host_row,
+            text="Host IP:",
+            font=("Helvetica", 14),
+            bg="black",
+            fg="white",
+        ).pack(side="left", padx=(0, 8))
+
+        # Display current host IP (read-only)
+        self.host_ip_display = tk.Label(
             host_row,
             textvariable=self.host_ip_var,
             font=("Consolas", 12),
             bg="#111111",
-            fg="white",
-            insertbackground="white",
-            bd=0,
-        ).pack(side="left", fill="x", expand=True)
-
-        def _use_my_ip():
-            ip = get_primary_ipv4()
-            if ip:
-                self.host_ip_var.set(ip)
-
-        tk.Button(
-            host_row,
-            text="Use my IP",
-            command=_use_my_ip,
-            font=("Helvetica", 12),
-            bg="#444444",
-            fg="white",
-            bd=0,
-        ).pack(side="left", padx=8)
-
-        tk.Button(
-            host_row,
-            text="Save",
-            command=self._save_host_ip,
-            font=("Helvetica", 12),
-            bg="#444444",
-            fg="white",
-            bd=0,
-        ).pack(side="left", padx=8)
+            fg="#00FF00",
+            padx=10,
+            pady=5,
+            relief="sunken",
+            anchor="w",
+            width=20
+        )
+        self.host_ip_display.pack(side="left", padx=(0, 16))
 
         tk.Button(
             host_row,
@@ -11071,7 +11094,7 @@ class SettingsPanel(tk.Frame):
 
         # Compact host + working fuser status row with a manual retry button
         status_row = tk.Frame(net_frame, bg="black")
-        status_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        status_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         self.host_status_label = tk.Label(
             status_row,
@@ -11110,11 +11133,11 @@ class SettingsPanel(tk.Frame):
 
         tk.Button(net_frame, text="Share Folder Now", command=_share_now,
                   font=("Helvetica", 12), bg="#444444", fg="white", bd=0) \
-            .grid(row=3, column=0, sticky="w", pady=(0, 6))
+            .grid(row=2, column=0, sticky="w", pady=(0, 6))
 
         # Create a frame to hold the share button and status indicator 
         share_row = tk.Frame(net_frame, bg="black")
-        share_row.grid(row=3, column=1, sticky="ew", pady=(0, 6), padx=(10, 0))
+        share_row.grid(row=2, column=1, sticky="ew", pady=(0, 6), padx=(10, 0))
 
         # Status indicator label
         self.share_status_label = tk.Label(
@@ -12429,14 +12452,6 @@ class SettingsPanel(tk.Frame):
         self.shared_mode.set("UNC")
         logging.info(f"Unmapped {letter}")
         messagebox.showinfo("Map Drive", f"Unmapped {letter}")
-    def _save_host_ip(self):
-        ip = self.host_ip_var.get().strip()
-        try:
-            set_host_ip(ip)
-            messagebox.showinfo("Settings", f"Host IP set to: {ip or '[blank]'}")
-        except Exception as exc:
-            messagebox.showerror("Settings", str(exc))
-
     def _change_host_ip(self):
         """Manually change the Host IP address with validation and beacon update."""
         from tkinter import simpledialog
