@@ -11030,6 +11030,16 @@ class SettingsPanel(tk.Frame):
             bd=0,
         ).pack(side="left", padx=8)
 
+        tk.Button(
+            host_row,
+            text="Change Host IP",
+            command=self._change_host_ip,
+            font=("Helvetica", 12),
+            bg="#555555",
+            fg="white",
+            bd=0,
+        ).pack(side="left", padx=8)
+
         # Compact host + working fuser status row with a manual retry button
         status_row = tk.Frame(net_frame, bg="black")
         status_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
@@ -12397,6 +12407,108 @@ class SettingsPanel(tk.Frame):
             messagebox.showinfo("Settings", f"Host IP set to: {ip or '[blank]'}")
         except Exception as exc:
             messagebox.showerror("Settings", str(exc))
+
+    def _change_host_ip(self):
+        """Manually change the Host IP address with validation and beacon update."""
+        from tkinter import simpledialog
+        
+        # Get current IP
+        current_ip = self.host_ip_var.get().strip()
+        
+        # Prompt for new IP
+        new_ip = simpledialog.askstring(
+            "Change Host IP",
+            "Enter the new Host IP address:\n\n"
+            "(This will update the configuration and beacon file\n"
+            "so all User PCs can discover the new IP)",
+            initialvalue=current_ip
+        )
+        
+        if new_ip is None:  # User cancelled
+            return
+        
+        new_ip = new_ip.strip()
+        
+        # Basic validation
+        if new_ip and not self._validate_ip(new_ip):
+            messagebox.showerror(
+                "Invalid IP",
+                f"'{new_ip}' is not a valid IP address.\n\n"
+                "Please enter a valid IPv4 address (e.g., 192.168.1.100)"
+            )
+            return
+        
+        try:
+            # Update config
+            set_host_ip(new_ip)
+            self.host_ip_var.set(new_ip)
+            
+            # Update beacon file if we're on the host
+            if is_host_machine():
+                self._update_host_beacon(new_ip)
+            
+            # Show success message
+            messagebox.showinfo(
+                "Host IP Changed",
+                f"Host IP successfully changed to: {new_ip or '[blank]'}\n\n"
+                "The beacon file has been updated.\n"
+                "User PCs will discover this new IP automatically."
+            )
+            
+            # Trigger status refresh
+            self.after(500, self._update_share_status)
+            
+        except Exception as exc:
+            logging.error(f"[change_host_ip] Error: {exc}")
+            messagebox.showerror("Error", f"Failed to change Host IP:\n{exc}")
+    
+    def _validate_ip(self, ip: str) -> bool:
+        """Validate IPv4 address format."""
+        try:
+            parts = ip.split('.')
+            if len(parts) != 4:
+                return False
+            for part in parts:
+                num = int(part)
+                if num < 0 or num > 255:
+                    return False
+            return True
+        except (ValueError, AttributeError):
+            return False
+    
+    def _update_host_beacon(self, new_ip: str):
+        """Update the host beacon file with the new IP address."""
+        try:
+            o = get_offline_cfg()
+            local_root = o.get("local_data_root", "").strip()
+            
+            if not local_root:
+                logging.warning("[change_host_ip] No local_data_root configured, skipping beacon update")
+                return
+            
+            beacon_path = os.path.join(local_root, "HostInfo.ini")
+            hostname = socket.gethostname()
+            share_name = o.get("share_name", "SharedMeshDrive")
+            
+            # Write beacon file
+            beacon_content = (
+                "[Host]\n"
+                f"ip={new_ip}\n"
+                f"name={hostname}\n"
+                f"share={share_name}\n"
+                f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                "guest_ok=1\n"
+                "dns_alias=ste-host\n"
+            )
+            
+            with open(beacon_path, 'w') as f:
+                f.write(beacon_content)
+            
+            logging.info(f"[change_host_ip] Beacon updated at {beacon_path} with IP {new_ip}")
+            
+        except Exception as e:
+            logging.error(f"[change_host_ip] Failed to update beacon: {e}")
+            raise Exception(f"Failed to update beacon file: {e}")
 
     def _browse_rm_local_root(self):
         path = filedialog.askdirectory()

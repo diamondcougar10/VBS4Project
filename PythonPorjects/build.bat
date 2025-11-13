@@ -29,7 +29,7 @@ set "VERSION="
 
 REM Try reading from __version__.py
 if exist "__version__.py" (
-    for /f "tokens=2 delims='" %%a in ('findstr /r "__version__.*=.*[\"']" __version__.py') do (
+    for /f "usebackq tokens=2 delims='" %%a in (`findstr "__version__" __version__.py`) do (
         set "VERSION=%%a"
     )
 )
@@ -119,18 +119,18 @@ REM --- Find Inno Setup ---
 echo.
 echo [6/7] Locating Inno Setup...
 set "ISCC="
-if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
-    set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-) else if exist "C:\Program Files\Inno Setup 6\ISCC.exe" (
-    set "ISCC=C:\Program Files\Inno Setup 6\ISCC.exe"
-)
+set "ISCC_PATH_1=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+set "ISCC_PATH_2=C:\Program Files\Inno Setup 6\ISCC.exe"
+
+if exist "%ISCC_PATH_1%" set "ISCC=%ISCC_PATH_1%"
+if exist "%ISCC_PATH_2%" if "!ISCC!"=="" set "ISCC=%ISCC_PATH_2%"
 
 if "!ISCC!"=="" (
     echo ERROR: Inno Setup 6 not found in standard locations
     echo Please install from: https://jrsoftware.org/isdl.php
     echo.
     echo Looked in:
-    echo   - C:\Program Files (x86)\Inno Setup 6\
+    echo   - C:\Program Files ^(x86^)\Inno Setup 6\
     echo   - C:\Program Files\Inno Setup 6\
     exit /b 1
 )
