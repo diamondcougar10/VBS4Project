@@ -12468,9 +12468,29 @@ class SettingsPanel(tk.Frame):
             return
         
         try:
-            # Update config
+            # Update config (this syncs all IP references including shared_working_unc)
             set_host_ip(new_ip)
             self.host_ip_var.set(new_ip)
+            
+            # Remap drive if it's currently mapped (so it points to new IP)
+            sd = config.get("SharedDrive", {}) if isinstance(config.get("SharedDrive"), dict) else {}
+            if sd.get("preferred_mode", "").upper() == "DRIVE":
+                letter = sd.get("drive_letter", "M:").strip() or "M:"
+                try:
+                    # Unmap old connection
+                    unmap_drive(letter)
+                    logging.info(f"[change_host_ip] Unmapped old drive {letter}")
+                    
+                    # Remap with new IP
+                    if new_ip:
+                        o = get_offline_cfg()
+                        new_unc = build_unc_from_cfg(o)
+                        if new_unc and map_drive(new_unc, letter):
+                            logging.info(f"[change_host_ip] Remapped {letter} to {new_unc}")
+                        else:
+                            logging.warning(f"[change_host_ip] Failed to remap {letter} to new IP")
+                except Exception as e:
+                    logging.warning(f"[change_host_ip] Failed to remap drive: {e}")
             
             # Update beacon file if we're on the host
             if is_host_machine():
@@ -12480,6 +12500,7 @@ class SettingsPanel(tk.Frame):
             messagebox.showinfo(
                 "Host IP Changed",
                 f"Host IP successfully changed to: {new_ip or '[blank]'}\n\n"
+                "All network paths and shared drive connections have been updated.\n"
                 "The beacon file has been updated.\n"
                 "User PCs will discover this new IP automatically."
             )

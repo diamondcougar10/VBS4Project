@@ -10,6 +10,7 @@
 #define AppVersion "2.0"
 
 [Setup]
+AppId={{A1B2C3D4-5E6F-7G8H-9I0J-1K2L3M4N5O6P}
 AppName={#AppName}
 AppVersion={#AppVersion}
 DefaultDirName={pf}\STE Toolkit
@@ -21,6 +22,8 @@ OutputBaseFilename=STE_Toolkit_Setup
 SetupIconFile=..\assets\icon.ico
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
+UninstallDisplayName={#AppName}
+UninstallDisplayIcon={app}\STE_Toolkit.exe
 
 [Files]
 ; 1) Toolkit (PyInstaller dist)
@@ -1078,4 +1081,153 @@ begin
   GuestFlag    := GetIniString('Host','guest_ok','', FilePath);
   OutGuestOk   := (UpperCase(Trim(GuestFlag)) = '1') or (UpperCase(Trim(GuestFlag)) = 'TRUE');
   Result := (OutIP <> '');
+end;
+
+// --- Previous Installation Detection and Handling ---
+function GetUninstallString(): String;
+var
+  sUnInstPath: String;
+  sUnInstallString: String;
+begin
+  sUnInstPath := ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#emit SetupSetting("AppId")}_is1');
+  sUnInstallString := '';
+  if not RegQueryStringValue(HKLM, sUnInstPath, 'UninstallString', sUnInstallString) then
+    RegQueryStringValue(HKCU, sUnInstPath, 'UninstallString', sUnInstallString);
+  Result := sUnInstallString;
+end;
+
+function IsUpgrade(): Boolean;
+begin
+  Result := (GetUninstallString() <> '');
+end;
+
+function UnInstallOldVersion(): Integer;
+var
+  sUnInstallString: String;
+  iResultCode: Integer;
+begin
+  Result := 0;
+  sUnInstallString := GetUninstallString();
+  if sUnInstallString <> '' then begin
+    sUnInstallString := RemoveQuotes(sUnInstallString);
+    if Exec(sUnInstallString, '/SILENT /NORESTART /SUPPRESSMSGBOXES','', SW_HIDE, ewWaitUntilTerminated, iResultCode) then
+      Result := 3
+    else
+      Result := 2;
+  end else
+    Result := 1;
+end;
+
+function ShowUpgradeDialog(): Integer;
+var
+  Form: TSetupForm;
+  MessageLabel: TNewStaticText;
+  UpdateButton: TNewButton;
+  UninstallButton: TNewButton;
+  CancelButton: TNewButton;
+begin
+  Result := 0; // 0 = Cancel, 1 = Update, 2 = Uninstall
+  
+  Form := CreateCustomForm();
+  try
+    Form.ClientWidth := ScaleX(420);
+    Form.ClientHeight := ScaleY(180);
+    Form.Caption := 'Previous Installation Detected';
+    Form.Position := poScreenCenter;
+    
+    MessageLabel := TNewStaticText.Create(Form);
+    MessageLabel.Parent := Form;
+    MessageLabel.Left := ScaleX(20);
+    MessageLabel.Top := ScaleY(20);
+    MessageLabel.Width := ScaleX(380);
+    MessageLabel.Height := ScaleY(60);
+    MessageLabel.AutoSize := False;
+    MessageLabel.WordWrap := True;
+    MessageLabel.Caption := 'It looks like you already have this program installed.' + #13#10#13#10 + 'Would you like to:';
+    
+    UpdateButton := TNewButton.Create(Form);
+    UpdateButton.Parent := Form;
+    UpdateButton.Left := ScaleX(20);
+    UpdateButton.Top := ScaleY(90);
+    UpdateButton.Width := ScaleX(120);
+    UpdateButton.Height := ScaleY(30);
+    UpdateButton.Caption := '&Update';
+    UpdateButton.ModalResult := mrYes;
+    UpdateButton.Default := True;
+    
+    UninstallButton := TNewButton.Create(Form);
+    UninstallButton.Parent := Form;
+    UninstallButton.Left := ScaleX(150);
+    UninstallButton.Top := ScaleY(90);
+    UninstallButton.Width := ScaleX(120);
+    UninstallButton.Height := ScaleY(30);
+    UninstallButton.Caption := 'U&ninstall';
+    UninstallButton.ModalResult := mrNo;
+    
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Left := ScaleX(280);
+    CancelButton.Top := ScaleY(90);
+    CancelButton.Width := ScaleX(120);
+    CancelButton.Height := ScaleY(30);
+    CancelButton.Caption := '&Cancel';
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Cancel := True;
+    
+    if Form.ShowModal = mrYes then
+      Result := 1
+    else if Form.ShowModal = mrNo then
+      Result := 2
+    else
+      Result := 0;
+  finally
+    Form.Free();
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Response: Integer;
+begin
+  Result := True;
+  
+  // Check if the application is already installed
+  if IsUpgrade() then
+  begin
+    Response := ShowUpgradeDialog();
+    
+    case Response of
+      1: begin
+        // User wants to update - uninstall old version and continue with installation
+        if UnInstallOldVersion() <> 1 then
+        begin
+          MsgBox('Previous version has been uninstalled. The new version will now be installed.', mbInformation, MB_OK);
+          Result := True;
+        end
+        else
+        begin
+          MsgBox('Failed to uninstall the previous version. Please uninstall it manually first.', mbError, MB_OK);
+          Result := False;
+        end;
+      end;
+      
+      2: begin
+        // User wants to only uninstall
+        if UnInstallOldVersion() <> 1 then
+        begin
+          MsgBox('The application has been uninstalled.', mbInformation, MB_OK);
+        end
+        else
+        begin
+          MsgBox('Failed to uninstall the application.', mbError, MB_OK);
+        end;
+        Result := False; // Stop installation
+      end;
+      
+      0: begin
+        // User cancelled
+        Result := False;
+      end;
+    end;
+  end;
 end;
