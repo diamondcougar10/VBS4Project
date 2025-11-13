@@ -12488,7 +12488,7 @@ class SettingsPanel(tk.Frame):
             self.host_ip_var.set(new_ip)
             
             # Remap drive if it's currently mapped (so it points to new IP)
-            sd = config.get("SharedDrive", {}) if isinstance(config.get("SharedDrive"), dict) else {}
+            sd = config["SharedDrive"] if "SharedDrive" in config else {}
             if sd.get("preferred_mode", "").upper() == "DRIVE":
                 letter = sd.get("drive_letter", "M:").strip() or "M:"
                 try:
