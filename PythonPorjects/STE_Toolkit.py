@@ -3276,31 +3276,42 @@ def save_config() -> None:
         primary_ip = config.get("Offline", "host_ip", fallback="").strip()
         original_values = {}
         
+        logging.info(f"[save_config] Saving config to: {target}")
+        logging.info(f"[save_config] Primary IP: {primary_ip if primary_ip else 'NOT SET'}")
+        
         if primary_ip:
             # Temporarily replace IP values with reference placeholders for file save
             if config.has_option("Network", "host"):
                 original_values[("Network", "host")] = config.get("Network", "host")
                 config["Network"]["host"] = "[Offline.host_ip]"
+                logging.info(f"[save_config] Replaced [Network]host: {original_values[('Network', 'host')]} → [Offline.host_ip]")
             
             if config.has_option("Fusers", "working_folder_host"):
                 original_values[("Fusers", "working_folder_host")] = config.get("Fusers", "working_folder_host")
                 config["Fusers"]["working_folder_host"] = "[Offline.host_ip]"
+                logging.info(f"[save_config] Replaced [Fusers]working_folder_host: {original_values[('Fusers', 'working_folder_host')]} → [Offline.host_ip]")
             
             if config.has_option("Fusers", "shared_working_unc"):
                 unc_value = config.get("Fusers", "shared_working_unc")
                 if primary_ip in unc_value:
                     original_values[("Fusers", "shared_working_unc")] = unc_value
-                    config["Fusers"]["shared_working_unc"] = unc_value.replace(primary_ip, "[Offline.host_ip]")
+                    placeholder_unc = unc_value.replace(primary_ip, "[Offline.host_ip]")
+                    config["Fusers"]["shared_working_unc"] = placeholder_unc
+                    logging.info(f"[save_config] Replaced [Fusers]shared_working_unc: {unc_value} → {placeholder_unc}")
+        else:
+            logging.warning("[save_config] No primary IP set, skipping placeholder replacement")
         
         # Atomic write using temp file + rename
         tmp = target + ".tmp"
         with open(tmp, 'w', encoding='utf-8') as f:
             config.write(f)
         os.replace(tmp, target)  # Atomic on both Windows and Unix
+        logging.info(f"[save_config] Config saved successfully with {len(original_values)} placeholder(s)")
         
         # Restore actual values in memory for runtime use
         for (section, option), value in original_values.items():
             config[section][option] = value
+            logging.debug(f"[save_config] Restored in-memory value [{section}]{option} = {value}")
         
     except Exception as e:
         # Restore values even on error
@@ -9835,7 +9846,7 @@ class OneClickPanel(tk.Frame):
             host_status_frame = tk.Frame(
                 self.log_frame, bg="#2a2a2a", bd=2, relief="solid", highlightthickness=0
             )
-            host_status_frame.pack(fill="x", pady=(10, 0))
+            host_status_frame.pack(fill="both", expand=True, pady=(10, 0))
             
             # Title
             tk.Label(
@@ -9857,9 +9868,11 @@ class OneClickPanel(tk.Frame):
                 fg="#FFFF00",
                 bd=0,
                 highlightthickness=0,
-                anchor="w",
+                anchor="nw",
+                justify="left",
+                wraplength=1400
             )
-            self.host_fuser_status_label.pack(anchor="w", padx=10, pady=2)
+            self.host_fuser_status_label.pack(anchor="w", padx=10, pady=2, fill="both", expand=True)
             
             # Share drive status label
             self.host_share_status_label = tk.Label(
@@ -9870,9 +9883,11 @@ class OneClickPanel(tk.Frame):
                 fg="#FFFF00",
                 bd=0,
                 highlightthickness=0,
-                anchor="w",
+                anchor="nw",
+                justify="left",
+                wraplength=1400
             )
-            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5))
+            self.host_share_status_label.pack(anchor="w", padx=10, pady=(2, 5), fill="both", expand=True)
             
             # Start periodic status updates
             self._update_host_status_box()
@@ -10047,7 +10062,8 @@ class OneClickPanel(tk.Frame):
                     display_parts = breakdown_parts[:max_pcs]
                     if len(breakdown_parts) > max_pcs:
                         display_parts.append("…")
-                    base_text += "\n• " + "\n• ".join(display_parts)
+                    # Format with bullets aligned vertically
+                    base_text += "\n" + "\n".join(f"  • {part}" for part in display_parts)
 
                 # Color coding: green if at/over target, orange if some running, red if none
                 if total_target > 0 and total_running >= total_target:
