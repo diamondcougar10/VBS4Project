@@ -1682,17 +1682,12 @@ def validate_and_configure_network_connection(host_ip: str = None) -> bool:
         # Configure for network use
         config.setdefault("Offline", {})
         config["Offline"]["enabled"] = "True"
-        config["Offline"]["host_ip"] = host_ip
         config["Offline"]["share_name"] = "SharedMeshDrive"
         config["Offline"]["working_fuser_subdir"] = "WorkingFuser"
-        config["Offline"]["use_ip_unc"] = "True"
-        config.setdefault("Network", {})
-        config["Network"]["host"] = host_ip
         
-        # Update fuser configuration
-        config.setdefault("Fusers", {})
-        config["Fusers"]["shared_working_unc"] = working_folder
-        config["Fusers"]["working_folder_host"] = host_ip
+        # Set host IP using single source of truth (automatically syncs all references)
+        set_host_ip(host_ip)
+        
         save_config()
         update_fuser_shared_path()
         logging.info(f"[network_config] Successfully configured for host {host_ip}")
