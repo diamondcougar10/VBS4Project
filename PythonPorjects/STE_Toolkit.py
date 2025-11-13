@@ -3261,7 +3261,8 @@ FAST_START_CLI = "--fast-start" in sys.argv
 APP_INSTANCE = None
 
 def save_config() -> None:
-    """Save to the active CONFIG_PATH (respects --config CLI override) with atomic write."""
+    """Save to the active CONFIG_PATH (respects --config CLI override) with atomic write.
+    Preserves [Offline.host_ip] reference placeholders in dependent sections."""
     target = CONFIG_PATH
     
     # Fallback to site config if active path isn't writable
@@ -3271,13 +3272,41 @@ def save_config() -> None:
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
         
+        # Store actual values and replace with reference placeholders
+        primary_ip = config.get("Offline", "host_ip", fallback="").strip()
+        original_values = {}
+        
+        if primary_ip:
+            # Temporarily replace IP values with reference placeholders for file save
+            if config.has_option("Network", "host"):
+                original_values[("Network", "host")] = config.get("Network", "host")
+                config["Network"]["host"] = "[Offline.host_ip]"
+            
+            if config.has_option("Fusers", "working_folder_host"):
+                original_values[("Fusers", "working_folder_host")] = config.get("Fusers", "working_folder_host")
+                config["Fusers"]["working_folder_host"] = "[Offline.host_ip]"
+            
+            if config.has_option("Fusers", "shared_working_unc"):
+                unc_value = config.get("Fusers", "shared_working_unc")
+                if primary_ip in unc_value:
+                    original_values[("Fusers", "shared_working_unc")] = unc_value
+                    config["Fusers"]["shared_working_unc"] = unc_value.replace(primary_ip, "[Offline.host_ip]")
+        
         # Atomic write using temp file + rename
         tmp = target + ".tmp"
         with open(tmp, 'w', encoding='utf-8') as f:
             config.write(f)
         os.replace(tmp, target)  # Atomic on both Windows and Unix
         
+        # Restore actual values in memory for runtime use
+        for (section, option), value in original_values.items():
+            config[section][option] = value
+        
     except Exception as e:
+        # Restore values even on error
+        for (section, option), value in original_values.items():
+            config[section][option] = value
+            
         # Final fallback to site config
         if target != SITE_CONFIG_PATH:
             try:
