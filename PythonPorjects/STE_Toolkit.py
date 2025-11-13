@@ -3072,7 +3072,7 @@ def update_vbs4_settings(path: str) -> None:
 # TERRAIN DISTRIBUTION
 def get_distribution_paths() -> list[str]:
     """Return a list of remote VBS4 install paths for terrain distribution."""
-    paths_file = os.path.join(BASE_DIR, 'distribution_paths.json')
+    paths_file = os.path.join(BASE_DIR, 'config', 'distribution_paths.json')
     if not os.path.isfile(paths_file):
         return []
     try:
@@ -3158,9 +3158,9 @@ if _cli_cfg:
 else:
     CONFIG_PATH = SITE_CONFIG_PATH if os.path.exists(SITE_CONFIG_PATH) else DEFAULT_CONFIG_PATH
 
-PATHS_CACHE = os.path.join(BASE_DIR, "paths_cache.json")
-ICON_NAME   = 'icon.ico'
-SPLASH_NAME = 'splash.png'
+PATHS_CACHE = os.path.join(BASE_DIR, "config", "paths_cache.json")
+ICON_NAME   = 'assets/icon.ico'
+SPLASH_NAME = 'assets/splash.png'
 
 config = configparser.ConfigParser()
 # Read bundled defaults then overlay site/explicit if present
@@ -3961,7 +3961,7 @@ def get_auto_launch_cmd() -> tuple[str, list[str]]:
 
 if 'Fusers' not in config:
     config['Fusers'] = {
-        'config_path': 'fuser_config.json',
+        'config_path': 'config/fuser_config.json',
         'local_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe',
         'remote_fuser_exe': r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe',
         'fuser_computer': 'False',
@@ -5492,7 +5492,7 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
 
     save_config()
 
-    config_file = fuser_cfg.get("config_path", "fuser_config.json")
+    config_file = fuser_cfg.get("config_path", "config/fuser_config.json")
     cfg_path = (
         os.path.join(BASE_DIR, config_file)
         if not os.path.isabs(config_file)
@@ -5841,8 +5841,6 @@ def first_run_setup(master=None) -> None:
             log_to_console(f"[first-run] Drive mapping failed: {exc}")
 
     bundle_root = getattr(sys, "_MEIPASS", BASE_DIR)
-    installers_root = os.path.join(bundle_root, "installs")
-    failures = maybe_install_prereqs(installers_root)
 
     try:
         import update_photomesh_config as upc
@@ -5858,15 +5856,6 @@ def first_run_setup(master=None) -> None:
         set_rm_local_root(final_rm_root)
     else:
         log_to_console("[first-run] Reality Mesh install folder not detected; leaving unset.")
-
-    if failures:
-        log_to_console("[first-run] Installer issues: " + "; ".join(failures))
-        if messagebox:
-            safe_messagebox_showwarning(
-                "First-Run Setup",
-                "Some installers reported issues:\n- " + "\n- ".join(failures) +
-                "\n\nYou can retry from the Settings panel.",
-            )
 
     log_to_console("[first-run] First-run setup completed.")
 
@@ -6279,12 +6268,12 @@ def open_bvi_terrain():
 # =============================================================================
 # Paths and helpers for background images and logos.
 
-background_image_path = os.path.join(_BUNDLE_DIR, "20240206_101613_026.jpg")
+background_image_path = os.path.join(_BUNDLE_DIR, "assets", "20240206_101613_026.jpg")
 logo_STE_path         = os.path.join(_BUNDLE_DIR, "logos", "STE_CFT_Logo.png")
 logo_AFC_army         = os.path.join(_BUNDLE_DIR, "logos", "US_Army_AFC_Logo.png")
 logo_first_army       = os.path.join(_BUNDLE_DIR, "logos", "First_Army_Logo.png")
 logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png")
-prompt_box_image_path = os.path.join(_BUNDLE_DIR, "promptbox.jpg")
+prompt_box_image_path = os.path.join(_BUNDLE_DIR, "assets", "promptbox.jpg")
 _cached_bg_photo = None
 _cached_bg_size = (0, 0)
 _PANEL_BG_WIDTH = 1920  # Fixed background width
@@ -9125,7 +9114,7 @@ class VBS4Panel(tk.Frame):
         return simpledialog.askstring("Machine Name", f"Enter machine name for {ip}:", parent=self)
 
     def launch_fusers(self, ip_list):
-        config_file = config['Fusers'].get('config_path', 'fuser_config.json')
+        config_file = config['Fusers'].get('config_path', 'config/fuser_config.json')
         fuser_exe = config['Fusers'].get(
             'local_fuser_exe',
             r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'
@@ -9265,7 +9254,7 @@ class VBS4Panel(tk.Frame):
         self.launch_local_fuser(default_path)
 
     def launch_local_fuser(self, shared_path=None):
-        config_file = config['Fusers'].get('config_path', 'fuser_config.json')
+        config_file = config['Fusers'].get('config_path', 'config/fuser_config.json')
         fuser_exe = config['Fusers'].get(
             'local_fuser_exe',
             r'C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe'

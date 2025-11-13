@@ -36,7 +36,7 @@ regular_launcher_path = normalize_path(config.get('paths', 'regular'))
 
 root = tk.Tk()
 
-ICON_PATH = resolve_asset_path('icon.ico')
+ICON_PATH = resolve_asset_path('assets/icon.ico')
 if ICON_PATH.exists():
     root.iconbitmap(ICON_PATH)
 else:

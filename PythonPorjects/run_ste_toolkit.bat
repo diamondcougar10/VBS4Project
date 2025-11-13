@@ -21,7 +21,7 @@ if "%1"=="minimal" (
     echo Starting with minimal launcher...
     echo.
     call conda activate myenv
-    python minimal_launcher.py
+    python launchers\minimal_launcher.py
     goto :end
 )
 
@@ -90,7 +90,7 @@ if errorlevel 1 (
     echo Troubleshooting suggestions:
     echo 1. Try 'run_ste_toolkit.bat minimal' for minimal resource usage
     echo 2. Try 'run_ste_toolkit.bat safe' for safe mode
-    echo 3. Use 'python minimal_launcher.py' directly
+    echo 3. Use 'python launchers\minimal_launcher.py' directly
     echo 4. Close other applications and try again
     echo 5. Restart your computer if issues persist
     echo.

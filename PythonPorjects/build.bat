@@ -17,7 +17,7 @@ REM --- Configuration ---
 set "APP_NAME=STE_Toolkit"
 set "ENTRY_SCRIPT=STE_Toolkit.py"
 set "SPEC_FILE=STE_Toolkit.spec"
-set "ISS_FILE=STE_Toolkit.iss"
+set "ISS_FILE=setup\STE_Toolkit.iss"
 set "VENV_DIR=.venv"
 set "DIST_DIR=dist"
 set "BUILD_DIR=build"
@@ -27,9 +27,9 @@ REM --- Get version ---
 echo [1/7] Resolving version...
 set "VERSION="
 
-REM Try reading from __version__.py
-if exist "__version__.py" (
-    for /f "usebackq tokens=2 delims='" %%a in (`findstr "__version__" __version__.py`) do (
+REM Try reading from src\__version__.py
+if exist "src\__version__.py" (
+    for /f "usebackq tokens=2 delims='" %%a in (`findstr "__version__" src\__version__.py`) do (
         set "VERSION=%%a"
     )
 )

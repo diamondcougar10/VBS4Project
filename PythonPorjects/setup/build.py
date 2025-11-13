@@ -24,7 +24,7 @@ from pathlib import Path
 APP_NAME = "STE_Toolkit"
 ENTRY_SCRIPT = "STE_Toolkit.py"
 SPEC_FILE = "STE_Toolkit.spec"
-ISS_FILE = "STE_Toolkit.iss"
+ISS_FILE = "setup/STE_Toolkit.iss"
 VENV_DIR = ".venv"
 DIST_DIR = "dist"
 BUILD_DIR = "build"
@@ -60,17 +60,17 @@ def run_command(cmd, cwd=None, check=True):
         raise
 
 def get_version():
-    """Get version from __version__.py, git, or default to 0.0.0."""
+    """Get version from src/__version__.py, git, or default to 0.0.0."""
     version = None
     
-    # Try __version__.py
-    version_file = Path("__version__.py")
+    # Try src/__version__.py
+    version_file = Path("src/__version__.py")
     if version_file.exists():
         content = version_file.read_text()
         match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
         if match:
             version = match.group(1)
-            print(f"  Found in __version__.py: {version}")
+            print(f"  Found in src/__version__.py: {version}")
             return version
     
     # Try git describe

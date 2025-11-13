@@ -24,7 +24,7 @@
             "type": "shell",
             "command": "py",
             "args": [
-                "${workspaceFolder}\\build.py"
+                "${workspaceFolder}\\setup\\build.py"
             ],
             "group": "build",
             "presentation": {

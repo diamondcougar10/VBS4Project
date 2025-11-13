@@ -18,17 +18,13 @@ DisableProgramGroupPage=yes
 Compression=lzma
 SolidCompression=yes
 OutputBaseFilename=STE_Toolkit_Setup
-SetupIconFile=icon.ico
+SetupIconFile=assets\icon.ico
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
 
 [Files]
 ; 1) Toolkit (PyInstaller dist)
 Source: "dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
-
-; 2) Third-party installers (always staged; runtime decides to run or skip)
-Source: "installs\Photomesh\*";  DestDir: "{tmp}\PhotomeshInstalls";  Flags: recursesubdirs createallsubdirs
-Source: "installs\RealityMesh\*"; DestDir: "{tmp}\RealityMeshInstalls"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
@@ -867,16 +863,7 @@ begin
         LogInstallEvent('PhotoMesh needed: ' + IfThen(NeedPhotoMesh, 'Yes', 'No'));
         LogInstallEvent('RealityMesh needed: ' + IfThen(NeedRealityMesh, 'Yes', 'No'));
 
-        if NeedPhotoMesh then
-          RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '')
-        else
-          Log('PhotoMesh Wizard present; skipping Photomesh installers.');
-
-        if NeedRealityMesh then
-          RunAllInstallers(ExpandConstant('{tmp}\RealityMeshInstalls'),
-                           AddBackslash(Base) + 'RealityMeshInstall')
-        else
-          Log('Reality Mesh found under share; skipping RealityMesh installers.');
+        Log('PhotoMesh and RealityMesh installers no longer bundled - manual installation required.');
 
         Ip := GetPrimaryIPv4();
         LogInstallEvent('Detected IP: ' + Ip);
@@ -909,16 +896,11 @@ begin
         SeedConfigIni_User(AppDir, DscIP, DscName);
         LogInstallEvent('User mode configuration completed');
 
-        { NEW: ensure fuser runtime exists on user PCs }
+        { PhotoMesh Fuser check - installers no longer bundled }
         if not HasPhotoMeshFuser() then
-        begin
-          LogInstallEvent('PhotoMesh Fuser missing -> running Photomesh installers in User mode');
-          RunAllInstallers(ExpandConstant('{tmp}\PhotomeshInstalls'), '');
-        end
+          LogInstallEvent('PhotoMesh Fuser missing - manual installation required')
         else
-        begin
-          LogInstallEvent('PhotoMesh Fuser found - skipping installer');
-        end;
+          LogInstallEvent('PhotoMesh Fuser found');
 
         // If we discovered a host, establish NON-PERSISTENT session to avoid token conflicts
         // This prevents ERROR 1219 when the app (user token) tries to connect later
