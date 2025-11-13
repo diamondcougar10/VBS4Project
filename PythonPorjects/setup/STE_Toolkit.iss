@@ -18,6 +18,7 @@ DefaultGroupName=STE Toolkit
 DisableProgramGroupPage=yes
 Compression=lzma
 SolidCompression=yes
+OutputDir=..\BUILDS
 OutputBaseFilename=STE_Toolkit_Setup
 SetupIconFile=..\assets\icon.ico
 PrivilegesRequired=admin
