@@ -8084,20 +8084,19 @@ class MainApp(tk.Tk):
         self._reset_viewport_scroll()
         logging.info(f"[ui-diag] show(): viewport scroll reset")
         
-        # Immediate layout update for faster visual response
-        logging.info(f"[ui-diag] show(): about to call update_idletasks()")
+        # Update visual state of navigation buttons immediately (critical for feedback)
+        self.update_nav_button_appearance()
+        
+        # Single update_idletasks to process pending geometry changes
         self.update_idletasks()
         logging.info(f"[ui-diag] show(): update_idletasks() complete")
         
-        # Resize canvas immediately for instant feedback
-        self._resize_canvas_to_panel(panel)
-        logging.info(f"[ui-diag] show(): canvas resized")
+        # Defer canvas resize to avoid blocking
+        self.after_idle(lambda: self._resize_canvas_to_panel(panel))
+        logging.info(f"[ui-diag] show(): canvas resize deferred")
         
-        # Update navigation state immediately
-        self.update_navigation()
-        
-        # Update visual state of navigation buttons
-        self.update_nav_button_appearance()
+        # Update navigation state after visual feedback
+        self.after_idle(self.update_navigation)
         
         # Panel-specific updates - defer heavy operations to avoid blocking UI
         if name == "VBS4":
@@ -8107,25 +8106,19 @@ class MainApp(tk.Tk):
         elif name == "BVI":
             self.after_idle(lambda: self._update_bvi_panel(panel))
         
-        # Defer scrollability checks to avoid blocking initial display
-        self.after_idle(self._update_scrollability)
-        self.after(50, self._update_scrollability)  # Reduced from 100, 300
+        # Defer scrollability checks to avoid blocking initial display (reduced frequency)
+        self.after(100, self._update_scrollability)  # Single check after panel settles
         
         # Restore safe scaling: defer recompute slightly so initial display isn't blocked
         try:
-            self.after_idle(self._recompute_scale)
-            self.after(20, self._recompute_scale)
+            self.after(50, self._recompute_scale)
         except Exception:
             pass
 
     def _resize_canvas_to_panel(self, panel):
         """Force scrollregion to the visible panel's requested size (frame-only)."""
         try:
-            # Make sure the panel has had a chance to compute its full size
-            panel.update_idletasks()
-            self.viewport_canvas.update_idletasks()
-            
-            # Try to get bbox from the frame window
+            # Try to get bbox from the frame window (no redundant update_idletasks)
             bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
             
             # If we can't get a bbox, fall back to panel's requested dimensions
@@ -8138,9 +8131,6 @@ class MainApp(tk.Tk):
             # Add a small buffer to height to ensure the last elements are fully visible
             x1, y1, x2, y2 = bbox
             self.viewport_canvas.configure(scrollregion=(x1, y1, x2, y2 + 20))
-            
-            # Force update scrollability state
-            self.after(50, self._update_scrollability)
         except Exception as e:
             pass
 
@@ -8178,8 +8168,12 @@ class MainApp(tk.Tk):
     def _update_oneclick_panel(self, panel):
         """Update OneClick panel state (deferred to avoid blocking UI)."""
         try:
+            # Immediate button state update (visual feedback)
             panel.update_fuser_state()
-            panel.refresh_rm_status()
+            
+            # Defer RM status check to avoid blocking
+            self.after(50, panel.refresh_rm_status)
+            
             # Start host status updates after panel is visible (prevents black screen flash)
             if hasattr(panel, 'start_host_status_updates'):
                 panel.start_host_status_updates()
@@ -9988,7 +9982,8 @@ class OneClickPanel(tk.Frame):
                 "Reduce Fusers/desired_count to 1 or 0 to enable One-Click."
             )
             self.log_message(tip)
-        enforce_local_fuser_policy()
+        # Defer fuser policy enforcement to avoid blocking UI
+        self.after(100, lambda: run_in_thread(enforce_local_fuser_policy))
 
     def force_update_host_status(self):
         """Force an immediate update of the Host status box (called when fusers change)."""
