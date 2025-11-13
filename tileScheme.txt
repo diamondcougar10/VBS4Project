@@ -1,1 +1,0 @@
-set tileScheme "/Tile_%d_%d_L%d" 
