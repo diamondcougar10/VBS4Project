@@ -3831,10 +3831,11 @@ def apply_offline_settings_with_skip_guard() -> None:
         # Clear the flag so next launch will try
         config['General']['skip_startup_connect'] = 'False'
         save_config()
-        enforce_photomesh_settings()
-        update_fuser_shared_path()
-        _assert_shared_path_is_unc()  # Self-heal check 
-        enforce_local_fuser_policy()
+        # Defer heavy operations to background threads to avoid blocking UI
+        threading.Thread(target=enforce_photomesh_settings, daemon=True).start()
+        threading.Thread(target=update_fuser_shared_path, daemon=True).start()
+        threading.Thread(target=_assert_shared_path_is_unc, daemon=True).start()
+        threading.Thread(target=enforce_local_fuser_policy, daemon=True).start()
         
         # Schedule network connection check for after UI is loaded
         global APP_INSTANCE
@@ -4538,12 +4539,16 @@ def _resolve_fuser_workdir(idx: int) -> str:
     r"""
     Resolve the per-instance working directory for a fuser.
     
-    Naming scheme (restored): <MACHINE>-<idx>(<IPv4>)_LocalFuser<idx>
-    Examples:
-      - Host local:  E:\SharedMeshDrive\WorkingFuser\KIT1-1-1(192.168.10.10)_LocalFuser1
-      - User UNC:    \\192.168.10.201\SharedMeshDrive\WorkingFuser\KIT2-3-1(192.168.10.22)_LocalFuser1
+    Returns the WorkingFuser root directory. PhotoMesh Fuser will create its own
+    numbered subdirectories directly under this root (e.g., 1, 2, 3).
     
-    Creates the directory if it doesn't exist.
+    Examples:
+      - Host local:  E:\SharedMeshDrive\WorkingFuser
+      - User UNC:    \\192.168.10.201\SharedMeshDrive\WorkingFuser
+    
+    PhotoMesh will create: 1\, 2\, 3\ directly under WorkingFuser.
+    
+    Creates the base directory if it doesn't exist.
     """
     if is_host_machine():
         # Host: Use local path to avoid UNC loopback
@@ -4555,22 +4560,10 @@ def _resolve_fuser_workdir(idx: int) -> str:
         # User: Use UNC path
         base_path = working_fuser_unc()
 
-    # Build the folder name with PC name and IP prefix for uniqueness across machines
-    try:
-        pc = get_machine_name()
-    except Exception:
-        pc = os.environ.get('COMPUTERNAME', 'PC').upper()
-    try:
-        ip = get_primary_ipv4() or "0.0.0.0"
-    except Exception:
-        ip = "0.0.0.0"
-
-    # IMPORTANT: Do NOT include the index in the machine prefix, so host UI groups by PC correctly
-    folder_name = f"{pc}({ip})_LocalFuser{idx}"
-    workdir = os.path.join(base_path, folder_name)
-    os.makedirs(workdir, exist_ok=True)
-    normalized = os.path.normpath(workdir).replace("/", "\\")
-    logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized}")
+    # Simply return the WorkingFuser root - PhotoMesh creates numbered folders
+    os.makedirs(base_path, exist_ok=True)
+    normalized = os.path.normpath(base_path).replace("/", "\\")
+    logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized} (PhotoMesh will create {idx}\ subdirectory)")
     return normalized
 
 
@@ -7173,10 +7166,7 @@ class MainApp(tk.Tk):
         """Build the header bar with logos and title. Safe to call multiple times."""
         # If we somehow already have a header, don't build another.
         if getattr(self, "header_bar", None) and self.header_bar.winfo_exists():
-            logging.info("[ui-diag] header already exists; skipping")
             return
-
-        logging.info("[ui-diag] Building header once")
         self.header_bar = tk.Frame(self, bg="black", height=120)
 
         # Prefer to place the header above main content; fall back only if needed.
@@ -7240,12 +7230,6 @@ class MainApp(tk.Tk):
             logging.info("[startup] UI already initialized, skipping")
             return
         
-        try:
-            logging.info("[startup] Starting UI initialization")
-            logging.info("[ui-diag] About to create close button")
-        except:
-            pass
-            
         # Create the main UI layout
         nav_labels = {
             'Main': 'Home',
@@ -7262,47 +7246,21 @@ class MainApp(tk.Tk):
                               font=("Helvetica",12,"bold"),
                               bg="red", fg="white", bd=0,
                               command=self.destroy)
-        logging.info("[ui-diag] Close button created")
         close_btn.place(relx=1.0, x=-40, y=5, width=30, height=30)
-        logging.info("[ui-diag] Close button placed")
         self.configure(bg="black")
-        logging.info("[ui-diag] Background configured")
         self.content = tk.Frame(self, bg="black", bd=0, highlightthickness=0)
-        logging.info("[ui-diag] Content frame created")
         self.content.pack(expand=True, fill="both")
-        logging.info("[ui-diag] Content frame packed")
         nav = tk.Frame(self.content, bg='#333333')
-        logging.info("[ui-diag] Nav frame created")
         nav.pack(side='left', fill='y')
-        logging.info("[ui-diag] Nav frame packed")
         self._init_scrollable_viewport()
-        logging.info("[ui-diag] Scrollable viewport initialized")
-        logging.info("[ui-diag] About to create panels (this may take time)...")
-        logging.info("[ui-diag] Creating MainMenu panel...")
         main_panel = MainMenu(self.panels_container, self)
-        logging.info("[ui-diag] MainMenu panel created")
-        logging.info("[ui-diag] Creating VBS4Panel...")
         vbs4_panel = VBS4Panel(self.panels_container, self)
-        logging.info("[ui-diag] VBS4Panel created")
-        logging.info("[ui-diag] Creating OneClickPanel...")
         oneclick_panel = OneClickPanel(self.panels_container, self)
-        logging.info("[ui-diag] OneClickPanel created")
-        logging.info("[ui-diag] Creating BVIPanel...")
         bvi_panel = BVIPanel(self.panels_container, self)
-        logging.info("[ui-diag] BVIPanel created")
-        logging.info("[ui-diag] Creating SettingsPanel...")
         settings_panel = SettingsPanel(self.panels_container, self)
-        logging.info("[ui-diag] SettingsPanel created")
-        logging.info("[ui-diag] Creating TutorialsPanel...")
         tutorials_panel = TutorialsPanel(self.panels_container, self)
-        logging.info("[ui-diag] TutorialsPanel created")
-        logging.info("[ui-diag] Creating CreditsPanel...")
         credits_panel = CreditsPanel(self.panels_container, self)
-        logging.info("[ui-diag] CreditsPanel created")
-        logging.info("[ui-diag] Creating ContactSupportPanel...")
         contact_panel = ContactSupportPanel(self.panels_container, self)
-        logging.info("[ui-diag] ContactSupportPanel created")
-        logging.info("[ui-diag] All panels created successfully, assembling dictionary...")
         self.panels = {
             'Main':      main_panel,
             'VBS4':      vbs4_panel,
@@ -7313,20 +7271,15 @@ class MainApp(tk.Tk):
             'Credits':   credits_panel,
             'Contact Us': contact_panel,
         }
-        logging.info("[ui-diag] Panels dictionary assembled")
-
-        logging.info("[ui-diag] About to call enforce_photomesh_settings()")
+        # Defer photomesh settings to background thread to avoid blocking UI
         try:
             log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
-            enforce_photomesh_settings(log=log_fn)
+            threading.Thread(target=lambda: enforce_photomesh_settings(log=log_fn), daemon=True).start()
         except Exception as exc:
             logging.warning(f"[ui-diag] enforce_photomesh_settings() failed: {exc}")
             pass
-        logging.info("[ui-diag] enforce_photomesh_settings() complete")
-        logging.info("[ui-diag] About to pack_forget all panels")
         for panel in self.panels.values():
             panel.pack_forget()
-        logging.info("[ui-diag] All panels pack_forget() complete")
 
         # Build the nav buttons
         nav_tip = Tooltip(nav)
@@ -7391,21 +7344,15 @@ class MainApp(tk.Tk):
                  bg="#333333", fg="white",
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
-        logging.info("[ui-diag] Skipping enforce_local_fuser_policy() during UI init (will auto-start at 3s mark)")
-
-        logging.info("[ui-diag] About to call apply_offline_settings()")
         try:
             apply_offline_settings()
         except Exception as exc:
             logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
             pass
-        logging.info("[ui-diag] apply_offline_settings() complete")
 
         # Start by showing "Main"
-        logging.info("[ui-diag] About to show Main panel")
         self.current = None
         self.show('Main')
-        logging.info("[ui-diag] Main panel shown")
 
         # --- Keyboard navigation setup ---
         self.focus_index = 0
@@ -7418,7 +7365,6 @@ class MainApp(tk.Tk):
         
         # Mark UI as initialized
         self._ui_initialized = True
-        logging.info("[ui-diag] UI initialization complete, flag set to True")
 
     # ---- Foreground handoff + foreground launch helpers (Windows-safe) ----
     def _handoff_foreground(self):
@@ -7662,17 +7608,12 @@ class MainApp(tk.Tk):
                 
         # Now that the splash is closed, show the main window with fade-in to prevent UI flash
         try:
-            logging.info("[startup] About to set alpha=0.0")
             self.attributes('-alpha', 0.0)  # Start invisible
-            logging.info("[startup] About to deiconify()")
             self.deiconify()
-            logging.info("[startup] Deiconify() completed, calling update_idletasks()")
             self.update_idletasks()  # Let everything layout once
-            logging.info("[startup] update_idletasks() completed, scheduling fade-in")
             self.after(50, lambda: self.attributes('-alpha', 1.0))  # Fade in after 50ms
             # Failsafe: ensure window is fully visible after 200ms
             self.after(200, lambda: self.attributes('-alpha', 1.0))
-            logging.info("[startup] Main window deiconified and fade-in scheduled")
 
             # If a post-UI autostart scheduler was registered, trigger it now
             try:
@@ -8043,8 +7984,6 @@ class MainApp(tk.Tk):
 
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
-        logging.info(f"[ui-diag] show() called for panel: {name}")
-        
         # Stop OneClick status updates if we're leaving that panel
         if hasattr(self, 'current') and self.current == 'OneClick':
             oneclick = self.panels.get('OneClick')
@@ -8052,13 +7991,11 @@ class MainApp(tk.Tk):
                 oneclick.stop_host_status_updates()
         
         panel = self.panels[name]
-        logging.info(f"[ui-diag] show(): got panel object")
         try:
             subtitle = self._panel_subtitles.get(name, name)
             self.header_subtitle.config(text=subtitle)
         except Exception:
             pass
-        logging.info(f"[ui-diag] show(): subtitle set")
         self._scroll_active = False
         if hasattr(self, '_scroll_timer') and self._scroll_timer:
             self.after_cancel(self._scroll_timer)
@@ -8077,23 +8014,18 @@ class MainApp(tk.Tk):
             panel.pack_propagate(False if force_full_height else True)
         except Exception:
             pass
-        logging.info(f"[ui-diag] show(): about to pack panel")
         panel.pack(fill='both', expand=True)
-        logging.info(f"[ui-diag] show(): panel packed")
         self.current = name
         self._reset_viewport_scroll()
-        logging.info(f"[ui-diag] show(): viewport scroll reset")
         
         # Update visual state of navigation buttons immediately (critical for feedback)
         self.update_nav_button_appearance()
         
         # Single update_idletasks to process pending geometry changes
         self.update_idletasks()
-        logging.info(f"[ui-diag] show(): update_idletasks() complete")
         
         # Defer canvas resize to avoid blocking
         self.after_idle(lambda: self._resize_canvas_to_panel(panel))
-        logging.info(f"[ui-diag] show(): canvas resize deferred")
         
         # Update navigation state after visual feedback
         self.after_idle(self.update_navigation)
@@ -11582,24 +11514,17 @@ class SettingsPanel(tk.Frame):
 
         # Spacer so the last row can scroll above the bottom edge
         tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
-        logging.info("[ui-diag] SettingsPanel: spacer added")
 
         # Force update of layout and scroll region to ensure all items are visible
-        logging.info("[ui-diag] SettingsPanel: about to call _settings_inner.update_idletasks()")
         self._settings_inner.update_idletasks()
-        logging.info("[ui-diag] SettingsPanel: _settings_inner.update_idletasks() complete")
-        logging.info("[ui-diag] SettingsPanel: about to call _settings_canvas.update_idletasks()")
         self._settings_canvas.update_idletasks()
-        logging.info("[ui-diag] SettingsPanel: _settings_canvas.update_idletasks() complete")
         self._settings_canvas.yview_moveto(0)
-        logging.info("[ui-diag] SettingsPanel: yview_moveto complete")
         
         # Manually update scroll region to ensure all content is accessible
         bbox = self._settings_canvas.bbox("all")
         if bbox:
             x0, y0, x1, y1 = bbox
             self._settings_canvas.configure(scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD))
-        logging.info("[ui-diag] SettingsPanel: scroll region configured")
 
         # Back button and tutorial
         tk.Button(

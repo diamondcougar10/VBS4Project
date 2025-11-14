@@ -673,23 +673,22 @@ def ensure_localfuser_dirs_on_unc(cfg: dict, desired_count: int) -> list[Path]:
     if not unc_reachable_quick(working_unc):
         raise RuntimeError(f"WorkingFuser UNC not reachable: {working_unc}")
 
-    client = socket.gethostname()
-    try:
-        client_ip = socket.gethostbyname(socket.gethostname())
-    except Exception:
-        client_ip = "0.0.0.0"
-
-    # Create fuser folders under the UNC
+    # Simply ensure the WorkingFuser root exists - PhotoMesh creates numbered subdirectories
+    # PhotoMesh Fuser creates: 1\, 2\, 3\ directly under WorkingFuser
     localfuser_paths: list[Path] = []
+    
+    base_path = Path(working_unc)
+    
+    # Create via PowerShell to avoid long hangs on Python IO errors
+    subprocess.run(['powershell', '-NoProfile', '-Command',
+                    f"New-Item -ItemType Directory -Path '{base_path}' -Force | Out-Null"],
+                   timeout=3, capture_output=True, creationflags=NO_WINDOW_FLAG)
+    
+    # Return the expected paths that PhotoMesh will create (simple numbered folders)
     for idx in range(1, max(1, desired_count) + 1):
-        # IMPORTANT: Keep the machine prefix stable (no -idx) so UI groups by PC
-        folder_name = f"{client}({client_ip})_LocalFuser{idx}"
-        p = Path(working_unc) / folder_name
-        # Create via PowerShell to avoid long hangs on Python IO errors
-        subprocess.run(['powershell', '-NoProfile', '-Command',
-                        f"New-Item -ItemType Directory -Path '{p}' -Force | Out-Null"],
-                       timeout=3, capture_output=True, creationflags=NO_WINDOW_FLAG)
-        localfuser_paths.append(p)
+        instance_path = base_path / str(idx)
+        localfuser_paths.append(instance_path)
+    
     return localfuser_paths
 
 def migrate_local_localfuser_to_unc_if_needed(cfg: dict) -> None:
