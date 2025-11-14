@@ -2036,12 +2036,12 @@ def cleanup_stale_presence() -> None:
             pass
 
 def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
-    """Return list of active PCs by scanning fuser folders created by Fuser.exe.
+    """Return list of active PCs by scanning SeedFuser folders in WorkingFuser root.
     
-    PhotoMesh Fuser.exe creates folders directly in WorkingFuser root with naming pattern:
-    <PCNAME>(<IP>)_<FuserName> (e.g., HAMMERKIT1-4(192.168.10.243)_SeedFuser)
+    Each PC creates exactly one SeedFuser folder with pattern:
+    <PCNAME>(<IP>)_SeedFuser (e.g., HAMMERKIT1-2(192.168.10.115)_SeedFuser)
     
-    We scan the WorkingFuser root directory for these folders and extract unique PC names.
+    We scan ONLY these SeedFuser folders to detect unique connected PCs.
     """
     # Get WorkingFuser root
     try:
@@ -2072,64 +2072,47 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
             logging.debug(f"[presence] scan: local path doesn't exist: {root}")
             return []
     
-    # Scan for fuser folders created by Fuser.exe in the WorkingFuser root
-    # Pattern: PCNAME(IP)_FuserName or KeepAlive_PCNAME(IP)_FuserName
+    # Scan ONLY for SeedFuser folders - one per PC
     out = []
-    pc_fusers = {}  # Track fusers per PC: {pc_name: count}
+    pc_map = {}  # Deduplicate by PC name: {pc_name: {"pc", "ip", "fusers"}}
     
     try:
         for item in os.listdir(root):
             item_path = os.path.join(root, item)
             
-            # Check both folders (KeepAlive heartbeats)
-            if os.path.isdir(item_path) or item.endswith('.json'):
-                if item == '_clients' or item == HEARTBEAT_DIR_NAME:
-                    continue
+            # Only look at directories
+            if not os.path.isdir(item_path):
+                continue
                 
-                # Skip SeedFuser directories - they are not real fusers
-                if 'SeedFuser' in item or 'seedfuser' in item.lower():
-                    logging.debug(f"[presence] scan: skipping SeedFuser: {item}")
-                    continue
+            # Skip special folders
+            if item in ('_clients', HEARTBEAT_DIR_NAME, '.probe', '_probe'):
+                continue
+            
+            # ONLY detect PCs from SeedFuser folders (pattern: PCNAME(IP)_SeedFuser)
+            if not item.endswith('_SeedFuser'):
+                continue
+            
+            # Extract PC name and IP from SeedFuser folder name
+            # Pattern: PCNAME(IP)_SeedFuser
+            if '(' in item and ')' in item:
+                # Remove _SeedFuser suffix
+                name_part = item.replace('_SeedFuser', '')
                 
-                # Extract PC name and IP from folder/file name
-                # Patterns: 
-                #   PCNAME(IP)_FuserName
-                #   KeepAlive_PCNAME(IP)_FuserName.json
-                #   PCNAME(IP).json
-                name = item.replace('KeepAlive_', '').replace('.json', '')
+                # Extract PC name (before parenthesis) and IP (inside parentheses)
+                pc_name = name_part.split('(')[0]
+                ip_part = name_part.split('(')[1].split(')')[0]
                 
-                # Extract PC name (everything before the first parenthesis)
-                if '(' in name and ')' in name:
-                    pc_name = name.split('(')[0]
-                    # Extract IP
-                    ip_part = name.split('(')[1].split(')')[0]
-                    
-                    # Only count LocalFuser1, LocalFuser2, LocalFuser3 folders
-                    # Skip if fuser name doesn't match LocalFuserN pattern
-                    if '_' in name:
-                        fuser_name = name.split('_', 1)[1] if '_' in name else ''
-                        # Only count LocalFuser with numbers 1-3
-                        if fuser_name.startswith('LocalFuser'):
-                            try:
-                                fuser_num = int(fuser_name.replace('LocalFuser', ''))
-                                if fuser_num < 1 or fuser_num > 3:
-                                    logging.debug(f"[presence] scan: skipping invalid fuser number: {item}")
-                                    continue
-                            except ValueError:
-                                logging.debug(f"[presence] scan: skipping non-numeric fuser: {item}")
-                                continue
-                        else:
-                            logging.debug(f"[presence] scan: skipping non-LocalFuser: {item}")
-                            continue
-                    
-                    if pc_name not in pc_fusers:
-                        pc_fusers[pc_name] = {"pc": pc_name, "ip": ip_part, "fusers": 0}
-                    pc_fusers[pc_name]["fusers"] += 1
-                    
-                    logging.debug(f"[presence] scan: found valid fuser from {pc_name} ({ip_part}): {item}")
+                # Add to map (deduplicate by PC name)
+                if pc_name not in pc_map:
+                    pc_map[pc_name] = {
+                        "pc": pc_name,
+                        "ip": ip_part,
+                        "fusers": 1  # SeedFuser indicates PC is connected
+                    }
+                    logging.debug(f"[presence] scan: found PC from SeedFuser: {pc_name} ({ip_part})")
         
-        out = list(pc_fusers.values())
-        logging.debug(f"[presence] scan: found {len(out)} unique PCs with {sum(pc['fusers'] for pc in out)} total valid fusers")
+        out = list(pc_map.values())
+        logging.debug(f"[presence] scan: found {len(out)} unique PCs via SeedFuser folders")
         
     except Exception as e:
         logging.warning(f"[presence] scan: error scanning directory {root}: {e}")

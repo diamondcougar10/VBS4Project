@@ -819,7 +819,15 @@ begin
   begin
     Src := AddBackslash(AppDir) + '_internal\config.ini';
     if FileExists(Src) then
-      FileCopy(Src, Dst, False)   // create site-level from bundled default
+    begin
+      FileCopy(Src, Dst, False);  // create site-level from bundled default
+      // Remove the bundled internal copy to avoid duplicate config.ini files post-install
+      try
+        DeleteFile(Src);
+      except
+        // Non-fatal if delete fails (e.g., locked); duplication warning will be logged later if needed
+      end;
+    end
     else
       SaveStringToFile(Dst, '; created by installer' + #13#10, False);
   end;

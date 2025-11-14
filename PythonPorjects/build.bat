@@ -21,7 +21,7 @@ set "ISS_FILE=setup\STE_Toolkit.iss"
 set "VENV_DIR=.venv"
 set "DIST_DIR=dist"
 set "BUILD_DIR=build"
-set "RELEASES_DIR=releases"
+set "RELEASES_DIR=BUILDS"
 
 REM --- Get version ---
 echo [1/7] Resolving version...
