@@ -12413,7 +12413,7 @@ class SettingsPanel(tk.Frame):
                     f"1. Temporarily disable Wi-Fi adapter: {adapter_name}\n"
                     f"2. Restart all local fusers\n"
                     f"3. Re-enable Wi-Fi\n\n"
-                    f"NOTE: LAN will be disconnected during this process.\n\n"
+                    f"NOTE: Wi-Fi will be disconnected during this process.\n\n"
                     f"Continue?"
                 )
                 
@@ -12993,19 +12993,38 @@ class SettingsPanel(tk.Frame):
                     logging.info(f"[deep-cleanup] Retaining hostname credentials for {hostname}")
             except Exception as e:
                 logging.debug(f"[deep-cleanup] Credential retention note failed: {e}")
-            # 3. Recreate share (safety)
+            # 3. Clear WorkingFuser folder contents (fusers reconnect with new IP)
+            try:
+                local_root = (o.get("local_data_root") or "").strip()
+                if local_root and wf_sub:
+                    working_path = os.path.join(local_root, wf_sub)
+                    if os.path.isdir(working_path):
+                        import shutil
+                        for item in os.listdir(working_path):
+                            item_path = os.path.join(working_path, item)
+                            try:
+                                if os.path.isfile(item_path) or os.path.islink(item_path):
+                                    os.unlink(item_path)
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                            except Exception as e:
+                                logging.debug(f"[deep-cleanup] Failed to delete {item_path}: {e}")
+                        logging.info(f"[deep-cleanup] Cleared WorkingFuser contents at {working_path}")
+            except Exception as e:
+                logging.warning(f"[deep-cleanup] WorkingFuser cleanup failed: {e}")
+            # 4. Recreate share (safety)
             try:
                 remove_and_recreate_share(share_name)
             except Exception as e:
                 logging.warning(f"[deep-cleanup] Share recreation error: {e}")
-            # 4. Store new credentials
+            # 5. Store new credentials
             try:
                 if username and password:
                     _store_creds_in_cmdkey(new_ip, username, password)
                     logging.info(f"[deep-cleanup] Stored credentials for {username}@{new_ip}")
             except Exception as e:
                 logging.warning(f"[deep-cleanup] Credential store failed: {e}")
-            # 5. Probe UNC root & working folder
+            # 6. Probe UNC root & working folder
             try:
                 if unc_root:
                     ensure_smb_session_cached(unc_root)
