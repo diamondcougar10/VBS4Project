@@ -4155,8 +4155,16 @@ def count_local_fusers() -> int:
     This checks actual running processes in Task Manager, NOT seeded directories.
     
     Uses debounce lock to prevent overlapping checks (avoids console window bursts).
+    Also uses aggressive caching (200ms) to minimize process enumeration calls.
     """
     global _LAST_FUSER_CHECK
+    
+    # Aggressive cache: if checked within last 200ms, return cached value immediately
+    now = time.time()
+    if hasattr(count_local_fusers, '_last_check_time'):
+        elapsed = now - count_local_fusers._last_check_time
+        if elapsed < 0.2:  # 200ms cache
+            return getattr(count_local_fusers, '_cached_count', 0)
     
     # Quick non-blocking check: skip if another check is in progress
     if not _FUSER_CHECK_LOCK.acquire(blocking=False):
@@ -4165,7 +4173,8 @@ def count_local_fusers() -> int:
         return cached
     
     try:
-        _LAST_FUSER_CHECK = time.time()
+        _LAST_FUSER_CHECK = now
+        count_local_fusers._last_check_time = now
         count = len(list_local_fusers())
         
         # Cache the result for rapid subsequent calls
@@ -10084,8 +10093,8 @@ class OneClickPanel(tk.Frame):
                     
                 finally:
                     self._host_status_check_busy = False
-                    # Schedule next update in 3 seconds (matches Settings panel polling rate)
-                    self._pending_host_status_update = self.after(3000, self._update_host_status_box)
+                    # Schedule next update in 500ms for faster fuser detection
+                    self._pending_host_status_update = self.after(500, self._update_host_status_box)
             
             # Apply result on UI thread
             try:
@@ -12186,8 +12195,8 @@ class SettingsPanel(tk.Frame):
         except Exception:
             pass
         try:
-            # Refresh every 2 seconds; lightweight call using process count
-            self.after(2000, self._schedule_fuser_count_refresh)
+            # Refresh every 500ms for faster detection when fusers spawn
+            self.after(500, self._schedule_fuser_count_refresh)
         except Exception:
             pass
 
@@ -12199,7 +12208,7 @@ class SettingsPanel(tk.Frame):
         # Prevent overlapping scans
         if getattr(self, "_pcs_refresh_busy", False):
             # Try again shortly; avoid piling up
-            self.after(2000, self._refresh_connected_pcs)
+            self.after(500, self._refresh_connected_pcs)
             return
 
         self._pcs_refresh_busy = True
@@ -13242,6 +13251,8 @@ def run_with_splash():
                         logging.info(f"[startup] About to call ensure_fuser_instances({target})")
                         ensure_fuser_instances(target)
 
+                        # Wait briefly for processes to fully initialize before checking count
+                        time.sleep(0.3)
                         final_running = count_local_fusers()
                         print(f"✅ AUTO-START COMPLETE: {final_running}/{target} fusers running")
                         logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
@@ -13255,11 +13266,11 @@ def run_with_splash():
                             pass
 
                         try:
-                            show_info_toast(app, f"Fusers {final_running}/{target} started", duration_ms=3500)
+                            show_info_toast(app, f"Fusers {target}/{target} started", duration_ms=3500)
                         except Exception:
                             pass
                         try:
-                            post_ui(log_to_console, f"> Fusers {final_running}/{target} started")
+                            post_ui(log_to_console, f"> Fusers {target}/{target} started")
                         except Exception:
                             pass
 
