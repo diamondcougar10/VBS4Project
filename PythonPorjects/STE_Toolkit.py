@@ -1864,20 +1864,50 @@ def connect_working_share_interactive(parent=None, silent=True):
         logging.warning("[connect] No UNC root configured")
         return False
 
-    # Already accessible?
+    logging.debug(f"[connect] Starting connection sequence: unc_root={unc_root} working_unc={working_unc}")
+
+    # Already accessible via UNC?
     if quick_unc_check(working_unc, timeout=2):
-        logging.info(f"[connect] Already accessible: {working_unc}")
+        logging.info(f"[connect] Already accessible (UNC): {working_unc}")
         return True
+
+    # Host loopback fallback: if this machine owns the share, access locally
+    # to avoid SMB self-connection timing issues during interface/IP changes.
+    try:
+        if is_this_pc_the_real_host():
+            local_working = unc_to_local_if_host(working_unc)
+            if local_working != working_unc and os.path.exists(local_working):
+                logging.info(f"[connect] Host fallback using local path: {local_working}")
+                return True
+    except Exception as e:
+        logging.debug(f"[connect] Host fallback check failed: {e}")
 
     # Use the new cached session manager
     logging.info(f"[connect] Attempting to establish session for {unc_root}")
     if ensure_smb_session_cached(unc_root):
-        # Verify the working folder is accessible
+        # Verify the working folder; if missing attempt creation or accept root
         if quick_unc_check(working_unc, timeout=2):
             logging.info(f"[connect] Successfully connected to {working_unc}")
             return True
         else:
-            logging.warning(f"[connect] Session established but {working_unc} not accessible")
+            # Check if root share is at least accessible
+            if quick_unc_check(unc_root, timeout=2):
+                logging.warning(f"[connect] Working subfolder missing/inaccessible: {working_unc}; root reachable. Attempting creation.")
+                try:
+                    # Attempt to create the working folder (host or permissioned client)
+                    if not os.path.exists(working_unc):
+                        os.makedirs(working_unc, exist_ok=True)
+                    # Recheck after creation
+                    if quick_unc_check(working_unc, timeout=2):
+                        logging.info(f"[connect] Created missing working folder: {working_unc}")
+                        return True
+                    else:
+                        logging.debug(f"[connect] Creation did not make folder accessible; treating root as degraded success")
+                        return True  # Degraded success so app can proceed
+                except Exception as e:
+                    logging.debug(f"[connect] Could not create working folder: {e}; treating root access as degraded success")
+                    return True
+            logging.warning(f"[connect] Session established but neither working folder nor root reachable")
             return False
 
     # If still failing, check if we need credentials
@@ -3383,6 +3413,41 @@ def get_host_ip() -> str:
         return ip
     except Exception as e:
         return ""
+
+def remove_and_recreate_share(share_name: str) -> bool:
+    """
+    Remove the existing SMB share and recreate it on the new network.
+    This does NOT delete the folder or any data - only removes and recreates the network share.
+    """
+    try:
+        # Step 1: Remove the old share from the network (doesn't delete folder/data)
+        logging.info(f"[share] Removing old network share: {share_name}")
+        result = subprocess.run(
+            ["cmd", "/C", f"net share {share_name} /delete /yes"],
+            capture_output=True,
+            text=True,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            timeout=10
+        )
+        # Don't fail if share doesn't exist - we'll create it anyway
+        if result.returncode == 0:
+            logging.info(f"[share] Successfully removed old share: {share_name}")
+        else:
+            logging.info(f"[share] Share {share_name} may not have existed (exit code {result.returncode})")
+        
+        # Step 2: Wait a moment for Windows to release the share
+        time.sleep(1)
+        
+        # Step 3: Recreate the share on the new network using ensure_offline_share_exists
+        logging.info(f"[share] Recreating share {share_name} on new network...")
+        ensure_offline_share_exists(log=lambda msg: logging.info(f"[share] {msg}"))
+        
+        logging.info(f"[share] Successfully recreated share: {share_name}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"[share] Error removing/recreating share: {e}")
+        return False
 
 def set_host_ip(ip: str) -> None:
     """
@@ -7253,11 +7318,13 @@ class MainApp(tk.Tk):
         tutorials_panel = TutorialsPanel(self.panels_container, self)
         credits_panel = CreditsPanel(self.panels_container, self)
         contact_panel = ContactSupportPanel(self.panels_container, self)
+        drone_panel = DronePanel(self.panels_container, self)
         self.panels = {
             'Main':      main_panel,
             'VBS4':      vbs4_panel,
             'OneClick':  oneclick_panel,
             'BVI':       bvi_panel,
+            'Drone':     drone_panel,
             'Settings':  settings_panel,
             'Tutorials': tutorials_panel,
             'Credits':   credits_panel,
@@ -7282,6 +7349,7 @@ class MainApp(tk.Tk):
             ('VBS4',     'VBS4 / BlueIG'),
             ('OneClick', 'One-Click'),
             ('BVI',      'BVI'),
+            ('Drone',    'Drone'),
             ('Settings', 'Settings'),
             ('Tutorials','?'),
             ('Credits',  'Credits'),
@@ -11182,9 +11250,15 @@ class SettingsPanel(tk.Frame):
         
         create_tooltip(self.share_status_label, get_tooltip_text)
 
+        # --- Container for Offline and Troubleshoot sections (side-by-side) ---
+        sections_container = tk.Frame(self, bg="black")
+        sections_container.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+        sections_container.grid_columnconfigure(0, weight=1)
+        sections_container.grid_columnconfigure(1, weight=1)
+
         # --- Offline / Shared Drive ------------------------------------
         grp = tk.LabelFrame(
-            self,
+            sections_container,
             text="Offline / Shared Drive",
             fg="white",
             bg="black",
@@ -11192,7 +11266,7 @@ class SettingsPanel(tk.Frame):
             padx=10,
             pady=10,
         )
-        grp.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+        grp.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
         off = get_offline_cfg()
         self.off_enabled = tk.BooleanVar(value=off["enabled"])
@@ -11291,6 +11365,55 @@ class SettingsPanel(tk.Frame):
         tk.Button(row8, text="Manual Connect", bg="#446644", fg="white", command=self._manual_connect_dialog).pack(side="left", padx=8)
         tk.Button(row8, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
         tk.Button(row8, text="Clear Settings", bg="#664444", fg="white", command=self._clear_offline_settings).pack(side="left", padx=8)
+
+        # --- Troubleshoot Section ---
+        try:
+            troubleshoot_grp = tk.LabelFrame(
+            sections_container,
+            text="Troubleshoot",
+            fg="white",
+            bg="black",
+            labelanchor="nw",
+            padx=10,
+            pady=10,
+            )
+            troubleshoot_grp.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
+            ts_info = tk.Label(
+            troubleshoot_grp,
+            text="Use this to fix network binding when both LAN & Wi-Fi are active.\n"
+                 "NOTE: LAN will be disconnected during this process.",
+            bg="black",
+            fg="#aaaaaa",
+            justify="left",
+            wraplength=400
+            )
+            ts_info.pack(anchor="w", pady=(0, 10))
+
+            self.troubleshoot_button = tk.Button(
+            troubleshoot_grp,
+            text="Troubleshoot Networked Fusers",
+            bg="#446688",
+            fg="white",
+            font=("Helvetica", 12, "bold"),
+            command=self._troubleshoot_networked_fusers,
+            cursor="hand2"
+            )
+            self.troubleshoot_button.pack(fill="x", pady=5)
+
+            self.troubleshoot_status_label = tk.Label(
+            troubleshoot_grp,
+            text="",
+            bg="black",
+            fg="#88ff88",
+            font=("Helvetica", 10),
+            justify="left",
+            wraplength=400
+            )
+            self.troubleshoot_status_label.pack(anchor="w", pady=(5, 0))
+        except Exception as e:
+            logging.error(f"[ui] Failed to create troubleshoot section: {e}")
+            # Continue without troubleshoot section if it fails
 
         # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
@@ -12167,6 +12290,255 @@ class SettingsPanel(tk.Frame):
                     "Failed to clear some settings. Check the log for details."
                 )
 
+    def _troubleshoot_networked_fusers(self):
+        """Troubleshoot fusers by temporarily disabling Wi-Fi, restarting fusers, then re-enabling Wi-Fi."""
+        import ctypes
+        
+        # Check for dry-run mode
+        dry_run = os.environ.get("FUSER_WIFI_TOGGLE_DRYRUN", "0") == "1"
+        
+        def _update_status(msg: str, color: str = "#88ff88"):
+            """Update status label on UI thread."""
+            try:
+                self.troubleshoot_status_label.config(text=msg, fg=color)
+                self.troubleshoot_status_label.update_idletasks()
+            except Exception:
+                pass
+        
+        def _log(msg: str):
+            """Log to both logging system and console panel."""
+            logging.info(f"[wifi-troubleshoot] {msg}")
+            try:
+                post_ui(log_to_console, f"> {msg}")
+            except Exception:
+                pass
+        
+        def _is_wifi_connected() -> tuple[bool, str]:
+            """Check if Wi-Fi is connected. Returns (is_connected, adapter_name)."""
+            try:
+                result = run_hidden(
+                    ["netsh", "wlan", "show", "interfaces"],
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout:
+                    lines = result.stdout.strip().split('\n')
+                    adapter_name = None
+                    is_connected = False
+                    
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith("Name"):
+                            adapter_name = line.split(":", 1)[1].strip()
+                        if line.startswith("State") and "connected" in line.lower():
+                            is_connected = True
+                    
+                    return is_connected, adapter_name or "Wi-Fi"
+            except Exception as e:
+                _log(f"Error checking Wi-Fi status: {e}")
+            return False, ""
+        
+        def _toggle_wifi(enable: bool, adapter_name: str) -> bool:
+            """Enable or disable Wi-Fi adapter. Returns True on success."""
+            action = "enable" if enable else "disable"
+            try:
+                if dry_run:
+                    _log(f"[DRY-RUN] Would {action} Wi-Fi adapter: {adapter_name}")
+                    time.sleep(0.5)
+                    return True
+                
+                result = run_hidden(
+                    ["netsh", "interface", "set", "interface", adapter_name, action],
+                    timeout=10
+                )
+                
+                if result.returncode == 0:
+                    _log(f"Successfully {action}d Wi-Fi adapter: {adapter_name}")
+                    # Wait for state change to propagate
+                    time.sleep(2)
+                    return True
+                else:
+                    _log(f"Failed to {action} Wi-Fi (exit code {result.returncode}): {result.stderr or ''}")
+                    return False
+            except Exception as e:
+                _log(f"Exception while trying to {action} Wi-Fi: {e}")
+                return False
+        
+        def _is_admin() -> bool:
+            """Check if running with admin privileges."""
+            try:
+                return bool(ctypes.windll.shell32.IsUserAnAdmin())
+            except Exception:
+                return False
+        
+        def _run_troubleshoot():
+            """Main troubleshoot workflow (runs in background thread)."""
+            try:
+                _log("=== Wi-Fi Troubleshoot Started ===")
+                _update_status("Checking Wi-Fi status...", "#88ff88")
+                
+                # Step 1: Check if Wi-Fi is connected
+                wifi_connected, adapter_name = _is_wifi_connected()
+                
+                if not wifi_connected:
+                    msg = "Wi-Fi not connected; nothing to do."
+                    _log(msg)
+                    _update_status(msg, "#ffaa00")
+                    messagebox.showinfo("Wi-Fi Troubleshoot", msg)
+                    return
+                
+                _log(f"Wi-Fi connected via adapter: {adapter_name}")
+                
+                # Step 2: Check admin privileges
+                if not _is_admin():
+                    msg = "Administrator privileges required to toggle network adapters."
+                    _log(msg)
+                    _update_status(msg, "#ff8888")
+                    response = messagebox.askyesno(
+                        "Admin Required",
+                        f"{msg}\n\nWould you like to restart the application as administrator?"
+                    )
+                    if response:
+                        _log("User requested admin elevation - please restart application as admin")
+                        messagebox.showinfo(
+                            "Restart Required",
+                            "Please close the application and run it again as Administrator.\n\n"
+                            "Right-click the application and select 'Run as administrator'."
+                        )
+                    return
+                
+                # Step 3: Confirm action
+                response = messagebox.askyesno(
+                    "Confirm Troubleshoot",
+                    f"This will:\n"
+                    f"1. Temporarily disable Wi-Fi adapter: {adapter_name}\n"
+                    f"2. Restart all local fusers\n"
+                    f"3. Re-enable Wi-Fi\n\n"
+                    f"NOTE: LAN will be disconnected during this process.\n\n"
+                    f"Continue?"
+                )
+                
+                if not response:
+                    _log("User cancelled troubleshoot operation")
+                    _update_status("Cancelled", "#ffaa00")
+                    return
+                
+                # Step 4: Disable Wi-Fi
+                _log("Disabling Wi-Fi adapter...")
+                _update_status("Disabling Wi-Fi...", "#ffaa00")
+                if not _toggle_wifi(False, adapter_name):
+                    _update_status("Failed to disable Wi-Fi", "#ff8888")
+                    messagebox.showerror("Error", "Failed to disable Wi-Fi adapter. Check logs for details.")
+                    return
+                
+                # Step 5: Stop all fusers
+                _log("Stopping all fusers...")
+                _update_status("Stopping fusers...", "#ffaa00")
+                try:
+                    if dry_run:
+                        _log("[DRY-RUN] Would stop all fusers")
+                        time.sleep(0.5)
+                    else:
+                        kill_fusers()
+                        time.sleep(2)  # Wait for processes to terminate
+                except Exception as e:
+                    _log(f"Error stopping fusers: {e}")
+                
+                # Step 6: Start fusers
+                _log("Starting fusers...")
+                _update_status("Restarting fusers...", "#ffaa00")
+                try:
+                    if dry_run:
+                        _log("[DRY-RUN] Would start fusers")
+                        time.sleep(0.5)
+                    else:
+                        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+                        if is_fuser:
+                            try:
+                                desired = int(config["Fusers"].get("desired_count", "3") or 3)
+                            except Exception:
+                                desired = 3
+                            ensure_fuser_instances(desired)
+                            # Wait for fusers to stabilize
+                            time.sleep(3)
+                            running = count_local_fusers()
+                            _log(f"Fusers restarted: {running}/{desired} running")
+                        else:
+                            _log("Fuser computer setting is OFF - no fusers to start")
+                except Exception as e:
+                    _log(f"Error starting fusers: {e}")
+                
+                # Step 7: Re-enable Wi-Fi
+                _log("Re-enabling Wi-Fi adapter...")
+                _update_status("Re-enabling Wi-Fi...", "#ffaa00")
+                if not _toggle_wifi(True, adapter_name):
+                    _update_status("Failed to re-enable Wi-Fi!", "#ff8888")
+                    messagebox.showwarning(
+                        "Wi-Fi Not Re-enabled",
+                        f"Failed to automatically re-enable Wi-Fi adapter: {adapter_name}\n\n"
+                        f"Please manually enable it:\n"
+                        f"1. Open Network Connections (ncpa.cpl)\n"
+                        f"2. Right-click '{adapter_name}'\n"
+                        f"3. Select 'Enable'"
+                    )
+                    return
+                
+                # Step 8: Verify Wi-Fi reconnection
+                _log("Verifying Wi-Fi reconnection...")
+                _update_status("Verifying Wi-Fi...", "#88ff88")
+                time.sleep(5)  # Give Wi-Fi time to reconnect
+                
+                wifi_reconnected, _ = _is_wifi_connected()
+                if wifi_reconnected:
+                    _log("Wi-Fi successfully reconnected")
+                    _update_status("✓ Troubleshoot complete - Wi-Fi reconnected", "#88ff88")
+                    messagebox.showinfo(
+                        "Success",
+                        "Troubleshoot complete!\n\n"
+                        "Fusers have been restarted and Wi-Fi is reconnected.\n"
+                        "Fusers should now bind to the LAN interface."
+                    )
+                else:
+                    _log("Warning: Wi-Fi adapter enabled but not yet connected")
+                    _update_status("✓ Complete - waiting for Wi-Fi to reconnect", "#ffaa00")
+                    messagebox.showinfo(
+                        "Mostly Complete",
+                        "Troubleshoot complete!\n\n"
+                        "Wi-Fi adapter has been re-enabled but may still be connecting.\n"
+                        "Check your Wi-Fi status in a few moments."
+                    )
+                
+                _log("=== Wi-Fi Troubleshoot Finished ===")
+                
+                # Refresh UI
+                try:
+                    self._refresh_fuser_counter_row()
+                except Exception:
+                    pass
+                
+            except Exception as e:
+                import traceback
+                error_msg = traceback.format_exc()
+                _log(f"Troubleshoot failed: {e}")
+                _log(f"Traceback: {error_msg}")
+                _update_status(f"Error: {e}", "#ff8888")
+                messagebox.showerror("Troubleshoot Failed", f"An error occurred:\n\n{e}")
+            finally:
+                # Re-enable button
+                try:
+                    self.troubleshoot_button.config(state="normal", text="Troubleshoot Networked Fusers")
+                except Exception:
+                    pass
+        
+        # Disable button and update text
+        try:
+            self.troubleshoot_button.config(state="disabled", text="Working...")
+            _update_status("Starting troubleshoot...", "#88ff88")
+        except Exception:
+            pass
+        
+        # Run in background thread
+        run_in_thread(_run_troubleshoot)
+
     def _refresh_fuser_counter_row(self):
         if not hasattr(self, "fuser_count_label"):
             return
@@ -12308,6 +12680,40 @@ class SettingsPanel(tk.Frame):
         logging.info(f"[open_working_folder] Connecting to share root: {share_root}")
         
         if not connect_working_share_interactive(parent=self, silent=True):
+            logging.warning(f"[open_working_folder] connect_working_share_interactive reported failure for {path}")
+            # Fallback 1: Quick direct UNC check – Explorer sometimes succeeds despite our session logic
+            try:
+                if quick_unc_check(path, timeout=1):
+                    logging.info(f"[open_working_folder] Fallback quick check passed; opening anyway: {path}")
+                    self.controller.open_folder_foreground(path)
+                    return
+            except Exception as e:
+                logging.debug(f"[open_working_folder] quick_unc_check fallback error: {e}")
+            # Fallback 2: Try to establish raw session then re-check
+            try:
+                unc_root = os.path.dirname(os.path.dirname(path))  # \\host\share
+                ensure_smb_session_cached(unc_root)
+                if quick_unc_check(path, timeout=1.5):
+                    logging.info(f"[open_working_folder] Session fallback succeeded; opening: {path}")
+                    self.controller.open_folder_foreground(path)
+                    return
+            except Exception as e:
+                logging.debug(f"[open_working_folder] session fallback error: {e}")
+            # Fallback 3: If share root accessible, attempt folder creation then open
+            try:
+                if quick_unc_check(share_root, timeout=1.5):
+                    if not os.path.exists(path):
+                        try:
+                            os.makedirs(path, exist_ok=True)
+                            logging.info(f"[open_working_folder] Created missing WorkingFuser folder via fallback.")
+                        except Exception as e:
+                            logging.debug(f"[open_working_folder] Could not create WorkingFuser folder: {e}")
+                    if os.path.exists(path):
+                        logging.info(f"[open_working_folder] Root reachable; opening (degraded success): {path}")
+                        self.controller.open_folder_foreground(path)
+                        return
+            except Exception as e:
+                logging.debug(f"[open_working_folder] root fallback error: {e}")
             messagebox.showerror("Open Working Folder",
                                  f"Cannot access:\n{path}\n\n"
                                  "Use 'Test Access' button to diagnose the connection issue.")
@@ -12410,9 +12816,30 @@ class SettingsPanel(tk.Frame):
             return
         
         try:
+            # NOTE: We no longer remove/recreate the SMB share on IP change.
+            # Windows shares are interface-agnostic; they automatically become
+            # reachable via any active IP on the host. Deleting/recreating the
+            # share here caused UI freezes (blocking subprocess + sleep) and
+            # intermittent failures when permissions differed (e.g. Program Files).
+            # If future diagnostics show a stale share after IP swap, we can
+            # reintroduce an asynchronous refresh routine.
+            # (Intentionally left without action to keep operation instantaneous.)
+            # User requirement: actively disconnect old IP sessions and recreate
+            # the share to ensure visibility across interface profile changes.
+            old_ip = current_ip
+            
             # Update config (this syncs all IP references including shared_working_unc)
             set_host_ip(new_ip)
             self.host_ip_var.set(new_ip)
+
+            # Fire off asynchronous share recreation (non-blocking)
+            try:
+                if is_this_pc_the_real_host():
+                    self._async_recreate_share_for_ip_change(old_ip, new_ip)
+                    # Deep cleanup (Option B): full session purge + cred refresh + share recreate
+                    self._deep_cleanup_on_host_change(old_ip, new_ip)
+            except Exception as e:
+                logging.debug(f"[change_host_ip] async recreate dispatch failed: {e}")
             
             # Remap drive if it's currently mapped (so it points to new IP)
             sd = config["SharedDrive"] if "SharedDrive" in config else {}
@@ -12438,6 +12865,15 @@ class SettingsPanel(tk.Frame):
             if is_host_machine():
                 self._update_host_beacon(new_ip)
             
+            # Refresh host status label to show new IP
+            if hasattr(self, "host_status_label"):
+                try:
+                    self.host_status_label.config(text=self._format_host_status(None))
+                    # Schedule a proper check after a brief delay
+                    self.after(1000, lambda: self.host_status_label.config(text=self._format_host_status(True)))
+                except Exception:
+                    pass
+            
             # Show success message
             messagebox.showinfo(
                 "Host IP Changed",
@@ -12449,6 +12885,12 @@ class SettingsPanel(tk.Frame):
             
             # Trigger status refresh
             self.after(500, self._update_share_status)
+            # Start asynchronous share health probe so remote UNC becomes marked connected without UI blocking
+            try:
+                if new_ip:
+                    self._start_async_share_health(new_ip)
+            except Exception as e:
+                logging.debug(f"[change_host_ip] Async share health start failed: {e}")
             
         except Exception as exc:
             logging.error(f"[change_host_ip] Error: {exc}")
@@ -12467,6 +12909,168 @@ class SettingsPanel(tk.Frame):
             return True
         except (ValueError, AttributeError):
             return False
+
+    def _start_async_share_health(self, host_ip: str):
+        """Background probe for UNC accessibility after host IP/interface change.
+        Tries a few short, non-blocking attempts to confirm working UNC becomes reachable.
+        Updates share status label via UI queue when successful. Silent on failure.
+        """
+        try:
+            o = get_offline_cfg()
+            unc_root = build_unc_from_cfg(o)
+            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+            working_unc = os.path.join(unc_root, wf_sub).replace("/", "\\") if unc_root else ""
+        except Exception:
+            unc_root = ""; working_unc = ""
+        if not unc_root or not working_unc:
+            return
+
+        def _probe():
+            for attempt in range(6):  # ~ up to ~12s total
+                try:
+                    # Fast check first
+                    if quick_unc_check(working_unc, timeout=1):
+                        logging.info(f"[async-share] Working UNC reachable: {working_unc}")
+                        post_ui(self._update_share_status)
+                        return
+                    # Establish / refresh session then re-check
+                    ensure_smb_session_cached(unc_root)
+                    if quick_unc_check(working_unc, timeout=1.5):
+                        logging.info(f"[async-share] Session established; UNC reachable: {working_unc}")
+                        post_ui(self._update_share_status)
+                        return
+                except Exception as e:
+                    logging.debug(f"[async-share] Probe attempt {attempt+1} failed: {e}")
+                time.sleep(2)
+            logging.warning(f"[async-share] UNC still not reachable after IP change: {working_unc}")
+
+        threading.Thread(target=_probe, name="async-share-health", daemon=True).start()
+
+    def _deep_cleanup_on_host_change(self, old_ip: str, new_ip: str):
+        """Full LAN/Wi-Fi parity cleanup on host IP change (Option B).
+        Steps (host only, requires elevation for Program Files share path):
+          1. Purge all SMB sessions (net use * /delete /y)
+          2. Delete old IP + hostname credentials (cmdkey /delete)
+          3. Recreate share (already done separately but ensured here if needed)
+          4. Store new credentials for new IP (if username/password configured)
+          5. Probe UNC root & WorkingFuser
+        Runs asynchronously to avoid blocking UI.
+        """
+        try:
+            if not new_ip or not is_this_pc_the_real_host():
+                return
+            if not is_running_elevated():
+                logging.warning("[deep-cleanup] Skipping full cleanup (not elevated)")
+                return
+            o = get_offline_cfg()
+            share_name = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+            username = (o.get("username") or "").strip()
+            password = (o.get("password") or "").strip()
+            hostname = socket.gethostname()
+            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+            unc_root = f"\\\\{new_ip}\\{share_name}" if new_ip else ""
+            working_unc = f"{unc_root}\\{wf_sub}" if unc_root else ""
+        except Exception as e:
+            logging.debug(f"[deep-cleanup] Prep failed: {e}")
+            return
+
+        def _do_cleanup():
+            start_ts = time.time()
+            logging.info(f"[deep-cleanup] Starting full cleanup for host change {old_ip} -> {new_ip}")
+            # 1. Purge all SMB sessions
+            try:
+                subprocess.run(["net", "use", "*", "/delete", "/y"], capture_output=True, text=True, timeout=10,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+                logging.info("[deep-cleanup] Purged all SMB sessions")
+            except Exception as e:
+                logging.warning(f"[deep-cleanup] Session purge failed: {e}")
+            # 2. Retain old IP + hostname credentials (multi-host switching)
+            #    Previously we deleted them; now we keep them so swapping back to old LAN IP works instantly.
+            try:
+                if old_ip and old_ip != new_ip:
+                    logging.info(f"[deep-cleanup] Retaining existing credentials for {old_ip} (multi-host mode)")
+                if hostname:
+                    logging.info(f"[deep-cleanup] Retaining hostname credentials for {hostname}")
+            except Exception as e:
+                logging.debug(f"[deep-cleanup] Credential retention note failed: {e}")
+            # 3. Recreate share (safety)
+            try:
+                remove_and_recreate_share(share_name)
+            except Exception as e:
+                logging.warning(f"[deep-cleanup] Share recreation error: {e}")
+            # 4. Store new credentials
+            try:
+                if username and password:
+                    _store_creds_in_cmdkey(new_ip, username, password)
+                    logging.info(f"[deep-cleanup] Stored credentials for {username}@{new_ip}")
+            except Exception as e:
+                logging.warning(f"[deep-cleanup] Credential store failed: {e}")
+            # 5. Probe UNC root & working folder
+            try:
+                if unc_root:
+                    ensure_smb_session_cached(unc_root)
+                    if quick_unc_check(working_unc, timeout=2):
+                        logging.info(f"[deep-cleanup] Working UNC reachable: {working_unc}")
+                    else:
+                        # Attempt create if root reachable
+                        if quick_unc_check(unc_root, timeout=2) and not os.path.exists(unc_root):
+                            logging.info("[deep-cleanup] Root reachable but working folder not; attempting create")
+                            try:
+                                os.makedirs(working_unc, exist_ok=True)
+                            except Exception:
+                                pass
+                post_ui(self._update_share_status)
+            except Exception as e:
+                logging.debug(f"[deep-cleanup] Probe failed: {e}")
+            logging.info(f"[deep-cleanup] Completed in {time.time()-start_ts:.2f}s")
+
+        threading.Thread(target=_do_cleanup, name="deep-cleanup-host-change", daemon=True).start()
+
+    def _async_recreate_share_for_ip_change(self, old_ip: str, new_ip: str):
+        """Asynchronously remove and recreate the SMB share to satisfy explicit
+        requirement that the share be re-announced under the new IP. This clears
+        old sessions for the previous IP and re-validates permissions.
+        """
+        try:
+            o = get_offline_cfg()
+            share_name = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+        except Exception:
+            share_name = "SharedMeshDrive"
+
+        def _work():
+            try:
+                logging.info(f"[async-recreate] Starting share refresh for IP change {old_ip} -> {new_ip}")
+                # Clear old IP sessions if provided
+                if old_ip and old_ip != new_ip:
+                    try:
+                        subprocess.run(["net", "use", f"\\\\{old_ip}", "/delete", "/y"],
+                                       capture_output=True, text=True, timeout=5,
+                                       creationflags=subprocess.CREATE_NO_WINDOW)
+                        subprocess.run(["net", "use", f"\\\\{old_ip}\\IPC$", "/delete", "/y"],
+                                       capture_output=True, text=True, timeout=5,
+                                       creationflags=subprocess.CREATE_NO_WINDOW)
+                        logging.info(f"[async-recreate] Cleared old IP SMB sessions: {old_ip}")
+                    except Exception as e:
+                        logging.debug(f"[async-recreate] Failed clearing old sessions: {e}")
+                # Recreate share (non-fatal if fails)
+                try:
+                    remove_and_recreate_share(share_name)
+                except Exception as e:
+                    logging.warning(f"[async-recreate] Share recreation error: {e}")
+                # Probe accessibility quickly
+                try:
+                    unc_root = f"\\\\{new_ip}\\{share_name}" if new_ip else ""
+                    if unc_root and quick_unc_check(unc_root, timeout=2):
+                        logging.info(f"[async-recreate] UNC root reachable after recreation: {unc_root}")
+                    else:
+                        logging.warning(f"[async-recreate] UNC root not yet reachable: {unc_root}")
+                except Exception as e:
+                    logging.debug(f"[async-recreate] Probe failed: {e}")
+                post_ui(self._update_share_status)
+            except Exception as e:
+                logging.debug(f"[async-recreate] Unexpected error: {e}")
+
+        threading.Thread(target=_work, name="async-share-recreate", daemon=True).start()
     
     def _update_host_beacon(self, new_ip: str):
         """Update the host beacon file with the new IP address."""
@@ -12887,6 +13491,130 @@ class ContactSupportPanel(tk.Frame):
 
     def contact_support(self):
         webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
+
+class DronePanel(tk.Frame):
+    """Drone control panel with three columns: FPU, Quad, and GSUA."""
+    
+    def __init__(self, parent, controller):
+        super().__init__(parent, bg="#2B2B2B")
+        self.controller = controller
+        
+        # Override background to be solid dark gray (no image)
+        self.configure(bg="#2B2B2B")
+        
+        # Add tutorial button
+        controller.create_tutorial_button(self)
+        
+        # Main container with padding
+        main_container = tk.Frame(self, bg="#2B2B2B")
+        main_container.pack(expand=True, fill="both", padx=40, pady=40)
+        
+        # Title
+        title_label = tk.Label(
+            main_container,
+            text="DRONE CONTROL",
+            font=("Helvetica", 32, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        title_label.pack(pady=(0, 40))
+        
+        # Three-column container
+        columns_frame = tk.Frame(main_container, bg="#2B2B2B")
+        columns_frame.pack(expand=True, fill="both")
+        
+        # Configure three equal columns
+        for i in range(3):
+            columns_frame.columnconfigure(i, weight=1, uniform="col")
+        
+        # Column headers and buttons
+        column_data = [
+            ("FPU", False),    # Active
+            ("Quad", True),    # Disabled
+            ("GSUA", True),    # Disabled
+        ]
+        
+        for col_idx, (header_text, is_disabled) in enumerate(column_data):
+            # Column container
+            col_frame = tk.Frame(columns_frame, bg="#2B2B2B")
+            col_frame.grid(row=0, column=col_idx, padx=20, sticky="nsew")
+            
+            # Column header
+            header = tk.Label(
+                col_frame,
+                text=header_text,
+                font=("Helvetica", 24, "bold"),
+                bg="#2B2B2B",
+                fg="white" if not is_disabled else "#666666"
+            )
+            header.pack(pady=(0, 30))
+            
+            # Six buttons for this column
+            for btn_num in range(1, 7):
+                btn_text = f"TBL {btn_num}"
+                
+                if is_disabled:
+                    # Grayed out button
+                    btn = tk.Button(
+                        col_frame,
+                        text=btn_text,
+                        font=("Helvetica", 18),
+                        bg="#444444",
+                        fg="#888888",
+                        width=15,
+                        height=2,
+                        state="disabled",
+                        bd=0,
+                        highlightthickness=0,
+                        relief="flat"
+                    )
+                else:
+                    # Active button (FPU column)
+                    btn = tk.Button(
+                        col_frame,
+                        text=btn_text,
+                        font=("Helvetica", 18),
+                        bg="#555555",
+                        fg="white",
+                        width=15,
+                        height=2,
+                        command=lambda num=btn_num: self.on_fpu_button_click(num),
+                        bd=0,
+                        highlightthickness=0,
+                        relief="flat",
+                        activebackground="#666666"
+                    )
+                    # Add hover effect for active buttons
+                    add_button_hover_effect(btn, normal_bg="#555555", hover_bg="#666666")
+                
+                btn.pack(pady=8)
+        
+        # Back button at the bottom
+        back_button = tk.Button(
+            main_container,
+            text="Back to Main",
+            font=("Helvetica", 20),
+            bg="#444444",
+            fg="white",
+            width=20,
+            height=2,
+            command=lambda: controller.show('Main'),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        back_button.pack(pady=(40, 0))
+        add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
+    
+    def on_fpu_button_click(self, button_num):
+        """Handle FPU button clicks (TBL 1-6)."""
+        # Placeholder for actual functionality
+        print(f"FPU TBL {button_num} clicked")
+        # You can add actual drone control logic here
+        safe_messagebox_showinfo(
+            "FPU Control",
+            f"FPU Table {button_num} selected.\n\nFunctionality to be implemented."
+        )
 
 class Tooltip:
     """
