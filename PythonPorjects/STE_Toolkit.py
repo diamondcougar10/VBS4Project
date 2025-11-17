@@ -8341,7 +8341,8 @@ class MainApp(tk.Tk):
                            bg="red", fg="white",
                            width=2, height=1,
                            command=lambda: self.show('Tutorials'))
-        button.place(x=1350, y=110, anchor="nw")
+        # Pin to top-right of the panel for consistent alignment
+        button.place(relx=1.0, x=-10, y=10, anchor="ne")
 
         if isinstance(parent, VBS4Panel):
             parent.create_battlespaces_button()
@@ -8866,7 +8867,8 @@ class VBS4Panel(tk.Frame):
             width=2, height=1,
             command=self.open_battlespaces_folder
         )
-        button.place(x=1300, y=110, anchor="nw")
+        # Position next to the tutorial button, aligned to top-right
+        button.place(relx=1.0, x=-60, y=10, anchor="ne")
 
         # Bind enter/leave on the button
         button.bind("<Enter>", self.show_tooltip)
@@ -8881,7 +8883,8 @@ class VBS4Panel(tk.Frame):
             width=2, height=1,
             command=self.open_vbs4_folder
         )
-        button.place(x=1250, y=110, anchor="nw")
+        # Position left of battlespaces button, aligned to top-right
+        button.place(relx=1.0, x=-110, y=10, anchor="ne")
 
         # Bind enter/leave on the button
         button.bind("<Enter>", lambda e: self.show_tooltip(e, "Open VBS4 installation folder"))
