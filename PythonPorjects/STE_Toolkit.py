@@ -4620,7 +4620,7 @@ def _resolve_fuser_workdir(idx: int) -> str:
     # Simply return the WorkingFuser root - PhotoMesh creates numbered folders
     os.makedirs(base_path, exist_ok=True)
     normalized = os.path.normpath(base_path).replace("/", "\\")
-    logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized} (PhotoMesh will create {idx}\ subdirectory)")
+    logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized} (PhotoMesh will create {idx}\\ subdirectory)")
     return normalized
 
 
@@ -13550,16 +13550,23 @@ class DronePanel(tk.Frame):
         # Override background to be solid dark gray (no image)
         self.configure(bg="#2B2B2B")
         
+        # Store reference to overlay panel
+        self.overlay_panel = None
+        
         # Add tutorial button
         controller.create_tutorial_button(self)
         
-        # Main container with padding
+        # Main container with padding - ensure it fills the entire panel
         main_container = tk.Frame(self, bg="#2B2B2B")
-        main_container.pack(expand=True, fill="both", padx=40, pady=40)
+        main_container.pack(expand=True, fill="both", padx=0, pady=0)
+        
+        # Inner content frame with padding
+        content_frame = tk.Frame(main_container, bg="#2B2B2B")
+        content_frame.pack(expand=True, fill="both", padx=40, pady=40)
         
         # Title
         title_label = tk.Label(
-            main_container,
+            content_frame,
             text="DRONE CONTROL",
             font=("Helvetica", 32, "bold"),
             bg="#2B2B2B",
@@ -13568,7 +13575,7 @@ class DronePanel(tk.Frame):
         title_label.pack(pady=(0, 40))
         
         # Three-column container
-        columns_frame = tk.Frame(main_container, bg="#2B2B2B")
+        columns_frame = tk.Frame(content_frame, bg="#2B2B2B")
         columns_frame.pack(expand=True, fill="both")
         
         # Configure three equal columns
@@ -13639,7 +13646,7 @@ class DronePanel(tk.Frame):
         
         # Back button at the bottom
         back_button = tk.Button(
-            main_container,
+            content_frame,
             text="Back to Main",
             font=("Helvetica", 20),
             bg="#444444",
@@ -13656,13 +13663,250 @@ class DronePanel(tk.Frame):
     
     def on_fpu_button_click(self, button_num):
         """Handle FPU button clicks (TBL 1-6)."""
-        # Placeholder for actual functionality
         print(f"FPU TBL {button_num} clicked")
-        # You can add actual drone control logic here
-        safe_messagebox_showinfo(
-            "FPU Control",
-            f"FPU Table {button_num} selected.\n\nFunctionality to be implemented."
+        self.show_table_detail(button_num)
+    
+    def show_table_detail(self, table_num):
+        """Show overlay panel for specific table."""
+        # Destroy existing overlay if present
+        if self.overlay_panel:
+            self.overlay_panel.destroy()
+        
+        # Create overlay panel
+        self.overlay_panel = TableDetailPanel(self, self.controller, table_num, self.hide_overlay)
+        self.overlay_panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+    
+    def hide_overlay(self):
+        """Hide the overlay panel."""
+        if self.overlay_panel:
+            self.overlay_panel.destroy()
+            self.overlay_panel = None
+
+class TableDetailPanel(tk.Frame):
+    """Overlay panel showing table details with Day/Night launch options and map."""
+    
+    def __init__(self, parent, controller, table_num, close_callback):
+        super().__init__(parent, bg="#2B2B2B")
+        self.controller = controller
+        self.table_num = table_num
+        self.close_callback = close_callback
+        
+        # Main container
+        main_container = tk.Frame(self, bg="#2B2B2B")
+        main_container.pack(expand=True, fill="both", padx=0, pady=0)
+        
+        # Content frame with padding
+        content_frame = tk.Frame(main_container, bg="#2B2B2B")
+        content_frame.pack(expand=True, fill="both", padx=40, pady=40)
+        
+        # Title
+        title_label = tk.Label(
+            content_frame,
+            text=f"TABLE {table_num}",
+            font=("Helvetica", 32, "bold"),
+            bg="#2B2B2B",
+            fg="white"
         )
+        title_label.pack(pady=(0, 20))
+        
+        # Main content area (left controls + right map)
+        content_area = tk.Frame(content_frame, bg="#2B2B2B")
+        content_area.pack(expand=True, fill="both", pady=20)
+        
+        # Left side - controls
+        left_frame = tk.Frame(content_area, bg="#2B2B2B")
+        left_frame.pack(side="left", fill="both", expand=False, padx=(0, 20))
+        
+        # Test Requirements text box
+        test_req_label = tk.Label(
+            left_frame,
+            text="Test Requirements:",
+            font=("Helvetica", 14, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        test_req_label.pack(anchor="w", pady=(0, 5))
+        
+        self.test_req_text = tk.Text(
+            left_frame,
+            width=50,
+            height=10,
+            font=("Courier", 10),
+            bg="#3B3B3B",
+            fg="white",
+            insertbackground="white",
+            relief="solid",
+            bd=1
+        )
+        self.test_req_text.pack(pady=(0, 20))
+        
+        # Default test requirements for this table
+        default_test_req = f"Test requirements for Table {table_num}:\n\n"
+        default_test_req += "Edit as needed before launching..."
+        self.test_req_text.insert("1.0", default_test_req)
+        
+        # Day/Night buttons
+        buttons_label = tk.Label(
+            left_frame,
+            text="Launch Options:",
+            font=("Helvetica", 14, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        buttons_label.pack(anchor="w", pady=(0, 10))
+        
+        day_button = tk.Button(
+            left_frame,
+            text="Day",
+            font=("Helvetica", 16, "bold"),
+            bg="#4A7C59",
+            fg="white",
+            width=20,
+            height=2,
+            command=lambda: self.launch_mission("Day"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        day_button.pack(pady=5)
+        add_button_hover_effect(day_button, normal_bg="#4A7C59", hover_bg="#5A8C69")
+        
+        night_button = tk.Button(
+            left_frame,
+            text="Night",
+            font=("Helvetica", 16, "bold"),
+            bg="#3B4A7C",
+            fg="white",
+            width=20,
+            height=2,
+            command=lambda: self.launch_mission("Night"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        night_button.pack(pady=5)
+        add_button_hover_effect(night_button, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
+        
+        # Right side - map display
+        right_frame = tk.Frame(content_area, bg="#2B2B2B")
+        right_frame.pack(side="left", fill="both", expand=True)
+        
+        map_label = tk.Label(
+            right_frame,
+            text="Map:",
+            font=("Helvetica", 14, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        map_label.pack(anchor="w", pady=(0, 10))
+        
+        # Load and display map image
+        self.load_map_image(right_frame)
+        
+        # Back button
+        back_button = tk.Button(
+            content_frame,
+            text="Back to Drone Control",
+            font=("Helvetica", 18),
+            bg="#444444",
+            fg="white",
+            width=25,
+            height=2,
+            command=self.close_callback,
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        back_button.pack(pady=(20, 0))
+        add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
+    
+    def load_map_image(self, parent_frame):
+        """Load and display the map PNG for this table."""
+        map_path = f"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\assets\\maps\\T{self.table_num}Map.png"
+        
+        try:
+            if os.path.exists(map_path):
+                # Load image
+                img = Image.open(map_path)
+                # Resize to fit (max 800x600)
+                img.thumbnail((800, 600), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                
+                # Display image
+                img_label = tk.Label(
+                    parent_frame,
+                    image=photo,
+                    bg="#2B2B2B"
+                )
+                img_label.image = photo  # Keep reference
+                img_label.pack(expand=True)
+            else:
+                # Map not available
+                placeholder = tk.Label(
+                    parent_frame,
+                    text=f"Map not available\n(T{self.table_num}Map.png not found)",
+                    font=("Helvetica", 14),
+                    bg="#3B3B3B",
+                    fg="#888888",
+                    width=60,
+                    height=20,
+                    relief="solid",
+                    bd=1
+                )
+                placeholder.pack(expand=True, fill="both")
+        except Exception as e:
+            logging.error(f"Failed to load map for Table {self.table_num}: {e}")
+            error_label = tk.Label(
+                parent_frame,
+                text=f"Error loading map:\n{e}",
+                font=("Helvetica", 12),
+                bg="#3B3B3B",
+                fg="#FF8888",
+                relief="solid",
+                bd=1
+            )
+            error_label.pack(expand=True, fill="both")
+    
+    def launch_mission(self, time_of_day):
+        """Launch VBS4 with mission parameters."""
+        # Get test requirements from text box
+        test_req = self.test_req_text.get("1.0", "end-1c").strip()
+        
+        # Build command based on table number and time of day
+        mission_code = f"T{self.table_num}{time_of_day}"
+        
+        # Get VBS4 path
+        vbs4_path = get_vbs4_install_path()
+        if not vbs4_path:
+            safe_messagebox_showerror("Error", "VBS4 executable not found. Please set the correct path in settings.")
+            return
+        
+        # Build full command
+        args = [
+            vbs4_path,
+            '"-autoassignside=WEST"',
+            '-autostart=0',
+            '-forceSimul',
+            f'-init=hostMission["{mission_code}"]'
+        ]
+        
+        try:
+            logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {time_of_day}")
+            logging.info(f"[DroneControl] Command: {' '.join(args)}")
+            logging.info(f"[DroneControl] Test Requirements: {test_req}")
+            
+            # Launch VBS4
+            subprocess.Popen(args, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+            
+            safe_messagebox_showinfo(
+                "Mission Launched",
+                f"VBS4 launched for Table {self.table_num} - {time_of_day}\n\n"
+                f"Mission: {mission_code}"
+            )
+            
+        except Exception as e:
+            logging.error(f"[DroneControl] Failed to launch VBS4: {e}")
+            safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
 
 class Tooltip:
     """
