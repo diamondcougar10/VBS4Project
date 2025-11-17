@@ -14241,22 +14241,16 @@ Legend
             safe_messagebox_showerror("Error", "VBS4 executable not found. Please set the correct path in settings.")
             return
         
-        # Build full command
-        args = [
-            vbs4_path,
-            '-autoassignside=WEST',
-            '-autostart=0',
-            '-forceSimul',
-            f'-init=hostMission["{mission_code}"]'
-        ]
+        # Build full command as string to avoid escaping issues
+        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -init=hostMission["{mission_code}"]'
         
         try:
             logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {time_of_day}")
-            logging.info(f"[DroneControl] Command: {' '.join(args)}")
+            logging.info(f"[DroneControl] Command: {cmd}")
             logging.info(f"[DroneControl] Test Requirements: {test_req}")
             
-            # Launch VBS4
-            subprocess.Popen(args, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+            # Launch VBS4 using shell to preserve exact command formatting
+            subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
             
         except Exception as e:
             logging.error(f"[DroneControl] Failed to launch VBS4: {e}")
