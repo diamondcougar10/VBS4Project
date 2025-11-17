@@ -13918,9 +13918,99 @@ As appropriate for the SUAS employed, the operator/crew must:
 
 Legend
 % - percent; SUAS - small unmanned aircraft system""",
-            4: f"Test requirements for Table {table_num}:\n\nRequirements to be added...",
-            5: f"Test requirements for Table {table_num}:\n\nRequirements to be added...",
-            6: f"Test requirements for Table {table_num}:\n\nRequirements to be added..."
+            4: """TABLE IV, BASIC TASK, CONDITIONS, AND STANDARD
+
+TASK
+DELIVER payload against a stationary or moving threat following the approved MISSION PLAN.
+
+CONDITIONS
+Given the following in an URBAN ENVIRONMENT:
+• Fully mission capable equipment, SUAS, optic(s).
+• Inert, blank, or training munition (as appropriate).
+• Test and evaluation criteria as listed in TC 3-20.32-113.
+• An authorized primary training facility with:
+  • Specified targetry.
+  • Restricted operations zone (ROZ) in place.
+  • Approved mission plan.
+• Appropriate checklists and grade slip for the type of SUAS employed.
+• List of Commander's Critical Information Requirements (CCIR).
+
+STANDARD
+As appropriate for the SUAS employed, the operator/crew must:
+• Successfully navigate the designated corridors at the specified altitude and speed.
+• Correctly identify the threat stated in the conduct of fire from the mission commander.
+• Simulate arming the payload or munition as directed.
+• Engage the threat by:
+  • Taking a snapshot prior to payload execution.
+  • Announce the appropriate crew response(s).
+  • Achieve the required effects for the threat presented.
+• Provide necessary reports to the MISSION COMMANDER.
+• Return to Home with > 15% battery remaining (except for STRIKE IMPACT SUAS).
+
+Legend
+> - less than; % - percent; SUAS - small unmanned aircraft system; TC - training circular""",
+            5: """TABLE V, PRACTICE TASK, CONDITIONS, AND STANDARD
+
+TASK
+DELIVER payload against a stationary or moving threat following the approved MISSION PLAN.
+
+CONDITIONS
+Given the following:
+• Fully mission capable equipment, SUAS, optic(s).
+• Inert, blank, or training munition (as appropriate).
+• Test and evaluation criteria as listed in TC 3-20.32-113.
+• An authorized primary training facility with:
+  • Specified targetry.
+  • Restricted operations zone (ROZ) in place.
+  • Approved mission plan.
+• Appropriate checklists and grade slip for the type of SUAS employed.
+• List of Commander's Critical Information Requirements (CCIR).
+
+STANDARD
+As appropriate for the SUAS employed, the operator/crew must:
+• Successfully navigate the designated corridors at the specified altitude and speed.
+• Correctly identify the threat stated in the conduct of fire from the mission commander.
+• Simulate arming the payload or munition as directed.
+• Engage the threat by:
+  • Taking a snapshot prior to payload execution.
+  • Announce the appropriate crew response(s).
+  • Achieve the required effects for the threat presented.
+• Provide necessary reports to the MISSION COMMANDER.
+• Return to Home with > 15% battery remaining (except for STRIKE IMPACT SUAS).
+
+Legend
+> - less than; % - percent; SUAS - small unmanned aircraft system; TC - training circular""",
+            6: """TABLE VI, QUALIFICATION TASK, CONDITIONS, AND STANDARD
+
+TASK
+DELIVER payload against a stationary or moving threat following the approved MISSION PLAN.
+
+CONDITIONS
+Given the following:
+• Fully mission capable equipment, SUAS, optic(s).
+• Inert, blank, or training munition (as appropriate).
+• Test and evaluation criteria as listed in TC 3-20.32-113.
+• An authorized primary training facility with:
+  • Specified targetry.
+  • Restricted operations zone (ROZ) in place.
+  • Approved mission plan.
+• Appropriate checklists and grade slip for the type of SUAS employed.
+• List of Commander's Critical Information Requirements (CCIR).
+
+STANDARD
+As appropriate for the SUAS employed, the operator/crew must:
+• Successfully navigate the designated corridors at the specified altitude and speed.
+• Correctly identify the threat stated in the conduct of fire from the mission commander.
+• Simulate arming the payload or munition as directed.
+• Engage the threat by:
+  • Taking a snapshot prior to payload execution.
+  • Announce the appropriate crew response(s).
+  • Achieve the required effects for the threat presented.
+• Provide necessary reports to the MISSION COMMANDER.
+• Return to Home with > 15% battery remaining (except for STRIKE IMPACT SUAS).
+
+Legend
+> - less than; % - percent; SUAS - small unmanned aircraft system; TC - training circular"""
         }
         
         # Get requirements or default text
@@ -14006,12 +14096,6 @@ Legend
             
             # Launch VBS4
             subprocess.Popen(args, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
-            
-            safe_messagebox_showinfo(
-                "Mission Launched",
-                f"VBS4 launched for Table {self.table_num} - {time_of_day}\n\n"
-                f"Mission: {mission_code}"
-            )
             
         except Exception as e:
             logging.error(f"[DroneControl] Failed to launch VBS4: {e}")
