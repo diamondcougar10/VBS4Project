@@ -12994,13 +12994,18 @@ class SettingsPanel(tk.Frame):
             except Exception as e:
                 logging.debug(f"[deep-cleanup] Credential retention note failed: {e}")
             # 3. Clear WorkingFuser folder contents (fusers reconnect with new IP)
+            #    Preserve Seeds subfolder to maintain PC name tracking structure
             try:
                 local_root = (o.get("local_data_root") or "").strip()
                 if local_root and wf_sub:
                     working_path = os.path.join(local_root, wf_sub)
                     if os.path.isdir(working_path):
                         import shutil
+                        seeds_path = os.path.join(working_path, "Seeds")
                         for item in os.listdir(working_path):
+                            # Preserve Seeds folder structure for PC name tracking
+                            if item.lower() == "seeds":
+                                continue
                             item_path = os.path.join(working_path, item)
                             try:
                                 if os.path.isfile(item_path) or os.path.islink(item_path):
@@ -13009,22 +13014,46 @@ class SettingsPanel(tk.Frame):
                                     shutil.rmtree(item_path)
                             except Exception as e:
                                 logging.debug(f"[deep-cleanup] Failed to delete {item_path}: {e}")
-                        logging.info(f"[deep-cleanup] Cleared WorkingFuser contents at {working_path}")
+                        logging.info(f"[deep-cleanup] Cleared WorkingFuser contents at {working_path} (preserved Seeds)")
+                        
+                        # Ensure Seeds folder exists for PC tracking
+                        if not os.path.isdir(seeds_path):
+                            os.makedirs(seeds_path, exist_ok=True)
+                            logging.info(f"[deep-cleanup] Recreated Seeds folder at {seeds_path}")
             except Exception as e:
                 logging.warning(f"[deep-cleanup] WorkingFuser cleanup failed: {e}")
-            # 4. Recreate share (safety)
+            # 4. Update HostInfo.ini beacon with new IP
+            try:
+                local_root = (o.get("local_data_root") or "").strip()
+                if local_root:
+                    beacon_path = os.path.join(local_root, "HostInfo.ini")
+                    beacon_content = (
+                        "[Host]\n"
+                        f"ip={new_ip}\n"
+                        f"name={hostname}\n"
+                        f"share={share_name}\n"
+                        f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        "guest_ok=1\n"
+                        "dns_alias=ste-host\n"
+                    )
+                    with open(beacon_path, 'w') as f:
+                        f.write(beacon_content)
+                    logging.info(f"[deep-cleanup] Updated HostInfo.ini beacon with new IP {new_ip}")
+            except Exception as e:
+                logging.warning(f"[deep-cleanup] Beacon update failed: {e}")
+            # 5. Recreate share (safety)
             try:
                 remove_and_recreate_share(share_name)
             except Exception as e:
                 logging.warning(f"[deep-cleanup] Share recreation error: {e}")
-            # 5. Store new credentials
+            # 6. Store new credentials
             try:
                 if username and password:
                     _store_creds_in_cmdkey(new_ip, username, password)
                     logging.info(f"[deep-cleanup] Stored credentials for {username}@{new_ip}")
             except Exception as e:
                 logging.warning(f"[deep-cleanup] Credential store failed: {e}")
-            # 6. Probe UNC root & working folder
+            # 7. Probe UNC root & working folder
             try:
                 if unc_root:
                     ensure_smb_session_cached(unc_root)
