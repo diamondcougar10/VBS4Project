@@ -13630,7 +13630,7 @@ class DronePanel(tk.Frame):
                         font=("Helvetica", 18),
                         bg="#444444",
                         fg="#888888",
-                        width=15,
+                        width=19,
                         height=2,
                         state="disabled",
                         bd=0,
@@ -13638,14 +13638,14 @@ class DronePanel(tk.Frame):
                         relief="flat"
                     )
                 else:
-                    # Active button (FPU column, tables 2-6)
+                    # Active button (FPU column, tables 2-5)
                     btn = tk.Button(
                         col_frame,
                         text=btn_text,
                         font=("Helvetica", 18),
                         bg="#555555",
                         fg="white",
-                        width=15,
+                        width=19,
                         height=2,
                         command=lambda num=btn_num: self.on_fpu_button_click(num),
                         bd=0,
@@ -13721,17 +13721,63 @@ class TableDetailPanel(tk.Frame):
             bg="#2B2B2B",
             fg="white"
         )
-        title_label.pack(pady=(0, 20))
+        title_label.pack(pady=(0, 5))
         
         # Main content area (left controls + right map)
         content_area = tk.Frame(content_frame, bg="#2B2B2B")
-        content_area.pack(expand=True, fill="both", pady=20)
+        content_area.pack(expand=True, fill="both", pady=(0, 5))
         
         # Left side - controls
-        left_frame = tk.Frame(content_area, bg="#2B2B2B")
-        left_frame.pack(side="left", fill="both", expand=False, padx=(0, 20))
+        left_frame = tk.Frame(content_area, bg="#2B2B2B", width=500)
+        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left_frame.pack_propagate(False)
         
-        # Test Requirements text box
+        # Day/Night buttons at the top
+        buttons_label = tk.Label(
+            left_frame,
+            text="Launch Options:",
+            font=("Helvetica", 14, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        buttons_label.pack(anchor="w", pady=(0, 5))
+        
+        buttons_container = tk.Frame(left_frame, bg="#2B2B2B")
+        buttons_container.pack(fill="x", pady=(0, 10))
+        
+        day_button = tk.Button(
+            buttons_container,
+            text="Day",
+            font=("Helvetica", 16, "bold"),
+            bg="#4A7C59",
+            fg="white",
+            width=15,
+            height=2,
+            command=lambda: self.launch_mission("Day"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        day_button.pack(side="left", padx=(0, 10))
+        add_button_hover_effect(day_button, normal_bg="#4A7C59", hover_bg="#5A8C69")
+        
+        night_button = tk.Button(
+            buttons_container,
+            text="Night",
+            font=("Helvetica", 16, "bold"),
+            bg="#3B4A7C",
+            fg="white",
+            width=15,
+            height=2,
+            command=lambda: self.launch_mission("Night"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        night_button.pack(side="left")
+        add_button_hover_effect(night_button, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
+        
+        # Test Requirements text box (read-only, large and filling)
         test_req_label = tk.Label(
             left_frame,
             text="Test Requirements:",
@@ -13741,69 +13787,40 @@ class TableDetailPanel(tk.Frame):
         )
         test_req_label.pack(anchor="w", pady=(0, 5))
         
+        # Create frame for text box with scrollbar
+        text_frame = tk.Frame(left_frame, bg="#2B2B2B")
+        text_frame.pack(fill="both", expand=True)
+        
+        # Create scrollbar
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side="right", fill="y")
+        
         self.test_req_text = tk.Text(
-            left_frame,
-            width=50,
-            height=10,
-            font=("Courier", 10),
+            text_frame,
+            font=("Arial", 11, "bold"),
             bg="#3B3B3B",
             fg="white",
-            insertbackground="white",
+            wrap="word",
             relief="solid",
-            bd=1
+            bd=1,
+            state="normal",
+            yscrollcommand=scrollbar.set
         )
-        self.test_req_text.pack(pady=(0, 20))
+        self.test_req_text.pack(side="left", fill="both", expand=True)
         
-        # Default test requirements for this table
-        default_test_req = f"Test requirements for Table {table_num}:\n\n"
-        default_test_req += "Edit as needed before launching..."
-        self.test_req_text.insert("1.0", default_test_req)
+        # Configure scrollbar
+        scrollbar.config(command=self.test_req_text.yview)
         
-        # Day/Night buttons
-        buttons_label = tk.Label(
-            left_frame,
-            text="Launch Options:",
-            font=("Helvetica", 14, "bold"),
-            bg="#2B2B2B",
-            fg="white"
-        )
-        buttons_label.pack(anchor="w", pady=(0, 10))
+        # Insert test requirements based on table number
+        self._load_test_requirements(table_num)
         
-        day_button = tk.Button(
-            left_frame,
-            text="Day",
-            font=("Helvetica", 16, "bold"),
-            bg="#4A7C59",
-            fg="white",
-            width=20,
-            height=2,
-            command=lambda: self.launch_mission("Day"),
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        day_button.pack(pady=5)
-        add_button_hover_effect(day_button, normal_bg="#4A7C59", hover_bg="#5A8C69")
-        
-        night_button = tk.Button(
-            left_frame,
-            text="Night",
-            font=("Helvetica", 16, "bold"),
-            bg="#3B4A7C",
-            fg="white",
-            width=20,
-            height=2,
-            command=lambda: self.launch_mission("Night"),
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        night_button.pack(pady=5)
-        add_button_hover_effect(night_button, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
+        # Make read-only
+        self.test_req_text.config(state="disabled")
         
         # Right side - map display
-        right_frame = tk.Frame(content_area, bg="#2B2B2B")
+        right_frame = tk.Frame(content_area, bg="#2B2B2B", width=500)
         right_frame.pack(side="left", fill="both", expand=True)
+        right_frame.pack_propagate(False)
         
         map_label = tk.Label(
             right_frame,
@@ -13831,8 +13848,86 @@ class TableDetailPanel(tk.Frame):
             highlightthickness=0,
             relief="flat"
         )
-        back_button.pack(pady=(20, 0))
+        back_button.pack(pady=(10, 0))
         add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
+    
+    def _load_test_requirements(self, table_num):
+        """Load test requirements text for the specified table."""
+        requirements = {
+            2: """TABLE II, PRE-FLIGHT SIMULATIONS TASK, CONDITIONS, AND STANDARD
+
+TASK
+DELIVER payload against a stationary or moving threat following the approved MISSION PLAN.
+
+CONDITIONS
+Given the following:
+• Simulation system that adequately replicates:
+  • Fully mission capable equipment, SUAS, optic(s).
+  • Ground control station functionality.
+• Test and evaluation criteria as listed in TC 3-20.32-113.
+• A series of ten mission profiles that replicate:
+  • Specified targetry.
+  • Restricted operations zone (ROZ) in place.
+  • Approved mission plan.
+• Appropriate checklists and grade slip for the type of SUAS employed.
+• List of Commander's Critical Information Requirements (CCIR).
+
+STANDARD
+As appropriate for the SUAS employed, the operator/crew must:
+• Successfully navigate the designated corridors at the specified altitude and speed.
+• Correctly identify the threat stated in the conduct of fire from the mission commander.
+• Simulated:
+  • Arming the payload or munition as directed.
+  • Engage the threat by:
+    • Taking a snapshot prior to payload execution.
+    • Announce the appropriate crew response(s).
+• Achieve the required simulated effects for the threat presented.
+• Provide necessary reports to the MISSION COMMANDER.
+• Return to Home as directed without losing control of the SUAS (except for STRIKE IMPACT SUAS).
+
+Legend
+SUAS - small unmanned aircraft system; TC - training circular""",
+            3: """TABLE III, DRILLS TASK, CONDITIONS, AND STANDARD
+
+TASK
+DELIVER payload against a stationary or moving threat following the approved MISSION PLAN.
+
+CONDITIONS
+Given the following in an URBAN ENVIRONMENT:
+• Fully mission capable equipment, SUAS, optic(s).
+• Inert, blank, or training munition (as appropriate).
+• Test and evaluation criteria as listed in TC 3-20.32-113.
+• An authorized primary training facility with:
+  • Specified targetry.
+  • Restricted operations zone (ROZ) in place.
+  • Approved mission plan.
+• Appropriate checklists and grade slip for the type of SUAS employed.
+• List of Commander's Critical Information Requirements (CCIR).
+
+STANDARD
+As appropriate for the SUAS employed, the operator/crew must:
+• Successfully navigate the designated corridors at the specified altitude and speed.
+• Correctly identify the threat stated in the conduct of fire from the mission commander.
+• Simulate arming the payload or munition as directed.
+• Engage the threat by:
+  • Taking a snapshot prior to payload execution.
+  • Announce the appropriate crew response(s).
+  • Achieve the required effects for the threat presented.
+• Provide necessary reports to the MISSION COMMANDER.
+• Return to Home with > 15% battery remaining (except for STRIKE IMPACT SUAS).
+
+Legend
+% - percent; SUAS - small unmanned aircraft system""",
+            4: f"Test requirements for Table {table_num}:\n\nRequirements to be added...",
+            5: f"Test requirements for Table {table_num}:\n\nRequirements to be added...",
+            6: f"Test requirements for Table {table_num}:\n\nRequirements to be added..."
+        }
+        
+        # Get requirements or default text
+        req_text = requirements.get(table_num, f"Test requirements for Table {table_num}:\n\nRequirements not available.")
+        
+        # Insert text with proper formatting
+        self.test_req_text.insert("1.0", req_text)
     
     def load_map_image(self, parent_frame):
         """Load and display the map PNG for this table."""
@@ -13842,8 +13937,8 @@ class TableDetailPanel(tk.Frame):
             if os.path.exists(map_path):
                 # Load image
                 img = Image.open(map_path)
-                # Resize to fit (max 800x600)
-                img.thumbnail((800, 600), Image.Resampling.LANCZOS)
+                # Resize to fit (max 1000x750)
+                img.thumbnail((1000, 750), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 
                 # Display image
