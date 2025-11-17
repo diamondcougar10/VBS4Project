@@ -7293,6 +7293,7 @@ class MainApp(tk.Tk):
             'VBS4': 'VBS4 / BlueIG',
             'OneClick': 'One-Click Terrain',
             'BVI': 'BVI',
+            'Drone': 'Sim Training',
             'Settings': 'Settings',
             'Tutorials': 'Tutorials  ❓',
             'Credits': 'Credits',
@@ -7348,8 +7349,8 @@ class MainApp(tk.Tk):
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
             ('OneClick', 'One-Click'),
+            ('Drone',    'Sim Training'),  # directly under One-Click
             ('BVI',      'BVI'),
-            ('Drone',    'Drone'),
             ('Settings', 'Settings'),
             ('Tutorials','?'),
             ('Credits',  'Credits'),
@@ -13581,7 +13582,7 @@ class DronePanel(tk.Frame):
         # Title
         title_label = tk.Label(
             content_frame,
-            text="DRONE CONTROL",
+            text="SIM TRAINING",
             font=("Helvetica", 32, "bold"),
             bg="#2B2B2B",
             fg="white"
@@ -13620,7 +13621,7 @@ class DronePanel(tk.Frame):
             
             # Six buttons for this column
             for btn_num in range(1, 7):
-                btn_text = f"TBL {btn_num}"
+                btn_text = f"Table {btn_num}"
                 
                 # Disable Table 1 (no data available)
                 btn_disabled = is_disabled or btn_num == 1
@@ -13837,21 +13838,21 @@ class TableDetailPanel(tk.Frame):
         # Load and display map image
         self.load_map_image(right_frame)
         
-        # Back button
+        # Back button (top-right near quick-access icons)
         back_button = tk.Button(
-            content_frame,
-            text="Back to Drone Control",
-            font=("Helvetica", 18),
+            self,
+            text="Back",
+            font=("Helvetica", 14, "bold"),
             bg="#444444",
             fg="white",
-            width=25,
-            height=2,
+            width=10,
+            height=1,
             command=self.close_callback,
             bd=0,
             highlightthickness=0,
             relief="flat"
         )
-        back_button.pack(pady=(10, 0))
+        back_button.place(relx=1.0, x=-150, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
     
     def _load_test_requirements(self, table_num):
