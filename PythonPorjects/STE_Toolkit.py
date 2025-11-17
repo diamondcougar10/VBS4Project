@@ -784,6 +784,15 @@ class SplashScreen(tk.Toplevel):
         
         # Add failsafe close: hard ceiling of 10 seconds
         self.after(int(10_000), lambda: (None if self._closing else self.close()))
+        
+        # Detect Single Use Mode early during splash
+        try:
+            detect_and_set_single_use_mode()
+            if is_single_use_mode():
+                self.set_message("Starting in Single Use Mode (No Network)")
+        except Exception as e:
+            logging.warning(f"[splash] Failed to detect Single Use Mode: {e}")
+        
         self.deiconify()
         self._fade_in()
         
@@ -1154,6 +1163,81 @@ def get_primary_ipv4() -> str:
 
 NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
 
+def network_available_fast() -> bool:
+    """Return True if any non-loopback network interface is up.
+    
+    Uses psutil if available; falls back to a simple DNS probe. Designed to
+    return within a few milliseconds and avoid any SMB/UNC access.
+    """
+    try:
+        import psutil  # type: ignore
+        for name, stats in psutil.net_if_stats().items():
+            if stats.isup and not name.lower().startswith(("lo", "loopback")):
+                return True
+    except Exception:
+        pass
+    # Fallback: very fast DNS resolution test (no packets sent if offline)
+    try:
+        socket.gethostbyname("localhost")  # always exists
+        # Check we can resolve a public host; failures return quickly when offline
+        socket.gethostbyname("msftconnecttest.com")
+        return True
+    except Exception:
+        return False
+
+# =============================================================================
+# SINGLE USE MODE - Automatic offline/standalone operation
+# =============================================================================
+_SINGLE_USE_MODE = True  # Auto-detected at startup when no network/host available
+
+def is_single_use_mode() -> bool:
+    """Return True if running in Single Use Mode (standalone, no network/fusers)."""
+    return _SINGLE_USE_MODE
+
+def enable_single_use_mode() -> None:
+    """Enable Single Use Mode - disables all network checks, fusers, and share operations."""
+    global _SINGLE_USE_MODE
+    _SINGLE_USE_MODE = True
+    logging.info("[SINGLE USE MODE] Enabled - All network/fuser operations bypassed")
+
+def detect_and_set_single_use_mode() -> None:
+    """Auto-detect if we should run in Single Use Mode (no network or host PC)."""
+    try:
+        # DEV OVERRIDE: Check config.ini [General] force_single_use_mode for manual control
+        force_single_use = config.get("General", "force_single_use_mode", fallback="").lower()
+        if force_single_use == "true":
+            enable_single_use_mode()
+            logging.info("[SINGLE USE MODE] Force-enabled via config.ini (dev override)")
+            return
+        elif force_single_use == "false":
+            logging.info("[SINGLE USE MODE] Force-disabled via config.ini (dev override)")
+            return
+        
+        # Check 1: Is any network interface up?
+        if not network_available_fast():
+            enable_single_use_mode()
+            return
+        
+        # Check 2: Can we find a host IP quickly?
+        ip = config.get("Offline", "host_ip", fallback="").strip()
+        if not ip:
+            # Try quick discovery with very tight timeout
+            ip = discover_host_ip_quick(timeout_per_host=0.3)
+        
+        if not ip:
+            enable_single_use_mode()
+            return
+            
+        # Check 3: Can we reach the configured host?
+        if not quick_ping_check(ip, timeout=0.5):
+            enable_single_use_mode()
+            return
+            
+        logging.info(f"[SINGLE USE MODE] Disabled - Host detected at {ip}")
+    except Exception as e:
+        logging.warning(f"[SINGLE USE MODE] Error during detection, enabling as fallback: {e}")
+        enable_single_use_mode()
+
 # =============================================================================
 # SINGLETON / PROCESS GUARD
 # =============================================================================
@@ -1172,13 +1256,16 @@ def acquire_singleton(name: str = 'STE_Toolkit.lock') -> bool:
             _lock_file = None
         return False
     atexit.register(release_singleton)
-    # Register fuser cleanup on exit
-    atexit.register(kill_all_fusers_on_exit)
-    # Register presence service cleanup on exit
-    atexit.register(stop_presence_service)
-    # Stop UDP beacons/listeners on exit
-    atexit.register(stop_host_beacon)
-    atexit.register(stop_user_listener)
+    # Register fuser cleanup on exit (skip in Single Use Mode)
+    if not is_single_use_mode():
+        atexit.register(kill_all_fusers_on_exit)
+    # Register presence service cleanup on exit (skip in Single Use Mode)
+    if not is_single_use_mode():
+        atexit.register(stop_presence_service)
+    # Stop UDP beacons/listeners on exit (skip in Single Use Mode)
+    if not is_single_use_mode():
+        atexit.register(stop_host_beacon)
+        atexit.register(stop_user_listener)
     return True
 
 def release_singleton() -> None:
@@ -1339,6 +1426,8 @@ def auto_connect_shared_working_folder() -> bool:
     - Tries to connect silently to the share root and verifies the WorkingFuser path.
     Returns True on success, False otherwise.
     """
+    if is_single_use_mode():
+        return False
     try:
         o = get_offline_cfg()
         ip = (o.get("host_ip") or "").strip()
@@ -2201,6 +2290,9 @@ def _presence_loop():
 
 def start_presence_service():
     """Start the background heartbeat thread."""
+    if is_single_use_mode():
+        logging.info("[presence] Skipped in Single Use Mode")
+        return
     global _HB_THREAD
     if _HB_THREAD and _HB_THREAD.is_alive():
         return
@@ -3903,6 +3995,21 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     except:
         pass
     
+    # Ultra-fast path in Single Use Mode (dev/offline) - skip all heavy checks.
+    # The UI is built sooner so navigation works immediately even without network.
+    if is_single_use_mode():
+        try:
+            progress("Single Use Mode: fast startup")
+            update_progress(0.5)
+            progress("Skipping environment discovery…")
+            update_progress(0.8)
+            progress("Ready.")
+            update_progress(1.0)
+            logging.info("[warmup] FAST PATH (Single Use Mode) complete")
+        except Exception as e:
+            logging.warning(f"[warmup] fast-path failed: {e}")
+        return
+
     # Read configuration flags for startup behavior
     fast = config.getboolean("General", "fast_startup", fallback=True)
     budget = max(0.3, config.getfloat("General", "path_scan_budget_ms", fallback=900) / 1000.0)
@@ -3972,6 +4079,9 @@ def _background_index_paths():
     Uses larger budgets but still finite to avoid hanging the system.
     """
     try:
+        if is_single_use_mode():
+            logging.info("[indexer] Skipped (Single Use Mode fast path)")
+            return
         # Use larger budgets for background work but still time-bounded
         for label, fn in [
             ("VBS4", lambda: get_vbs4_install_path(time_budget_sec=6, allow_full_drive=True)),
@@ -4469,6 +4579,14 @@ def _kill_seed_fusers(max_wait_s: float = 3.0) -> tuple[bool, list[int]]:
 
 def ready_for_fusers() -> tuple[bool, dict]:
     """Check if environment is ready to launch fusers. Returns (ready, diagnostics)."""
+    # Single Use Mode: treat readiness as False and skip all filesystem/network probes
+    if is_single_use_mode():
+        try:
+            logging.info("[single-use] ready_for_fusers skipped probes (Single Use Mode)")
+        except Exception:
+            pass
+        return False, {"single_use_mode": True, "ready": False}
+
     diag: dict = {}
     # Exe check
     exe = find_fuser_exe()
@@ -4714,6 +4832,13 @@ def start_fuser_instance(idx: int) -> bool:
     - Waits up to 7s for stabilization
     - Retries once on early exit with 2s backoff
     """
+    # Single Use Mode: completely bypass launching any fuser processes
+    if is_single_use_mode():
+        try:
+            logging.info(f"[single-use] start_fuser_instance({idx}) skipped (Single Use Mode)")
+        except Exception:
+            pass
+        return False
     try:
         logging.info(f"[start_fuser_instance] Launching fuser #{idx}")
         
@@ -5034,6 +5159,14 @@ def ensure_fuser_instances(desired: int):
     print("="*80 + "\n")
     logging.info(f"[fuser-scale] ===== ensure_fuser_instances({desired}) called =====")
 
+    # Single Use Mode: skip all scaling logic entirely
+    if is_single_use_mode():
+        try:
+            logging.info(f"[single-use] ensure_fuser_instances({desired}) skipped (Single Use Mode)")
+        except Exception:
+            pass
+        return
+
     # Respect startup skip flag
     if _skip_fuser_enforcement_at_startup:
         logging.info("[fuser-scale] Skipping during startup phase")
@@ -5283,6 +5416,13 @@ def restore_fusers_on_startup():
     fusers without going through ensure_fuser_instances() to avoid the startup
     skip flag that would block normal enforcement.
     """
+    # Single Use Mode: never restore or start fusers
+    if is_single_use_mode():
+        try:
+            logging.info("[single-use] restore_fusers_on_startup skipped (Single Use Mode)")
+        except Exception:
+            pass
+        return
     try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         is_host = is_host_machine()
@@ -5357,6 +5497,14 @@ def enforce_local_fuser_policy():
     
     try:
         logging.info(f"[fuser-policy] enforce_local_fuser_policy() called")
+
+        # Single Use Mode: never enforce policy (no launches / kills)
+        if is_single_use_mode():
+            try:
+                logging.info("[single-use] enforce_local_fuser_policy skipped (Single Use Mode)")
+            except Exception:
+                pass
+            return
         
         # CRITICAL: Block ALL enforcement during startup, regardless of mode
         if _skip_fuser_enforcement_at_startup:
@@ -5572,6 +5720,9 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
 
 def apply_offline_settings() -> None:
     """Apply offline configuration changes and refresh dependent systems."""
+    if is_single_use_mode():
+        logging.info("[apply_offline] Skipped - Single Use Mode active")
+        return
     # Ensure Network.host is set from Offline.host_ip for proper initialization
     try:
         host_ip = config.get("Offline", "host_ip", fallback="").strip()
@@ -5588,26 +5739,29 @@ def apply_offline_settings() -> None:
     enforce_photomesh_settings()
     update_fuser_shared_path()
     
-    # Optional: Seed fuser default when working UNC becomes valid
-    try:
-        wf_unc = working_fuser_unc()
-        if wf_unc and wf_unc.startswith("\\\\"):
-            # Only seed if the UNC is accessible (best effort, don't block UI)
-            def _seed_in_background():
-                try:
-                    if quick_unc_check(wf_unc):
-                        from update_photomesh_config import seed_fuser_default
-                        seed_fuser_default(wf_unc)
-                        logging.info(f"[apply_offline] Background fuser seeding completed for {wf_unc}")
-                    else:
-                        logging.info(f"[apply_offline] UNC not accessible, skipping background seeding: {wf_unc}")
-                except Exception as e:
-                    logging.warning(f"[apply_offline] Background fuser seeding failed: {e}")
-            
-            # Run seeding in background thread to avoid UI blocking
-            run_in_thread(_seed_in_background)
-    except Exception as e:
-        logging.warning(f"[apply_offline] Failed to start background fuser seeding: {e}")
+    # Optional: Seed fuser default when working UNC becomes valid (skip in Single Use Mode)
+    if is_single_use_mode():
+        logging.info("[apply_offline] Fuser seeding skipped - Single Use Mode active")
+    else:
+        try:
+            wf_unc = working_fuser_unc()
+            if wf_unc and wf_unc.startswith("\\\\"):
+                # Only seed if the UNC is accessible (best effort, don't block UI)
+                def _seed_in_background():
+                    try:
+                        if quick_unc_check(wf_unc):
+                            from update_photomesh_config import seed_fuser_default
+                            seed_fuser_default(wf_unc)
+                            logging.info(f"[apply_offline] Background fuser seeding completed for {wf_unc}")
+                        else:
+                            logging.info(f"[apply_offline] UNC not accessible, skipping background seeding: {wf_unc}")
+                    except Exception as e:
+                        logging.warning(f"[apply_offline] Background fuser seeding failed: {e}")
+                
+                # Run seeding in background thread to avoid UI blocking
+                run_in_thread(_seed_in_background)
+        except Exception as e:
+            logging.warning(f"[apply_offline] Failed to start background fuser seeding: {e}")
     
     # Create batch wrappers as a fallback method for reliable fuser launches
     try:
@@ -7292,8 +7446,8 @@ class MainApp(tk.Tk):
             'Main': 'Home',
             'VBS4': 'VBS4 / BlueIG',
             'OneClick': 'One-Click Terrain',
+            'Sim Training': 'Drone Sim Training',
             'BVI': 'BVI',
-            'Drone': 'Sim Training',
             'Settings': 'Settings',
             'Tutorials': 'Tutorials  ❓',
             'Credits': 'Credits',
@@ -7405,11 +7559,13 @@ class MainApp(tk.Tk):
                  bg="#333333", fg="white",
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
-        try:
-            apply_offline_settings()
-        except Exception as exc:
-            logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
-            pass
+        # Skip offline settings in Single Use Mode (no network/fusers)
+        if not is_single_use_mode():
+            try:
+                apply_offline_settings()
+            except Exception as exc:
+                logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
+                pass
 
         # Start by showing "Main"
         self.current = None
@@ -7603,8 +7759,9 @@ class MainApp(tk.Tk):
                 post_ui(lambda: self._finish_warmup(reason="warmup-error"))
         run_in_thread(_run)
         
-        # Schedule background indexer to run after splash is closed
-        self.after(5000, lambda: run_in_thread(_background_index_paths))
+        # Schedule background indexer only if not in Single Use Mode (skip heavy discovery offline)
+        if not is_single_use_mode():
+            self.after(5000, lambda: run_in_thread(_background_index_paths))
 
         # Hard failsafe: ensure splash closes even if warmup stalls (reduced from 9s to 5s)
         def failsafe_check():
@@ -14025,7 +14182,7 @@ Legend
     
     def load_map_image(self, parent_frame):
         """Load and display the map PNG for this table."""
-        map_path = f"C:\\Users\\tifte\\Documents\\GitHub\\VBS4Project\\PythonPorjects\\assets\\maps\\T{self.table_num}Map.png"
+        map_path = _resource_path(os.path.join("assets", "maps", f"T{self.table_num}Map.png"))
         
         try:
             if os.path.exists(map_path):
@@ -14087,7 +14244,7 @@ Legend
         # Build full command
         args = [
             vbs4_path,
-            '"-autoassignside=WEST"',
+            '-autoassignside=WEST',
             '-autostart=0',
             '-forceSimul',
             f'-init=hostMission["{mission_code}"]'
@@ -14387,6 +14544,14 @@ def run_with_splash():
         print("🚀 AUTO-START TRIGGERED after UI ready (6-second delay elapsed)")
         print("="*80 + "\n")
         logging.info("[startup] 🚀 Auto-starting fusers...")
+        # Single Use Mode: skip auto-start entirely
+        if is_single_use_mode():
+            try:
+                logging.info("[single-use] _autostart_fusers skipped (Single Use Mode)")
+            except Exception:
+                pass
+            _skip_fuser_enforcement_at_startup = False
+            return
         try:
             show_info_toast(app, "Starting fusers now…", duration_ms=3000)
         except Exception:
