@@ -13,40 +13,40 @@ This application provides a unified interface for:
 # TABLE OF CONTENTS
 # ============================================================================
 #
-#  1. Memory Optimization Bootstrap
-#  2. Imports
-#  3. Resource Path Resolver
-#  4. Messagebox Safety Wrappers
-#  5. LAN Host Discovery (UDP Beacon)
-#  6. SMB Session Management
-#  7. Splash Screen Class
-#  8. Constants & Globals
-#  9. Logging Configuration
-# 10. Singleton / Process Guard
-# 11. Network Connection Helpers (UNC/SMB)
-# 12. Presence Heartbeat Service
-# 13. Threading Utilities
-# 14. PhotoMesh Progress Parsing
-# 15. Network / Path Helpers
-# 16. VBS4 / BlueIG / BVI Path Resolution
-# 17. Version & Executable Discovery
-# 18. Executable Finder
-# 19. Reality Mesh Link & UNC Resolution
-# 20. Reality Mesh Dataset Helpers
-# 21. Configuration & App Icon Management
-# 22. Background Warmup Tasks
-# 23. Auto-Launch Configuration
-# 24. Fuser Configuration & Control
-# 25. PhotoMesh Fuser Management
-# 26. Settings Helpers (Registry & Toggles)
-# 27. Generic Command Launch Helpers
-# 28. BVI (ARES Manager) Launch
-# 29. UI Assets & Background/Logos
-# 30. Help/Tutorials & Document Openers
-# 31. File Dialog / EXE Selection Helpers
-# 32. Main Application Class (MainApp)
-# 33. UI Panel Classes (MainMenu, VBS4, OneClick, BVI, Settings, etc.)
-# 34. Launcher with Splash
+#  1. Memory Optimization Bootstrap - Runtime configuration for large 3D datasets
+#  2. Imports - Standard library and third-party dependencies
+#  3. Resource Path Resolver - Asset location for bundled executables
+#  4. Messagebox Safety Wrappers - Fullscreen-compatible dialog boxes
+#  5. LAN Host Discovery (UDP Beacon) - Network discovery for distributed fusers
+#  6. SMB Session Management - Windows share credential and connection handling
+#  7. Splash Screen Class - Startup loading screen with branding
+#  8. Constants & Globals - Application-wide configuration values
+#  9. Logging Configuration - File and console logging setup
+# 10. Singleton / Process Guard - Single-instance application enforcement
+# 11. Network Connection Helpers - UNC path testing and SMB connection utilities
+# 12. Presence Heartbeat Service - Distributed PC availability monitoring
+# 13. Threading Utilities - Background task execution framework
+# 14. PhotoMesh Progress Parsing - Real-time terrain processing status extraction
+# 15. Network / Path Helpers - File system and network path manipulation
+# 16. VBS4 / BlueIG / BVI Path Resolution - Simulation executable discovery
+# 17. Version & Executable Discovery - Software version detection and validation
+# 18. Executable Finder - Registry-based application location scanning
+# 19. Reality Mesh Link & UNC Resolution - Photogrammetry dataset path management
+# 20. Reality Mesh Dataset Helpers - 3D terrain data validation and access
+# 21. Configuration & App Icon Management - Settings persistence and UI branding
+# 22. Background Warmup Tasks - Asynchronous initialization for faster startup
+# 23. Auto-Launch Configuration - Registry entries for Windows startup integration
+# 24. Fuser Configuration & Control - Distributed processing node configuration
+# 25. PhotoMesh Fuser Management - Remote fuser deployment and monitoring
+# 26. Settings Helpers - User preferences and system registry integration
+# 27. Generic Command Launch Helpers - External process execution utilities
+# 28. BVI (ARES Manager) Launch - Battlefield visualization interface control
+# 29. UI Assets & Background/Logos - Image loading and display management
+# 30. Help/Tutorials & Document Openers - User documentation access system
+# 31. File Dialog / EXE Selection Helpers - Interactive file selection dialogs
+# 32. Main Application Class - Root window and application lifecycle management
+# 33. UI Panel Classes - Feature-specific interface panels (VBS4, Drone, Settings, etc.)
+# 34. Launcher with Splash - Application entry point and initialization sequence
 #
 # ============================================================================
 
@@ -6331,8 +6331,8 @@ logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png
 prompt_box_image_path = os.path.join(_BUNDLE_DIR, "assets", "promptbox.jpg")
 _cached_bg_photo = None
 _cached_bg_size = (0, 0)
-_PANEL_BG_WIDTH = 1920  # Fixed background width
-_PANEL_BG_HEIGHT = 1080  # Fixed background height
+_PANEL_BG_WIDTH = 1920  # Background canvas width for panel images
+_PANEL_BG_HEIGHT = 1080  # Background canvas height for panel images
 
 def set_background(window, widget=None):
     """Apply a consistent-sized cached background to a widget."""
@@ -7557,7 +7557,7 @@ class MainApp(tk.Tk):
         try:
             if sys.platform == 'win32':
                 # Use START to promote Explorer window to foreground
-                # Note: do NOT use shell=True; call cmd explicitly
+                # Use explicit cmd.exe call for Windows command execution
                 subprocess.Popen(['cmd', '/c', 'start', '', path], close_fds=True)
             else:
                 # macOS/Linux fallbacks
@@ -11026,7 +11026,7 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: creating conn_row frame")
         conn_row = tk.Frame(self, bg="black")
         logging.info("[ui-diag] SettingsPanel: conn_row created, about to grid (removed 'after' param to fix hang)")
-        # BUGFIX: Changed to row=3 to prevent overlap with frow (Local fusers in row=2)
+        # Position remote fuser UI widgets in row=3 (below local fusers in row=2)
         conn_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         logging.info("[ui-diag] SettingsPanel: conn_row gridded")
 
@@ -12830,7 +12830,7 @@ class SettingsPanel(tk.Frame):
             return
         
         try:
-            # NOTE: We no longer remove/recreate the SMB share on IP change.
+            # Perform deep cleanup when host IP changes to ensure clean network state
             # Windows shares are interface-agnostic; they automatically become
             # reachable via any active IP on the host. Deleting/recreating the
             # share here caused UI freezes (blocking subprocess + sleep) and
