@@ -13872,7 +13872,7 @@ class TableDetailPanel(tk.Frame):
         
         # Content frame with padding
         content_frame = tk.Frame(main_container, bg="#2B2B2B")
-        content_frame.pack(expand=True, fill="both", padx=40, pady=40)
+        content_frame.pack(expand=True, fill="both", padx=20, pady=20)
         
         # Title
         title_label = tk.Label(
@@ -13888,10 +13888,14 @@ class TableDetailPanel(tk.Frame):
         content_area = tk.Frame(content_frame, bg="#2B2B2B")
         content_area.pack(expand=True, fill="both", pady=(0, 5))
         
-        # Left side - controls
-        left_frame = tk.Frame(content_area, bg="#2B2B2B", width=500)
-        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        left_frame.pack_propagate(False)
+        # Configure even 50/50 split
+        content_area.grid_columnconfigure(0, weight=1, uniform="group1")
+        content_area.grid_columnconfigure(1, weight=1, uniform="group1")
+        content_area.grid_rowconfigure(0, weight=1)
+        
+        # Left side - controls (50% width)
+        left_frame = tk.Frame(content_area, bg="#2B2B2B")
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(40, 20))
         
         # Day/Night buttons at the top
         buttons_label = tk.Label(
@@ -13938,7 +13942,7 @@ class TableDetailPanel(tk.Frame):
         night_button.pack(side="left")
         add_button_hover_effect(night_button, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
         
-        # Test Requirements text box (read-only, large and filling)
+        # Test Requirements table (formatted like the image)
         test_req_label = tk.Label(
             left_frame,
             text="Test Requirements:",
@@ -13948,40 +13952,16 @@ class TableDetailPanel(tk.Frame):
         )
         test_req_label.pack(anchor="w", pady=(0, 5))
         
-        # Create frame for text box with scrollbar
-        text_frame = tk.Frame(left_frame, bg="#2B2B2B")
-        text_frame.pack(fill="both", expand=True)
+        # Create simple frame for table (no scrollbar)
+        table_frame = tk.Frame(left_frame, bg="#2B2B2B")
+        table_frame.pack(fill="both", expand=True)
         
-        # Create scrollbar
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side="right", fill="y")
+        # Build the formatted table
+        self._build_requirements_table(table_frame, table_num)
         
-        self.test_req_text = tk.Text(
-            text_frame,
-            font=("Arial", 11, "bold"),
-            bg="#3B3B3B",
-            fg="white",
-            wrap="word",
-            relief="solid",
-            bd=1,
-            state="normal",
-            yscrollcommand=scrollbar.set
-        )
-        self.test_req_text.pack(side="left", fill="both", expand=True)
-        
-        # Configure scrollbar
-        scrollbar.config(command=self.test_req_text.yview)
-        
-        # Insert test requirements based on table number
-        self._load_test_requirements(table_num)
-        
-        # Make read-only
-        self.test_req_text.config(state="disabled")
-        
-        # Right side - map display
-        right_frame = tk.Frame(content_area, bg="#2B2B2B", width=500)
-        right_frame.pack(side="left", fill="both", expand=True)
-        right_frame.pack_propagate(False)
+        # Right side - map display (50% width)
+        right_frame = tk.Frame(content_area, bg="#2B2B2B")
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(20, 40))
         
         map_label = tk.Label(
             right_frame,
@@ -14012,42 +13992,18 @@ class TableDetailPanel(tk.Frame):
         back_button.place(relx=1.0, x=-150, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
     
-    def _load_test_requirements(self, table_num):
-        """Load test requirements text for the specified table."""
-        requirements = {
-            2: """TABLE II, PRE-FLIGHT SIMULATIONS TASK, CONDITIONS, AND STANDARD
-
-TASK
-DELIVER payload against a stationary or moving threat following the approved MISSION PLAN.
-
-CONDITIONS
-Given the following:
-• Simulation system that adequately replicates:
-  • Fully mission capable equipment, SUAS, optic(s).
-  • Ground control station functionality.
-• Test and evaluation criteria as listed in TC 3-20.32-113.
-• A series of ten mission profiles that replicate:
-  • Specified targetry.
-  • Restricted operations zone (ROZ) in place.
-  • Approved mission plan.
-• Appropriate checklists and grade slip for the type of SUAS employed.
-• List of Commander's Critical Information Requirements (CCIR).
-
-STANDARD
-As appropriate for the SUAS employed, the operator/crew must:
-• Successfully navigate the designated corridors at the specified altitude and speed.
-• Correctly identify the threat stated in the conduct of fire from the mission commander.
-• Simulated:
-  • Arming the payload or munition as directed.
-  • Engage the threat by:
-    • Taking a snapshot prior to payload execution.
-    • Announce the appropriate crew response(s).
-• Achieve the required simulated effects for the threat presented.
-• Provide necessary reports to the MISSION COMMANDER.
-• Return to Home as directed without losing control of the SUAS (except for STRIKE IMPACT SUAS).
-
-Legend
-SUAS - small unmanned aircraft system; TC - training circular""",
+    def _build_requirements_table(self, parent, table_num):
+        """Build a formatted table layout for test requirements."""
+        
+        # Define table data structure: (row_label, row_content)
+        table_data = {
+            2: [
+                ("TABLE II, DRILLS\nTASK, CONDITIONS, AND STANDARD", None),  # Title row (full width)
+                ("TASK", "DELIVER payload against a stationary or moving threat following the approved MISSION PLAN."),
+                ("CONDITIONS", "Given the following:\n• Simulation system that adequately replicates:\n  • Fully mission capable equipment, SUAS, optic(s).\n  • Ground control station functionality.\n• Test and evaluation criteria as listed in TC 3-20.32-113.\n• A series of ten mission profiles that replicate:\n  • Specified targetry.\n  • Restricted operations zone (ROZ) in place.\n  • Approved mission plan.\n• Appropriate checklists and grade slip for the type of SUAS employed.\n• List of Commander's Critical Information Requirements (CCIR)."),
+                ("STANDARD", "As appropriate for the SUAS employed, the operator/crew must: Successfully navigate the designated corridors at the specified\n• altitude and speed.\nCorrectly identify the threat stated in the conduct of fire from the\n• mission commander.\n• Simulate arming the payload or munition as directed.\nEngage the threat by:\n• Taking a snapshot prior to payload execution.\nAnnounce the appropriate crew response(s).\n• Achieve the required effects for the threat presented.\nProvide necessary reports to the MISSION COMMANDER.\nReturn to Home with > 15% battery remaining (except for STRIKE IMPACT SUAS)."),
+                ("Legend", "% - percent; SUAS - small unmanned aircraft system")
+            ],
             3: """TABLE III, DRILLS TASK, CONDITIONS, AND STANDARD
 
 TASK
@@ -14171,14 +14127,79 @@ As appropriate for the SUAS employed, the operator/crew must:
 • Return to Home with > 15% battery remaining (except for STRIKE IMPACT SUAS).
 
 Legend
-> - less than; % - percent; SUAS - small unmanned aircraft system; TC - training circular"""
+> - less than; % - percent; SUAS - small unmanned aircraft system; TC - training circular""",
+            3: [
+                ("TABLE III, DRILLS\nTASK, CONDITIONS, AND STANDARD", None),
+                ("TASK", "DELIVER payload against a stationary or moving threat following the approved MISSION PLAN."),
+                ("CONDITIONS", "Given the following in an URBAN ENVIRONMENT:\n• Fully mission capable equipment, SUAS, optic(s).\n• Inert, blank, or training munition (as appropriate).\n• Test and evaluation criteria as listed in TC 3-20.32-113.\nAn authorized primary training facility with:\n• Specified targetry.\nRestricted operations zone (ROZ) in place.\n• Approved mission plan.\nAppropriate checklists and grade slip for the type of SUAS\n• employed.\nList of Commander's Critical Information Requirements (CCIR)."),
+                ("STANDARD", "As appropriate for the SUAS employed, the operator/crew must: Successfully navigate the designated corridors at the specified altitude and speed.\nCorrectly identify the threat stated in the conduct of fire from the mission commander.\n• Simulate arming the payload or munition as directed.\nEngage the threat by:\n• Taking a snapshot prior to payload execution.\nAnnounce the appropriate crew response(s).\n• Achieve the required effects for the threat presented.\nProvide necessary reports to the MISSION COMMANDER.\nReturn to Home with> 15% battery remaining (except for STRIKE IMPACT SUAS)."),
+                ("Legend", "% - percent; SUAS - small unmanned aircraft system")
+            ]
         }
         
-        # Get requirements or default text
-        req_text = requirements.get(table_num, f"Test requirements for Table {table_num}:\n\nRequirements not available.")
+        # Get table data for this table number
+        rows = table_data.get(table_num, [("No data available", None)])
         
-        # Insert text with proper formatting
-        self.test_req_text.insert("1.0", req_text)
+        # Create table with borders
+        for i, (label, content) in enumerate(rows):
+            if content is None:
+                # Title row - full width
+                title_frame = tk.Frame(parent, bg="#3A3A3A", relief="solid", bd=2)
+                title_frame.pack(fill="x", padx=2, pady=2)
+                
+                title_label = tk.Label(
+                    title_frame,
+                    text=label,
+                    font=("Arial", 11, "bold"),
+                    bg="#3A3A3A",
+                    fg="white",
+                    justify="left",
+                    anchor="w",
+                    padx=10,
+                    pady=8
+                )
+                title_label.pack(fill="x")
+            else:
+                # Regular row with label and content
+                row_frame = tk.Frame(parent, bg="#2B2B2B", relief="solid", bd=2)
+                row_frame.pack(fill="both", expand=True, padx=2, pady=1)
+                
+                # Configure grid weights - balance columns more evenly
+                row_frame.grid_columnconfigure(0, weight=0, minsize=130)
+                row_frame.grid_columnconfigure(1, weight=1)
+                
+                # Label cell (left side)
+                label_cell = tk.Label(
+                    row_frame,
+                    text=label,
+                    font=("Arial", 11, "bold") if label != "Legend" else ("Arial", 10, "italic"),
+                    bg="#3A3A3A" if label != "Legend" else "#2B2B2B",
+                    fg="white" if label != "Legend" else "#AAAAAA",
+                    justify="left",
+                    anchor="nw",
+                    padx=8,
+                    pady=8,
+                    wraplength=120
+                )
+                label_cell.grid(row=0, column=0, sticky="nsew")
+                
+                # Content cell (right side)
+                content_cell = tk.Label(
+                    row_frame,
+                    text=content,
+                    font=("Arial", 10) if label != "Legend" else ("Arial", 9, "italic"),
+                    bg="#2B2B2B",
+                    fg="white" if label != "Legend" else "#AAAAAA",
+                    justify="left",
+                    anchor="nw",
+                    padx=8,
+                    pady=8,
+                    wraplength=520
+                )
+                content_cell.grid(row=0, column=1, sticky="nsew")
+                
+                # Make row expand vertically
+                row_frame.grid_rowconfigure(0, weight=1)
     
     def load_map_image(self, parent_frame):
         """Load and display the map PNG for this table."""
@@ -14229,9 +14250,6 @@ Legend
     
     def launch_mission(self, time_of_day):
         """Launch VBS4 with mission parameters."""
-        # Get test requirements from text box
-        test_req = self.test_req_text.get("1.0", "end-1c").strip()
-        
         # Build command based on table number and time of day
         mission_code = f"T{self.table_num}{time_of_day}"
         
@@ -14247,7 +14265,6 @@ Legend
         try:
             logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {time_of_day}")
             logging.info(f"[DroneControl] Command: {cmd}")
-            logging.info(f"[DroneControl] Test Requirements: {test_req}")
             
             # Launch VBS4 using shell to preserve exact command formatting
             subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
