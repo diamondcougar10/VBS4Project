@@ -8056,6 +8056,17 @@ class MainApp(tk.Tk):
             self.header_subtitle.config(text=subtitle)
         except Exception:
             pass
+        
+        # Hide canvas background image for Drone panel (solid color only)
+        if name == 'Drone':
+            if hasattr(self, '_bg_image_id') and self._bg_image_id:
+                self.viewport_canvas.itemconfig(self._bg_image_id, state='hidden')
+            self.viewport_canvas.configure(bg='#2B2B2B')
+        else:
+            if hasattr(self, '_bg_image_id') and self._bg_image_id:
+                self.viewport_canvas.itemconfig(self._bg_image_id, state='normal')
+            self.viewport_canvas.configure(bg='black')
+        
         self._scroll_active = False
         if hasattr(self, '_scroll_timer') and self._scroll_timer:
             self.after_cancel(self._scroll_timer)
@@ -13608,7 +13619,10 @@ class DronePanel(tk.Frame):
             for btn_num in range(1, 7):
                 btn_text = f"TBL {btn_num}"
                 
-                if is_disabled:
+                # Disable Table 1 (no data available)
+                btn_disabled = is_disabled or btn_num == 1
+                
+                if btn_disabled:
                     # Grayed out button
                     btn = tk.Button(
                         col_frame,
@@ -13624,7 +13638,7 @@ class DronePanel(tk.Frame):
                         relief="flat"
                     )
                 else:
-                    # Active button (FPU column)
+                    # Active button (FPU column, tables 2-6)
                     btn = tk.Button(
                         col_frame,
                         text=btn_text,
