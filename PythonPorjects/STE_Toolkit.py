@@ -8307,8 +8307,8 @@ class MainApp(tk.Tk):
         except Exception:
             pass
         
-        # Hide canvas background image for Drone panel (solid color only)
-        if name == 'Drone':
+        # Hide canvas background image for SUAS Training panel (solid color only)
+        if name == 'SUAS Training':
             if hasattr(self, '_bg_image_id') and self._bg_image_id:
                 self.viewport_canvas.itemconfig(self._bg_image_id, state='hidden')
             self.viewport_canvas.configure(bg='#2B2B2B')
