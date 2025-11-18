@@ -11,6 +11,9 @@ REM   - SPEC_FILE: Path to your .spec file
 REM   - ISS_FILE: Path to your Inno Setup script
 REM ============================================================================
 
+REM Change to the directory where this script is located
+cd /d "%~dp0"
+
 setlocal enabledelayedexpansion
 
 REM --- Configuration ---
@@ -96,13 +99,14 @@ echo [5/7] Running PyInstaller...
 if exist "%SPEC_FILE%" (
     echo Using spec file: %SPEC_FILE%
     python -m PyInstaller --clean --noconfirm "%SPEC_FILE%"
+    if errorlevel 1 (
+        echo ERROR: PyInstaller build failed
+        pause
+        exit /b 1
+    )
 ) else (
     echo ERROR: Spec file not found: %SPEC_FILE%
-    exit /b 1
-)
-
-if errorlevel 1 (
-    echo ERROR: PyInstaller build failed
+    pause
     exit /b 1
 )
 
@@ -142,13 +146,38 @@ if not exist "%RELEASES_DIR%" mkdir "%RELEASES_DIR%"
 
 REM --- Run Inno Setup ---
 echo.
-echo [7/7] Running Inno Setup...
-"!ISCC!" "%ISS_FILE%" /DMyAppVersion=!VERSION! /DSourceDir="%CD%\%DIST_DIR%\%APP_NAME%" /O"%CD%\%RELEASES_DIR%"
+echo [7/7] Running Inno Setup (this may take 5-10 minutes)...
+echo.
+echo IMPORTANT: Please be patient - compression takes time!
+echo Started at: %TIME%
+echo.
 
-if errorlevel 1 (
-    echo ERROR: Inno Setup compilation failed
+REM Run Inno Setup with direct console output
+"!ISCC!" "%ISS_FILE%" /DMyAppVersion=!VERSION! /DSourceDir="%CD%\%DIST_DIR%\%APP_NAME%" /O"%CD%\%RELEASES_DIR%"
+set ISCC_EXIT_CODE=!ERRORLEVEL!
+
+echo.
+echo Build ended at %TIME% with exit code !ISCC_EXIT_CODE!
+echo.
+
+if !ISCC_EXIT_CODE! NEQ 0 (
+    echo.
+    echo ============================================================================
+    echo ERROR: Inno Setup compilation failed with error code !ISCC_EXIT_CODE!
+    echo ============================================================================
+    echo.
+    echo Troubleshooting:
+    echo   1. Review the output above for error messages
+    echo   2. Verify all source files exist in dist\%APP_NAME%
+    echo   3. Ensure BUILDS directory is writable
+    echo   4. Try running with administrator privileges
+    echo.
+    pause
     exit /b 1
 )
+
+echo.
+echo Inno Setup completed successfully!
 
 REM --- Success ---
 echo.
@@ -157,7 +186,9 @@ echo BUILD SUCCESSFUL!
 echo ============================================================================
 echo Version: !VERSION!
 echo Installer: %RELEASES_DIR%\STE_Toolkit_Setup.exe
+echo Completed at: %TIME%
 echo ============================================================================
 echo.
+pause
 
 exit /b 0
