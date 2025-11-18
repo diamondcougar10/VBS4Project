@@ -1186,57 +1186,108 @@ def network_available_fast() -> bool:
         return False
 
 # =============================================================================
-# SINGLE USE MODE - Automatic offline/standalone operation
+# SINGLE USE MODE - Automatic offline/standalone operation (User PCs only)
 # =============================================================================
-_SINGLE_USE_MODE = True  # Auto-detected at startup when no network/host available
+# NOTE: Previously defaulted to True. We keep default True so legacy code that
+# checks early still sees a conservative standalone assumption until detection runs.
+_SINGLE_USE_MODE = True  # Runtime state
+_SINGLE_USE_MANUAL_DISABLED = False  # User pressed "Disable Single Use Mode" in settings for this session
 
 def is_single_use_mode() -> bool:
     """Return True if running in Single Use Mode (standalone, no network/fusers)."""
-    return _SINGLE_USE_MODE
+    return bool(_SINGLE_USE_MODE)
 
-def enable_single_use_mode() -> None:
+def enable_single_use_mode(reason: str = "") -> None:
     """Enable Single Use Mode - disables all network checks, fusers, and share operations."""
     global _SINGLE_USE_MODE
     _SINGLE_USE_MODE = True
-    logging.info("[SINGLE USE MODE] Enabled - All network/fuser operations bypassed")
+    msg = "[SINGLE USE MODE] Enabled"
+    if reason:
+        msg += f" ({reason})"
+    logging.info(msg + " - All network/fuser operations bypassed")
+
+def disable_single_use_mode(manual: bool = False) -> None:
+    """Disable Single Use Mode. If manual=True, set override so auto-detect won't re‑enable in this session."""
+    global _SINGLE_USE_MODE, _SINGLE_USE_MANUAL_DISABLED
+    _SINGLE_USE_MODE = False
+    if manual:
+        _SINGLE_USE_MANUAL_DISABLED = True
+    logging.info(f"[SINGLE USE MODE] Disabled{' (manual override)' if manual else ''}")
+
+def is_wifi_disabled() -> bool:
+    """Return True if no wireless interfaces are UP (simple heuristic for Wi‑Fi disabled)."""
+    try:
+        import psutil  # type: ignore
+        for name, stats in psutil.net_if_stats().items():
+            n = name.lower()
+            if any(k in n for k in ("wi-fi", "wifi", "wlan", "wireless")):
+                if stats.isup:
+                    return False  # At least one wifi/wlan interface up
+        # If we saw no wireless interfaces or all were down -> treat as disabled
+        return True
+    except Exception:
+        # Fallback: cannot determine, do not force standalone based solely on wifi state
+        return False
 
 def detect_and_set_single_use_mode() -> None:
-    """Auto-detect if we should run in Single Use Mode (no network or host PC)."""
+    """Auto-detect if we should run in Single Use Mode on USER PCs.
+
+    Rules:
+      1. Host PCs (share exists locally) never enter Single Use Mode automatically.
+      2. If user manually disabled Single Use Mode this session, do not re-enable.
+      3. Only enable when ALL of the following hold for a USER PC:
+           - Cannot discover or ping a host IP
+           - AND either Wi-Fi disabled OR general network unavailable
+      4. Config overrides via [General] force_single_use_mode=true/false still apply.
+    """
+    global _SINGLE_USE_MODE
     try:
-        # DEV OVERRIDE: Check config.ini [General] force_single_use_mode for manual control
+        # Manual session override - respect user's explicit disable
+        if _SINGLE_USE_MANUAL_DISABLED:
+            logging.info("[SINGLE USE MODE] Manual session override active; skipping auto-detect")
+            return
+
+        # Host PCs should never auto-enable Single Use Mode
+        if is_this_pc_the_real_host():
+            disable_single_use_mode(manual=False)
+            logging.info("[SINGLE USE MODE] Host PC detected - forcing disabled")
+            return
+
+        # DEV override in config
         force_single_use = config.get("General", "force_single_use_mode", fallback="").lower()
         if force_single_use == "true":
-            enable_single_use_mode()
-            logging.info("[SINGLE USE MODE] Force-enabled via config.ini (dev override)")
+            enable_single_use_mode("config override true")
             return
         elif force_single_use == "false":
-            logging.info("[SINGLE USE MODE] Force-disabled via config.ini (dev override)")
+            disable_single_use_mode(manual=False)
+            logging.info("[SINGLE USE MODE] Disabled via config override (false)")
             return
-        
-        # Check 1: Is any network interface up?
-        if not network_available_fast():
-            enable_single_use_mode()
-            return
-        
-        # Check 2: Can we find a host IP quickly?
+
+        # Basic network availability
+        net_up = network_available_fast()
+        wifi_off = is_wifi_disabled()
+
+        # Discover host
         ip = config.get("Offline", "host_ip", fallback="").strip()
         if not ip:
-            # Try quick discovery with very tight timeout
             ip = discover_host_ip_quick(timeout_per_host=0.3)
-        
-        if not ip:
-            enable_single_use_mode()
+
+        host_reachable = ip and quick_ping_check(ip, timeout=0.6)
+
+        if host_reachable:
+            disable_single_use_mode(manual=False)
+            logging.info(f"[SINGLE USE MODE] Disabled - Host detected at {ip}")
             return
-            
-        # Check 3: Can we reach the configured host?
-        if not quick_ping_check(ip, timeout=0.5):
-            enable_single_use_mode()
-            return
-            
-        logging.info(f"[SINGLE USE MODE] Disabled - Host detected at {ip}")
+
+        # Host not reachable; decide based on wifi/network state
+        if (not net_up or wifi_off) and not host_reachable:
+            enable_single_use_mode("no host reachable; wifi/network down")
+        else:
+            disable_single_use_mode(manual=False)
+            logging.info("[SINGLE USE MODE] Disabled - network present (awaiting host discovery)")
     except Exception as e:
-        logging.warning(f"[SINGLE USE MODE] Error during detection, enabling as fallback: {e}")
-        enable_single_use_mode()
+        logging.warning(f"[SINGLE USE MODE] Detection error ({e}); enabling conservative standalone fallback")
+        enable_single_use_mode("exception fallback")
 
 # =============================================================================
 # SINGLETON / PROCESS GUARD
@@ -3995,19 +4046,55 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
     except:
         pass
     
-    # Ultra-fast path in Single Use Mode (dev/offline) - skip all heavy checks.
-    # The UI is built sooner so navigation works immediately even without network.
+    # Single Use Mode path - still detect VBS4/launcher but skip network operations
+    # Maintain minimum splash display time for visual consistency
     if is_single_use_mode():
         try:
-            progress("Single Use Mode: fast startup")
+            min_splash_time = 2.5  # Minimum seconds to show splash
+            start_time = time.time()
+            
+            progress("Starting Single Use Mode...")
+            update_progress(0.1)
+            time.sleep(0.3)
+            
+            # Still detect VBS4/launcher so buttons work
+            budget = max(0.3, config.getfloat("General", "path_scan_budget_ms", fallback=900) / 1000.0)
+            allow_c = config.getboolean("General", "allow_c_drive_scan", fallback=False)
+            
+            progress("Detecting VBS4...")
+            try:
+                get_vbs4_install_path(time_budget_sec=budget, allow_full_drive=allow_c)
+            except Exception as e:
+                log_to_console(f"[warmup] VBS4 detection: {e}")
+            update_progress(0.3)
+            time.sleep(0.2)
+            
+            progress("Detecting VBS4 Launcher...")
+            try:
+                get_vbs4_launcher_path(time_budget_sec=budget, allow_full_drive=allow_c)
+            except Exception as e:
+                log_to_console(f"[warmup] Launcher detection: {e}")
             update_progress(0.5)
-            progress("Skipping environment discovery…")
-            update_progress(0.8)
-            progress("Ready.")
+            time.sleep(0.2)
+            
+            progress("Skipping network discovery (Single Use Mode)")
+            update_progress(0.7)
+            time.sleep(0.2)
+            
+            # Ensure minimum splash time for visual appeal
+            elapsed = time.time() - start_time
+            if elapsed < min_splash_time:
+                remaining = min_splash_time - elapsed
+                progress("Finalizing startup...")
+                time.sleep(remaining * 0.5)
+                update_progress(0.9)
+                time.sleep(remaining * 0.5)
+            
+            progress("Ready (Single Use Mode).")
             update_progress(1.0)
-            logging.info("[warmup] FAST PATH (Single Use Mode) complete")
+            logging.info("[warmup] Single Use Mode startup complete")
         except Exception as e:
-            logging.warning(f"[warmup] fast-path failed: {e}")
+            logging.warning(f"[warmup] Single Use Mode path failed: {e}")
         return
 
     # Read configuration flags for startup behavior
@@ -4077,18 +4164,23 @@ def _background_index_paths():
     """
     Background task that does expensive path discovery after the UI is live.
     Uses larger budgets but still finite to avoid hanging the system.
+    In Single Use Mode, still detects VBS4/launcher but skips network-dependent tools.
     """
     try:
-        if is_single_use_mode():
-            logging.info("[indexer] Skipped (Single Use Mode fast path)")
-            return
-        # Use larger budgets for background work but still time-bounded
-        for label, fn in [
+        # Always detect VBS4/launcher even in single-use mode
+        tasks = [
             ("VBS4", lambda: get_vbs4_install_path(time_budget_sec=6, allow_full_drive=True)),
             ("VBS4 Launcher", lambda: get_vbs4_launcher_path(time_budget_sec=6, allow_full_drive=True)),
-            ("BlueIG", lambda: get_blueig_install_path()), 
-            ("ARES Manager", lambda: get_ares_manager_path()),
-        ]:
+        ]
+        
+        # Skip network-dependent tools in single-use mode
+        if not is_single_use_mode():
+            tasks.extend([
+                ("BlueIG", lambda: get_blueig_install_path()), 
+                ("ARES Manager", lambda: get_ares_manager_path()),
+            ])
+        
+        for label, fn in tasks:
             try:
                 path = fn()  # each is internally budgeted
                 logging.info("[indexer] %s => %s", label, path or "<not found>")
@@ -11583,6 +11675,21 @@ class SettingsPanel(tk.Frame):
             wraplength=400
             )
             self.troubleshoot_status_label.pack(anchor="w", pady=(5, 0))
+
+            # Single Use Mode disable button (only visible when in single-use mode)
+            self.disable_single_use_button = tk.Button(
+                troubleshoot_grp,
+                text="Disable Single Use Mode",
+                bg="#885544",
+                fg="white",
+                font=("Helvetica", 12, "bold"),
+                command=self._disable_single_use_mode_from_troubleshoot,
+                cursor="hand2"
+            )
+            # Only show if currently in single-use mode
+            if is_single_use_mode():
+                self.disable_single_use_button.pack(fill="x", pady=(10, 5))
+            
         except Exception as e:
             logging.error(f"[ui] Failed to create troubleshoot section: {e}")
             # Continue without troubleshoot section if it fails
@@ -12710,6 +12817,67 @@ class SettingsPanel(tk.Frame):
         
         # Run in background thread
         run_in_thread(_run_troubleshoot)
+
+    def _disable_single_use_mode_from_troubleshoot(self):
+        """Disable single-use mode and attempt to connect to network/host."""
+        try:
+            # Confirm action
+            result = messagebox.askyesno(
+                "Disable Single Use Mode",
+                "This will attempt to detect and connect to a network host.\n\n"
+                "The application may become temporarily unresponsive during network discovery.\n\n"
+                "Continue?",
+                parent=self
+            )
+            
+            if not result:
+                return
+            
+            # Disable single-use mode
+            disable_single_use_mode(manual=True)
+            logging.info("[troubleshoot] Single-use mode disabled manually")
+            
+            # Re-run detection (will respect manual override and not re-enable)
+            detect_and_set_single_use_mode()
+            
+            # Attempt network connection
+            auto_connect_shared_working_folder()
+            
+            # Hide the button since we're no longer in single-use mode
+            try:
+                self.disable_single_use_button.pack_forget()
+            except Exception:
+                pass
+            
+            # Show result
+            if is_single_use_mode():
+                messagebox.showwarning(
+                    "Still in Single Use Mode",
+                    "Could not detect a network host.\n\n"
+                    "Check your network connection and ensure a host PC is accessible.",
+                    parent=self
+                )
+            else:
+                messagebox.showinfo(
+                    "Single Use Mode Disabled",
+                    "Successfully connected to network!\n\n"
+                    "Network features are now available.",
+                    parent=self
+                )
+                
+                # Refresh various UI elements
+                try:
+                    self._refresh_fuser_counter_row()
+                except Exception:
+                    pass
+                
+        except Exception as e:
+            logging.error(f"[troubleshoot] Failed to disable single-use mode: {e}")
+            messagebox.showerror(
+                "Error",
+                f"Failed to disable single-use mode:\n\n{e}",
+                parent=self
+            )
 
     def _refresh_fuser_counter_row(self):
         if not hasattr(self, "fuser_count_label"):
@@ -14692,17 +14860,19 @@ def run_with_splash():
     # Register a post-UI scheduler so the message appears AFTER the splash and window show
     def _schedule_post_ui_autostart():
         try:
-            print("(fusers starting ~6 seconds)")
-            logging.info("[startup] Scheduled fuser auto-start ~6 seconds after UI ready")
-            # Visible UI hint for users (toast + log panel)
-            try:
-                show_info_toast(app, "Fusers will start in ~6 seconds", duration_ms=3500)
-            except Exception:
-                pass
-            try:
-                post_ui(log_to_console, "> Fusers will start in ~6 seconds")
-            except Exception:
-                pass
+            # Skip fuser startup messages in single-use mode
+            if not is_single_use_mode():
+                print("(fusers starting ~6 seconds)")
+                logging.info("[startup] Scheduled fuser auto-start ~6 seconds after UI ready")
+                # Visible UI hint for users (toast + log panel)
+                try:
+                    show_info_toast(app, "Fusers will start in ~6 seconds", duration_ms=3500)
+                except Exception:
+                    pass
+                try:
+                    post_ui(log_to_console, "> Fusers will start in ~6 seconds")
+                except Exception:
+                    pass
         except Exception:
             pass
         # Start the gating-based auto-start after a short grace period
