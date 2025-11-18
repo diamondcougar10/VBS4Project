@@ -7538,7 +7538,7 @@ class MainApp(tk.Tk):
             'Main': 'Home',
             'VBS4': 'VBS4 / BlueIG',
             'OneClick': 'One-Click Terrain',
-            'Sim Training': 'Drone Sim Training',
+            'SUAS Training': 'SUAS Drone Training',
             'BVI': 'BVI',
             'Settings': 'Settings',
             'Tutorials': 'Tutorials  ❓',
@@ -13907,7 +13907,7 @@ class DronePanel(tk.Frame):
         # Title
         title_label = tk.Label(
             content_frame,
-            text="SIM TRAINING",
+            text="SUAS DRONE SIM TRAINING",
             font=("Helvetica", 32, "bold"),
             bg="#2B2B2B",
             fg="white"
