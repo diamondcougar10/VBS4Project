@@ -7592,13 +7592,13 @@ class MainApp(tk.Tk):
         self._nav_buttons = {}  # Store button references for visual updates
         
         for key, label in [
-            ('Main',     'Home'),
+            ('Home',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
-            ('OneClick', 'One-Click'),
-            ('SUAS Sim Training',    'SUAS Training'),  # directly under One-Click
+            ('One-Click', 'One-Click'),
+            ('SUAS Training',    'SUAS Training'),  # directly under One-Click
             ('BVI',      'BVI'),
             ('Settings', 'Settings'),
-            ('Tutorials','Help & Tutorials'),
+            ('Help & Tutorials', 'Help & Tutorials'),
             ('Credits',  'Credits'),
             ('Contact Us', 'Contact Us'),
         ]:
