@@ -7571,7 +7571,7 @@ class MainApp(tk.Tk):
             'VBS4':      vbs4_panel,
             'OneClick':  oneclick_panel,
             'BVI':       bvi_panel,
-            'Drone':     drone_panel,
+            'SUAS Training':     drone_panel,
             'Settings':  settings_panel,
             'Tutorials': tutorials_panel,
             'Credits':   credits_panel,
@@ -7595,10 +7595,10 @@ class MainApp(tk.Tk):
             ('Main',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
             ('OneClick', 'One-Click'),
-            ('Drone',    'Sim Training'),  # directly under One-Click
+            ('SUAS Sim Training',    'SUAS Training'),  # directly under One-Click
             ('BVI',      'BVI'),
             ('Settings', 'Settings'),
-            ('Tutorials','?'),
+            ('Tutorials','Help & Tutorials'),
             ('Credits',  'Credits'),
             ('Contact Us', 'Contact Us'),
         ]:
