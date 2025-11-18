@@ -7567,13 +7567,13 @@ class MainApp(tk.Tk):
         contact_panel = ContactSupportPanel(self.panels_container, self)
         drone_panel = DronePanel(self.panels_container, self)
         self.panels = {
-            'Main':      main_panel,
+            'Home':      main_panel,
             'VBS4':      vbs4_panel,
             'OneClick':  oneclick_panel,
             'BVI':       bvi_panel,
             'SUAS Training':     drone_panel,
             'Settings':  settings_panel,
-            'Tutorials': tutorials_panel,
+            'Help & Tutorials': tutorials_panel,
             'Credits':   credits_panel,
             'Contact Us': contact_panel,
         }
@@ -7661,7 +7661,7 @@ class MainApp(tk.Tk):
 
         # Start by showing "Main"
         self.current = None
-        self.show('Main')
+        self.show('Home')
 
         # --- Keyboard navigation setup ---
         self.focus_index = 0
@@ -8590,7 +8590,7 @@ class MainApp(tk.Tk):
                            font=("Helvetica", 16, "bold"),
                            bg="red", fg="white",
                            width=2, height=1,
-                           command=lambda: self.show('Tutorials'))
+                           command=lambda: self.show('Help & Tutorials'))
         # Pin to top-right of the panel for consistent alignment
         button.place(relx=1.0, x=-10, y=10, anchor="ne")
 
@@ -8714,7 +8714,7 @@ class MainMenu(tk.Frame):
             ("Launch VBS4 Launcher", launch_vbs4_setup),
             ("Launch BVI", launch_bvi),
             ("Settings", lambda: controller.show("Settings")),
-            ("Tutorials", lambda: controller.show("Tutorials")),
+            ("Help & Tutorials", lambda: controller.show("Help & Tutorials")),
             ("Credits", lambda: controller.show("Credits")),
             ("Exit", controller.destroy),
         ]:
@@ -13667,9 +13667,9 @@ class TutorialsPanel(tk.Frame):
         footer.pack(pady=12)
         pb = globals().get("pill_button")
         if pb:
-            pb(footer, "Back", lambda: controller.show('Main')).pack()
+            pb(footer, "Back", lambda: controller.show('Home')).pack()
         else:
-            DarkButtons.link(footer, "Back", lambda: controller.show('Main')).pack()
+            DarkButtons.link(footer, "Back", lambda: controller.show('Home')).pack()
 
 
 class TutorialCard(tk.Frame):
@@ -13823,7 +13823,7 @@ class CreditsPanel(tk.Frame):
                  justify="left").pack(fill="x", pady=(0, 20))
 
         tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444", fg="white",
-                  width=25, height=2, command=lambda: controller.show('Main'),
+                  width=25, height=2, command=lambda: controller.show('Home'),
                   bd=0, highlightthickness=0).pack(pady=(10, 0))
 
 class ContactSupportPanel(tk.Frame):
@@ -13874,7 +13874,7 @@ class ContactSupportPanel(tk.Frame):
             .pack(pady=(30, 10))
         tk.Button(card, text="Back", font=("Helvetica", 24), bg="#444444",
                   fg="white", width=25, height=2,
-                  command=lambda: controller.show('Main'), bd=0,
+                  command=lambda: controller.show('Home'), bd=0,
                   highlightthickness=0).pack(pady=(0, 10))
 
     def contact_support(self):
@@ -13996,7 +13996,7 @@ class DronePanel(tk.Frame):
             fg="white",
             width=20,
             height=2,
-            command=lambda: controller.show('Main'),
+            command=lambda: controller.show('Home'),
             bd=0,
             highlightthickness=0,
             relief="flat"
