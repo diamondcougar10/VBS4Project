@@ -7577,6 +7577,20 @@ class MainApp(tk.Tk):
             'Credits':   credits_panel,
             'Contact Us': contact_panel,
         }
+        
+        # Define subtitles for each panel (shown in header)
+        self._panel_subtitles = {
+            'Home': 'Home',
+            'VBS4': 'VBS4 / BlueIG',
+            'OneClick': 'One-Click Terrain',
+            'BVI': 'BVI',
+            'SUAS Training': 'SUAS Drone Sim Training',
+            'Settings': 'Settings',
+            'Help & Tutorials': 'Help & Tutorials',
+            'Credits': 'Credits',
+            'Contact Us': 'Contact Support',
+        }
+        
         # Defer photomesh settings to background thread to avoid blocking UI
         try:
             log_fn = self.panels.get('OneClick').log_message if 'OneClick' in self.panels else print
@@ -7594,8 +7608,8 @@ class MainApp(tk.Tk):
         for key, label in [
             ('Home',     'Home'),
             ('VBS4',     'VBS4 / BlueIG'),
-            ('One-Click', 'One-Click'),
-            ('SUAS Training',    'SUAS Training'),  # directly under One-Click
+            ('OneClick', 'One-Click'),
+            ('SUAS Training',    'SUAS Training'),  
             ('BVI',      'BVI'),
             ('Settings', 'Settings'),
             ('Help & Tutorials', 'Help & Tutorials'),
@@ -7611,7 +7625,7 @@ class MainApp(tk.Tk):
             btn = tk.Button(nav, text=label,
                             font=("Helvetica", 18),
                             bg="#555", fg="white",
-                            activebackground="#777",  # Better hover color
+                            activebackground="#777",  # hover color
                             activeforeground="white",
                             relief="raised",
                             bd=2,
