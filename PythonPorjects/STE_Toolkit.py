@@ -6653,26 +6653,43 @@ def load_cached_image(path: str, size: tuple[int, int]) -> ImageTk.PhotoImage:
     return _IMAGE_CACHE[cache_key]
 
 def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover_bg: str = "#555555"):
-    """Add smooth hover effect to a button for better visual feedback.
-    
-    Args:
-        button: tkinter Button widget
-        normal_bg: Normal background color (default: #444444)
-        hover_bg: Hover background color (default: #555555)
-    
-    Makes the UI feel more responsive by providing immediate visual feedback.
-    Only applies effect if button is not disabled.
+    """Add fast, lightweight hover effect to a button.
+
+    Optimizations:
+    - Avoid redundant .config calls (compare current bg before setting)
+    - Prime 'activebackground' to the hover color for snappier feel
+    - Use existing button bg as normal_bg if not provided
     """
-    def on_enter(event):
-        if button['state'] != 'disabled':
-            button.config(bg=hover_bg)
-    
-    def on_leave(event):
-        if button['state'] != 'disabled':
-            button.config(bg=normal_bg)
-    
-    button.bind("<Enter>", on_enter)
-    button.bind("<Leave>", on_leave)
+    try:
+        # Use current bg as the default "normal" color if not explicitly passed
+        if not normal_bg:
+            normal_bg = button.cget("bg")
+
+        # Prime active colors for immediate feedback on press/hover transitions
+        try:
+            button.configure(activebackground=hover_bg, activeforeground=button.cget("fg"))
+        except Exception:
+            pass
+
+        def on_enter(_event=None):
+            if str(button.cget("state")) == 'disabled':
+                return
+            # Only update if different to avoid expensive redraws
+            if button.cget("bg") != hover_bg:
+                button.configure(bg=hover_bg)
+
+        def on_leave(_event=None):
+            if str(button.cget("state")) == 'disabled':
+                return
+            if button.cget("bg") != normal_bg:
+                button.configure(bg=normal_bg)
+
+        # Bind with add=True so we don't clobber other handlers
+        button.bind("<Enter>", lambda e: on_enter(e), add=True)
+        button.bind("<Leave>", lambda e: on_leave(e), add=True)
+    except Exception:
+        # Fail-safe: do nothing if widget reconfig fails
+        pass
 
 def set_busy_cursor(widget, busy: bool = True):
     """Set or clear busy cursor to indicate processing.
@@ -14528,41 +14545,76 @@ Legend
             safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
 
 class Tooltip:
-    """
-    A simple tooltip that appears in its own undecorated Toplevel window.
-    Usage:
-        tip = Tooltip(parent)
-        tip.show("Some text", x, y)
-        tip.hide()
-    """
+    """Lightweight, reusable tooltip with delayed show to reduce hover lag."""
+
     def __init__(self, parent):
         self.parent = parent
-        self.tw = None
+        self.tw: tk.Toplevel | None = None
+        self._label: tk.Label | None = None
+        self._pending_after: str | None = None
+        self._last_text: str = ""
 
-    def show(self, text, x, y):
-        # If tooltip already exists, destroy it first:
-        self.hide()
+    def _ensure_window(self):
+        if self.tw and self.tw.winfo_exists():
+            return
         self.tw = tk.Toplevel(self.parent)
-        self.tw.wm_overrideredirect(True)  
-        self.tw.attributes("-topmost", True)
-
-        # Use a normal Label (not ttk) so we can set a custom background:
-        label = tk.Label(
+        self.tw.withdraw()
+        self.tw.wm_overrideredirect(True)
+        try:
+            self.tw.attributes("-topmost", True)
+        except Exception:
+            pass
+        self._label = tk.Label(
             self.tw,
-            text=text,
+            text="",
             justify="left",
             background="#ffffe0",
             relief="solid",
             borderwidth=1,
-            font=("Helvetica", 10)
+            font=("Helvetica", 10),
         )
-        label.pack(ipadx=4, ipady=2)
-        self.tw.geometry(f"+{x}+{y}")
+        self._label.pack(ipadx=4, ipady=2)
+
+    def show(self, text: str, x: int, y: int, delay_ms: int = 80):
+        # Cancel any pending show and reschedule; withdraw instead of destroy
+        self._last_text = text or ""
+        if self._pending_after:
+            try:
+                self.parent.after_cancel(self._pending_after)
+            except Exception:
+                pass
+            self._pending_after = None
+
+        def _do_show():
+            try:
+                self._ensure_window()
+                if not self.tw:
+                    return
+                # Update content only if changed
+                if self._label and self._label.cget("text") != self._last_text:
+                    self._label.config(text=self._last_text)
+                # Position and show
+                self.tw.geometry(f"+{int(x)}+{int(y)}")
+                self.tw.deiconify()
+                self.tw.lift()
+            except Exception:
+                pass
+
+        self._pending_after = self.parent.after(max(0, int(delay_ms)), _do_show)
 
     def hide(self):
-        if self.tw:
-            self.tw.destroy()
-            self.tw = None
+        # Cancel any scheduled show and just withdraw the window (reuse later)
+        if self._pending_after:
+            try:
+                self.parent.after_cancel(self._pending_after)
+            except Exception:
+                pass
+            self._pending_after = None
+        if self.tw and self.tw.winfo_exists():
+            try:
+                self.tw.withdraw()
+            except Exception:
+                pass
 
 def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 4000) -> None:
     """Display a short-lived notification near the bottom of the parent window."""
