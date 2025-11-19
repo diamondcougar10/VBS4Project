@@ -13895,7 +13895,7 @@ class ContactSupportPanel(tk.Frame):
         webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
 
 class DronePanel(tk.Frame):
-    """Drone control panel with three columns: FPU, Quad, and GSUA."""
+    """Drone control panel with three columns: FPU, Quad Copter, and Gun Mounted SUAS."""
     
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#2B2B2B")
@@ -13939,8 +13939,8 @@ class DronePanel(tk.Frame):
         # Column headers and buttons
         column_data = [
             ("FPU", False),    # Active
-            ("Quad", True),    # Disabled
-            ("GSUA", True),    # Disabled
+            ("Quad Copter", True),    # Disabled
+            ("Gun Mounted SUAS", True),    # Disabled
         ]
         
         for col_idx, (header_text, is_disabled) in enumerate(column_data):
@@ -14006,7 +14006,7 @@ class DronePanel(tk.Frame):
             content_frame,
             text="Back to Main",
             font=("Helvetica", 20),
-            bg="#444444",
+            bg="#FF8C00",
             fg="white",
             width=20,
             height=2,
@@ -14016,7 +14016,7 @@ class DronePanel(tk.Frame):
             relief="flat"
         )
         back_button.pack(pady=(40, 0))
-        add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
+        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
     
     def on_fpu_button_click(self, button_num):
         """Handle FPU button clicks (TBL 1-6)."""
@@ -14038,6 +14038,60 @@ class DronePanel(tk.Frame):
         if self.overlay_panel:
             self.overlay_panel.destroy()
             self.overlay_panel = None
+
+def kill_vbs4_instances(timeout: float = 5.0) -> None:
+    """Terminate any running VBS4-related processes to prevent duplicates.
+
+    Tries psutil first (graceful terminate + kill), then falls back to
+    Windows taskkill if psutil is unavailable.
+    """
+    try:
+        targets = {"vbs4.exe", "vbslauncher.exe", "vbs4launcher.exe"}
+        killed_pids = []
+        if psutil:
+            # First request graceful termination
+            for p in psutil.process_iter(["pid", "name"]):
+                try:
+                    name = (p.info.get("name") or "").lower()
+                    if name in targets:
+                        logging.info(f"[VBS4] Terminating existing process PID={p.pid} ({name})")
+                        p.terminate()
+                        killed_pids.append(p.pid)
+                except Exception:
+                    pass
+            # Wait briefly, then force kill remaining
+            deadline = time.time() + max(0.5, float(timeout))
+            for p in psutil.process_iter(["pid", "name"]):
+                try:
+                    name = (p.info.get("name") or "").lower()
+                    if name in targets:
+                        remaining = max(0.0, deadline - time.time())
+                        try:
+                            p.wait(timeout=remaining)
+                        except Exception:
+                            try:
+                                logging.info(f"[VBS4] Forcing kill PID={p.pid} ({name})")
+                                p.kill()
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        else:
+            # Fallback without psutil
+            for exe in ("VBS4.exe", "VBSLauncher.exe", "VBS4Launcher.exe"):
+                try:
+                    subprocess.run(
+                        ["taskkill", "/IM", exe, "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=3,
+                        creationflags=NO_WINDOW_FLAG,
+                    )
+                    logging.info(f"[VBS4] taskkill issued for {exe}")
+                except Exception:
+                    pass
+    except Exception as e:
+        logging.warning(f"[VBS4] Failed to terminate existing instances: {e}")
 
 class TableDetailPanel(tk.Frame):
     """Overlay panel showing table details with Day/Night launch options and map."""
@@ -14162,7 +14216,7 @@ class TableDetailPanel(tk.Frame):
             self,
             text="Back",
             font=("Helvetica", 14, "bold"),
-            bg="#444444",
+            bg="#FF8C00",  # Orange
             fg="white",
             width=10,
             height=1,
@@ -14171,8 +14225,9 @@ class TableDetailPanel(tk.Frame):
             highlightthickness=0,
             relief="flat"
         )
-        back_button.place(relx=1.0, x=-150, y=10, anchor="ne")
-        add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
+        # Position tighter to the top-right corner
+        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
+        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
     
     def _build_requirements_table(self, parent, table_num):
         """Build a formatted table layout for test requirements."""
@@ -14445,12 +14500,29 @@ Legend
         cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -init=hostMission["{mission_code}"]'
         
         try:
+            # 1) Minimize the Toolkit so VBS4 becomes top-most/focused
+            try:
+                self.controller.iconify()
+            except Exception:
+                try:
+                    self.controller.withdraw()
+                except Exception:
+                    pass
+
+            # 2) Ensure no previous VBS4 instances are running
+            kill_vbs4_instances(timeout=6.0)
+            time.sleep(0.4)
+
             logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {time_of_day}")
             logging.info(f"[DroneControl] Command: {cmd}")
-            
+
             # Launch VBS4 using shell to preserve exact command formatting
-            subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
-            
+            subprocess.Popen(
+                cmd,
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+            )
+
         except Exception as e:
             logging.error(f"[DroneControl] Failed to launch VBS4: {e}")
             safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
