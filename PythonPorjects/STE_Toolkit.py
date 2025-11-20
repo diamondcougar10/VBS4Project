@@ -4426,11 +4426,14 @@ def count_local_fusers() -> int:
     """
     global _LAST_FUSER_CHECK
     
-    # Aggressive cache: if checked within last 200ms, return cached value immediately
+    # Aggressive cache: if checked within threshold, return cached value immediately
+    # In single-use mode: 2000ms cache for better UI responsiveness
+    # In normal mode: 200ms cache for accurate fuser counts
     now = time.time()
     if hasattr(count_local_fusers, '_last_check_time'):
         elapsed = now - count_local_fusers._last_check_time
-        if elapsed < 0.2:  # 200ms cache
+        cache_threshold = 2.0 if is_single_use_mode() else 0.2
+        if elapsed < cache_threshold:
             return getattr(count_local_fusers, '_cached_count', 0)
     
     # Quick non-blocking check: skip if another check is in progress
@@ -12938,8 +12941,14 @@ class SettingsPanel(tk.Frame):
         except Exception:
             pass
         try:
-            # Refresh every 500ms for faster detection when fusers spawn
-            self.after(500, self._schedule_fuser_count_refresh)
+            # Performance optimization: use longer interval in single-use mode only
+            # Normal mode: 500ms for responsive updates
+            # Single-use mode: 5000ms (5s) to reduce overhead when not needed
+            if is_single_use_mode():
+                interval = 5000
+            else:
+                interval = 500
+            self.after(interval, self._schedule_fuser_count_refresh)
         except Exception:
             pass
 
@@ -13915,15 +13924,11 @@ class DronePanel(tk.Frame):
     """Drone control panel with three columns: FPU, Quad Copter, and Gun Mounted SUAS."""
     
     def __init__(self, parent, controller):
+        self.overlay_panel = None  # Ensure this is always set first
         super().__init__(parent, bg="#2B2B2B")
         self.controller = controller
-        
         # Override background to be solid dark gray (no image)
         self.configure(bg="#2B2B2B")
-        
-        # Store reference to overlay panel
-        self.overlay_panel = None
-        
         # Add tutorial button
         controller.create_tutorial_button(self)
         
@@ -14020,19 +14025,20 @@ class DronePanel(tk.Frame):
         
         # Back button at the bottom
         back_button = tk.Button(
-            content_frame,
-            text="Back to Main",
-            font=("Helvetica", 20),
+            self,
+            text="Back",
+            font=("Helvetica", 14, "bold"),
             bg="#FF8C00",
             fg="white",
-            width=20,
-            height=2,
+            width=10,
+            height=1,
             command=lambda: controller.show('Home'),
             bd=0,
             highlightthickness=0,
             relief="flat"
         )
-        back_button.pack(pady=(40, 0))
+        # Place in the standardized top-right corner
+        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
     
     def on_fpu_button_click(self, button_num):
@@ -14114,6 +14120,7 @@ class TableDetailPanel(tk.Frame):
     """Overlay panel showing table details with Day/Night launch options and map."""
     
     def __init__(self, parent, controller, table_num, close_callback):
+        self.overlay_panel = None  # Always set first to prevent AttributeError
         super().__init__(parent, bg="#2B2B2B")
         self.controller = controller
         self.table_num = table_num
@@ -14150,50 +14157,22 @@ class TableDetailPanel(tk.Frame):
         left_frame = tk.Frame(content_area, bg="#2B2B2B")
         left_frame.grid(row=0, column=0, sticky="nsew", padx=(40, 20))
         
-        # Day/Night buttons at the top
-        buttons_label = tk.Label(
+        # Start Scenario button replaces Day/Night selection (selection moved to setup panel)
+        start_btn = tk.Button(
             left_frame,
-            text="Launch Options:",
-            font=("Helvetica", 14, "bold"),
-            bg="#2B2B2B",
-            fg="white"
-        )
-        buttons_label.pack(anchor="w", pady=(0, 5))
-        
-        buttons_container = tk.Frame(left_frame, bg="#2B2B2B")
-        buttons_container.pack(fill="x", pady=(0, 10))
-        
-        day_button = tk.Button(
-            buttons_container,
-            text="Day",
-            font=("Helvetica", 16, "bold"),
-            bg="#4A7C59",
+            text="START SCENARIO",
+            font=("Helvetica", 20, "bold"),
+            bg="#FF8C00",
             fg="white",
-            width=15,
-            height=2,
-            command=lambda: self.launch_mission("Day"),
+            width=32,
+            height=3,
+            command=self.open_setup_panel,
             bd=0,
             highlightthickness=0,
             relief="flat"
         )
-        day_button.pack(side="left", padx=(0, 10))
-        add_button_hover_effect(day_button, normal_bg="#4A7C59", hover_bg="#5A8C69")
-        
-        night_button = tk.Button(
-            buttons_container,
-            text="Night",
-            font=("Helvetica", 16, "bold"),
-            bg="#3B4A7C",
-            fg="white",
-            width=15,
-            height=2,
-            command=lambda: self.launch_mission("Night"),
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        night_button.pack(side="left")
-        add_button_hover_effect(night_button, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
+        start_btn.pack(fill="x", pady=(0, 15))
+        add_button_hover_effect(start_btn, normal_bg="#FF8C00", hover_bg="#E67E00")
         
         # Test Requirements table (formatted like the image)
         test_req_label = tk.Label(
@@ -14502,50 +14481,400 @@ Legend
             )
             error_label.pack(expand=True, fill="both")
     
-    def launch_mission(self, time_of_day):
-        """Launch VBS4 with mission parameters."""
-        # Build command based on table number and time of day
-        mission_code = f"T{self.table_num}{time_of_day}"
+    def open_setup_panel(self):
+        """Show scenario setup panel (choose Day/Night) in place of this panel."""
+        if self.overlay_panel:
+            self.overlay_panel.destroy()
+        self.overlay_panel = ScenarioSetupPanel(self, self.controller, self.table_num, self._back_to_table)
+        self.overlay_panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+    def _back_to_table(self):
+        if self.overlay_panel:
+            self.overlay_panel.destroy()
+            self.overlay_panel = None
+
+
+# --- Scenario Launch Panel (in-panel overlay) ---
+class ScenarioLaunchPanel(tk.Frame):
+    def __init__(self, parent, controller, table_num, time_of_day, back_callback):
+        super().__init__(parent, bg="#232323")
+        self.controller = controller
+        self.table_num = table_num
+        self.time_of_day = time_of_day
+        self.back_callback = back_callback
+
+        # Images (relative paths) - larger thumbnails for side-by-side display
+        img1_path = _resource_path(os.path.join("assets", "ControllerControls.png"))
+        img2_path = _resource_path(os.path.join("assets", "DroneControls.png"))
+        img1 = img2 = None
+        try:
+            if os.path.exists(img1_path):
+                img1 = Image.open(img1_path)
+                img1.thumbnail((500, 350), Image.Resampling.LANCZOS)
+                self.img1tk = ImageTk.PhotoImage(img1)
+            else:
+                self.img1tk = None
+            if os.path.exists(img2_path):
+                img2 = Image.open(img2_path)
+                img2.thumbnail((500, 350), Image.Resampling.LANCZOS)
+                self.img2tk = ImageTk.PhotoImage(img2)
+            else:
+                self.img2tk = None
+        except Exception:
+            self.img1tk = self.img2tk = None
+
+        # Main container (matching TableDetailPanel structure)
+        main_container = tk.Frame(self, bg="#232323")
+        main_container.pack(expand=True, fill="both", padx=0, pady=0)
         
-        # Get VBS4 path
+        # Content frame with padding
+        content_frame = tk.Frame(main_container, bg="#232323")
+        content_frame.pack(expand=True, fill="both", padx=20, pady=20)
+        
+        # Title
+        title_label = tk.Label(
+            content_frame,
+            text=f"TABLE {table_num} - {time_of_day.upper()}",
+            font=("Helvetica", 32, "bold"),
+            bg="#232323",
+            fg="white"
+        )
+        title_label.pack(pady=(0, 20))
+        
+        # Main content area (left controls + right info/images)
+        content_area = tk.Frame(content_frame, bg="#232323")
+        content_area.pack(expand=True, fill="both", pady=(0, 5))
+        
+        # Configure 50/50 split
+        content_area.grid_columnconfigure(0, weight=1, uniform="group1")
+        content_area.grid_columnconfigure(1, weight=1, uniform="group1")
+        content_area.grid_rowconfigure(0, weight=1)
+        
+        # Left side - Images positioned like Day/Night buttons
+        left_frame = tk.Frame(content_area, bg="#232323")
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(40, 20))
+        
+        # Images label
+        images_label = tk.Label(
+            left_frame,
+            text="Control References:",
+            font=("Helvetica", 14, "bold"),
+            bg="#232323",
+            fg="white"
+        )
+        images_label.pack(anchor="w", pady=(0, 5))
+        
+        # Images container (side by side, positioned like Day/Night buttons)
+        images_container = tk.Frame(left_frame, bg="#232323")
+        images_container.pack(fill="x", pady=(0, 20))
+        
+        if self.img1tk:
+            img1_label = tk.Label(images_container, image=self.img1tk, bg="#232323", bd=2, relief="solid")
+            img1_label.pack(side="left", padx=(0, 10))
+        if self.img2tk:
+            img2_label = tk.Label(images_container, image=self.img2tk, bg="#232323", bd=2, relief="solid")
+            img2_label.pack(side="left")
+        
+        # Large START SCENARIO button (positioned where Day/Night buttons are)
+        start_btn = tk.Button(
+            left_frame,
+            text="START SCENARIO",
+            font=("Helvetica", 20, "bold"),
+            bg="#FF8C00",
+            fg="white",
+            width=30,
+            height=3,
+            command=self._on_start,
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        start_btn.pack(fill="x", pady=(0, 20))
+        add_button_hover_effect(start_btn, normal_bg="#FF8C00", hover_bg="#E67E00")
+        
+        # Name entry below the button
+        entry_label = tk.Label(
+            left_frame,
+            text="Enter your name:",
+            font=("Helvetica", 14, "bold"),
+            bg="#232323",
+            fg="white"
+        )
+        entry_label.pack(anchor="w", pady=(0, 5))
+        
+        self.name_var = tk.StringVar()
+        # Performance-optimized entry with better styling and delayed focus
+        entry = tk.Entry(
+            left_frame, 
+            textvariable=self.name_var, 
+            font=("Helvetica", 14), 
+            width=40,
+            insertwidth=3,
+            insertbackground="white",
+            bg="#2a2a2a",
+            fg="white",
+            relief="flat",
+            bd=2
+        )
+        entry.pack(fill="x", pady=(0, 0))
+        entry.after(50, lambda: entry.focus_set())
+        
+        # Right side - Instructions or additional info
+        right_frame = tk.Frame(content_area, bg="#232323")
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(20, 40))
+        
+        instructions_label = tk.Label(
+            right_frame,
+            text="Instructions:",
+            font=("Helvetica", 14, "bold"),
+            bg="#232323",
+            fg="white"
+        )
+        instructions_label.pack(anchor="w", pady=(0, 10))
+        
+        instructions_text = tk.Label(
+            right_frame,
+            text=(
+                "1. Review the control references on the left\n\n"
+                "2. Enter your name in the text box\n\n"
+                "3. Click START SCENARIO to begin\n\n"
+                f"Mission: Table {table_num} - {time_of_day} Scenario\n\n"
+                "The simulation will launch automatically\n"
+                "and this window will minimize."
+            ),
+            font=("Helvetica", 12),
+            bg="#232323",
+            fg="white",
+            justify="left",
+            anchor="w"
+        )
+        instructions_text.pack(anchor="w", fill="both", expand=True)
+        
+        # Back button (top-right corner)
+        back_button = tk.Button(
+            self,
+            text="Back",
+            font=("Helvetica", 14, "bold"),
+            bg="#FF8C00",
+            fg="white",
+            width=10,
+            height=1,
+            command=self.back_callback,
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
+        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
+
+    def _on_start(self):
+        name = self.name_var.get().strip() or "Anonymous User"
+        mission_code = f"T{self.table_num}{self.time_of_day}"
         vbs4_path = get_vbs4_install_path()
         if not vbs4_path:
             safe_messagebox_showerror("Error", "VBS4 executable not found. Please set the correct path in settings.")
             return
-        
-        # Build full command as string to avoid escaping issues
-        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -init=hostMission["{mission_code}"]'
-        
+        # Minimize main window
         try:
-            # 1) Minimize the Toolkit so VBS4 becomes top-most/focused
+            self.controller.iconify()
+        except Exception:
             try:
-                self.controller.iconify()
+                self.controller.withdraw()
             except Exception:
-                try:
-                    self.controller.withdraw()
-                except Exception:
-                    pass
-
-            # 2) Ensure no previous VBS4 instances are running
-            kill_vbs4_instances(timeout=6.0)
-            time.sleep(0.4)
-
-            logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {time_of_day}")
-            logging.info(f"[DroneControl] Command: {cmd}")
-
-            # Launch VBS4 using shell to preserve exact command formatting
+                pass
+        # Kill previous VBS4
+        kill_vbs4_instances(timeout=6.0)
+        time.sleep(0.4)
+        # Build command
+        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -name="{name}" -init=hostMission["{mission_code}"]'
+        logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {self.time_of_day} as {name}")
+        logging.info(f"[DroneControl] Command: {cmd}")
+        try:
             subprocess.Popen(
                 cmd,
                 shell=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
             )
-
         except Exception as e:
             logging.error(f"[DroneControl] Failed to launch VBS4: {e}")
             safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
+        # Optionally, return to previous panel or keep minimized
+
+# --- Scenario Setup Panel (select Day/Night, show controls) ---
+class ScenarioSetupPanel(tk.Frame):
+    def __init__(self, parent, controller, table_num, back_callback):
+        super().__init__(parent, bg="#232323")
+        self.controller = controller
+        self.table_num = table_num
+        self.back_callback = back_callback
+
+        # Load images (bigger)
+        img1_path = _resource_path(os.path.join("assets", "ControllerControls.png"))
+        img2_path = _resource_path(os.path.join("assets", "DroneControls.png"))
+        self.img1tk = self._load_img(img1_path, (520, 360))
+        self.img2tk = self._load_img(img2_path, (520, 360))
+
+        # Layout similar to mock: top row buttons + name box; second row images + instructions
+        main_container = tk.Frame(self, bg="#232323")
+        main_container.pack(expand=True, fill="both", padx=0, pady=0)
+
+        content_frame = tk.Frame(main_container, bg="#232323")
+        content_frame.pack(expand=True, fill="both", padx=20, pady=20)
+
+        # Back button (absolute top-right)
+        back_btn = tk.Button(
+            self,
+            text="Back",
+            font=("Helvetica", 14, "bold"),
+            bg="#FF8C00",
+            fg="white",
+            width=10,
+            height=1,
+            command=self.back_callback,
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        back_btn.place(relx=1.0, x=-10, y=10, anchor="ne")
+        add_button_hover_effect(back_btn, normal_bg="#FF8C00", hover_bg="#E67E00")
+
+        # Top row
+        top_row = tk.Frame(content_frame, bg="#232323")
+        top_row.pack(fill="x", pady=(0, 15))
+
+        day_btn = tk.Button(
+            top_row,
+            text="Day",
+            font=("Helvetica", 18, "bold"),
+            bg="#4A7C59",
+            fg="white",
+            width=12,
+            height=2,
+            command=lambda: self._launch("Day"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        day_btn.pack(side="left", padx=(0, 10))
+        add_button_hover_effect(day_btn, normal_bg="#4A7C59", hover_bg="#5A8C69")
+
+        night_btn = tk.Button(
+            top_row,
+            text="Night",
+            font=("Helvetica", 18, "bold"),
+            bg="#3B4A7C",
+            fg="white",
+            width=12,
+            height=2,
+            command=lambda: self._launch("Night"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        night_btn.pack(side="left", padx=(0, 20))
+        add_button_hover_effect(night_btn, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
+
+        # Name entry box (fills remaining top row space)
+        # Performance optimization: Use simple Entry without StringVar trace callbacks
+        # Direct value retrieval is faster than variable tracking
+        self.name_var = tk.StringVar()
+        name_frame = tk.Frame(top_row, bg="#232323")
+        name_frame.pack(side="left", fill="x", expand=True)
+        name_label = tk.Label(name_frame, text="Enter your name: (for scoring)", font=("Helvetica", 16, "bold"), bg="#232323", fg="white")
+        name_label.pack(anchor="w")
+        # Use insertbackground to match text color for better visibility
+        name_entry = tk.Entry(
+            name_frame, 
+            textvariable=self.name_var, 
+            font=("Helvetica", 16), 
+            width=40,
+            insertwidth=3,  # Wider cursor for better visibility
+            insertbackground="white",  # White cursor
+            bg="#2a2a2a",  # Slightly lighter background
+            fg="white",
+            relief="flat",
+            bd=2
+        )
+        name_entry.pack(fill="x")
+        # Delay focus to after window is fully rendered
+        name_entry.after(50, lambda: name_entry.focus_set())
+
+        # Second row: images and instructions
+        second_row = tk.Frame(content_frame, bg="#232323")
+        second_row.pack(expand=True, fill="both")
+        second_row.grid_columnconfigure(0, weight=5, uniform="col")
+        second_row.grid_columnconfigure(1, weight=5, uniform="col")
+        second_row.grid_columnconfigure(2, weight=2, uniform="col")
+        second_row.grid_rowconfigure(0, weight=1)
+
+        img1_holder = tk.Frame(second_row, bg="#232323", bd=2, relief="solid")
+        img1_holder.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=5)
+        if self.img1tk:
+            tk.Label(img1_holder, image=self.img1tk, bg="#232323").pack(expand=True)
+
+        img2_holder = tk.Frame(second_row, bg="#232323", bd=2, relief="solid")
+        img2_holder.grid(row=0, column=1, sticky="nsew", padx=(10, 10), pady=5)
+        if self.img2tk:
+            tk.Label(img2_holder, image=self.img2tk, bg="#232323").pack(expand=True)
+
+        instr_holder = tk.Frame(second_row, bg="#232323")
+        instr_holder.grid(row=0, column=2, sticky="nsew", padx=(10, 0), pady=5)
+        instr_title = tk.Label(instr_holder, text="Instructions", font=("Helvetica", 16, "bold"), bg="#232323", fg="white")
+        instr_title.pack(anchor="nw", pady=(0, 8))
+        instr_text = tk.Label(
+            instr_holder,
+            text=(
+                "1. Enter your name.\n\n"
+                "2. Review control references.\n\n"
+                "3. Click Day or Night to launch."
+            ),
+            font=("Helvetica", 12),
+            bg="#232323",
+            fg="white",
+            justify="left",
+            anchor="nw",
+            wraplength=220
+        )
+        instr_text.pack(anchor="nw")
+
+    def _load_img(self, path: str, size: tuple[int, int]):
+        try:
+            if os.path.exists(path):
+                img = Image.open(path)
+                img.thumbnail(size, Image.Resampling.LANCZOS)
+                return ImageTk.PhotoImage(img)
+        except Exception:
+            pass
+        return None
+
+    def _launch(self, tod: str):
+        name = self.name_var.get().strip() or "Anonymous User"
+        mission_code = f"T{self.table_num}{tod}"
+        vbs4_path = get_vbs4_install_path()
+        if not vbs4_path:
+            safe_messagebox_showerror("Error", "VBS4 executable not found. Set path in Settings.")
+            return
+        try:
+            self.controller.iconify()
+        except Exception:
+            try:
+                self.controller.withdraw()
+            except Exception:
+                pass
+        kill_vbs4_instances(timeout=6.0)
+        time.sleep(0.4)
+        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -name="{name}" -init=hostMission["{mission_code}"]'
+        logging.info(f"[DroneSetup] Launching VBS4 Table {self.table_num} {tod} as {name}")
+        logging.info(f"[DroneSetup] Command: {cmd}")
+        try:
+            subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+        except Exception as e:
+            logging.error(f"[DroneSetup] Failed to launch VBS4: {e}")
+            safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
 
 class Tooltip:
-    """Lightweight, reusable tooltip with delayed show to reduce hover lag."""
+    """Lightweight, reusable tooltip with delayed show to reduce hover lag.
+    DISABLED for performance - tooltips cause significant UI lag."""
 
     def __init__(self, parent):
         self.parent = parent
@@ -14553,6 +14882,7 @@ class Tooltip:
         self._label: tk.Label | None = None
         self._pending_after: str | None = None
         self._last_text: str = ""
+        self._disabled = True  # Performance optimization: disable tooltips
 
     def _ensure_window(self):
         if self.tw and self.tw.winfo_exists():
@@ -14576,31 +14906,35 @@ class Tooltip:
         self._label.pack(ipadx=4, ipady=2)
 
     def show(self, text: str, x: int, y: int, delay_ms: int = 80):
+        # DISABLED for performance - tooltips cause significant UI lag
+        # Simply return without creating/showing tooltip windows
+        return
+        # Original code commented out for performance
         # Cancel any pending show and reschedule; withdraw instead of destroy
-        self._last_text = text or ""
-        if self._pending_after:
-            try:
-                self.parent.after_cancel(self._pending_after)
-            except Exception:
-                pass
-            self._pending_after = None
-
-        def _do_show():
-            try:
-                self._ensure_window()
-                if not self.tw:
-                    return
-                # Update content only if changed
-                if self._label and self._label.cget("text") != self._last_text:
-                    self._label.config(text=self._last_text)
-                # Position and show
-                self.tw.geometry(f"+{int(x)}+{int(y)}")
-                self.tw.deiconify()
-                self.tw.lift()
-            except Exception:
-                pass
-
-        self._pending_after = self.parent.after(max(0, int(delay_ms)), _do_show)
+        # self._last_text = text or ""
+        # if self._pending_after:
+        #     try:
+        #         self.parent.after_cancel(self._pending_after)
+        #     except Exception:
+        #         pass
+        #     self._pending_after = None
+        #
+        # def _do_show():
+        #     try:
+        #         self._ensure_window()
+        #         if not self.tw:
+        #             return
+        #         # Update content only if changed
+        #         if self._label and self._label.cget("text") != self._last_text:
+        #             self._label.config(text=self._last_text)
+        #         # Position and show
+        #         self.tw.geometry(f"+{int(x)}+{int(y)}")
+        #         self.tw.deiconify()
+        #         self.tw.lift()
+        #     except Exception:
+        #         pass
+        #
+        # self._pending_after = self.parent.after(max(0, int(delay_ms)), _do_show)
 
     def hide(self):
         # Cancel any scheduled show and just withdraw the window (reuse later)
