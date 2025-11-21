@@ -13921,7 +13921,7 @@ class ContactSupportPanel(tk.Frame):
         webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
 
 class DronePanel(tk.Frame):
-    """Drone control panel with three columns: FPU, Quad Copter, and Gun Mounted SUAS."""
+    """Drone control panel with three columns: FPV, Quad Copter, and Gun Mounted SUAS."""
     
     def __init__(self, parent, controller):
         self.overlay_panel = None  # Ensure this is always set first
@@ -13960,7 +13960,7 @@ class DronePanel(tk.Frame):
         
         # Column headers and buttons
         column_data = [
-            ("FPU", False),    # Active
+            ("FPV", False),    # Active
             ("Quad Copter", True),    # Disabled
             ("Gun Mounted SUAS", True),    # Disabled
         ]
@@ -14003,7 +14003,7 @@ class DronePanel(tk.Frame):
                         relief="flat"
                     )
                 else:
-                    # Active button (FPU column, tables 2-5)
+                    # Active button (FPV column, tables 2-5)
                     btn = tk.Button(
                         col_frame,
                         text=btn_text,
@@ -14012,7 +14012,7 @@ class DronePanel(tk.Frame):
                         fg="white",
                         width=19,
                         height=2,
-                        command=lambda num=btn_num: self.on_fpu_button_click(num),
+                        command=lambda num=btn_num: self.on_fpv_button_click(num),
                         bd=0,
                         highlightthickness=0,
                         relief="flat",
@@ -14041,9 +14041,9 @@ class DronePanel(tk.Frame):
         back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
     
-    def on_fpu_button_click(self, button_num):
-        """Handle FPU button clicks (TBL 1-6)."""
-        print(f"FPU TBL {button_num} clicked")
+    def on_fpv_button_click(self, button_num):
+        """Handle FPV button clicks (TBL 1-6)."""
+        print(f"FPV TBL {button_num} clicked")
         self.show_table_detail(button_num)
     
     def show_table_detail(self, table_num):
