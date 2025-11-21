@@ -14707,12 +14707,14 @@ class ScenarioSetupPanel(tk.Frame):
         self.controller = controller
         self.table_num = table_num
         self.back_callback = back_callback
-
-        # Load images (bigger)
+        # Load original images (store PIL originals for dynamic resize)
         img1_path = _resource_path(os.path.join("assets", "ControllerControls.png"))
         img2_path = _resource_path(os.path.join("assets", "DroneControls.png"))
-        self.img1tk = self._load_img(img1_path, (520, 360))
-        self.img2tk = self._load_img(img2_path, (520, 360))
+        self.img1_orig = self._open_image(img1_path)
+        self.img2_orig = self._open_image(img2_path)
+        # Initial slightly larger render; will be resized to fill holders
+        self.img1tk = self._make_photo(self.img1_orig, 640, 440)
+        self.img2tk = self._make_photo(self.img2_orig, 640, 440)
 
         # Layout similar to mock: top row buttons + name box; second row images + instructions
         main_container = tk.Frame(self, bg="#232323")
@@ -14810,12 +14812,16 @@ class ScenarioSetupPanel(tk.Frame):
         img1_holder = tk.Frame(second_row, bg="#232323", bd=2, relief="solid")
         img1_holder.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=5)
         if self.img1tk:
-            tk.Label(img1_holder, image=self.img1tk, bg="#232323").pack(expand=True)
+            self.img1_label = tk.Label(img1_holder, image=self.img1tk, bg="#232323")
+            self.img1_label.pack(expand=True)
+            img1_holder.bind("<Configure>", lambda e: self._on_holder_resize(1, e.width, e.height))
 
         img2_holder = tk.Frame(second_row, bg="#232323", bd=2, relief="solid")
         img2_holder.grid(row=0, column=1, sticky="nsew", padx=(10, 10), pady=5)
         if self.img2tk:
-            tk.Label(img2_holder, image=self.img2tk, bg="#232323").pack(expand=True)
+            self.img2_label = tk.Label(img2_holder, image=self.img2tk, bg="#232323")
+            self.img2_label.pack(expand=True)
+            img2_holder.bind("<Configure>", lambda e: self._on_holder_resize(2, e.width, e.height))
 
         instr_holder = tk.Frame(second_row, bg="#232323")
         instr_holder.grid(row=0, column=2, sticky="nsew", padx=(10, 0), pady=5)
@@ -14837,15 +14843,45 @@ class ScenarioSetupPanel(tk.Frame):
         )
         instr_text.pack(anchor="nw")
 
-    def _load_img(self, path: str, size: tuple[int, int]):
+    def _open_image(self, path: str):
         try:
             if os.path.exists(path):
-                img = Image.open(path)
-                img.thumbnail(size, Image.Resampling.LANCZOS)
-                return ImageTk.PhotoImage(img)
+                return Image.open(path)
         except Exception:
-            pass
+            return None
         return None
+
+    def _make_photo(self, pil_img, target_w: int, target_h: int):
+        if not pil_img:
+            return None
+        try:
+            # Maintain aspect ratio
+            ratio = min(target_w / pil_img.width, target_h / pil_img.height)
+            new_size = (max(1, int(pil_img.width * ratio)), max(1, int(pil_img.height * ratio)))
+            resized = pil_img.resize(new_size, Image.Resampling.LANCZOS)
+            return ImageTk.PhotoImage(resized)
+        except Exception:
+            return None
+
+    def _on_holder_resize(self, which: int, w: int, h: int):
+        # Leave a small margin so image is slightly smaller than border box
+        margin = 16
+        w2 = max(50, w - margin)
+        h2 = max(50, h - margin)
+        pil = self.img1_orig if which == 1 else self.img2_orig
+        if not pil:
+            return
+        photo = self._make_photo(pil, w2, h2)
+        if not photo:
+            return
+        if which == 1:
+            self.img1tk = photo
+            self.img1_label.configure(image=photo)
+            self.img1_label.image = photo
+        else:
+            self.img2tk = photo
+            self.img2_label.configure(image=photo)
+            self.img2_label.image = photo
 
     def _launch(self, tod: str):
         name = self.name_var.get().strip() or "Anonymous User"
