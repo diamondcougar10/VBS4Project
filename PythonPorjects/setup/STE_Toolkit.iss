@@ -738,9 +738,10 @@ begin
 
   if (CurPageID = ModePage.ID) then
   begin
-    if not (RBHost.Checked or RBUser.Checked or RBUpdate.Checked) then
+    { Include Single Use mode in validation }
+    if not (RBHost.Checked or RBUser.Checked or RBSingle.Checked or RBUpdate.Checked) then
     begin
-      MsgBox('Please select one mode (Host, User, or Update).', mbError, MB_OK);
+      MsgBox('Please select one mode (Host, User, Single Use, or Update).', mbError, MB_OK);
       Result := False;
       Exit;
     end;
