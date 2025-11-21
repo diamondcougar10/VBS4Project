@@ -67,7 +67,7 @@ const
   BEACON_FILE  = 'HostInfo.ini';
 
 type
-  TInstallMode = (imHost, imUser, imUpdate);
+  TInstallMode = (imHost, imUser, imSingle, imUpdate);
 
 var
   { Custom mode page with visible radios (no GroupBox needed) }
@@ -75,6 +75,7 @@ var
   ModeIntro: TNewStaticText;
   RBHost:    TNewRadioButton;
   RBUser:    TNewRadioButton;
+  RBSingle:  TNewRadioButton;
   RBUpdate:  TNewRadioButton;
   ModeDesc:  TNewStaticText;
 
@@ -609,6 +610,7 @@ function SelectedMode(): TInstallMode;
 begin
   if RBHost.Checked then Result := imHost
   else if RBUser.Checked then Result := imUser
+  else if RBSingle.Checked then Result := imSingle
   else Result := imUpdate;
 end;
 
@@ -622,6 +624,9 @@ begin
     imUser:
       S := 'USER: Regular install without creating a shared drive. Automatically discovers and connects to Host if available on the LAN. ' +
            'If no Host is found, Host/IP is left blank in settings so you can set it manually later.';
+    imSingle:
+      S := 'SINGLE USE: Standalone/offline install for training on a single PC. Disables network discovery and fuser auto-start. ' +
+           'You can switch modes later from Settings.';
     imUpdate:
       S := 'UPDATE/REPAIR: Replaces the Toolkit binaries and repairs config. Attempts to auto-discover Host if not already configured. No sharing, drive layout, or third-party installs.';
   end;
@@ -672,10 +677,18 @@ begin
   RBUser.Caption := 'User';
   RBUser.OnClick := @ModeRadioClicked;
 
+  RBSingle := TNewRadioButton.Create(WizardForm);
+  RBSingle.Parent  := ModePage.Surface;
+  RBSingle.Left    := LeftX;
+  RBSingle.Top     := RBUser.Top + RBUser.Height + SpY;
+  RBSingle.Width   := AvailW;
+  RBSingle.Caption := 'Single Use Mode';
+  RBSingle.OnClick := @ModeRadioClicked;
+
   RBUpdate := TNewRadioButton.Create(WizardForm);
   RBUpdate.Parent  := ModePage.Surface;
   RBUpdate.Left    := LeftX;
-  RBUpdate.Top     := RBUser.Top + RBUser.Height + SpY;
+  RBUpdate.Top     := RBSingle.Top + RBSingle.Height + SpY;
   RBUpdate.Width   := AvailW;
   RBUpdate.Caption := 'Update';
   RBUpdate.OnClick := @ModeRadioClicked;
@@ -837,6 +850,37 @@ begin
        '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
+procedure SeedConfigIni_SingleUse(AppDir: string);
+var
+  Ini, BundledIni: string;
+begin
+  Ini        := AddBackslash(AppDir) + 'config.ini';
+  BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
+
+  { Copy bundled config first if main config missing }
+  if FileExists(BundledIni) and not FileExists(Ini) then
+    FileCopy(BundledIni, Ini, False);
+
+  { Force Single Use Mode at runtime }
+  SetIniString('General', 'force_single_use_mode', 'true', Ini);
+  SetIniString('General', 'first_run_done', 'True',        Ini);
+  SetIniString('General', 'first_run_mode', 'SINGLE_USE',  Ini);
+  SetIniString('General', 'skip_startup_connect', 'True',  Ini);
+
+  { Ensure fusers are not auto-started on a single-use install }
+  SetIniString('Fusers', 'desired_count', '0',     Ini);
+  SetIniString('Fusers', 'fuser_computer','False', Ini);
+  SetIniString('Fusers', 'host_count',    '0',     Ini);
+
+  { Keep Offline host blank so the app does not try to connect }
+  SetIniString('Offline', 'enabled', 'False',          Ini);
+  SetIniString('Offline', 'host_ip',    '',            Ini);
+  SetIniString('Offline', 'host_name',  '',            Ini);
+  SetIniString('Offline', 'share_name', 'SharedMeshDrive', Ini);
+  SetIniString('Offline', 'local_data_root', '',       Ini);
+  SetIniString('Offline', 'use_ip_unc', 'False',       Ini);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   AppDir, Base, RMTarget, HostRoot, Cmd, Ip: string;
@@ -855,6 +899,7 @@ begin
     case SelectedMode() of
       imHost: ModeStr := 'Host';
       imUser: ModeStr := 'User';
+      imSingle: ModeStr := 'SingleUse';
       imUpdate: ModeStr := 'Update';
     end;
     
@@ -942,6 +987,12 @@ begin
         end
         else
           LogInstallEvent('User mode: no host discovered; skipping SMB session');
+      end;
+
+      imSingle:
+      begin
+        SeedConfigIni_SingleUse(AppDir);
+        LogInstallEvent('Single Use mode configuration completed (force_single_use_mode=true; fusers disabled)');
       end;
 
       imUpdate:
