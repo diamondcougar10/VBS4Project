@@ -6708,11 +6708,11 @@ def set_wallpaper(window):
 # ─── UI Performance Helpers ──────────────────────────────────────────────────
 
 # Frame-time monitor to detect main-thread stalls (independent of event delivery)
-FRAME_MONITOR_ENABLED = True
+FRAME_MONITOR_ENABLED = False  # Disabled - issue resolved (psutil blocking)
 FRAME_MONITOR_INTERVAL_MS = 16  # ~60fps scheduling target
 FRAME_MONITOR_STALL_THRESHOLD_MS = 120.0  # Log when frame delta exceeds this
 FRAME_MONITOR_CAPTURE_STACK = True  # Capture stack traces during stalls
-FRAME_MONITOR_PROFILE_MODE = True  # Enable aggressive stack sampling during execution
+FRAME_MONITOR_PROFILE_MODE = False  # Disabled - issue resolved
 _FRAME_MONITOR_LAST_TICK = None
 _FRAME_MONITOR_STATS = {
     'ticks': 0,
@@ -6913,7 +6913,7 @@ def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover
         global PERF_HOVER_EVENT_SUMMARY_INTERVAL, PERF_HOVER_RENDER_WARN_MS, PERF_HOVER_CFG_WARN_MS
 
         if 'PERF_HOVER_LOG' not in globals():
-            PERF_HOVER_LOG = True  # master enable
+            PERF_HOVER_LOG = False  # master enable - disabled, issue resolved
         if 'PERF_HOVER_DEFER_FLUSH' not in globals():
             # When True: measure config time immediately, schedule render flush measurement via after_idle
             PERF_HOVER_DEFER_FLUSH = False
@@ -7000,40 +7000,46 @@ def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover
                 pass
 
         def on_enter(_event=None):
-            if str(button.cget("state")) == 'disabled' or not PERF_HOVER_LOG:
+            if str(button.cget("state")) == 'disabled':
                 return
-            t0 = _time_mod_for_perf.perf_counter()
+            # Always apply UI effect
             if button.cget("bg") != hover_bg:
                 button.configure(bg=hover_bg)
-            t1 = _time_mod_for_perf.perf_counter()
-            if PERF_HOVER_DEFER_FLUSH:
-                # Schedule async render measurement
-                button.after_idle(lambda: _flush_and_measure(button, 'enter', t0, t1))
-            else:
-                # Immediate flush path (original behavior)
-                try:
-                    button.update_idletasks()
-                except Exception:
-                    pass
-                t2 = _time_mod_for_perf.perf_counter()
-                _log_hover_perf(button, 'enter', t0, t1, t2)
+            # Optionally record and log perf if enabled
+            if PERF_HOVER_LOG:
+                t0 = _time_mod_for_perf.perf_counter()
+                t1 = _time_mod_for_perf.perf_counter()
+                if PERF_HOVER_DEFER_FLUSH:
+                    # Schedule async render measurement
+                    button.after_idle(lambda: _flush_and_measure(button, 'enter', t0, t1))
+                else:
+                    # Immediate flush path (original behavior)
+                    try:
+                        button.update_idletasks()
+                    except Exception:
+                        pass
+                    t2 = _time_mod_for_perf.perf_counter()
+                    _log_hover_perf(button, 'enter', t0, t1, t2)
 
         def on_leave(_event=None):
-            if str(button.cget("state")) == 'disabled' or not PERF_HOVER_LOG:
+            if str(button.cget("state")) == 'disabled':
                 return
-            t0 = _time_mod_for_perf.perf_counter()
+            # Always apply UI effect
             if button.cget("bg") != normal_bg:
                 button.configure(bg=normal_bg)
-            t1 = _time_mod_for_perf.perf_counter()
-            if PERF_HOVER_DEFER_FLUSH:
-                button.after_idle(lambda: _flush_and_measure(button, 'leave', t0, t1))
-            else:
-                try:
-                    button.update_idletasks()
-                except Exception:
-                    pass
-                t2 = _time_mod_for_perf.perf_counter()
-                _log_hover_perf(button, 'leave', t0, t1, t2)
+            # Optionally record and log perf if enabled
+            if PERF_HOVER_LOG:
+                t0 = _time_mod_for_perf.perf_counter()
+                t1 = _time_mod_for_perf.perf_counter()
+                if PERF_HOVER_DEFER_FLUSH:
+                    button.after_idle(lambda: _flush_and_measure(button, 'leave', t0, t1))
+                else:
+                    try:
+                        button.update_idletasks()
+                    except Exception:
+                        pass
+                    t2 = _time_mod_for_perf.perf_counter()
+                    _log_hover_perf(button, 'leave', t0, t1, t2)
 
         button.bind("<Enter>", on_enter, add=True)
         button.bind("<Leave>", on_leave, add=True)
