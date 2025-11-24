@@ -2544,22 +2544,54 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
     roots = []
     
     # Add version-specific paths first (most likely to contain latest VBS4)
-    builds_vbs4_base = r"C:\Builds\VBS4"
-    if os.path.isdir(builds_vbs4_base):
+    # Search patterns for common VBS4 installation structures
+    # Support nested VBS4 subdirectories (e.g., C:\Builds\VBS4\VBS4\VBS4_25.1)
+    builds_bases = [
+        r"C:\Builds\VBS4",
+        r"C:\Builds",
+    ]
+    
+    def _scan_for_vbs4_folders(base_path, max_depth=3, current_depth=0):
+        """Recursively scan for VBS4-related folders up to max_depth levels."""
+        if current_depth >= max_depth or not os.path.isdir(base_path):
+            return []
+        
+        found_folders = []
         try:
-            # Look for version-numbered subdirectories first
-            version_folders = []
-            for entry in os.listdir(builds_vbs4_base):
-                entry_path = os.path.join(builds_vbs4_base, entry)
-                if os.path.isdir(entry_path):
-                    # Add version folders like "VBS4 25.1 YYMEA_General"
-                    if "VBS4" in entry or "YYMEA" in entry or re.search(r'\d+\.\d+', entry):
-                        version_folders.append(entry_path)
-                        roots.append(entry_path)
-            if version_folders:
-                logging.info("[discover] Found %d VBS4 version folders in %s", len(version_folders), builds_vbs4_base)
+            for entry in os.listdir(base_path):
+                entry_path = os.path.join(base_path, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                
+                entry_upper = entry.upper()
+                # Match VBS4 patterns: "VBS4", "VBS4 25.1", "VBS4_25.1", version numbers, "YYMEA"
+                is_vbs4_folder = (
+                    "VBS4" in entry_upper or 
+                    "YYMEA" in entry_upper or 
+                    re.search(r'VBS4[_\s.]?\d+', entry, re.IGNORECASE) or
+                    re.search(r'\d+\.\d+', entry)
+                )
+                
+                if is_vbs4_folder:
+                    found_folders.append(entry_path)
+                    # Continue scanning deeper into VBS4 folders
+                    if "VBS4" in entry_upper:
+                        found_folders.extend(_scan_for_vbs4_folders(entry_path, max_depth, current_depth + 1))
         except (OSError, PermissionError) as e:
-            logging.warning("[discover] Could not list %s: %s", builds_vbs4_base, e)
+            if current_depth == 0:
+                logging.warning("[discover] Could not list %s: %s", base_path, e)
+        
+        return found_folders
+    
+    for builds_base in builds_bases:
+        if os.path.isdir(builds_base):
+            vbs4_folders = _scan_for_vbs4_folders(builds_base, max_depth=3)
+            roots.extend(vbs4_folders)
+            if vbs4_folders:
+                logging.info("[discover] Found %d VBS4 folders in %s (including nested)", len(vbs4_folders), builds_base)
+    
+    if roots:
+        logging.info("[discover] Found %d VBS4 version folders", len(roots))
     
     # Add standard search roots
     roots.extend([
@@ -2699,23 +2731,54 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
         roots.append(os.path.dirname(vbs4_exe))
     
     # Add version-specific paths that may contain VBSLauncher.exe
-    # These cover patterns like "C:\Builds\VBS4\VBS4 25.1 YYMEA_General"
-    builds_vbs4_base = r"C:\Builds\VBS4"
-    if os.path.isdir(builds_vbs4_base):
+    # These cover patterns like "C:\Builds\VBS4\VBS4 25.1 YYMEA_General" and "C:\Builds\VBS4\VBS4_25.1"
+    # Support nested VBS4 subdirectories (e.g., C:\Builds\VBS4\VBS4\VBS4_25.1)
+    builds_bases = [
+        r"C:\Builds\VBS4",
+        r"C:\Builds",
+    ]
+    
+    def _scan_for_vbs4_folders(base_path, max_depth=3, current_depth=0):
+        """Recursively scan for VBS4-related folders up to max_depth levels."""
+        if current_depth >= max_depth or not os.path.isdir(base_path):
+            return []
+        
+        found_folders = []
         try:
-            # Look for version-numbered subdirectories first (most specific)
-            version_folders = []
-            for entry in os.listdir(builds_vbs4_base):
-                entry_path = os.path.join(builds_vbs4_base, entry)
-                if os.path.isdir(entry_path):
-                    # Add version folders like "VBS4 25.1 YYMEA_General"
-                    if "VBS4" in entry or "YYMEA" in entry or re.search(r'\d+\.\d+', entry):
-                        version_folders.append(entry_path)
-                        roots.append(entry_path)
-            if version_folders:
-                logging.info("[discover] Found %d VBS4 version folders in %s", len(version_folders), builds_vbs4_base)
+            for entry in os.listdir(base_path):
+                entry_path = os.path.join(base_path, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                
+                entry_upper = entry.upper()
+                # Match VBS4 patterns: "VBS4", "VBS4 25.1", "VBS4_25.1", version numbers, "YYMEA"
+                is_vbs4_folder = (
+                    "VBS4" in entry_upper or 
+                    "YYMEA" in entry_upper or 
+                    re.search(r'VBS4[_\s.]?\d+', entry, re.IGNORECASE) or
+                    re.search(r'\d+\.\d+', entry)
+                )
+                
+                if is_vbs4_folder:
+                    found_folders.append(entry_path)
+                    # Continue scanning deeper into VBS4 folders
+                    if "VBS4" in entry_upper:
+                        found_folders.extend(_scan_for_vbs4_folders(entry_path, max_depth, current_depth + 1))
         except (OSError, PermissionError) as e:
-            logging.warning("[discover] Could not list %s: %s", builds_vbs4_base, e)
+            if current_depth == 0:
+                logging.warning("[discover] Could not list %s: %s", base_path, e)
+        
+        return found_folders
+    
+    for builds_base in builds_bases:
+        if os.path.isdir(builds_base):
+            vbs4_folders = _scan_for_vbs4_folders(builds_base, max_depth=3)
+            roots.extend(vbs4_folders)
+            if vbs4_folders:
+                logging.info("[discover] Found %d potential VBS4 launcher folders in %s (including nested)", len(vbs4_folders), builds_base)
+    
+    if roots:
+        logging.info("[discover] Found %d potential VBS4 launcher folders", len(roots))
     
     # Add standard search roots
     roots.extend([
