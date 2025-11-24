@@ -108,6 +108,7 @@ import io
 import time
 import traceback
 import csv
+import time as _time_mod_for_perf  # separate alias for perf timing if needed
 
 # Crash logging setup (early so hooks apply before other threads start)
 _CRASH_DIR = os.path.join(os.getcwd(), "logs", "crash")
@@ -167,6 +168,23 @@ try:
     import psutil
 except Exception:
     psutil = None
+
+# ---------------------------------------------------------------------------
+# Runtime logging suppression & performance instrumentation flags
+# ---------------------------------------------------------------------------
+DISABLE_GENERAL_LOGGING = True  # Set True to silence existing info/debug logs
+if DISABLE_GENERAL_LOGGING:
+    import logging as _lg_patch
+    try:
+        _lg_patch_info = _lg_patch.info
+        _lg_patch_debug = _lg_patch.debug
+        _lg_patch_warning = _lg_patch.warning
+        # Replace non-critical outputs with no-ops (errors still visible)
+        _lg_patch.info = lambda *a, **k: None
+        _lg_patch.debug = lambda *a, **k: None
+        _lg_patch.warning = lambda *a, **k: None
+    except Exception:
+        pass
 
 from photomesh_launcher import (
     get_offline_cfg,
@@ -6689,6 +6707,165 @@ def set_wallpaper(window):
 
 # ─── UI Performance Helpers ──────────────────────────────────────────────────
 
+# Frame-time monitor to detect main-thread stalls (independent of event delivery)
+FRAME_MONITOR_ENABLED = True
+FRAME_MONITOR_INTERVAL_MS = 16  # ~60fps scheduling target
+FRAME_MONITOR_STALL_THRESHOLD_MS = 120.0  # Log when frame delta exceeds this
+FRAME_MONITOR_CAPTURE_STACK = True  # Capture stack traces during stalls
+FRAME_MONITOR_PROFILE_MODE = True  # Enable aggressive stack sampling during execution
+_FRAME_MONITOR_LAST_TICK = None
+_FRAME_MONITOR_STATS = {
+    'ticks': 0,
+    'stalls': 0,
+    'max_delta_ms': 0.0,
+    'total_stall_time_ms': 0.0,
+}
+_FRAME_MONITOR_PROFILE_DATA = {}  # Stack samples collected during execution
+
+def _frame_tick(root):
+    """Scheduled callback to detect main-thread stalls.
+    
+    Measures time between scheduled callbacks. If delta significantly exceeds
+    the scheduling interval, the main thread was blocked (e.g., by slow event
+    handlers, heavy computation, blocking I/O).
+    
+    This captures freezes that prevent hover events from firing at all.
+    """
+    global _FRAME_MONITOR_LAST_TICK, _FRAME_MONITOR_STATS
+    
+    try:
+        now = _time_mod_for_perf.perf_counter()
+        
+        if _FRAME_MONITOR_LAST_TICK is not None:
+            delta_ms = (now - _FRAME_MONITOR_LAST_TICK) * 1000.0
+            _FRAME_MONITOR_STATS['ticks'] += 1
+            _FRAME_MONITOR_STATS['max_delta_ms'] = max(_FRAME_MONITOR_STATS['max_delta_ms'], delta_ms)
+            
+            if delta_ms > FRAME_MONITOR_STALL_THRESHOLD_MS:
+                _FRAME_MONITOR_STATS['stalls'] += 1
+                stall_time = delta_ms - FRAME_MONITOR_INTERVAL_MS
+                _FRAME_MONITOR_STATS['total_stall_time_ms'] += stall_time
+                print(
+                    f"[FRAME-STALL] delta_ms={delta_ms:.1f} (expected ~{FRAME_MONITOR_INTERVAL_MS}ms) "
+                    f"stall_time_ms={stall_time:.1f} total_stalls={_FRAME_MONITOR_STATS['stalls']}"
+                )
+                
+                # Show what the main thread was doing during the stall (from profiler samples)
+                if FRAME_MONITOR_PROFILE_MODE and _FRAME_MONITOR_PROFILE_DATA:
+                    stall_start = _FRAME_MONITOR_LAST_TICK
+                    stall_end = now
+                    print(f"[FRAME-STALL-PROFILE] Stack samples during stall (last {len(_FRAME_MONITOR_PROFILE_DATA)} samples):")
+                    print("=" * 80)
+                    
+                    # Find samples that occurred during the stall window
+                    stall_samples = []
+                    for sample_time, stack in sorted(_FRAME_MONITOR_PROFILE_DATA.items()):
+                        if stall_start <= sample_time <= stall_end:
+                            stall_samples.append((sample_time, stack))
+                    
+                    if stall_samples:
+                        print(f"Found {len(stall_samples)} samples during the {stall_time:.0f}ms stall:")
+                        # Show unique stacks with counts
+                        from collections import Counter
+                        stack_counts = Counter([s[1] for s in stall_samples])
+                        for stack, count in stack_counts.most_common(5):
+                            pct = (count / len(stall_samples)) * 100
+                            print(f"\n[{count}/{len(stall_samples)} samples = {pct:.1f}%]")
+                            print(f"  {stack}")
+                    else:
+                        print("(No samples captured during stall window - stall may be in native code)")
+                        print("\nMost recent samples before stall:")
+                        for sample_time, stack in sorted(_FRAME_MONITOR_PROFILE_DATA.items())[-3:]:
+                            print(f"\n  t={sample_time:.3f}:")
+                            print(f"  {stack}")
+                    print("=" * 80)
+                
+                # Also log all threads to see if background work is interfering
+                try:
+                    import threading
+                    print(f"[FRAME-STALL-THREADS] Active threads: {threading.active_count()}")
+                    for thread in threading.enumerate():
+                        print(f"  - {thread.name} (daemon={thread.daemon}, alive={thread.is_alive()})")
+                except Exception:
+                    pass
+            
+            # Summary every 1000 ticks (~16 seconds at 60fps)
+            if _FRAME_MONITOR_STATS['ticks'] % 1000 == 0:
+                avg_delta = (now - _FRAME_MONITOR_LAST_TICK) * 1000.0  # approximation
+                print(
+                    f"[FRAME-SUMMARY] ticks={_FRAME_MONITOR_STATS['ticks']} stalls={_FRAME_MONITOR_STATS['stalls']} "
+                    f"max_delta_ms={_FRAME_MONITOR_STATS['max_delta_ms']:.1f} total_stall_time_ms={_FRAME_MONITOR_STATS['total_stall_time_ms']:.1f}"
+                )
+        
+        _FRAME_MONITOR_LAST_TICK = now
+        
+        # Reschedule next tick
+        if FRAME_MONITOR_ENABLED:
+            root.after(FRAME_MONITOR_INTERVAL_MS, lambda: _frame_tick(root))
+    except Exception as e:
+        logging.error(f"[frame-monitor] error in _frame_tick: {e}")
+
+def _profile_sampler():
+    """Background profiler that samples the main thread stack periodically.
+    
+    This runs in a separate thread and captures stack traces every 50ms.
+    When a frame stall is detected, we can analyze these samples to see
+    what the main thread was doing during the freeze.
+    """
+    global _FRAME_MONITOR_PROFILE_DATA
+    import sys
+    import traceback
+    import threading
+    
+    main_thread_id = threading.main_thread().ident
+    
+    while FRAME_MONITOR_PROFILE_MODE:
+        try:
+            # Sample the main thread stack
+            for thread_id, frame in sys._current_frames().items():
+                if thread_id == main_thread_id:
+                    # Extract just the function names and line numbers
+                    stack = []
+                    current_frame = frame
+                    while current_frame is not None:
+                        code = current_frame.f_code
+                        # Skip internal tkinter/monitoring frames
+                        if 'tkinter' not in code.co_filename and '_frame_tick' not in code.co_name:
+                            stack.append(f"{code.co_filename}:{current_frame.f_lineno} in {code.co_name}")
+                        current_frame = current_frame.f_back
+                    
+                    # Store with timestamp
+                    if stack:
+                        timestamp = _time_mod_for_perf.perf_counter()
+                        stack_key = '\n  '.join(stack[:5])  # Top 5 frames
+                        _FRAME_MONITOR_PROFILE_DATA[timestamp] = stack_key
+                    
+                    # Keep only last 100 samples (last ~5 seconds)
+                    if len(_FRAME_MONITOR_PROFILE_DATA) > 100:
+                        oldest = min(_FRAME_MONITOR_PROFILE_DATA.keys())
+                        del _FRAME_MONITOR_PROFILE_DATA[oldest]
+                    break
+        except Exception:
+            pass
+        
+        # Sample every 50ms
+        _time_mod_for_perf.sleep(0.05)
+
+def start_frame_monitor(root):
+    """Initialize the frame-time monitor for detecting UI freezes."""
+    global _FRAME_MONITOR_LAST_TICK
+    if FRAME_MONITOR_ENABLED:
+        _FRAME_MONITOR_LAST_TICK = _time_mod_for_perf.perf_counter()
+        root.after(FRAME_MONITOR_INTERVAL_MS, lambda: _frame_tick(root))
+        logging.info(f"[frame-monitor] Started (interval={FRAME_MONITOR_INTERVAL_MS}ms, threshold={FRAME_MONITOR_STALL_THRESHOLD_MS}ms)")
+        
+        # Start background profiler if enabled
+        if FRAME_MONITOR_PROFILE_MODE:
+            import threading
+            profiler_thread = threading.Thread(target=_profile_sampler, name="FrameProfiler", daemon=True)
+            profiler_thread.start()
+            logging.info("[frame-monitor] Background stack profiler started")
+
 def load_cached_image(path: str, size: tuple[int, int]) -> ImageTk.PhotoImage:
     """Load and cache resized images for better UI performance.
     
@@ -6720,42 +6897,147 @@ def load_cached_image(path: str, size: tuple[int, int]) -> ImageTk.PhotoImage:
     return _IMAGE_CACHE[cache_key]
 
 def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover_bg: str = "#555555"):
-    """Add fast, lightweight hover effect to a button.
+    """Add fast, lightweight hover effect to a button with performance instrumentation.
 
     Optimizations:
-    - Avoid redundant .config calls (compare current bg before setting)
-    - Prime 'activebackground' to the hover color for snappier feel
-    - Use existing button bg as normal_bg if not provided
+    - Avoid redundant .configure calls
+    - Prime activebackground for snappier feel
+    - Optional deferred render flush to reduce synchronous latency
+    - Aggregates timing stats (avg/max, spike counts) for diagnostics
     """
     try:
-        # Use current bg as the default "normal" color if not explicitly passed
+        # ------------------------------------------------------------------
+        # Global instrumentation / configuration defaults (create once)
+        # ------------------------------------------------------------------
+        global PERF_HOVER_LOG, PERF_HOVER_DEFER_FLUSH, HOVER_STATS
+        global PERF_HOVER_EVENT_SUMMARY_INTERVAL, PERF_HOVER_RENDER_WARN_MS, PERF_HOVER_CFG_WARN_MS
+
+        if 'PERF_HOVER_LOG' not in globals():
+            PERF_HOVER_LOG = True  # master enable
+        if 'PERF_HOVER_DEFER_FLUSH' not in globals():
+            # When True: measure config time immediately, schedule render flush measurement via after_idle
+            PERF_HOVER_DEFER_FLUSH = False
+        if 'PERF_HOVER_EVENT_SUMMARY_INTERVAL' not in globals():
+            PERF_HOVER_EVENT_SUMMARY_INTERVAL = 50  # print aggregate every N events
+        if 'PERF_HOVER_RENDER_WARN_MS' not in globals():
+            PERF_HOVER_RENDER_WARN_MS = 500.0  # warn threshold (ms) for render phase
+        if 'PERF_HOVER_CFG_WARN_MS' not in globals():
+            PERF_HOVER_CFG_WARN_MS = 5.0  # cfg almost always <1ms; >5ms suspicious
+        if 'HOVER_STATS' not in globals():
+            HOVER_STATS = {
+                'events': 0,
+                'cfg_total': 0.0,
+                'render_total': 0.0,
+                'cfg_max': 0.0,
+                'render_max': 0.0,
+                'cfg_spikes': 0,
+                'render_spikes': 0,
+            }
+
+        # Use current bg as the default normal color if not provided
         if not normal_bg:
             normal_bg = button.cget("bg")
 
-        # Prime active colors for immediate feedback on press/hover transitions
+        # Prime active colors
         try:
             button.configure(activebackground=hover_bg, activeforeground=button.cget("fg"))
         except Exception:
             pass
 
+        def _aggregate(cfg_ms: float, render_ms: float | None):
+            try:
+                HOVER_STATS['events'] += 1
+                HOVER_STATS['cfg_total'] += cfg_ms
+                HOVER_STATS['cfg_max'] = max(HOVER_STATS['cfg_max'], cfg_ms)
+                if cfg_ms >= PERF_HOVER_CFG_WARN_MS:
+                    HOVER_STATS['cfg_spikes'] += 1
+                if render_ms is not None:
+                    HOVER_STATS['render_total'] += render_ms
+                    HOVER_STATS['render_max'] = max(HOVER_STATS['render_max'], render_ms)
+                    if render_ms >= PERF_HOVER_RENDER_WARN_MS:
+                        HOVER_STATS['render_spikes'] += 1
+                if HOVER_STATS['events'] % PERF_HOVER_EVENT_SUMMARY_INTERVAL == 0:
+                    avg_cfg = HOVER_STATS['cfg_total'] / max(1, HOVER_STATS['events'])
+                    avg_render = (HOVER_STATS['render_total'] / max(1, HOVER_STATS['events'])) if HOVER_STATS['render_total'] else 0.0
+                    print(
+                        f"[HOVERPERF-SUMMARY] events={HOVER_STATS['events']} avg_cfg_ms={avg_cfg:.3f} avg_render_ms={avg_render:.3f} "
+                        f"cfg_max={HOVER_STATS['cfg_max']:.3f} render_max={HOVER_STATS['render_max']:.3f} "
+                        f"cfg_spikes>={PERF_HOVER_CFG_WARN_MS}ms={HOVER_STATS['cfg_spikes']} render_spikes>={PERF_HOVER_RENDER_WARN_MS}ms={HOVER_STATS['render_spikes']}"
+                    )
+            except Exception:
+                pass
+
+        def _log_hover_perf(button_obj, phase, start, end, render_end=None):
+            try:
+                btn_id = getattr(button_obj, 'perf_id', None)
+                if not btn_id:
+                    button_obj.perf_id = f"{button_obj.winfo_class()}@{hex(id(button_obj))}"
+                    btn_id = button_obj.perf_id
+                cfg_ms = (end - start) * 1000.0
+                if render_end is not None:
+                    render_ms = (render_end - end) * 1000.0
+                    print(
+                        f"[HOVERPERF] phase={phase} button={btn_id} text='{button_obj.cget('text')}' "
+                        f"t_start={start:.6f} t_cfg_end={end:.6f} cfg_ms={cfg_ms:.3f} t_render_end={render_end:.6f} render_ms={render_ms:.3f}"
+                    )
+                    _aggregate(cfg_ms, render_ms)
+                else:
+                    print(
+                        f"[HOVERPERF] phase={phase} button={btn_id} text='{button_obj.cget('text')}' "
+                        f"t_start={start:.6f} t_cfg_end={end:.6f} cfg_ms={cfg_ms:.3f}" 
+                    )
+                    _aggregate(cfg_ms, None)
+            except Exception:
+                pass
+
+        def _flush_and_measure(button_obj, phase, start, cfg_end):
+            """Deferred flush measurement executed on idle (only if enabled)."""
+            try:
+                # After idle we assume Tk has processed pending draws
+                render_end = _time_mod_for_perf.perf_counter()
+                _log_hover_perf(button_obj, phase, start, cfg_end, render_end)
+            except Exception:
+                pass
+
         def on_enter(_event=None):
-            if str(button.cget("state")) == 'disabled':
+            if str(button.cget("state")) == 'disabled' or not PERF_HOVER_LOG:
                 return
-            # Only update if different to avoid expensive redraws
+            t0 = _time_mod_for_perf.perf_counter()
             if button.cget("bg") != hover_bg:
                 button.configure(bg=hover_bg)
+            t1 = _time_mod_for_perf.perf_counter()
+            if PERF_HOVER_DEFER_FLUSH:
+                # Schedule async render measurement
+                button.after_idle(lambda: _flush_and_measure(button, 'enter', t0, t1))
+            else:
+                # Immediate flush path (original behavior)
+                try:
+                    button.update_idletasks()
+                except Exception:
+                    pass
+                t2 = _time_mod_for_perf.perf_counter()
+                _log_hover_perf(button, 'enter', t0, t1, t2)
 
         def on_leave(_event=None):
-            if str(button.cget("state")) == 'disabled':
+            if str(button.cget("state")) == 'disabled' or not PERF_HOVER_LOG:
                 return
+            t0 = _time_mod_for_perf.perf_counter()
             if button.cget("bg") != normal_bg:
                 button.configure(bg=normal_bg)
+            t1 = _time_mod_for_perf.perf_counter()
+            if PERF_HOVER_DEFER_FLUSH:
+                button.after_idle(lambda: _flush_and_measure(button, 'leave', t0, t1))
+            else:
+                try:
+                    button.update_idletasks()
+                except Exception:
+                    pass
+                t2 = _time_mod_for_perf.perf_counter()
+                _log_hover_perf(button, 'leave', t0, t1, t2)
 
-        # Bind with add=True so we don't clobber other handlers
         button.bind("<Enter>", on_enter, add=True)
         button.bind("<Leave>", on_leave, add=True)
     except Exception:
-        # Fail-safe: do nothing if widget reconfig fails
         pass
 
 def set_busy_cursor(widget, busy: bool = True):
@@ -7718,27 +8000,25 @@ class MainApp(tk.Tk):
             btn.pack(pady=5, padx=5)
             self._nav_buttons[key] = btn
             
-            # Enhanced hover effects for better feedback
-            def on_enter(e, btn=btn, l=label):
-                if not hasattr(self, 'current') or self.current != key:
-                    btn.config(bg="#777")
+            # Apply hover effect with performance instrumentation
+            add_button_hover_effect(btn, normal_bg="#555", hover_bg="#777")
+            
+            # Tooltip handling for navigation buttons
+            def on_enter(e, l=label):
                 nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10)
             
-            def on_leave(e, btn=btn, k=key):
-                if hasattr(self, 'current') and self.current == k:
-                    btn.config(bg="#888") 
-                else:
-                    btn.config(bg="#555")  # Normal color
+            def on_leave(e):
                 nav_tip.hide()
             
-            def on_click(e, btn=btn, k=key):
+            def on_click(e, btn=btn):
                 # Immediate visual feedback on click
                 btn.config(bg="#999")
                 # Update all button states after a brief moment
                 btn.after(50, self.update_nav_button_appearance)
             
-            btn.bind("<Enter>", on_enter)
-            btn.bind("<Leave>", on_leave)
+            # Overlay tooltip and click handlers (hover color already handled by add_button_hover_effect)
+            btn.bind("<Enter>", on_enter, add="+")
+            btn.bind("<Leave>", on_leave, add="+")
             btn.bind("<Button-1>", on_click)
             self.focusable_buttons.append(btn)
 
@@ -7769,6 +8049,9 @@ class MainApp(tk.Tk):
             self.bind(key, self.focus_prev)
         self.bind("<Return>", self.activate_current)
         self.update_navigation()
+        
+        # Start frame-time monitor to detect main-thread stalls
+        start_frame_monitor(self)
         
         # Mark UI as initialized
         self._ui_initialized = True
@@ -13003,22 +13286,44 @@ class SettingsPanel(tk.Frame):
         if not hasattr(self, "fuser_count_label"):
             return
 
-        running = count_local_fusers()
-        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        try:
-            desired_raw = int(config["Fusers"].get("desired_count", "3") or 3)
-        except Exception:
-            desired_raw = 3
-        desired = _clamp_fusers(desired_raw, is_fuser)
-        suffix = "" if is_fuser else "  (fuser computer is OFF)"
-        self.fuser_count_label.config(
-            text=f"Local fusers: {running} running / {desired} desired{suffix}"
-        )
-        try:
-            pc = os.environ.get('COMPUTERNAME') or platform.node()
-            logging.info(f"[ui-diag] SettingsPanel: fuser counter refresh -> {pc}: running={running}, desired={desired}, is_fuser={is_fuser}")
-        except Exception:
-            pass
+        # Prevent overlapping background scans
+        if getattr(self, "_fuser_refresh_busy", False):
+            return
+        
+        self._fuser_refresh_busy = True
+        
+        def _background_scan():
+            """Run expensive psutil scan in background thread."""
+            try:
+                running = count_local_fusers()
+                is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+                try:
+                    desired_raw = int(config["Fusers"].get("desired_count", "3") or 3)
+                except Exception:
+                    desired_raw = 3
+                desired = _clamp_fusers(desired_raw, is_fuser)
+                suffix = "" if is_fuser else "  (fuser computer is OFF)"
+                
+                # Update UI on main thread
+                def _update_ui():
+                    try:
+                        if hasattr(self, "fuser_count_label"):
+                            self.fuser_count_label.config(
+                                text=f"Local fusers: {running} running / {desired} desired{suffix}"
+                            )
+                        pc = os.environ.get('COMPUTERNAME') or platform.node()
+                        logging.info(f"[ui-diag] SettingsPanel: fuser counter refresh -> {pc}: running={running}, desired={desired}, is_fuser={is_fuser}")
+                    except Exception:
+                        pass
+                    finally:
+                        self._fuser_refresh_busy = False
+                
+                post_ui(_update_ui)
+            except Exception as e:
+                logging.error(f"[fuser-count] Background scan failed: {e}")
+                self._fuser_refresh_busy = False
+        
+        run_in_thread(_background_scan)
 
     def _schedule_fuser_count_refresh(self):
         """Periodically refresh the fuser counter label to keep it in sync."""
