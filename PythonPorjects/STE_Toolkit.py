@@ -14035,16 +14035,7 @@ class DronePanel(tk.Frame):
             fg="white"
         )
         title_label.pack(pady=(0, 10))
-        
-        # LB legend
-        legend_label = tk.Label(
-            content_frame,
-            text="LB = Leaderboard",
-            font=("Helvetica", 14),
-            bg="#2B2B2B",
-            fg="#FF8C00"
-        )
-        legend_label.pack(pady=(0, 30))
+        title_label.pack(pady=(0, 40))
         
         # Three-column container
         columns_frame = tk.Frame(content_frame, bg="#2B2B2B")
@@ -14158,6 +14149,16 @@ class DronePanel(tk.Frame):
         # Place in the standardized top-right corner
         back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
+        
+        # Add LB = Leaderboard legend below back button
+        lb_legend = tk.Label(
+            self,
+            text="LB = Leaderboard",
+            font=("Helvetica", 10),
+            bg="#232323",
+            fg="#FF8C00"
+        )
+        lb_legend.place(relx=1.0, x=-10, y=45, anchor="ne")
     
     def on_fpv_button_click(self, button_num):
         """Handle FPV button clicks (TBL 1-6)."""
@@ -14212,8 +14213,9 @@ class LeaderboardPanel(tk.Frame):
         self.table_num = table_num
         self.close_callback = close_callback
         
-        # Load leaderboard data from CSV
-        self.leaderboard_data = self._load_leaderboard_data()
+        # Load day and night datasets
+        self.day_data = self._load_leaderboard_data("Day")
+        self.night_data = self._load_leaderboard_data("Night")
         
         # Main container
         main_container = tk.Frame(self, bg="#2B2B2B")
@@ -14229,109 +14231,24 @@ class LeaderboardPanel(tk.Frame):
         )
         title_label.pack(pady=(0, 30))
         
-        # Leaderboard grid frame with border
-        grid_frame = tk.Frame(main_container, bg="#3A3A3A", bd=2, relief="solid")
-        grid_frame.pack(expand=True, fill="both", padx=20, pady=10)
+        # Dual leaderboard container
+        dual_frame = tk.Frame(main_container, bg="#2B2B2B")
+        dual_frame.pack(expand=True, fill="both", padx=10, pady=10)
+        dual_frame.columnconfigure(0, weight=1, uniform="half")
+        dual_frame.columnconfigure(1, weight=1, uniform="half")
+        dual_frame.rowconfigure(0, weight=1)
         
-        # Inner frame for grid
-        inner_frame = tk.Frame(grid_frame, bg="#2B2B2B")
-        inner_frame.pack(expand=True, fill="both", padx=2, pady=2)
-        
-        # Configure grid columns: Rank, Date (M-D-Y), Name, Best Time
-        inner_frame.grid_columnconfigure(0, weight=1)  # Rank
-        inner_frame.grid_columnconfigure(1, weight=2)  # Date
-        inner_frame.grid_columnconfigure(2, weight=3)  # Name
-        inner_frame.grid_columnconfigure(3, weight=2)  # Best Time
-        
-        # Header row
-        headers = ["Rank", "Date (M-D-Y)", "Name", "Best Time"]
-        for col_idx, header_text in enumerate(headers):
-            header_label = tk.Label(
-                inner_frame,
-                text=header_text,
-                font=("Helvetica", 16, "bold"),
-                bg="#3A3A3A",
-                fg="white",
-                bd=1,
-                relief="solid"
-            )
-            header_label.grid(row=0, column=col_idx, sticky="nsew", padx=1, pady=1)
-        
-        # Display leaderboard data rows (top 10)
-        for row_idx in range(1, 11):
-            # Get data for this row if available
-            if row_idx - 1 < len(self.leaderboard_data):
-                entry = self.leaderboard_data[row_idx - 1]
-                rank_text = str(row_idx)
-                date_text = entry['date']
-                name_text = entry['name']
-                time_text = f"{entry['time']:.2f}s ({entry['targets_hit']} targets)"
-                fg_color = "white"
-            else:
-                rank_text = ""
-                date_text = ""
-                name_text = ""
-                time_text = ""
-                fg_color = "#888888"
-            
-            # Rank
-            rank_label = tk.Label(
-                inner_frame,
-                text=rank_text,
-                font=("Helvetica", 14),
-                bg="#2B2B2B",
-                fg=fg_color,
-                bd=1,
-                relief="solid"
-            )
-            rank_label.grid(row=row_idx, column=0, sticky="nsew", padx=1, pady=1)
-            
-            # Date
-            date_label = tk.Label(
-                inner_frame,
-                text=date_text,
-                font=("Helvetica", 14),
-                bg="#2B2B2B",
-                fg=fg_color,
-                bd=1,
-                relief="solid"
-            )
-            date_label.grid(row=row_idx, column=1, sticky="nsew", padx=1, pady=1)
-            
-            # Name
-            name_label = tk.Label(
-                inner_frame,
-                text=name_text,
-                font=("Helvetica", 14),
-                bg="#2B2B2B",
-                fg=fg_color,
-                bd=1,
-                relief="solid"
-            )
-            name_label.grid(row=row_idx, column=2, sticky="nsew", padx=1, pady=1)
-            
-            # Best Time
-            time_label = tk.Label(
-                inner_frame,
-                text=time_text,
-                font=("Helvetica", 14),
-                bg="#2B2B2B",
-                fg=fg_color,
-                bd=1,
-                relief="solid"
-            )
-            time_label.grid(row=row_idx, column=3, sticky="nsew", padx=1, pady=1)
-        
-        # Configure row weights for even distribution
-        for row_idx in range(11):  # 1 header + 10 data rows
-            inner_frame.grid_rowconfigure(row_idx, weight=1)
+        # Build each side (Day / Night)
+        self._build_side(dual_frame, 0, "DAY", self.day_data)
+        self._build_side(dual_frame, 1, "NIGHT", self.night_data)
         
         # Info text
-        csv_filename = f"leaderboards_T{self.table_num}Day.csv"
-        if self.leaderboard_data:
-            info_text = f"Showing top {len(self.leaderboard_data)} scores from {csv_filename}"
-        else:
-            info_text = f"No score data found. {csv_filename} will be created after first VBS4 mission."
+        day_file = f"leaderboards_T{self.table_num}Day.csv"
+        night_file = f"leaderboards_T{self.table_num}Night.csv"
+        info_text = (
+            f"Day: {len(self.day_data)} loaded from {day_file} | "
+            f"Night: {len(self.night_data)} loaded from {night_file}"
+        )
         
         info_label = tk.Label(
             main_container,
@@ -14359,8 +14276,8 @@ class LeaderboardPanel(tk.Frame):
         back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
     
-    def _load_leaderboard_data(self):
-        """Load and sort leaderboard data from CSV file in VBS4 root directory.
+    def _load_leaderboard_data(self, suffix: str):
+        """Load and sort leaderboard data for given time-of-day suffix (Day/Night).
         
         CSV Format:
         - Column A: Name
@@ -14387,7 +14304,7 @@ class LeaderboardPanel(tk.Frame):
             vbs4_root = os.path.dirname(vbs4_exe)
             
             # Build CSV filename based on table number: leaderboards_T{num}Day.csv
-            csv_filename = f"leaderboards_T{self.table_num}Day.csv"
+            csv_filename = f"leaderboards_T{self.table_num}{suffix}.csv"
             csv_path = os.path.join(vbs4_root, csv_filename)
             
             if not os.path.exists(csv_path):
@@ -14427,12 +14344,51 @@ class LeaderboardPanel(tk.Frame):
             # Sort by most targets hit (descending), then by lowest time (ascending)
             entries.sort(key=lambda x: (-x['targets_hit'], x['time']))
             
-            logging.info(f"[Leaderboard] Loaded {len(entries)} entries from {csv_path}")
+            logging.info(f"[Leaderboard] Loaded {len(entries)} {suffix} entries from {csv_path}")
             return entries[:10]  # Return top 10
             
         except Exception as e:
-            logging.error(f"[Leaderboard] Error loading CSV: {e}")
+            logging.error(f"[Leaderboard] Error loading {suffix} CSV: {e}")
             return []
+
+    def _build_side(self, parent, col, label, data):
+        """Render one side of the dual leaderboard (up to 10 rows)."""
+        outer = tk.Frame(parent, bg="#3A3A3A", bd=2, relief="solid")
+        outer.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
+        inner = tk.Frame(outer, bg="#2B2B2B")
+        inner.pack(expand=True, fill="both", padx=2, pady=2)
+        
+        # Title
+        title = tk.Label(inner, text=label, font=("Helvetica", 18, "bold"), bg="#2B2B2B", fg="#FF8C00")
+        title.grid(row=0, column=0, columnspan=5, sticky="nsew", pady=(0,4))
+        
+        # Headers
+        headers = ["Rank", "Date", "Name", "Targets", "Best Time"]
+        for i, h in enumerate(headers):
+            hdr = tk.Label(inner, text=h, font=("Helvetica", 12, "bold"), bg="#3A3A3A", fg="white", bd=1, relief="solid")
+            hdr.grid(row=1, column=i, sticky="nsew", padx=1, pady=1)
+            inner.columnconfigure(i, weight=1)
+        
+        # Rows
+        for r in range(10):
+            if r < len(data):
+                entry = data[r]
+                rank_text = str(r+1)
+                date_text = entry['date']
+                name_text = entry['name']
+                targets_text = str(entry['targets_hit'])
+                time_text = f"{entry['time']:.2f}s"
+                fg = "white"
+            else:
+                rank_text = date_text = name_text = targets_text = time_text = ""
+                fg = "#888888"
+            vals = [rank_text, date_text, name_text, targets_text, time_text]
+            for c, val in enumerate(vals):
+                lbl = tk.Label(inner, text=val, font=("Helvetica", 11), bg="#2B2B2B", fg=fg, bd=1, relief="solid")
+                lbl.grid(row=r+2, column=c, sticky="nsew", padx=1, pady=1)
+        # Row weights
+        for rr in range(0, 12):
+            inner.grid_rowconfigure(rr, weight=1)
 
 def kill_vbs4_instances(timeout: float = 5.0) -> None:
     """Terminate any running VBS4-related processes to prevent duplicates.
