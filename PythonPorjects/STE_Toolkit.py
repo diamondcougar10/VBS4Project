@@ -107,6 +107,7 @@ from queue import Queue, Empty
 import io
 import time
 import traceback
+import csv
 
 # Crash logging setup (early so hooks apply before other threads start)
 _CRASH_DIR = os.path.join(os.getcwd(), "logs", "crash")
@@ -14148,6 +14149,9 @@ class LeaderboardPanel(tk.Frame):
         self.table_num = table_num
         self.close_callback = close_callback
         
+        # Load leaderboard data from CSV
+        self.leaderboard_data = self._load_leaderboard_data()
+        
         # Main container
         main_container = tk.Frame(self, bg="#2B2B2B")
         main_container.pack(expand=True, fill="both", padx=40, pady=40)
@@ -14190,15 +14194,30 @@ class LeaderboardPanel(tk.Frame):
             )
             header_label.grid(row=0, column=col_idx, sticky="nsew", padx=1, pady=1)
         
-        # Placeholder data rows (10 empty rows for future score data)
+        # Display leaderboard data rows (top 10)
         for row_idx in range(1, 11):
+            # Get data for this row if available
+            if row_idx - 1 < len(self.leaderboard_data):
+                entry = self.leaderboard_data[row_idx - 1]
+                rank_text = str(row_idx)
+                date_text = entry['date']
+                name_text = entry['name']
+                time_text = f"{entry['time']:.2f}s ({entry['targets_hit']} targets)"
+                fg_color = "white"
+            else:
+                rank_text = ""
+                date_text = ""
+                name_text = ""
+                time_text = ""
+                fg_color = "#888888"
+            
             # Rank
             rank_label = tk.Label(
                 inner_frame,
-                text="",
+                text=rank_text,
                 font=("Helvetica", 14),
                 bg="#2B2B2B",
-                fg="#888888",
+                fg=fg_color,
                 bd=1,
                 relief="solid"
             )
@@ -14207,10 +14226,10 @@ class LeaderboardPanel(tk.Frame):
             # Date
             date_label = tk.Label(
                 inner_frame,
-                text="",
+                text=date_text,
                 font=("Helvetica", 14),
                 bg="#2B2B2B",
-                fg="#888888",
+                fg=fg_color,
                 bd=1,
                 relief="solid"
             )
@@ -14219,10 +14238,10 @@ class LeaderboardPanel(tk.Frame):
             # Name
             name_label = tk.Label(
                 inner_frame,
-                text="",
+                text=name_text,
                 font=("Helvetica", 14),
                 bg="#2B2B2B",
-                fg="#888888",
+                fg=fg_color,
                 bd=1,
                 relief="solid"
             )
@@ -14231,10 +14250,10 @@ class LeaderboardPanel(tk.Frame):
             # Best Time
             time_label = tk.Label(
                 inner_frame,
-                text="",
+                text=time_text,
                 font=("Helvetica", 14),
                 bg="#2B2B2B",
-                fg="#888888",
+                fg=fg_color,
                 bd=1,
                 relief="solid"
             )
@@ -14245,9 +14264,15 @@ class LeaderboardPanel(tk.Frame):
             inner_frame.grid_rowconfigure(row_idx, weight=1)
         
         # Info text
+        csv_filename = f"leaderboards_T{self.table_num}Day.csv"
+        if self.leaderboard_data:
+            info_text = f"Showing top {len(self.leaderboard_data)} scores from {csv_filename}"
+        else:
+            info_text = f"No score data found. {csv_filename} will be created after first VBS4 mission."
+        
         info_label = tk.Label(
             main_container,
-            text="Score data will be populated from VBS4 score sheets",
+            text=info_text,
             font=("Helvetica", 12, "italic"),
             bg="#2B2B2B",
             fg="#888888"
@@ -14270,6 +14295,81 @@ class LeaderboardPanel(tk.Frame):
         )
         back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
         add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
+    
+    def _load_leaderboard_data(self):
+        """Load and sort leaderboard data from CSV file in VBS4 root directory.
+        
+        CSV Format:
+        - Column A: Name
+        - Column B: Number of targets hit
+        - Column C: Time (seconds)
+        - Column D: Year
+        - Column E: Month
+        - Column F: Day
+        - Columns G+: Time details (irrelevant)
+        
+        CSV filename format: leaderboards_T{table_num}Day.csv
+        Example: leaderboards_T2Day.csv for Table 2
+        
+        Sorting: Highest targets hit first, then lowest time for ties.
+        """
+        try:
+            # Get VBS4 install path
+            vbs4_exe = get_vbs4_install_path()
+            if not vbs4_exe or not os.path.exists(vbs4_exe):
+                logging.warning("[Leaderboard] VBS4 install path not found")
+                return []
+            
+            # Get VBS4 root directory (same directory as VBS4.exe)
+            vbs4_root = os.path.dirname(vbs4_exe)
+            
+            # Build CSV filename based on table number: leaderboards_T{num}Day.csv
+            csv_filename = f"leaderboards_T{self.table_num}Day.csv"
+            csv_path = os.path.join(vbs4_root, csv_filename)
+            
+            if not os.path.exists(csv_path):
+                logging.info(f"[Leaderboard] CSV file not found: {csv_path}")
+                return []
+            
+            # Read CSV file
+            entries = []
+            
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) < 6:  # Need at least columns A-F
+                        continue
+                    
+                    try:
+                        name = row[0].strip()
+                        targets_hit = int(row[1])
+                        time_taken = float(row[2])
+                        year = row[3].strip().lstrip('[')  # Remove leading [ if present
+                        month = row[4].strip()
+                        day = row[5].strip()
+                        
+                        # Format date as M-D-Y
+                        date_str = f"{month}-{day}-{year}"
+                        
+                        entries.append({
+                            'name': name,
+                            'targets_hit': targets_hit,
+                            'time': time_taken,
+                            'date': date_str
+                        })
+                    except (ValueError, IndexError) as e:
+                        logging.warning(f"[Leaderboard] Skipping invalid CSV row: {row} - {e}")
+                        continue
+            
+            # Sort by most targets hit (descending), then by lowest time (ascending)
+            entries.sort(key=lambda x: (-x['targets_hit'], x['time']))
+            
+            logging.info(f"[Leaderboard] Loaded {len(entries)} entries from {csv_path}")
+            return entries[:10]  # Return top 10
+            
+        except Exception as e:
+            logging.error(f"[Leaderboard] Error loading CSV: {e}")
+            return []
 
 def kill_vbs4_instances(timeout: float = 5.0) -> None:
     """Terminate any running VBS4-related processes to prevent duplicates.
