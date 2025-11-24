@@ -6688,8 +6688,8 @@ def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover
                 button.configure(bg=normal_bg)
 
         # Bind with add=True so we don't clobber other handlers
-        button.bind("<Enter>", lambda e: on_enter(e), add=True)
-        button.bind("<Leave>", lambda e: on_leave(e), add=True)
+        button.bind("<Enter>", on_enter, add=True)
+        button.bind("<Leave>", on_leave, add=True)
     except Exception:
         # Fail-safe: do nothing if widget reconfig fails
         pass
@@ -8145,7 +8145,20 @@ class MainApp(tk.Tk):
     def _on_canvas_configure(self, event):
         """Handle canvas resize - update inner frame width and scrollability."""
         canvas_width = event.width
+        canvas_height = event.height
+
+        # Always match the width
         self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
+
+        # Make the inner frame at least as tall as the visible canvas, with bottom padding
+        try:
+            self.panels_container.update_idletasks()
+            required_h = self.panels_container.winfo_reqheight()
+            # Add 20px buffer at bottom to prevent content cutoff
+            target_h = max(canvas_height, required_h + 20)
+            self.viewport_canvas.itemconfig(self.canvas_frame_id, height=target_h)
+        except Exception:
+            pass
 
         current_bg_size = getattr(self, '_last_bg_size', (0, 0))
         new_size = (event.width, event.height)
@@ -14733,11 +14746,16 @@ class ScenarioSetupPanel(tk.Frame):
         self.img2_orig = self._open_image(img2_path)
         self.img3_orig = self._open_image(img3_path)
         self.img4_orig = self._open_image(img4_path)
-        # Initial slightly larger render; will be resized to fill holders
-        self.img1tk = self._make_photo(self.img1_orig, 640, 440)
-        self.img2tk = self._make_photo(self.img2_orig, 640, 440)
-        self.img3tk = self._make_photo(self.img3_orig, 1200, 487)
-        self.img4tk = self._make_photo(self.img4_orig, 640, 440)
+        
+        # Pre-render images at target sizes to avoid visible resize
+        # Calculate expected grid cell sizes based on typical window dimensions
+        self.img1tk = self._make_photo(self.img1_orig, 500, 350)
+        self.img2tk = self._make_photo(self.img2_orig, 500, 350)
+        self.img3tk = self._make_photo(self.img3_orig, 600, 450)
+        self.img4tk = self._make_photo(self.img4_orig, 500, 350)
+        
+        # Flag to prevent initial resize flicker
+        self._images_initialized = False
 
         # Layout similar to mock: top row buttons + name box; second row images + instructions
         main_container = tk.Frame(self, bg="#232323")
@@ -14838,7 +14856,7 @@ class ScenarioSetupPanel(tk.Frame):
         img1_holder.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=(5, 5))
         if self.img1tk:
             self.img1_label = tk.Label(img1_holder, image=self.img1tk, bg="#232323")
-            self.img1_label.pack(expand=True)
+            self.img1_label.pack(expand=True, fill="both")
             img1_holder.bind("<Configure>", lambda e: self._on_holder_resize(1, e.width, e.height))
 
         # Row 0, Column 1: Second drone image
@@ -14846,7 +14864,7 @@ class ScenarioSetupPanel(tk.Frame):
         img2_holder.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=(5, 5))
         if self.img2tk:
             self.img2_label = tk.Label(img2_holder, image=self.img2tk, bg="#232323")
-            self.img2_label.pack(expand=True)
+            self.img2_label.pack(expand=True, fill="both")
             img2_holder.bind("<Configure>", lambda e: self._on_holder_resize(2, e.width, e.height))
 
         # Row 0-1, Column 2: Instructions (spans both rows)
@@ -14886,6 +14904,10 @@ class ScenarioSetupPanel(tk.Frame):
             self.img3_label.pack(expand=True, fill="both")
             img3_holder.bind("<Configure>", lambda e: self._on_holder_resize(3, e.width, e.height))
 
+        # Footer spacer at the bottom
+        footer = tk.Frame(content_frame, bg="#232323", height=30)
+        footer.pack(fill="x", pady=(10, 0))
+
     def _open_image(self, path: str):
         try:
             if os.path.exists(path):
@@ -14907,8 +14929,16 @@ class ScenarioSetupPanel(tk.Frame):
             return None
 
     def _on_holder_resize(self, which: int, w: int, h: int):
-        # Leave a small margin so image is slightly smaller than border box
-        margin = 16
+        # Skip initial resize events to prevent flicker - only resize after initialization
+        # BUT allow image 3 to always resize to fill its box better
+        if not self._images_initialized and which != 3:
+            # Mark as initialized after first layout pass
+            self.after(100, lambda: setattr(self, '_images_initialized', True))
+            return
+            
+        # Use full available space with minimal margin for tight fit
+        # Image 3 (3rdPcontrolls.png) gets even tighter margin to fill better
+        margin = 2 if which == 3 else 4
         w2 = max(50, w - margin)
         h2 = max(50, h - margin)
         if which == 1:
