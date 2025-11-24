@@ -28,7 +28,7 @@ ISS_FILE = "setup/STE_Toolkit.iss"
 VENV_DIR = ".venv"
 DIST_DIR = "dist"
 BUILD_DIR = "build"
-RELEASES_DIR = "releases"
+RELEASES_DIR = "BUILDS"  # Unified: only keep final installer here
 
 # ============================================================================
 # Helper Functions
@@ -189,7 +189,7 @@ def run_inno_setup(iscc_path, version):
         print(f"  ERROR: Inno Setup script not found: {ISS_FILE}")
         raise FileNotFoundError(ISS_FILE)
     
-    # Create releases directory
+    # Create unified BUILDS directory
     releases_path = Path(RELEASES_DIR)
     releases_path.mkdir(exist_ok=True)
     
@@ -254,7 +254,7 @@ def main():
         print("BUILD SUCCESSFUL!")
         print("=" * 80)
         print(f"Version: {version}")
-        print(f"Installer: {RELEASES_DIR}/STE_Toolkit_Setup.exe")
+        print(f"Installer: {RELEASES_DIR}/STE_Toolkit_Setup.exe (only retained artifact)")
         print("=" * 80)
         print()
         

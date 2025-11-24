@@ -189,6 +189,15 @@ echo Installer: %RELEASES_DIR%\STE_Toolkit_Setup.exe
 echo Completed at: %TIME%
 echo ============================================================================
 echo.
+
+REM --- Optional cleanup: remove PyInstaller exe & intermediate folders so only installer remains ---
+echo Cleaning intermediate PyInstaller output to retain only final installer...
+if exist "%DIST_DIR%\%APP_NAME%\%APP_NAME%.exe" del /q "%DIST_DIR%\%APP_NAME%\%APP_NAME%.exe" >nul 2>&1
+REM Remove empty dist app folder if desired
+if exist "%DIST_DIR%\%APP_NAME%" rmdir /s /q "%DIST_DIR%\%APP_NAME%" >nul 2>&1
+REM Keep build/ for debug unless user wants full cleanup
+echo Cleanup complete. Only %RELEASES_DIR%\STE_Toolkit_Setup.exe should remain.
+
 pause
 
 exit /b 0
