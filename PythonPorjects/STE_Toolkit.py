@@ -14009,15 +14009,19 @@ class DronePanel(tk.Frame):
                 # Disable Table 1 (no data available)
                 btn_disabled = is_disabled or btn_num == 1
                 
+                # Container for button + clipboard icon
+                btn_container = tk.Frame(col_frame, bg="#2B2B2B")
+                btn_container.pack(pady=8, fill="x")
+                
                 if btn_disabled:
                     # Grayed out button
                     btn = tk.Button(
-                        col_frame,
+                        btn_container,
                         text=btn_text,
                         font=("Helvetica", 18),
                         bg="#444444",
                         fg="#888888",
-                        width=19,
+                        width=17,
                         height=2,
                         state="disabled",
                         bd=0,
@@ -14027,12 +14031,12 @@ class DronePanel(tk.Frame):
                 else:
                     # Active button (FPV column, tables 2-5)
                     btn = tk.Button(
-                        col_frame,
+                        btn_container,
                         text=btn_text,
                         font=("Helvetica", 18),
                         bg="#555555",
                         fg="white",
-                        width=19,
+                        width=17,
                         height=2,
                         command=lambda num=btn_num: self.on_fpv_button_click(num),
                         bd=0,
@@ -14043,7 +14047,25 @@ class DronePanel(tk.Frame):
                     # Add hover effect for active buttons
                     add_button_hover_effect(btn, normal_bg="#555555", hover_bg="#666666")
                 
-                btn.pack(pady=8)
+                btn.pack(side="left", padx=(0, 5))
+                
+                # Add clipboard icon button for leaderboard (all tables including disabled)
+                clipboard_btn = tk.Button(
+                    btn_container,
+                    text="📋",
+                    font=("Helvetica", 18),
+                    bg="#3A3A3A",
+                    fg="white",
+                    width=3,
+                    height=2,
+                    command=lambda col=col_idx, num=btn_num: self.show_leaderboard(col, num),
+                    bd=0,
+                    highlightthickness=0,
+                    relief="flat",
+                    activebackground="#4A4A4A"
+                )
+                clipboard_btn.pack(side="left")
+                add_button_hover_effect(clipboard_btn, normal_bg="#3A3A3A", hover_bg="#4A4A4A")
         
         # Back button at the bottom
         back_button = tk.Button(
@@ -14084,6 +14106,20 @@ class DronePanel(tk.Frame):
             self.overlay_panel.destroy()
             self.overlay_panel = None
 
+    def show_leaderboard(self, col_idx, table_num):
+        """Show leaderboard panel for specific table."""
+        # Destroy existing overlay if present
+        if self.overlay_panel:
+            self.overlay_panel.destroy()
+        
+        # Determine column name
+        column_names = ["FPV", "Quad Copter", "Gun Mounted SUAS"]
+        column_name = column_names[col_idx]
+        
+        # Create leaderboard overlay panel
+        self.overlay_panel = LeaderboardPanel(self, self.controller, column_name, table_num, self.hide_overlay)
+        self.overlay_panel.place(relx=0, rely=0, relwidth=1, relheight=1)
+    
     def reset_to_root(self):
         """Ensure panel is in its default state (no overlays)."""
         try:
@@ -14091,6 +14127,139 @@ class DronePanel(tk.Frame):
         except Exception:
             # Even if hide fails, ensure reference is cleared
             self.overlay_panel = None
+
+class LeaderboardPanel(tk.Frame):
+    """Leaderboard panel showing scores with date and name columns."""
+    
+    def __init__(self, parent, controller, column_name, table_num, close_callback):
+        super().__init__(parent, bg="#2B2B2B")
+        self.controller = controller
+        self.column_name = column_name
+        self.table_num = table_num
+        self.close_callback = close_callback
+        
+        # Main container
+        main_container = tk.Frame(self, bg="#2B2B2B")
+        main_container.pack(expand=True, fill="both", padx=40, pady=40)
+        
+        # Title
+        title_label = tk.Label(
+            main_container,
+            text=f"LEADERBOARD - {column_name} Table {table_num}",
+            font=("Helvetica", 28, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        title_label.pack(pady=(0, 30))
+        
+        # Leaderboard grid frame with border
+        grid_frame = tk.Frame(main_container, bg="#3A3A3A", bd=2, relief="solid")
+        grid_frame.pack(expand=True, fill="both", padx=20, pady=10)
+        
+        # Inner frame for grid
+        inner_frame = tk.Frame(grid_frame, bg="#2B2B2B")
+        inner_frame.pack(expand=True, fill="both", padx=2, pady=2)
+        
+        # Configure grid columns: Rank, Date (M-D-Y), Name, Best Time
+        inner_frame.grid_columnconfigure(0, weight=1)  # Rank
+        inner_frame.grid_columnconfigure(1, weight=2)  # Date
+        inner_frame.grid_columnconfigure(2, weight=3)  # Name
+        inner_frame.grid_columnconfigure(3, weight=2)  # Best Time
+        
+        # Header row
+        headers = ["Rank", "Date (M-D-Y)", "Name", "Best Time"]
+        for col_idx, header_text in enumerate(headers):
+            header_label = tk.Label(
+                inner_frame,
+                text=header_text,
+                font=("Helvetica", 16, "bold"),
+                bg="#3A3A3A",
+                fg="white",
+                bd=1,
+                relief="solid"
+            )
+            header_label.grid(row=0, column=col_idx, sticky="nsew", padx=1, pady=1)
+        
+        # Placeholder data rows (10 empty rows for future score data)
+        for row_idx in range(1, 11):
+            # Rank
+            rank_label = tk.Label(
+                inner_frame,
+                text="",
+                font=("Helvetica", 14),
+                bg="#2B2B2B",
+                fg="#888888",
+                bd=1,
+                relief="solid"
+            )
+            rank_label.grid(row=row_idx, column=0, sticky="nsew", padx=1, pady=1)
+            
+            # Date
+            date_label = tk.Label(
+                inner_frame,
+                text="",
+                font=("Helvetica", 14),
+                bg="#2B2B2B",
+                fg="#888888",
+                bd=1,
+                relief="solid"
+            )
+            date_label.grid(row=row_idx, column=1, sticky="nsew", padx=1, pady=1)
+            
+            # Name
+            name_label = tk.Label(
+                inner_frame,
+                text="",
+                font=("Helvetica", 14),
+                bg="#2B2B2B",
+                fg="#888888",
+                bd=1,
+                relief="solid"
+            )
+            name_label.grid(row=row_idx, column=2, sticky="nsew", padx=1, pady=1)
+            
+            # Best Time
+            time_label = tk.Label(
+                inner_frame,
+                text="",
+                font=("Helvetica", 14),
+                bg="#2B2B2B",
+                fg="#888888",
+                bd=1,
+                relief="solid"
+            )
+            time_label.grid(row=row_idx, column=3, sticky="nsew", padx=1, pady=1)
+        
+        # Configure row weights for even distribution
+        for row_idx in range(11):  # 1 header + 10 data rows
+            inner_frame.grid_rowconfigure(row_idx, weight=1)
+        
+        # Info text
+        info_label = tk.Label(
+            main_container,
+            text="Score data will be populated from VBS4 score sheets",
+            font=("Helvetica", 12, "italic"),
+            bg="#2B2B2B",
+            fg="#888888"
+        )
+        info_label.pack(pady=(10, 0))
+        
+        # Back button
+        back_button = tk.Button(
+            self,
+            text="Back",
+            font=("Helvetica", 14, "bold"),
+            bg="#FF8C00",
+            fg="white",
+            width=10,
+            height=1,
+            command=self.close_callback,
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
+        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
 
 def kill_vbs4_instances(timeout: float = 5.0) -> None:
     """Terminate any running VBS4-related processes to prevent duplicates.
