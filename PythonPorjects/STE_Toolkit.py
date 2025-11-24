@@ -13970,7 +13970,17 @@ class DronePanel(tk.Frame):
             bg="#2B2B2B",
             fg="white"
         )
-        title_label.pack(pady=(0, 40))
+        title_label.pack(pady=(0, 10))
+        
+        # LB legend
+        legend_label = tk.Label(
+            content_frame,
+            text="LB = Leaderboard",
+            font=("Helvetica", 14),
+            bg="#2B2B2B",
+            fg="#FF8C00"
+        )
+        legend_label.pack(pady=(0, 30))
         
         # Three-column container
         columns_frame = tk.Frame(content_frame, bg="#2B2B2B")
@@ -14049,13 +14059,13 @@ class DronePanel(tk.Frame):
                 
                 btn.pack(side="left", padx=(0, 5))
                 
-                # Add clipboard icon button for leaderboard (all tables including disabled)
-                clipboard_btn = tk.Button(
+                # Add LB button for leaderboard (all tables including disabled)
+                lb_btn = tk.Button(
                     btn_container,
-                    text="📋",
-                    font=("Helvetica", 18),
+                    text="LB",
+                    font=("Helvetica", 16, "bold"),
                     bg="#3A3A3A",
-                    fg="white",
+                    fg="#FF8C00",
                     width=3,
                     height=2,
                     command=lambda col=col_idx, num=btn_num: self.show_leaderboard(col, num),
@@ -14064,8 +14074,8 @@ class DronePanel(tk.Frame):
                     relief="flat",
                     activebackground="#4A4A4A"
                 )
-                clipboard_btn.pack(side="left")
-                add_button_hover_effect(clipboard_btn, normal_bg="#3A3A3A", hover_bg="#4A4A4A")
+                lb_btn.pack(side="left")
+                add_button_hover_effect(lb_btn, normal_bg="#3A3A3A", hover_bg="#4A4A4A")
         
         # Back button at the bottom
         back_button = tk.Button(
@@ -14908,30 +14918,27 @@ class ScenarioSetupPanel(tk.Frame):
         self.back_callback = back_callback
         # Load original images (store PIL originals for dynamic resize)
         img1_path = _resource_path(os.path.join("assets", "ControllerControls.png"))
-        img2_path = _resource_path(os.path.join("assets", "DroneControls.png"))
+        img2_path = _resource_path(os.path.join("assets", "ExsampleControls.png"))
         img3_path = _resource_path(os.path.join("assets", "3rdPcontrolls.png"))
-        img4_path = _resource_path(os.path.join("assets", "ExsampleControls.png"))
         self.img1_orig = self._open_image(img1_path)
         self.img2_orig = self._open_image(img2_path)
         self.img3_orig = self._open_image(img3_path)
-        self.img4_orig = self._open_image(img4_path)
         
-        # Pre-render images at target sizes to avoid visible resize
-        # Calculate expected grid cell sizes based on typical window dimensions
-        self.img1tk = self._make_photo(self.img1_orig, 500, 350)
-        self.img2tk = self._make_photo(self.img2_orig, 500, 350)
-        self.img3tk = self._make_photo(self.img3_orig, 600, 450)
-        self.img4tk = self._make_photo(self.img4_orig, 500, 350)
+        # Pre-render images at fixed sizes for both fullscreen and windowed mode
+        # These sizes work well for 1920x1080 fullscreen and typical windowed sizes
+        self.img1tk = self._make_photo(self.img1_orig, 580, 400)
+        self.img2tk = self._make_photo(self.img2_orig, 580, 400)
+        self.img3tk = self._make_photo(self.img3_orig, 1116, 400)  
         
-        # Flag to prevent initial resize flicker
-        self._images_initialized = False
+        # Set initialized to True immediately to disable dynamic resizing
+        self._images_initialized = True
 
         # Layout similar to mock: top row buttons + name box; second row images + instructions
         main_container = tk.Frame(self, bg="#232323")
         main_container.pack(expand=True, fill="both", padx=0, pady=0)
 
         content_frame = tk.Frame(main_container, bg="#232323")
-        content_frame.pack(expand=True, fill="both", padx=20, pady=(20, 0))
+        content_frame.pack(expand=True, fill="both", padx=20, pady=(20, 30))
 
         # Back button (absolute top-right)
         back_btn = tk.Button(
@@ -15020,21 +15027,19 @@ class ScenarioSetupPanel(tk.Frame):
         grid_frame.grid_rowconfigure(0, weight=1, uniform="row")
         grid_frame.grid_rowconfigure(1, weight=1, uniform="row", minsize=140)
 
-        # Row 0, Column 0: First controller image
+        # Row 0, Column 0: First controller image (fixed size, no resize binding)
         img1_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
         img1_holder.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=(5, 5))
         if self.img1tk:
             self.img1_label = tk.Label(img1_holder, image=self.img1tk, bg="#232323")
             self.img1_label.pack(expand=True, fill="both")
-            img1_holder.bind("<Configure>", lambda e: self._on_holder_resize(1, e.width, e.height))
 
-        # Row 0, Column 1: Second drone image
+        # Row 0, Column 1: ExsampleControls image (fixed size, no resize binding)
         img2_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
         img2_holder.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=(5, 5))
         if self.img2tk:
             self.img2_label = tk.Label(img2_holder, image=self.img2tk, bg="#232323")
             self.img2_label.pack(expand=True, fill="both")
-            img2_holder.bind("<Configure>", lambda e: self._on_holder_resize(2, e.width, e.height))
 
         # Row 0-1, Column 2: Instructions (spans both rows)
         instr_holder = tk.Frame(grid_frame, bg="#232323")
@@ -15057,25 +15062,19 @@ class ScenarioSetupPanel(tk.Frame):
         )
         instr_text.pack(anchor="nw")
 
-        # Row 1, Column 0: Placeholder for future fourth image (under first image)
-        img4_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
-        img4_holder.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(5, 0))
-        if self.img4tk:
-            self.img4_label = tk.Label(img4_holder, image=self.img4tk, bg="#232323")
-            self.img4_label.pack(expand=True, fill="both")
-            img4_holder.bind("<Configure>", lambda e: self._on_holder_resize(4, e.width, e.height))
-
-        # Row 1, Column 1: Third controller image (under second image)
+        # Row 1, Column 0-1: 3rdPcontrolls image (spans 2 columns, allows manual resize)
         img3_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
-        img3_holder.grid(row=1, column=1, sticky="nsew", padx=(0, 10), pady=(5, 0))
+        img3_holder.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(0, 10), pady=(5, 0))
         if self.img3tk:
             self.img3_label = tk.Label(img3_holder, image=self.img3tk, bg="#232323")
             self.img3_label.pack(expand=True, fill="both")
-            img3_holder.bind("<Configure>", lambda e: self._on_holder_resize(3, e.width, e.height))
+        # Allow manual resize for bottom image
+        img3_holder.bind("<Configure>", lambda e: self._on_holder_resize(3, e.width, e.height))
 
-        # Footer spacer at the bottom
-        footer = tk.Frame(content_frame, bg="#232323", height=30)
-        footer.pack(fill="x", pady=(10, 0))
+        # Footer spacer at the bottom (keeps image from hitting window edge)
+        footer = tk.Frame(content_frame, bg="#232323", height=50)
+        footer.pack(fill="x", pady=(20, 0))
+        footer.pack_propagate(False)
 
     def _open_image(self, path: str):
         try:
@@ -15117,7 +15116,7 @@ class ScenarioSetupPanel(tk.Frame):
         elif which == 3:
             pil = self.img3_orig
         else:
-            pil = self.img4_orig
+            return  # No img4 anymore
         if not pil:
             return
         photo = self._make_photo(pil, w2, h2)
@@ -15135,10 +15134,6 @@ class ScenarioSetupPanel(tk.Frame):
             self.img3tk = photo
             self.img3_label.configure(image=photo)
             self.img3_label.image = photo
-        else:
-            self.img4tk = photo
-            self.img4_label.configure(image=photo)
-            self.img4_label.image = photo
 
     def _launch(self, tod: str):
         name = self.name_var.get().strip() or "Anonymous User"
