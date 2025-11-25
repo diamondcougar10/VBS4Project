@@ -623,7 +623,8 @@ begin
            'seeds config with your PC name and IP, creates a discovery beacon for User installs, and installs PhotoMesh + Reality Mesh payloads into the shared structure.';
     imUser:
       S := 'USER: Regular install without creating a shared drive. Automatically discovers and connects to Host if available on the LAN. ' +
-           'If no Host is found, Host/IP is left blank in settings so you can set it manually later.';
+           'If no Host is found, Host/IP is left blank in settings so you can set it manually later.' + #13#10#13#10 +
+           'TIP: Hold Shift key during this screen to reveal Single Use Mode option (standalone/offline training).';
     imSingle:
       S := 'SINGLE USE: Standalone/offline install for training on a single PC. Disables network discovery and fuser auto-start. ' +
            'You can switch modes later from Settings.';
@@ -636,6 +637,15 @@ end;
 procedure ModeRadioClicked(Sender: TObject);
 begin
   RefreshModeDescription;
+end;
+
+function GetKeyState(nVirtKey: Integer): SmallInt;
+  external 'GetKeyState@user32.dll stdcall';
+
+function IsShiftPressed(): Boolean;
+begin
+  { Check if Shift key is pressed (bit 15 of return value indicates key down) }
+  Result := (GetKeyState($10) and $8000) <> 0;  { VK_SHIFT = $10 }
 end;
 
 procedure InitializeWizard;
@@ -677,18 +687,20 @@ begin
   RBUser.Caption := 'User';
   RBUser.OnClick := @ModeRadioClicked;
 
+  { Single Use Mode button - initially hidden, shown only in custom/selected mode }
   RBSingle := TNewRadioButton.Create(WizardForm);
   RBSingle.Parent  := ModePage.Surface;
   RBSingle.Left    := LeftX;
   RBSingle.Top     := RBUser.Top + RBUser.Height + SpY;
   RBSingle.Width   := AvailW;
-  RBSingle.Caption := 'Single Use Mode';
+  RBSingle.Caption := 'Single Use Mode (Selected Mode only)';
   RBSingle.OnClick := @ModeRadioClicked;
+  RBSingle.Visible := False;  { Hide by default - only shown when Shift is pressed }
 
   RBUpdate := TNewRadioButton.Create(WizardForm);
   RBUpdate.Parent  := ModePage.Surface;
   RBUpdate.Left    := LeftX;
-  RBUpdate.Top     := RBSingle.Top + RBSingle.Height + SpY;
+  RBUpdate.Top     := RBUser.Top + RBUser.Height + SpY;  { Position after User, not Single }
   RBUpdate.Width   := AvailW;
   RBUpdate.Caption := 'Update';
   RBUpdate.OnClick := @ModeRadioClicked;
@@ -720,6 +732,29 @@ begin
   );
   SharedRootPage.Add('');
   SharedRootPage.Values[0] := 'D:\';
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  { Show Single Use Mode option only when Shift is pressed on the mode page }
+  if Assigned(ModePage) and (CurPageID = ModePage.ID) then
+  begin
+    if IsShiftPressed() then
+    begin
+      RBSingle.Visible := True;
+      { Reposition Update button below Single Use when visible }
+      RBUpdate.Top := RBSingle.Top + RBSingle.Height + ScaleY(10);
+      ModeDesc.Top := RBUpdate.Top + RBUpdate.Height + ScaleY(10) + ScaleY(4);
+    end
+    else
+    begin
+      RBSingle.Visible := False;
+      { Position Update button directly after User when Single Use hidden }
+      RBUpdate.Top := RBUser.Top + RBUser.Height + ScaleY(10);
+      ModeDesc.Top := RBUpdate.Top + RBUpdate.Height + ScaleY(10) + ScaleY(4);
+    end;
+    RefreshModeDescription();
+  end;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;

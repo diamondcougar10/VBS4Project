@@ -1213,7 +1213,13 @@ _SINGLE_USE_MODE = True  # Runtime state
 _SINGLE_USE_MANUAL_DISABLED = False  # User pressed "Disable Single Use Mode" in settings for this session
 
 def is_single_use_mode() -> bool:
-    """Return True if running in Single Use Mode (standalone, no network/fusers)."""
+    """Return True if running in Single Use Mode (standalone, no network/fusers).
+    
+    Can be overridden in dev with environment variable STE_DISABLE_SINGLE_USE=1
+    """
+    # Dev override: allow disabling Single Use Mode via env var for testing
+    if os.environ.get('STE_DISABLE_SINGLE_USE', '').lower() in ('1', 'true', 'yes'):
+        return False
     return bool(_SINGLE_USE_MODE)
 
 def enable_single_use_mode(reason: str = "") -> None:
@@ -12095,8 +12101,8 @@ class SettingsPanel(tk.Frame):
                 command=self._disable_single_use_mode_from_troubleshoot,
                 cursor="hand2"
             )
-            # Only show if currently in single-use mode
-            if is_single_use_mode():
+            # Only show if currently in single-use mode AND not overridden by env var
+            if is_single_use_mode() and not os.environ.get('STE_DISABLE_SINGLE_USE', '').lower() in ('1', 'true', 'yes'):
                 self.disable_single_use_button.pack(fill="x", pady=(10, 5))
             
         except Exception as e:
@@ -13369,17 +13375,6 @@ class SettingsPanel(tk.Frame):
                 try:
                     # Get list of connected PCs from heartbeats
                     names = list_connected_fuser_pc_names()
-                    names_set = set(names) if names else set()
-                    
-                    # NEW: Add host baseline if we're the host (never shows 0 on host)
-                    if is_host_machine():
-                        try:
-                            host_name = socket.gethostname()
-                            names_set.add(host_name)
-                        except Exception:
-                            pass
-                    
-                    names = sorted(names_set)
                     cnt = len(names)
                 except Exception:
                     # If any scanning error occurs, keep defaults
