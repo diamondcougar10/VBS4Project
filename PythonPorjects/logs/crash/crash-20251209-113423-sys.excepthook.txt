@@ -1,0 +1,20 @@
+Origin: sys.excepthook
+Timestamp: 20251209-113423
+Exe: STE_Toolkit.py
+Python: 3.12.3 | packaged by conda-forge | (main, Apr 15 2024, 18:20:11) [MSC v.1938 64 bit (AMD64)]
+Working Dir: C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects
+Platform Node: RyansWorkPC2
+Primary IP: 192.168.10.16
+Host IP (cfg): N/A (config may not yet be loaded)
+--- STACK TRACE ---
+Traceback (most recent call last):
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16344, in <module>
+    run_with_splash()
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16337, in run_with_splash
+    app.mainloop()
+  File "C:\ProgramData\anaconda3\Lib\tkinter\__init__.py", line 1504, in mainloop
+    self.tk.mainloop(n)
+  File "C:\ProgramData\anaconda3\Lib\tkinter\__init__.py", line 1962, in __call__
+    def __call__(self, *args):
+    
+KeyboardInterrupt

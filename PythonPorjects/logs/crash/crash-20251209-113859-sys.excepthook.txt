@@ -1,0 +1,18 @@
+Origin: sys.excepthook
+Timestamp: 20251209-113859
+Exe: STE_Toolkit.py
+Python: 3.12.3 | packaged by conda-forge | (main, Apr 15 2024, 18:20:11) [MSC v.1938 64 bit (AMD64)]
+Working Dir: C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects
+Platform Node: RyansWorkPC2
+Primary IP: 192.168.10.16
+Host IP (cfg): N/A (config may not yet be loaded)
+--- STACK TRACE ---
+Traceback (most recent call last):
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16362, in <module>
+    run_with_splash()
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16352, in run_with_splash
+    print("✅ MAINLOOP STARTING - App window should open now")
+  File "C:\ProgramData\anaconda3\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>

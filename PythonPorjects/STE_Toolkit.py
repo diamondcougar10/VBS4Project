@@ -2526,6 +2526,78 @@ def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
     except Exception:
         return None
 
+def _extract_vbs4_version_from_path(path: str) -> tuple[int, ...]:
+    """Attempt to extract a version tuple from any VBS4-related path segment.
+
+    Supports patterns:
+        VBS4_25.2, VBS4 25.2, VBS4-25.2.1, VBS4_25, VBS4 25.3.1
+    Falls back to first naked version-like segment if preceded by VBS4 elsewhere.
+    Returns empty tuple on failure.
+    """
+    path_parts = re.split(r'[\\/]', path)
+    version_pat = re.compile(r'^VBS4[ _.-]*(\d+(?:\.\d+){0,3})$', re.IGNORECASE)
+    for part in path_parts:
+        m = version_pat.match(part)
+        if m:
+            ver_str = m.group(1)
+            try:
+                return tuple(int(x) for x in ver_str.split('.'))
+            except ValueError:
+                return ()
+    # Secondary: if any part is exactly VBS4 and a later part looks like version digits
+    if any(p.upper() == 'VBS4' for p in path_parts):
+        bare_version_pat = re.compile(r'^(\d+)(?:\.\d+){0,3}$')
+        for part in path_parts:
+            if bare_version_pat.match(part):
+                try:
+                    return tuple(int(x) for x in part.split('.'))
+                except ValueError:
+                    return ()
+    return ()  # empty tuple signals 'no version found'
+
+def _extract_blueig_version_from_path(path: str) -> tuple[int, ...]:
+    """Extract BlueIG version tuple from any path segment.
+    Matches: BlueIG_7.2, BlueIG 7.2.1, BlueIG-7, Blue IG 7.3
+    Returns empty tuple if not found.
+    """
+    parts = re.split(r'[\\/]', path)
+    pattern = re.compile(r'^Blue\s*IG[ _.-]*(\d+(?:\.\d+){0,3})$', re.IGNORECASE)
+    for part in parts:
+        m = pattern.match(part)
+        if m:
+            try:
+                return tuple(int(x) for x in m.group(1).split('.'))
+            except ValueError:
+                return ()
+    # Fallback: if "BlueIG" present and later a naked version segment
+    if any(re.match(r'^Blue\s*IG$', p, re.IGNORECASE) for p in parts):
+        naked = re.compile(r'^\d+(?:\.\d+){0,3}$')
+        for part in parts:
+            if naked.match(part):
+                try:
+                    return tuple(int(x) for x in part.split('.'))
+                except ValueError:
+                    return ()
+    return ()
+
+def _extract_ares_version_from_path(path: str) -> tuple[int, ...]:
+    """Extract ARES/Manager version from path segments.
+    Matches segments like ARESdevreleasev7.1 or ARES-v7.2 or Manager_v7.3
+    Uses existing get_bvi_version style but simplified.
+    Returns empty tuple if none.
+    """
+    parts = re.split(r'[\\/]', path)
+    pattern = re.compile(r'^ARES.*?v?(\d+(?:\.\d+){0,3})$', re.IGNORECASE)
+    for part in parts:
+        m = pattern.match(part)
+        if m:
+            ver_str = m.group(1)
+            try:
+                return tuple(int(x) for x in ver_str.split('.'))
+            except ValueError:
+                return ()
+    return ()
+
 def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str:
     """Return the best VBS4.exe path found on the system.
 
@@ -2574,6 +2646,17 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
         r"C:\Builds\VBS4",
         r"C:\Builds",
     ]
+    # Prioritize versioned VBS4 root folders (e.g. VBS4_25.2 or VBS4 25.2)
+    try:
+        _version_root = r"C:\Builds\VBS4"
+        if os.path.isdir(_version_root):
+            for _entry in os.listdir(_version_root):
+                if re.match(r"^VBS4[ _][0-9]+(?:\.[0-9]+)?$", _entry, re.IGNORECASE):
+                    _full = os.path.join(_version_root, _entry)
+                    if _full not in roots:
+                        roots.append(_full)
+    except Exception:
+        pass
     
     def _scan_for_vbs4_folders(base_path, max_depth=3, current_depth=0):
         """Recursively scan for VBS4-related folders up to max_depth levels."""
@@ -2629,6 +2712,7 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
         roots.append(r"C:\\")
 
     best_path = ""
+    # Key layout: (has_version, version_tuple, mtime)
     best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
 
     for root in roots:
@@ -2653,8 +2737,13 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
                     continue
                 exe_path = os.path.join(dirpath, name)
                 ver = _exe_version_tuple(exe_path)
-                mtime = os.path.getmtime(exe_path)
-                key = (1 if ver else 0, ver or (), mtime)
+                path_ver = _extract_vbs4_version_from_path(exe_path)
+                version_tuple = ver or path_ver or ()
+                try:
+                    mtime = os.path.getmtime(exe_path)
+                except Exception:
+                    mtime = 0.0
+                key = (1 if version_tuple else 0, version_tuple, mtime)
                 if key > best_key:
                     best_key = key
                     best_path = exe_path
@@ -2761,6 +2850,17 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
         r"C:\Builds\VBS4",
         r"C:\Builds",
     ]
+    # Prioritize versioned VBS4 root folders for launcher discovery
+    try:
+        _launcher_version_root = r"C:\Builds\VBS4"
+        if os.path.isdir(_launcher_version_root):
+            for _entry in os.listdir(_launcher_version_root):
+                if re.match(r"^VBS4[ _][0-9]+(?:\.[0-9]+)?$", _entry, re.IGNORECASE):
+                    _full = os.path.join(_launcher_version_root, _entry)
+                    if _full not in roots:
+                        roots.append(_full)
+    except Exception:
+        pass
     
     def _scan_for_vbs4_folders(base_path, max_depth=3, current_depth=0):
         """Recursively scan for VBS4-related folders up to max_depth levels."""
@@ -2835,15 +2935,17 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
                             yield p
 
     def _rank(p: str):
-        ver = _exe_version_tuple(p) or ()
-        mtime = 0.0
+        ver = _exe_version_tuple(p)
+        path_ver = _extract_vbs4_version_from_path(p)
+        version_tuple = ver or path_ver or ()
         try:
             mtime = os.path.getmtime(p)
         except Exception:
-            pass
+            mtime = 0.0
         is_exe = 1 if p.lower().endswith('.exe') else 0
-        has_ver = 1 if ver else 0
-        return (is_exe, has_ver, ver, mtime)
+        has_ver = 1 if version_tuple else 0
+        # Ranking: prefer actual exe, then having version, then version tuple, then mtime
+        return (is_exe, has_ver, version_tuple, mtime)
 
     # 2a) Try common roots first
     candidates = list(_iter_candidates(roots, respect_deadline=True))
@@ -2871,36 +2973,124 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
     return ''
 
 def get_blueig_install_path() -> str:
-    path = config['General'].get('blueig_path', '')
-    if not path or not os.path.isfile(path):
-        path = find_executable('BlueIG.exe', time_budget_sec=0.5, allow_full_drive=False)
-        if path:
-            config['General']['blueig_path'] = path
+    cfg_path = config['General'].get('blueig_path', '').strip()
+    if cfg_path and os.path.isfile(cfg_path):
+        return cfg_path
+    cache = _load_paths_cache()
+    cache_key = 'blueig_install_path'
+    if cache_key in cache:
+        cached = cache[cache_key]
+        if cached and os.path.isfile(cached):
+            config['General']['blueig_path'] = cached
+            try:
+                save_config()
+            except Exception:
+                pass
+            return cached
+    roots = [
+        r"C:\\Program Files\\BlueIG",
+        r"C:\\Program Files (x86)\\BlueIG",
+        r"C:\\BISIM",
+        r"C:\\Builds",
+        r"C:\\Bohemia Interactive Simulations",
+    ]
+    deadline = time.time() + 0.8
+    best_path = ''
+    best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
+    for root in roots:
+        if time.time() > deadline:
+            break
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _d, files in os.walk(root):
+            if time.time() > deadline:
+                break
+            if 'BlueIG.exe' not in files:
+                continue
+            exe_path = os.path.join(dirpath, 'BlueIG.exe')
+            ver = _exe_version_tuple(exe_path)
+            path_ver = _extract_blueig_version_from_path(exe_path)
+            version_tuple = ver or path_ver or ()
+            try:
+                mtime = os.path.getmtime(exe_path)
+            except Exception:
+                mtime = 0.0
+            key = (1 if version_tuple else 0, version_tuple, mtime)
+            if key > best_key:
+                best_key = key
+                best_path = exe_path
+    if best_path:
+        config['General']['blueig_path'] = best_path
+        cache[cache_key] = best_path
+        _save_paths_cache(cache)
+        try:
             save_config()
-    return path or ''
+        except Exception:
+            pass
+    return best_path or ''
 
 def get_ares_manager_path() -> str:
-    """Return ARES Manager path; try to auto-discover if not in config."""
-    path = config['General'].get('bvi_manager_path', '').strip()
-    if path and os.path.isfile(path):
-        return path
-
-    candidates = [
+    path_cfg = config['General'].get('bvi_manager_path', '').strip()
+    if path_cfg and os.path.isfile(path_cfg):
+        return path_cfg
+    cache = _load_paths_cache()
+    cache_key = 'ares_manager_path'
+    if cache_key in cache:
+        cached = cache[cache_key]
+        if cached and os.path.isfile(cached):
+            config['General']['bvi_manager_path'] = cached
+            try:
+                save_config()
+            except Exception:
+                pass
+            return cached
+    roots = [
         r"C:\\Program Files\\ARES",
         r"C:\\Program Files (x86)\\ARES",
+        r"C:\\Builds",
+        r"C:\\Bohemia Interactive Simulations",
         r"D:\\Program Files\\ARES",
         r"D:\\ARES",
     ]
-    found = find_executable("ares.manager.exe", additional_paths=candidates, time_budget_sec=0.5, allow_full_drive=False)
-    if not found:
-        found = find_executable("ARES.Manager.exe", additional_paths=candidates, time_budget_sec=0.5, allow_full_drive=False)
-
-    if found:
-        config['General']['bvi_manager_path'] = clean_path(found)
-        save_config()
-        return found
-
-    return ''
+    deadline = time.time() + 0.8
+    best_path = ''
+    best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
+    target_names = {"ares.manager.exe", "ARES.Manager.exe"}
+    for root in roots:
+        if time.time() > deadline:
+            break
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _d, files in os.walk(root):
+            if time.time() > deadline:
+                break
+            local = {f.lower(): f for f in files}
+            intersection = target_names.intersection(local.keys())
+            if not intersection:
+                continue
+            for lname in intersection:
+                exe_name = local[lname]
+                exe_path = os.path.join(dirpath, exe_name)
+                ver = _exe_version_tuple(exe_path)
+                path_ver = _extract_ares_version_from_path(exe_path)
+                version_tuple = ver or path_ver or ()
+                try:
+                    mtime = os.path.getmtime(exe_path)
+                except Exception:
+                    mtime = 0.0
+                key = (1 if version_tuple else 0, version_tuple, mtime)
+                if key > best_key:
+                    best_key = key
+                    best_path = exe_path
+    if best_path:
+        config['General']['bvi_manager_path'] = clean_path(best_path)
+        cache[cache_key] = best_path
+        _save_paths_cache(cache)
+        try:
+            save_config()
+        except Exception:
+            pass
+    return best_path or ''
 
 # =============================================================================
 # VERSION & EXECUTABLE DISCOVERY
@@ -4618,6 +4808,12 @@ _FUSER_PROCESSES: list = []
 # Gate enforcement until UNC is confirmed ready (prevents startup race condition)
 _allow_fuser_enforcement: bool = False
 
+# Per-instance launch failure tracking to prevent endless spawn storms
+_FUSER_SPAWN_ATTEMPTS: dict = {}  # {idx: (attempt_count, last_attempt_ts, last_success_ts)}
+_MAX_SPAWN_ATTEMPTS_PER_CYCLE = 2  # Max retries per enforcement cycle
+_MIN_SPAWN_RETRY_INTERVAL = 30.0  # Minimum seconds between retry attempts for same fuser
+_ENFORCE_COOLDOWN_SECONDS = 15.0  # Minimum seconds between enforcement calls with same target
+
 # -----------------------------------------------------------------------------
 # First-run readiness gating and diagnostics
 # -----------------------------------------------------------------------------
@@ -4914,12 +5110,28 @@ def _resolve_fuser_workdir(idx: int) -> str:
         local_root = o.get("local_data_root", r"D:\\SharedMeshDrive").strip()
         wf_sub = o.get("working_fuser_subdir", "WorkingFuser").strip()
         base_path = os.path.join(local_root, wf_sub)
+        logging.debug(f"[_resolve_fuser_workdir] HOST: local_root={local_root}, wf_sub={wf_sub}")
     else:
         # User: Use UNC path
         base_path = working_fuser_unc()
+        logging.debug(f"[_resolve_fuser_workdir] USER: calling working_fuser_unc() -> '{base_path}'")
+        
+        # CRITICAL: Validate that UNC path is properly formed
+        if not base_path:
+            logging.error("[_resolve_fuser_workdir] USER: working_fuser_unc() returned EMPTY! Cannot continue")
+            raise ValueError("working_fuser_unc() returned empty string - Offline config not properly set")
+        
+        if not base_path.startswith("\\\\"):
+            logging.error(f"[_resolve_fuser_workdir] USER: working_fuser_unc() returned NON-UNC path: {base_path}")
+            raise ValueError(f"working_fuser_unc() returned non-UNC path: {base_path}")
 
     # Simply return the WorkingFuser root - PhotoMesh creates numbered folders
-    os.makedirs(base_path, exist_ok=True)
+    try:
+        os.makedirs(base_path, exist_ok=True)
+    except Exception as e:
+        logging.error(f"[_resolve_fuser_workdir] Failed to create directory {base_path}: {e}")
+        raise
+    
     normalized = os.path.normpath(base_path).replace("/", "\\")
     logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized} (PhotoMesh will create {idx}\\ subdirectory)")
     return normalized
@@ -5015,6 +5227,17 @@ def start_fuser_instance(idx: int) -> bool:
     - Waits up to 7s for stabilization
     - Retries once on early exit with 2s backoff
     """
+    global _FUSER_SPAWN_ATTEMPTS
+    
+    # Track spawn attempt for this ID
+    now = time.time()
+    if idx not in _FUSER_SPAWN_ATTEMPTS:
+        _FUSER_SPAWN_ATTEMPTS[idx] = (0, 0.0, 0.0)  # (attempt_count, last_attempt_ts, last_success_ts)
+    
+    attempt_count, _, last_success_ts = _FUSER_SPAWN_ATTEMPTS[idx]
+    _FUSER_SPAWN_ATTEMPTS[idx] = (attempt_count + 1, now, last_success_ts)
+    logging.info(f"[start_fuser_instance] ID {idx}: spawn attempt #{attempt_count + 1} at {now:.1f}")
+    
     # Single Use Mode: completely bypass launching any fuser processes
     if is_single_use_mode():
         try:
@@ -5038,13 +5261,58 @@ def start_fuser_instance(idx: int) -> bool:
         logging.info(f"[start_fuser_instance] exe_stat: exists={exe_stat['exists']} size={exe_stat['size']} mtime={exe_stat['mtime']} len={exe_stat['len']}")
         
         # Resolve the per-instance working directory
-        workdir = _resolve_fuser_workdir(idx)
+        try:
+            workdir = _resolve_fuser_workdir(idx)
+        except Exception as e:
+            logging.error(f"[start_fuser_instance] Failed to resolve fuser workdir: {e}")
+            print(f"\n{'='*80}")
+            print(f"[FAIL] FUSER {idx} - Cannot resolve working directory")
+            print(f"       Error: {e}")
+            print(f"       Check: Offline config and UNC connectivity")
+            print(f"{'='*80}\n")
+            return False
+        
         if not isinstance(workdir, str):
             logging.warning(f"[start_fuser_instance] workdir came back non-str ({type(workdir)}), coercing")
             workdir = str(workdir)
+        
+        # CRITICAL: Validate workdir format before passing to PhotoMesh
+        if not workdir or workdir.lower() in ["workingfuser", "localfuser", ""]:
+            logging.error(f"[start_fuser_instance] INVALID WORKDIR: {repr(workdir)} - looks like fallback/incomplete path!")
+            print(f"\n{'='*80}")
+            print(f"[FAIL] FUSER {idx} - Invalid working directory detected!")
+            print(f"       Path: {repr(workdir)}")
+            print(f"       This path should be either:")
+            print(f"         - Full UNC: \\\\\\\\host\\\\share\\\\WorkingFuser")
+            print(f"         - Full local: D:\\\\SharedMeshDrive\\\\WorkingFuser")
+            print(f"       Check Offline config and connectivity")
+            print(f"{'='*80}\n")
+            return False
+        
         logging.info(f"[start_fuser_instance] Working directory: {workdir}")
         wd_stat = _safe_stat(workdir)
         logging.info(f"[start_fuser_instance] workdir_stat: exists={wd_stat['exists']} size={wd_stat['size']} mtime={wd_stat['mtime']} len={wd_stat['len']}")
+        
+        # CRITICAL: For UNC paths, verify accessibility BEFORE launching fuser
+        if workdir.startswith("\\\\"):
+            logging.info(f"[start_fuser_instance] UNC path detected, verifying accessibility: {workdir}")
+            try:
+                # Try to create a test file to verify write access
+                test_file = os.path.join(workdir, f".ste_toolkit_test_{idx}.tmp")
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                logging.info(f"[start_fuser_instance] UNC path verified as accessible and writable: {workdir}")
+            except Exception as e:
+                logging.error(f"[start_fuser_instance] UNC path is NOT accessible/writable: {workdir} - Error: {e}")
+                print(f"\n{'='*80}")
+                print(f"[FAIL] FUSER {idx} - UNC path not accessible")
+                print(f"       Path: {workdir}")
+                print(f"       Error: {e}")
+                print(f"       Action: Check network connectivity to host")
+                print(f"{'='*80}\n")
+                return False
+        
         # Probe write permission in workdir
         try:
             probe_name = os.path.join(workdir, f".probe_{idx}.tmp")
@@ -5190,6 +5458,10 @@ def start_fuser_instance(idx: int) -> bool:
                     global _FUSER_PROCESSES
                     _FUSER_PROCESSES.append(proc)
                     
+                    # Track successful launch - reset attempt counter for this ID
+                    _FUSER_SPAWN_ATTEMPTS[idx] = (0, now, now)  # Reset counter, record success
+                    logging.info(f"[start_fuser_instance] ID {idx}: success tracked, attempt counter reset")
+                    
                     return True
             
             except Exception as e:
@@ -5302,6 +5574,9 @@ def kill_fusers() -> None:
     except Exception as e:
         logging.error(f"[kill_fusers] Error during kill: {e}")
     
+    print("\n" + "="*80)
+    print(f"FUSER KILL SUMMARY: {killed_count} process(es) terminated")
+    print("="*80 + "\n")
     logging.info(f"[kill_fusers] Killed {killed_count} fuser process(es)")
     
     # Clear the process reference list after killing
@@ -5384,6 +5659,12 @@ def ensure_fuser_instances(desired: int):
                 logging.info(f"[fuser-scale] ✓ Already at target (ours={our_count}), no action needed")
                 if foreign_count > 0:
                     logging.info(f"[fuser-scale] Note: {foreign_count} foreign fuser(s) also running (ignored)")
+                
+                print("\n" + "="*80)
+                print(f"✓ FUSER COUNT STABLE: {our_count} running / {desired} desired")
+                print("  No action needed")
+                print("="*80 + "\n")
+                logging.info(f"[FUSER-STABLE] target={desired} current={our_count} status=already_met")
             else:
                 # More of ours than desired - need to trim OUR extras only
                 to_kill = our_count - desired
@@ -5430,6 +5711,35 @@ def ensure_fuser_instances(desired: int):
         
         # Find which IDs are missing (1, 2, 3)
         available_ids = [i for i in range(1, 4) if i not in our_fusers]
+        
+        # CRITICAL: Filter out IDs that failed recently to prevent spawn storms
+        # Check each ID's retry eligibility based on last attempt timestamp
+        global _FUSER_SPAWN_ATTEMPTS
+        now = time.time()
+        retry_eligible_ids = []
+        for idx in available_ids:
+            if idx not in _FUSER_SPAWN_ATTEMPTS:
+                # First attempt for this ID
+                retry_eligible_ids.append(idx)
+                logging.info(f"[fuser-scale] ID {idx}: first attempt eligible")
+            else:
+                attempt_count, last_attempt_ts, last_success_ts = _FUSER_SPAWN_ATTEMPTS[idx]
+                time_since_last_attempt = now - last_attempt_ts
+                
+                # Don't retry if last attempt was too recent
+                if time_since_last_attempt < _MIN_SPAWN_RETRY_INTERVAL:
+                    logging.warning(f"[fuser-scale] ID {idx}: SKIP RETRY (recent attempt {time_since_last_attempt:.1f}s ago, need {_MIN_SPAWN_RETRY_INTERVAL}s)")
+                    continue
+                
+                # Check attempt count in current cycle
+                if attempt_count >= _MAX_SPAWN_ATTEMPTS_PER_CYCLE:
+                    logging.warning(f"[fuser-scale] ID {idx}: SKIP RETRY (exceeded max attempts={attempt_count} in current cycle)")
+                    continue
+                
+                retry_eligible_ids.append(idx)
+                logging.info(f"[fuser-scale] ID {idx}: retry eligible (attempt {attempt_count}, last {time_since_last_attempt:.1f}s ago)")
+        
+        available_ids = retry_eligible_ids
         
         # Launch in parallel so multiple fusers start at about the same time
         launched = 0
@@ -5566,19 +5876,34 @@ def kill_all_fusers_on_exit():
     try:
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         kill_on_exit = config["Fusers"].getboolean("kill_on_exit", fallback=True)
+        
+        print("\n" + "="*80)
+        print("APP CLOSING - Exit Handler Called")
+        print(f"  fuser_computer: {is_fuser}")
+        print(f"  kill_on_exit: {kill_on_exit}")
+        print("="*80 + "\n")
+        logging.info(f"[on_exit] APP CLOSING: fuser_computer={is_fuser}, kill_on_exit={kill_on_exit}")
+        
         if is_fuser and kill_on_exit:
-            logging.info("[on_exit] kill_on_exit=True -> terminating local fusers")
+            logging.info("[on_exit] Terminating all local fusers...")
+            print("Killing all running fusers...\n")
             kill_fusers()
+            
             # Reset the launched count since we killed everything
             config["Fusers"]["last_launched_count"] = "0"
             _save_config()
+            logging.info("[on_exit] All fusers killed and count reset to 0")
+            print("[OK] Fusers killed and count reset\n")
         else:
             if is_fuser and not kill_on_exit:
                 logging.info("[on_exit] kill_on_exit=False -> leaving local fusers running")
+                print("[WARN] kill_on_exit is False - fusers left running\n")
             else:
                 logging.info("[on_exit] Not a fuser computer -> no fusers to terminate")
+                print("[OK] Not a fuser computer - no action needed\n")
     except Exception as e:
-        pass
+        logging.error(f"[on_exit] Exception in kill_all_fusers_on_exit: {e}", exc_info=True)
+        print(f"[ERROR] Error during exit: {e}\n")
 
 def kill_fusers_on_disable():
     """Kill all fusers and reset count when fuser computer setting is disabled."""
@@ -5756,11 +6081,20 @@ def enforce_local_fuser_policy():
                 target = 0
                 logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} -> target={target} (not a fuser PC)")
 
-        # Throttle duplicate enforcements with the same target within a short window
+        # Throttle duplicate enforcements with the same target within a cooldown window
+        global _last_enforce_target, _last_enforce_ts
         now = time.time()
-        if _last_enforce_target == target and (now - _last_enforce_ts) < 8.0:
-            logging.info(f"[fuser-policy] SKIP: recent identical target={target} within 8s window")
+        
+        # If same target was just enforced, skip to prevent spawn storms
+        if _last_enforce_target == target and (now - _last_enforce_ts) < _ENFORCE_COOLDOWN_SECONDS:
+            logging.info(f"[fuser-policy] THROTTLE: recent identical target={target} within {_ENFORCE_COOLDOWN_SECONDS}s window (age={(now - _last_enforce_ts):.1f}s)")
             return
+        
+        # Log decision to enforce
+        if _last_enforce_target != target:
+            logging.info(f"[fuser-policy] TARGET CHANGE: {_last_enforce_target} -> {target}")
+        else:
+            logging.info(f"[fuser-policy] COOLDOWN EXPIRED: retrying target={target} after {(now - _last_enforce_ts):.1f}s")
 
         logging.info(f"[fuser-policy] EXECUTE: ensure_fuser_instances({target})")
         ensure_fuser_instances(target)
@@ -10653,8 +10987,17 @@ class OneClickPanel(tk.Frame):
                 "Reduce Fusers/desired_count to 1 or 0 to enable One-Click."
             )
             self.log_message(tip)
-        # Defer fuser policy enforcement to avoid blocking UI
-        self.after(100, lambda: run_in_thread(enforce_local_fuser_policy))
+        
+        # Only call enforcement if the desired count actually changed
+        # This prevents redundant enforcement calls from the periodic refresh
+        current_desired = getattr(self, '_last_update_fuser_state_desired', None)
+        if current_desired != desired_ct:
+            self._last_update_fuser_state_desired = desired_ct
+            # Defer fuser policy enforcement to avoid blocking UI
+            self.after(100, lambda: run_in_thread(enforce_local_fuser_policy))
+        else:
+            # Desired count unchanged, no need to enforce
+            logging.debug(f"[update_fuser_state] Desired count unchanged ({desired_ct}), skipping enforcement")
 
     def force_update_host_status(self):
         """Force an immediate update of the Host status box (called when fusers change)."""
@@ -15927,10 +16270,10 @@ def run_with_splash():
         
         # Determine target count based on machine role
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        print(f"📋 fuser_computer setting: {is_fuser}")
+        print(f"[INFO] fuser_computer setting: {is_fuser}")
         
         if not is_fuser:
-            print("⚠️ Not a fuser computer - SKIPPING auto-start")
+            print("[WARN] Not a fuser computer - SKIPPING auto-start")
             logging.info("[startup] Not a fuser computer, skipping auto-start")
             _skip_fuser_enforcement_at_startup = False
             return
@@ -15939,16 +16282,16 @@ def run_with_splash():
         host_ct, desired_ct = get_fuser_counts()
         is_host = is_host_machine()
         
-        print(f"📊 Host count: {host_ct}, User count: {desired_ct}")
-        print(f"🖥️ Is host machine: {is_host}")
+        print(f"[INFO] Host count: {host_ct}, User count: {desired_ct}")
+        print(f"[INFO] Is host machine: {is_host}")
         
         if is_host:
             target = host_ct
-            print(f"✓ HOST mode: Will launch {target} fuser(s)")
+            print(f"[OK] HOST mode: Will launch {target} fuser(s)")
             logging.info(f"[startup] Host machine: auto-starting {target} fuser(s)")
         else:
             target = desired_ct
-            print(f"✓ USER mode: Will launch {target} fuser(s)")
+            print(f"[OK] USER mode: Will launch {target} fuser(s)")
             logging.info(f"[startup] User machine: auto-starting {target} fuser(s)")
         
         # Readiness-gated auto-start loop
@@ -15979,28 +16322,28 @@ def run_with_splash():
                     return
 
                 # Clear the skip flag FIRST so enforcement can run
-                print("🔓 Clearing enforcement skip flag")
+                print("[OK] Clearing enforcement skip flag")
                 global _skip_fuser_enforcement_at_startup
                 _skip_fuser_enforcement_at_startup = False
 
                 # Launch fusers in a background thread to avoid blocking UI
                 def _launch_in_background():
                     try:
-                        print("🧵 Background launch thread STARTED")
+                        print("[OK] Background launch thread STARTED")
                         logging.info("[startup] Background fuser launch thread started")
 
                         existing_count = count_local_fusers()
-                        print(f"📊 Existing fuser count: {existing_count}")
+                        print(f"[INFO] Existing fuser count: {existing_count}")
                         logging.info(f"[startup] Existing fuser count: {existing_count}")
 
-                        print(f"▶️ Calling ensure_fuser_instances({target})...")
+                        print(f"[INFO] Calling ensure_fuser_instances({target})...")
                         logging.info(f"[startup] About to call ensure_fuser_instances({target})")
                         ensure_fuser_instances(target)
 
                         # Wait briefly for processes to fully initialize before checking count
                         time.sleep(0.3)
                         final_running = count_local_fusers()
-                        print(f"✅ AUTO-START COMPLETE: {final_running}/{target} fusers running")
+                        print(f"[OK] AUTO-START COMPLETE: {final_running}/{target} fusers running")
                         logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
 
                         # Persist a first-run completion marker
@@ -16027,13 +16370,13 @@ def run_with_splash():
                     except Exception as e:
                         import traceback
                         error_msg = traceback.format_exc()
-                        print(f"❌ AUTO-START FAILED: {e}")
+                        print(f"[ERROR] AUTO-START FAILED: {e}")
                         print(error_msg)
                         logging.error(f"[startup] Fuser auto-start failed: {e}")
                         logging.error(f"[startup] Traceback: {error_msg}")
 
                 import threading
-                print("🧵 Starting background launch thread...")
+                print("[OK] Starting background launch thread...")
                 threading.Thread(target=_launch_in_background, daemon=True).start()
                 logging.info("[startup] Background fuser launch thread dispatched")
             except Exception as e:
@@ -16067,7 +16410,7 @@ def run_with_splash():
     logging.info("[startup] Registered post-UI fuser auto-start callback")
 
     print("\n" + "="*80)
-    print("✅ MAINLOOP STARTING - App window should open now")
+    print("[OK] MAINLOOP STARTING - App window should open now")
     print("="*80 + "\n")
     logging.info("[startup] About to start mainloop()")
     app.mainloop()
