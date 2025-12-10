@@ -13980,11 +13980,13 @@ class SettingsPanel(tk.Frame):
             if is_host_machine():
                 self._update_host_beacon(new_ip)
             
-            # Refresh host status label to show new IP
+            # Refresh host status label to show new IP immediately
             if hasattr(self, "host_status_label"):
                 try:
-                    self.host_status_label.config(text=self._format_host_status(None))
-                    # Schedule a proper check after a brief delay
+                    # Force immediate update by constructing the status text with the new IP directly
+                    host_txt = new_ip if new_ip else "[no host set]"
+                    self.host_status_label.config(text=f"Host: {host_txt} • WorkingFuser: (checking…)")
+                    # Schedule a proper connection check after a brief delay
                     self.after(1000, lambda: self.host_status_label.config(text=self._format_host_status(True)))
                 except Exception:
                     pass
