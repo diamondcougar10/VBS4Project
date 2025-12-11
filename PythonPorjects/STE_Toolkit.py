@@ -589,24 +589,38 @@ def _user_listener_loop():
                         "last_seen": time.time(),
                     }
                 
-                # Auto-discover host IP (user PCs only)
+                # Auto-discover host IP (user PCs only - NOT the host PC itself)
                 now = time.time()
                 if now - last_set < 3.0:
                     continue
+                    
+                # HOST PCs should NEVER update their host_ip from beacons
+                # They ARE the host - they should keep their own IP
+                try:
+                    if is_this_pc_the_real_host():
+                        continue  # Skip IP update logic entirely for host PCs
+                except Exception:
+                    pass
+                
+                # If host_ip was manually set by user, don't auto-overwrite from beacons
+                o = get_offline_cfg()
+                manual_ip = o.get("manual_host_ip", "false").lower() == "true"
+                if manual_ip:
+                    continue  # User explicitly set the IP - don't auto-discover
+                    
                 cur = config.get("Offline", "host_ip", fallback="").strip()
                 # Ignore beacons from ourselves (compare against our primary IP)
                 self_ip = get_primary_ipv4() or _machine_ip_fast()
                 if ip == self_ip:
                     continue
                 
-                # SINGLE HOST ENFORCEMENT:
-                # If we receive a beacon from a different host IP than currently configured,
-                # the LATEST host beacon wins - overwrite with new IP
-                # This ensures only ONE active host can exist on the network
+                # SINGLE HOST ENFORCEMENT (for User PCs only):
+                # Only respond to beacons with role="host" (actual hosts)
+                # User beacons are just for status display, not IP discovery
                 if role == "host":
                     if not cur:
                         # No host configured, adopt this one
-                        logging.info(f"[beacon] Discovered host {ip} (role={role}); adopting")
+                        logging.info(f"[beacon] Discovered host {ip} from PC '{pc}' (role={role}); adopting")
                         try:
                             set_host_ip(ip, force_reshare=False, update_ui=True)
                             connect_working_share_interactive(parent=None, silent=True)
@@ -614,15 +628,10 @@ def _user_listener_loop():
                             pass
                         last_set = now
                     elif cur != ip:
-                        # Different host detected - the LATEST beacon OVERWRITES the old host
-                        # This implements "Duplicate host beacons are overwritten by latest host"
-                        logging.info(f"[beacon] New host detected: {ip} (was: {cur}) - overwriting as latest host")
-                        try:
-                            set_host_ip(ip, force_reshare=False, update_ui=True)
-                            connect_working_share_interactive(parent=None, silent=True)
-                        except Exception:
-                            pass
-                        last_set = now
+                        # Different host detected - log but DON'T auto-switch
+                        # User should manually change if they want a different host
+                        # This prevents flip-flopping between hosts
+                        logging.warning(f"[beacon] Different host detected: {ip} from PC '{pc}' (current: {cur}) - ignoring (use Change Host IP to switch)")
             except socket.timeout:
                 pass
             except Exception:
@@ -984,17 +993,22 @@ except Exception:
 _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 
-# File handler - captures everything
-_file_handler = logging.FileHandler(_LOG_FILE_PATH, mode='a', encoding='utf-8')
-_file_handler.setLevel(logging.DEBUG)
-_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-_root_logger.addHandler(_file_handler)
+# Prevent duplicate handlers if module is re-imported
+if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', '').endswith('ste_toolkit.log') 
+           for h in _root_logger.handlers):
+    # File handler - captures everything
+    _file_handler = logging.FileHandler(_LOG_FILE_PATH, mode='a', encoding='utf-8')
+    _file_handler.setLevel(logging.DEBUG)
+    _file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    _root_logger.addHandler(_file_handler)
 
-# Console handler - also shows in terminal
-_console_handler = logging.StreamHandler(sys.stdout)
-_console_handler.setLevel(logging.INFO)
-_console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-_root_logger.addHandler(_console_handler)
+# Prevent duplicate console handlers
+if not any(isinstance(h, logging.StreamHandler) and h.stream == sys.stdout for h in _root_logger.handlers):
+    # Console handler - also shows in terminal
+    _console_handler = logging.StreamHandler(sys.stdout)
+    _console_handler.setLevel(logging.INFO)
+    _console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    _root_logger.addHandler(_console_handler)
 
 # Custom print wrapper that also logs to file
 _original_print = print
@@ -1341,11 +1355,13 @@ def network_available_fast() -> bool:
         return False
 
 # =============================================================================
-# SINGLE USE MODE - Automatic offline/standalone operation (User PCs only)
+# SINGLE USE MODE - Standalone offline operation (explicitly selected in installer)
 # =============================================================================
-# NOTE: Previously defaulted to True. We keep default True so legacy code that
-# checks early still sees a conservative standalone assumption until detection runs.
-_SINGLE_USE_MODE = True  # Runtime state
+# Single Use Mode is COMPLETELY INDEPENDENT from Host/User modes.
+# It is ONLY enabled when force_single_use_mode=true is set in config.ini
+# (which happens when user selects "Single Use Mode" in the installer).
+# Default is False - Host and User installs are never affected.
+_SINGLE_USE_MODE = False  # Runtime state - default disabled
 _SINGLE_USE_MANUAL_DISABLED = False  # User pressed "Disable Single Use Mode" in settings for this session
 
 def is_single_use_mode() -> bool:
@@ -1391,68 +1407,39 @@ def is_wifi_disabled() -> bool:
         return False
 
 def detect_and_set_single_use_mode() -> None:
-    """Auto-detect if we should run in Single Use Mode on USER PCs.
+    """Check if Single Use Mode should be enabled.
 
-    Rules:
-      1. Host PCs (share exists locally) never enter Single Use Mode automatically.
-      2. If user manually disabled Single Use Mode this session, do not re-enable.
-      3. Only enable when ALL of the following hold for a USER PC:
-           - Cannot discover or ping a host IP
-           - AND either Wi-Fi disabled OR general network unavailable
-      4. Config overrides via [General] force_single_use_mode=true/false still apply.
+    Single Use Mode is COMPLETELY INDEPENDENT from Host/User modes.
+    It is ONLY enabled when:
+      1. Installer explicitly selected "Single Use Mode" (sets force_single_use_mode=true)
+      2. User manually set force_single_use_mode=true in config.ini
+    
+    Host and User installs are NEVER affected by this - they always disable Single Use Mode.
     """
     global _SINGLE_USE_MODE
     try:
         # Manual session override - respect user's explicit disable
         if _SINGLE_USE_MANUAL_DISABLED:
-            logging.info("[SINGLE USE MODE] Manual session override active; skipping auto-detect")
+            logging.info("[SINGLE USE MODE] Manual session override active; skipping")
             return
 
-        # Host PCs should never auto-enable Single Use Mode
-        if is_this_pc_the_real_host():
-            disable_single_use_mode(manual=False)
-            logging.info("[SINGLE USE MODE] Host PC detected - forcing disabled")
-            return
-
-        # DEV override in config
-        force_single_use = config.get("General", "force_single_use_mode", fallback="").lower()
+        # Check config setting - this is the ONLY way to enable Single Use Mode
+        force_single_use = config.get("General", "force_single_use_mode", fallback="false").lower()
+        
         if force_single_use == "true":
-            enable_single_use_mode("config override true")
+            # Explicitly enabled via installer or manual config
+            enable_single_use_mode("force_single_use_mode=true in config")
             return
-        elif force_single_use == "false":
-            disable_single_use_mode(manual=False)
-            logging.info("[SINGLE USE MODE] Disabled via config override (false)")
-            return
-
-        # Basic network availability
-        net_up = network_available_fast()
-        wifi_off = is_wifi_disabled()
-
-        # Discover host - but respect manual IP settings
-        manual_ip = config.get("Offline", "manual_host_ip", fallback="false").lower() == "true"
-        ip = config.get("Offline", "host_ip", fallback="").strip()
-        
-        # Only discover if IP not manually set
-        if not ip and not manual_ip:
-            ip = discover_host_ip_quick(timeout_per_host=0.3)
-        
-        # If IP was manually set, trust it even if unreachable (user knows what they're doing)
-        host_reachable = ip and (manual_ip or quick_ping_check(ip, timeout=0.6))
-
-        if host_reachable:
-            disable_single_use_mode(manual=False)
-            logging.info(f"[SINGLE USE MODE] Disabled - Host {'(manual)' if manual_ip else 'detected'} at {ip}")
-            return
-
-        # Host not reachable; decide based on wifi/network state
-        if (not net_up or wifi_off) and not host_reachable:
-            enable_single_use_mode("no host reachable; wifi/network down")
         else:
+            # Not explicitly enabled - disable Single Use Mode
+            # This includes Host, User, Update installs - they all have force_single_use_mode=false
             disable_single_use_mode(manual=False)
-            logging.info("[SINGLE USE MODE] Disabled - network present (awaiting host discovery)")
+            logging.info("[SINGLE USE MODE] Disabled - force_single_use_mode is not true")
+            return
+            
     except Exception as e:
-        logging.warning(f"[SINGLE USE MODE] Detection error ({e}); enabling conservative standalone fallback")
-        enable_single_use_mode("exception fallback")
+        logging.warning(f"[SINGLE USE MODE] Detection error ({e}); defaulting to disabled")
+        disable_single_use_mode(manual=False)
 
 # =============================================================================
 # SINGLETON / PROCESS GUARD
@@ -1505,18 +1492,24 @@ _UNC_SESS_COOLDOWN = 120
 _NET_USE_LAST_TS = 0.0
 _NET_USE_MIN_GAP = 1.0     # at least 1s between 'net use' calls
 
-def quick_ping_check(host_ip: str, timeout: float = 0.8) -> bool:
-    """Quick ping check to avoid spinning up SMB when host is plainly offline."""
+def quick_ping_check(host_ip: str, timeout: float = 0.5) -> bool:
+    """Quick ping check to avoid spinning up SMB when host is plainly offline.
+    
+    Uses Windows ping with minimal timeout for fast response.
+    """
     if not host_ip:
         return False
         
     try:
+        # Convert timeout to ms for -w flag (minimum 100ms for reliability)
+        ping_timeout_ms = max(100, int(timeout * 1000))
+        
         # Use ping with short timeout and single attempt
         result = subprocess.run(
-            ["ping", "-n", "1", "-w", "400", host_ip],
+            ["ping", "-n", "1", "-w", str(ping_timeout_ms), host_ip],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=timeout,
+            timeout=timeout + 0.3,  # Give subprocess a bit more than ping timeout
             creationflags=0x08000000 
         )
         return result.returncode == 0
@@ -2134,67 +2127,83 @@ def check_network_share_status():
     - 'unconfigured': No share configured
     - 'error': Error during check
     
-    Uses aggressive timeouts (1s quick check, 2s fallback) to rapidly detect
-    drive disconnection events like USB unplugging.
+    Optimized for speed:
+    - Host PCs check local path instantly (no network)
+    - User PCs do quick ping first, then UNC check only if ping succeeds
     """
     try:
+        # FAST PATH: Host PC with local path - instant check
+        if is_this_pc_the_real_host():
+            try:
+                o = get_offline_cfg()
+                if not isinstance(o, dict):
+                    o = {}
+                local_root = str(o.get("local_data_root", "") or "").strip()
+                wf_sub = str(o.get("working_fuser_subdir", "WorkingFuser") or "WorkingFuser").strip() or "WorkingFuser"
+            except Exception as e:
+                logging.warning(f"[share-status] Error reading config for host check: {e}")
+                local_root = ""
+                wf_sub = "WorkingFuser"
+            if local_root:
+                local_working = os.path.join(local_root, wf_sub)
+                if os.path.isdir(local_working):
+                    return 'local', f"● Local: {os.path.basename(local_root)}", "#00BFFF"
+                elif os.path.isdir(local_root):
+                    return 'local', f"● Local: {os.path.basename(local_root)}", "#00BFFF"
+                else:
+                    return 'error', f"● Local path missing", "#FF4500"
+        
         unc_path = resolve_shared_access_path()
         
-        # Ensure unc_path is a string (defensive programming)
+        # Ensure unc_path is a string
         if not isinstance(unc_path, str):
             logging.warning(f"[share-status] Invalid unc_path type: {type(unc_path)}")
             return 'error', "● Configuration error", "#FF4500"
         
         if not unc_path:
-            return 'unconfigured', "● No network path configured", "#FFA500"  # Orange
+            return 'unconfigured', "● No network path configured", "#FFA500"
         
-        # If it's a local path (Host PC), just check if it exists
+        # If it's a local path, just check if it exists (instant)
         if not unc_path.startswith("\\\\"):
-            if os.path.exists(unc_path):
-                return 'local', f"● Local: {os.path.basename(unc_path)}", "#00BFFF"  # Sky blue
+            if os.path.isdir(unc_path):
+                return 'local', f"● Local: {os.path.basename(unc_path)}", "#00BFFF"
             else:
-                return 'error', f"● Local path missing: {os.path.basename(unc_path)}", "#FF4500"  # Orange-red
+                return 'error', f"● Local path missing", "#FF4500"
         
-        # Quick check first (fast path) - aggressive 1 second timeout for fast disconnect detection
-        if quick_unc_check(unc_path, timeout=1):
-            # Extract just the share name for cleaner display
-            parts = unc_path.split('\\')
-            share_name = parts[3] if len(parts) > 3 else unc_path
-            return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
-        
-        # Fallback: slower filesystem check with 2 second timeout
+        # FAST PATH: Quick ping to host IP first (much faster than UNC check)
         try:
-            result_queue = Queue()
-            def _check_exists():
-                try:
-                    result_queue.put(os.path.exists(unc_path))
-                except:
-                    result_queue.put(False)
-            
-            t = threading.Thread(target=_check_exists, daemon=True)
-            t.start()
-            t.join(2.0)  # 2 second timeout for fallback check
-            
-            if not result_queue.empty() and result_queue.get_nowait():
-                parts = unc_path.split('\\')
-                share_name = parts[3] if len(parts) > 3 else unc_path
-                return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
-        except:
-            pass
+            o = get_offline_cfg()
+            if not isinstance(o, dict):
+                o = {}
+            host_ip = str(o.get("host_ip", "") or "").strip()
+            share_name = str(o.get("share_name", "SharedMeshDrive") or "SharedMeshDrive").strip()
+        except Exception as e:
+            logging.warning(f"[share-status] Error reading config for UNC check: {e}")
+            host_ip = ""
+            share_name = "SharedMeshDrive"
         
-        # Not accessible - drive may be disconnected/unplugged
-        # IMPORTANT: Use get_offline_cfg() to read fresh from disk, not cached config object
-        o = get_offline_cfg()
-        host_ip = (o.get("host_ip") or "").strip()
-        share_name = (o.get("share_name") or "").strip()
-        if host_ip and share_name:
-            return 'disconnected', f"○ Disconnected from {host_ip}", "#FF0000"  # Red
+        if host_ip:
+            # Quick ping with 0.3 second timeout - if this fails, host is definitely down
+            if not quick_ping_check(host_ip, timeout=0.3):
+                return 'disconnected', f"○ Host {host_ip} unreachable", "#FF0000"
+        
+        # Host responded to ping - do quick os.path.isdir since host is known up
+        # This is faster than full quick_unc_check which tries net view, dir, etc.
+        try:
+            if os.path.isdir(unc_path):
+                return 'connected', f"● Connected: {share_name}", "#00FF00"
+        except Exception:
+            pass  # Fall through to disconnected
+        
+        # Ping succeeded but path check failed - share may not exist or permissions issue
+        if host_ip:
+            return 'disconnected', f"○ Share not accessible on {host_ip}", "#FFA500"
         else:
-            return 'unconfigured', "○ Share not configured", "#FFA500"  # Orange
+            return 'unconfigured', "○ Share not configured", "#FFA500"
             
     except Exception as e:
         logging.error(f"[share-status] Error checking share: {e}")
-        return 'error', f"● Error: {str(e)[:30]}", "#FF4500"  # Orange-red
+        return 'error', f"● Error: {str(e)[:30]}", "#FF4500"
 
 def _compute_working_unc_from_cfg():
     """

@@ -744,11 +744,10 @@ begin
            'seeds config with your PC name and IP, creates a discovery beacon for User installs, and installs PhotoMesh + Reality Mesh payloads into the shared structure.';
     imUser:
       S := 'USER: Regular install without creating a shared drive. Automatically discovers and connects to Host if available on the LAN. ' +
-           'If no Host is found, Host/IP is left blank in settings so you can set it manually later.' + #13#10#13#10 +
-           'TIP: Hold Shift key during this screen to reveal Single Use Mode option (standalone/offline training).';
+           'If no Host is found, Host/IP is left blank in settings so you can set it manually later.';
     imSingle:
-      S := 'SINGLE USE: Standalone/offline install for training on a single PC. Disables network discovery and fuser auto-start. ' +
-           'You can switch modes later from Settings.';
+      S := 'SINGLE USE: Standalone/offline install for training on a single PC without network connectivity. ' +
+           'Disables network discovery, host connection attempts, and fuser auto-start. Ideal for demos or offline training.';
     imUpdate:
       S := 'UPDATE/REPAIR: Replaces the Toolkit binaries and repairs config. Attempts to auto-discover Host if not already configured. No sharing, drive layout, or third-party installs.';
   end;
@@ -808,20 +807,19 @@ begin
   RBUser.Caption := 'User';
   RBUser.OnClick := @ModeRadioClicked;
 
-  { Single Use Mode button - initially hidden, shown only in custom/selected mode }
+  { Single Use Mode button - always visible as a regular option }
   RBSingle := TNewRadioButton.Create(WizardForm);
   RBSingle.Parent  := ModePage.Surface;
   RBSingle.Left    := LeftX;
   RBSingle.Top     := RBUser.Top + RBUser.Height + SpY;
   RBSingle.Width   := AvailW;
-  RBSingle.Caption := 'Single Use Mode (Selected Mode only)';
+  RBSingle.Caption := 'Single Use Mode';
   RBSingle.OnClick := @ModeRadioClicked;
-  RBSingle.Visible := False;  { Hide by default - only shown when Shift is pressed }
 
   RBUpdate := TNewRadioButton.Create(WizardForm);
   RBUpdate.Parent  := ModePage.Surface;
   RBUpdate.Left    := LeftX;
-  RBUpdate.Top     := RBUser.Top + RBUser.Height + SpY;  { Position after User, not Single }
+  RBUpdate.Top     := RBSingle.Top + RBSingle.Height + SpY;  { Position after Single Use }
   RBUpdate.Width   := AvailW;
   RBUpdate.Caption := 'Update';
   RBUpdate.OnClick := @ModeRadioClicked;
@@ -857,23 +855,9 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  { Show Single Use Mode option only when Shift is pressed on the mode page }
+  { Refresh mode description when entering the mode page }
   if Assigned(ModePage) and (CurPageID = ModePage.ID) then
   begin
-    if IsShiftPressed() then
-    begin
-      RBSingle.Visible := True;
-      { Reposition Update button below Single Use when visible }
-      RBUpdate.Top := RBSingle.Top + RBSingle.Height + ScaleY(10);
-      ModeDesc.Top := RBUpdate.Top + RBUpdate.Height + ScaleY(10) + ScaleY(4);
-    end
-    else
-    begin
-      RBSingle.Visible := False;
-      { Position Update button directly after User when Single Use hidden }
-      RBUpdate.Top := RBUser.Top + RBUser.Height + ScaleY(10);
-      ModeDesc.Top := RBUpdate.Top + RBUpdate.Height + ScaleY(10) + ScaleY(4);
-    end;
     RefreshModeDescription();
   end;
 end;
