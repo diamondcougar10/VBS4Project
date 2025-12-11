@@ -160,6 +160,21 @@ def run_pyinstaller(python_exe):
         print(f"  Expected: {exe_path}")
         raise FileNotFoundError(exe_path)
     
+    # Post-process: Rename config.ini.template to config.ini (clean config without personal data)
+    dist_app = Path(DIST_DIR) / APP_NAME
+    template_path = dist_app / "config.ini.template"
+    config_path = dist_app / "config.ini"
+    
+    if template_path.exists():
+        # Remove any existing config.ini (shouldn't exist, but just in case)
+        if config_path.exists():
+            config_path.unlink()
+        # Rename template to config.ini
+        template_path.rename(config_path)
+        print("  Renamed config.ini.template -> config.ini (clean template)")
+    elif not config_path.exists():
+        print("  WARNING: No config.ini or template found in dist")
+    
     print("  PyInstaller build successful!")
 
 def find_inno_setup():

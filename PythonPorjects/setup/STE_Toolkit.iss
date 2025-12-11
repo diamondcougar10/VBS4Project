@@ -532,7 +532,10 @@ var Ini, BundledIni, Base, HostName, HostIP: string;
     RC: Integer;
 begin
   Ini         := AddBackslash(AppDir) + 'config.ini';
+  { Check both legacy (_internal) and new (root) locations for bundled config }
   BundledIni  := AddBackslash(AppDir) + '_internal\config.ini';
+  if not FileExists(BundledIni) then
+    BundledIni := AddBackslash(AppDir) + 'config.ini.template';
   Base        := ForceLayoutUnder(Root);
   HostName    := ExpandConstant('{computername}');
   HostIP      := GetPrimaryIPv4();
@@ -598,7 +601,10 @@ var
   UseIP: Boolean;
 begin
   Ini        := AddBackslash(AppDir) + 'config.ini';
+  { Check both legacy (_internal) and new (root) locations for bundled config }
   BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
+  if not FileExists(BundledIni) then
+    BundledIni := AddBackslash(AppDir) + 'config.ini.template';
   UseIP      := (Trim(DiscoveredIP) <> '');
 
   { Copy bundled config to main directory first, so we preserve existing settings }
@@ -981,7 +987,11 @@ begin
   Dst := AddBackslash(AppDir) + 'config.ini';
   if not FileExists(Dst) then
   begin
+    { Try _internal first (legacy location), then root (new location) }
     Src := AddBackslash(AppDir) + '_internal\config.ini';
+    if not FileExists(Src) then
+      Src := AddBackslash(AppDir) + 'config.ini.template';
+    
     if FileExists(Src) then
     begin
       FileCopy(Src, Dst, False);  // create site-level from bundled default
@@ -1006,7 +1016,10 @@ var
   Ini, BundledIni: string;
 begin
   Ini        := AddBackslash(AppDir) + 'config.ini';
+  { Check both legacy (_internal) and new (root) locations for bundled config }
   BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
+  if not FileExists(BundledIni) then
+    BundledIni := AddBackslash(AppDir) + 'config.ini.template';
 
   { Copy bundled config first if main config missing }
   if FileExists(BundledIni) and not FileExists(Ini) then
@@ -1155,7 +1168,10 @@ begin
         { Ensure config exists in main directory }
         if not FileExists(IniPath) then
         begin
+          { Check both legacy (_internal) and new (root) locations for bundled config }
           BundledIni := AddBackslash(AppDir) + '_internal\config.ini';
+          if not FileExists(BundledIni) then
+            BundledIni := AddBackslash(AppDir) + 'config.ini.template';
           if FileExists(BundledIni) then
           begin
             FileCopy(BundledIni, IniPath, False);

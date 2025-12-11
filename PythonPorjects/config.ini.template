@@ -1,18 +1,18 @@
 [General]
 close_on_launch = False
-first_run_done = True
+first_run_done = False
 reality_mesh_local_root = 
 default_browser = 
-vbs4_path = C:\Builds\VBS4\VBS4_25.2\VBS4.exe
-blueig_path = C:\Builds\BlueIG\Blue IG 24.2 YYMEA_General\BlueIG.exe
-bvi_manager_path = C:\Program Files\ARES\ARES-dev-release-v0.9.4-c1d3950\ares.manager\ares.manager.exe
-vbs4_setup_path = C:\Builds\VBS4\VBS4_25.2\VBSLauncher.exe
-vbs_license_manager_path = C:/Program Files/Bohemia Interactive Simulations/VBS License Manager/VBSLicenseManager.exe
+vbs4_path = 
+blueig_path = 
+bvi_manager_path = 
+vbs4_setup_path = 
+vbs_license_manager_path = 
 vbs_map_user = 
 vbs_map_server = localhost
 vbs_map_port = 4080
-fullscreen = False
-photomesh_wizard_exe = C:\Program Files\Skyline\PhotoMesh\Tools\PhotomeshWizard\PhotoMeshWizard.exe
+fullscreen = True
+photomesh_wizard_exe = 
 app_version = 2.0
 fast_startup = True
 path_scan_budget_ms = 900
@@ -28,7 +28,7 @@ arguments = ""
 config_path = config/fuser_config.json
 local_fuser_exe = C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe
 remote_fuser_exe = C:\\Program Files\\Skyline\\PhotoMesh\\Fuser\\PhotoMeshFuser.exe
-fuser_computer = True
+fuser_computer = False
 working_folder_host = [Offline.host_ip]
 desired_count = 3
 host_count = 1
@@ -40,27 +40,25 @@ enforce_shared_only = False
 kill_on_exit = True
 
 [BiSimOneClickPath]
-path = C:\BiSim OneClick\Datasets\CACTF_BUILD_20250814_134554
+path = 
 
 [Offline]
-enabled = True
+enabled = False
 host_name = 
-host_ip = 192.168.10.243
+host_ip = 
 share_name = SharedMeshDrive
-local_data_root = E:\SharedMeshDrive
+local_data_root = 
 working_fuser_subdir = WorkingFuser
 use_ip_unc = True
 working_fuser_host = 
-manual_host_ip = true
 
 [Paths]
 projects_root = 
 
 [SharedDrive]
 preferred_mode = UNC
-drive_letter = D:
+drive_letter = M:
 auto_map_on_save = True
 
 [Network]
 host = [Offline.host_ip]
-
