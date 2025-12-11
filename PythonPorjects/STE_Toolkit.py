@@ -969,14 +969,47 @@ SHOW_SELECTION_TOAST = False
 # =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
-logging.basicConfig(
-    level=logging.DEBUG,
-    filename='ste_toolkit.log',
-    filemode='a',
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-# Force flush logs immediately to help diagnose startup hangs
-logging.getLogger().handlers[0].setLevel(logging.DEBUG)
+# Determine log file path - use app directory for installed version
+_LOG_BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) \
+                else os.path.abspath(os.path.dirname(__file__))
+_LOG_FILE_PATH = os.path.join(_LOG_BASE_DIR, 'logs', 'ste_toolkit.log')
+
+# Ensure logs directory exists
+try:
+    os.makedirs(os.path.dirname(_LOG_FILE_PATH), exist_ok=True)
+except Exception:
+    _LOG_FILE_PATH = 'ste_toolkit.log'  # Fallback to current dir
+
+# Create root logger
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.DEBUG)
+
+# File handler - captures everything
+_file_handler = logging.FileHandler(_LOG_FILE_PATH, mode='a', encoding='utf-8')
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+_root_logger.addHandler(_file_handler)
+
+# Console handler - also shows in terminal
+_console_handler = logging.StreamHandler(sys.stdout)
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+_root_logger.addHandler(_console_handler)
+
+# Custom print wrapper that also logs to file
+_original_print = print
+def _logging_print(*args, **kwargs):
+    """Print wrapper that also logs output to file for debugging."""
+    message = ' '.join(str(arg) for arg in args)
+    # Write to log file
+    logging.info(f"[PRINT] {message}")
+    # Also print normally to console
+    _original_print(*args, **kwargs)
+
+# Replace built-in print with logging version
+print = _logging_print
+
+logging.info(f"=== STE Toolkit Starting - Log file: {_LOG_FILE_PATH} ===")
 
 # =============================================================================
 # CRASH LOGGING (unhandled exceptions)
