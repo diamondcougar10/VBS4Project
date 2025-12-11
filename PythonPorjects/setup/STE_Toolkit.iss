@@ -7,7 +7,7 @@
 ; ================================================================================
 
 #define AppName "STE Mission Planning Toolkit"
-#define AppVersion "2.0"
+#define AppVersion "2.1"
 
 [Setup]
 AppId={{A1B2C3D4-5E6F-7G8H-9I0J-1K2L3M4N5O6P}

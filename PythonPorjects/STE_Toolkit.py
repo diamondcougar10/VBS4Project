@@ -15653,7 +15653,7 @@ class CreditsPanel(tk.Frame):
                  bg="#222222", fg="white", anchor="w")\
             .pack(fill="x", pady=(0, 20))
 
-        tk.Label(card, text="Version: 2.0", font=("Helvetica", 18, "bold"),
+        tk.Label(card, text="Version: 2.1", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(0, 20))
 
         tk.Label(card, text="Special thanks to:", font=("Helvetica", 18, "bold"),
@@ -17165,7 +17165,7 @@ def run_with_splash():
         config.add_section('General')
         
     # update version number
-    config['General']['app_version'] = '2.0'
+    config['General']['app_version'] = '2.1'
     
     should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
     
@@ -17203,7 +17203,7 @@ def run_with_splash():
     
     # Create and attach a splash that never steals focus
     splash_img = _resource_path(SPLASH_NAME)
-    ver = "Version: 2.0"  # Explicitly set version to 2.0
+    ver = "Version: 2.1"  # Explicitly set version to 2.1
     # Set min_display_time to 3.0 seconds to ensure splash shows long enough
     splash = SplashScreen(app, image_path=splash_img, version_text=ver, min_display_time=3.0)
     app.attach_splash(splash)
