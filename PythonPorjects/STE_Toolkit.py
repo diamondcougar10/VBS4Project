@@ -15643,16 +15643,16 @@ class ContactSupportPanel(tk.Frame):
 
         tk.Label(card, text="Michael Enloe", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
-        tk.Label(card, text="Cheif Technology Officer", font=("Helvetica", 14),
+        tk.Label(card, text="Chief Technology Officer", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
         tk.Label(card, text="Email: michael.r.enloe.civ@army.mil", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
 
-        tk.Label(card, text="Yovany Tietze-torres", font=("Helvetica", 18, "bold"),
+        tk.Label(card, text="Ryan Curphey", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
-        tk.Label(card, text="Senior Syetems Architect", font=("Helvetica", 14),
+        tk.Label(card, text="Software Engineer", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
-        tk.Label(card, text="Email: yovany.e.tietze-torres.ctr@army.mil", font=("Helvetica", 14),
+        tk.Label(card, text="Email: ryan.j.curphey@saic.com", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
 
         tk.Label(card,
@@ -15676,7 +15676,7 @@ class ContactSupportPanel(tk.Frame):
                   highlightthickness=0).pack(pady=(0, 10))
 
     def contact_support(self):
-        webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
+        webbrowser.open('mailto:michael.r.enloe.civ@army.mil?subject=Support%20Request')
 
 class DronePanel(tk.Frame):
     """Drone control panel with three columns: FPV, Quad Copter, and Gun Mounted SUAS."""
