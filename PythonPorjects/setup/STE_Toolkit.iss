@@ -30,6 +30,10 @@ UninstallDisplayIcon={app}\STE_Toolkit.exe
 ; 1) Toolkit (PyInstaller dist)
 Source: "..\dist\STE_Toolkit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
+[Dirs]
+; Create config directory on install to prevent file write errors
+Name: "{app}\config"; Permissions: users-modify
+
 [Icons]
 Name: "{group}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"
 Name: "{userdesktop}\STE Mission Planning Toolkit"; Filename: "{app}\STE_Toolkit.exe"; Tasks: desktopicon
@@ -54,6 +58,39 @@ Filename: "{cmd}"; Parameters: "/C net use M: /delete /yes"; Flags: runhidden
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""try {{ Remove-SmbShare -Name 'SharedMeshDrive' -Force -ErrorAction SilentlyContinue }} catch {{}}"""; \
   Flags: runhidden
+
+[UninstallDelete]
+; Remove all application files and directories
+Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{app}\config"
+Type: filesandordirs; Name: "{app}\logs"
+Type: filesandordirs; Name: "{app}\crash_logs"
+Type: filesandordirs; Name: "{app}\photomesh"
+Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\assets"
+
+; Remove all log files
+Type: files; Name: "{app}\*.log"
+Type: files; Name: "{app}\*.txt"
+
+; Remove all config files
+Type: files; Name: "{app}\config.ini"
+Type: files; Name: "{app}\fuser_config.json"
+Type: files; Name: "{app}\distribution_paths.json"
+
+; Remove any Python cache files
+Type: files; Name: "{app}\*.pyc"
+Type: files; Name: "{app}\*.pyo"
+
+; Remove executables and spec files
+Type: files; Name: "{app}\*.exe"
+Type: files; Name: "{app}\*.spec"
+
+; Remove any remaining files
+Type: files; Name: "{app}\*.*"
+
+; Remove the app directory if empty
+Type: dirifempty; Name: "{app}"
 
 [Registry]
 ; Force elevation because the toolkit needs to modify PhotoMesh config files in Program Files
@@ -179,36 +216,119 @@ end;
 
 function DiscoverHostViaBeacon(var OutIP, OutName: string): Boolean;
 var
-  PS, OutIni, TmpPS: string;
+  PS, OutIni, TmpPS, LogFile: string;
   RC: Integer;
 begin
   Result := False;
   OutIP := ''; OutName := '';
 
   OutIni := ExpandConstant('{tmp}\HostInfo_found.ini');
+  LogFile := ExpandConstant('{tmp}\beacon_discovery.log');
   DeleteFile(OutIni);
+  DeleteFile(LogFile);
 
   { A compact PowerShell script that:
-      1) gets active neighbors (Get-NetNeighbor) or arp -a fallback
-      2) checks \\<IP>\SharedMeshDrive\HostInfo.ini
-      3) copies the first hit to OutIni
+      1) gets this PC's subnet prefix (first 3 octets of primary IPv4)
+      2) gets active neighbors (Get-NetNeighbor) or arp -a fallback
+      3) FILTERS to only IPs in the SAME SUBNET (prevents cross-network discovery)
+      4) checks \\<IP>\SharedMeshDrive\HostInfo.ini
+      5) copies the first hit to OutIni
+      6) writes detailed log for troubleshooting
     It exits quickly and touches few hosts. }
   PS :=
     '$share = ''' + SHARE_NAME + '''; ' +
     '$beacon = ''' + BEACON_FILE + '''; ' +
     '$out = ''' + OutIni + '''; ' +
+    '$logFile = ''' + LogFile + '''; ' +
+    '$log = @(); ' +
+    '$log += "========== BEACON DISCOVERY LOG =========="; ' +
+    '$log += "Timestamp: $(Get-Date -Format ''yyyy-MM-dd HH:mm:ss'')"; ' +
+    '$log += "Computer: $env:COMPUTERNAME"; ' +
+    '$log += ""; ' +
+    '' +
+    '# Get this PC''s subnet prefix (first 3 octets) ' +
+    '$allIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notmatch ''^(127\.|169\.254\.)'' -and $_.PrefixOrigin -ne ''WellKnown'' }; ' +
+    '$log += "--- LOCAL IP ADDRESSES ---"; ' +
+    'foreach ($addr in $allIPs) { $log += "  $($addr.IPAddress) (Interface: $($addr.InterfaceAlias), Prefix: $($addr.PrefixLength))" }; ' +
+    '$myIP = ($allIPs | Select-Object -First 1).IPAddress; ' +
+    '$mySubnet = if ($myIP) { ($myIP -split ''\.'')[0..2] -join ''.'' } else { '''' }; ' +
+    '$log += ""; ' +
+    '$log += "Selected primary IP: $myIP"; ' +
+    '$log += "Subnet filter: $mySubnet.*"; ' +
+    '$log += ""; ' +
+    '' +
+    '# Get neighbors ' +
     '$ips = @(); ' +
-    'try { $ips = (Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue | ' +
-    '  Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '  Select-Object -ExpandProperty IPAddress) } catch {} ' +
+    '$source = "None"; ' +
+    'try { ' +
+    '  $neighbors = Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' }; ' +
+    '  $ips = $neighbors | Select-Object -ExpandProperty IPAddress; ' +
+    '  $source = "Get-NetNeighbor"; ' +
+    '} catch { $log += "Get-NetNeighbor failed: $_" } ' +
     'if(-not $ips -or $ips.Count -eq 0) { ' +
-    '  try { (arp -a) -split "`r?`n" | ForEach-Object { if($_ -match ''(\d{1,3}(?:\.\d{1,3}){3})'') { $ips += $Matches[1] } } } catch {} ' +
+    '  try { ' +
+    '    (arp -a) -split "`r?`n" | ForEach-Object { if($_ -match ''(\d{1,3}(?:\.\d{1,3}){3})'') { $ips += $Matches[1] } }; ' +
+    '    $source = "arp -a"; ' +
+    '  } catch { $log += "arp -a failed: $_" } ' +
     '} ' +
+    '$log += "--- NEIGHBOR DISCOVERY (Source: $source) ---"; ' +
+    '$log += "Total neighbors found: $($ips.Count)"; ' +
+    'foreach ($ip in $ips) { $log += "  RAW: $ip" }; ' +
+    '$log += ""; ' +
+    '' +
+    '# Filter to same subnet only (prevents discovering hosts on different networks) ' +
+    '$log += "--- SUBNET FILTERING ---"; ' +
+    '$beforeCount = $ips.Count; ' +
+    'if ($mySubnet) { ' +
+    '  $filtered = $ips | Where-Object { $_.StartsWith($mySubnet + ''.'') }; ' +
+    '  $rejected = $ips | Where-Object { -not $_.StartsWith($mySubnet + ''.'') }; ' +
+    '  $log += "Filtering to subnet: $mySubnet.*"; ' +
+    '  $log += "IPs REJECTED (wrong subnet):"; ' +
+    '  foreach ($ip in $rejected) { $log += "  REJECTED: $ip (not in $mySubnet.*)" }; ' +
+    '  $ips = $filtered; ' +
+    '} else { ' +
+    '  $log += "WARNING: No subnet detected, not filtering!"; ' +
+    '}; ' +
+    '$log += "IPs ACCEPTED (same subnet):"; ' +
+    'foreach ($ip in $ips) { $log += "  ACCEPTED: $ip" }; ' +
+    '$log += "Filtered from $beforeCount to $($ips.Count) IPs"; ' +
+    '$log += ""; ' +
+    '' +
+    '# Scan for beacons ' +
     '$ips = $ips | Select-Object -Unique | Select-Object -First 64; ' +
+    '$log += "--- BEACON SCAN ---"; ' +
+    '$log += "Scanning $($ips.Count) IPs for beacon file: $beacon"; ' +
+    '$foundBeacon = $false; ' +
+    '$foundIP = ""; ' +
     'foreach($ip in $ips) { ' +
     '  $p = "\\\\$ip\\$share\\$beacon"; ' +
-    '  if (Test-Path -LiteralPath $p) { try { Copy-Item -LiteralPath $p -Destination $out -Force; break } catch {} } ' +
-    '}';
+    '  $exists = Test-Path -LiteralPath $p; ' +
+    '  $status = if ($exists) { "FOUND BEACON!" } else { "no beacon" }; ' +
+    '  $log += "  $ip -> $status"; ' +
+    '  if ($exists -and -not $foundBeacon) { ' +
+    '    try { ' +
+    '      Copy-Item -LiteralPath $p -Destination $out -Force; ' +
+    '      $foundBeacon = $true; ' +
+    '      $foundIP = $ip; ' +
+    '      $log += "    ** Copied beacon from $ip to $out **"; ' +
+    '    } catch { ' +
+    '      $log += "    ERROR copying beacon: $_"; ' +
+    '    } ' +
+    '  } ' +
+    '}; ' +
+    '$log += ""; ' +
+    '' +
+    '# Summary ' +
+    '$log += "--- RESULT ---"; ' +
+    'if ($foundBeacon) { ' +
+    '  $log += "SUCCESS: Found Host beacon at $foundIP"; ' +
+    '} else { ' +
+    '  $log += "FAILED: No beacon found on any same-subnet neighbor"; ' +
+    '}; ' +
+    '$log += "========================================"; ' +
+    '' +
+    '# Write log file ' +
+    '$log | Out-File -FilePath $logFile -Encoding UTF8';
 
   TmpPS := ExpandConstant('{tmp}\discover_beacon.ps1');
   SaveStringToFile(TmpPS, PS, False);
@@ -217,13 +337,17 @@ begin
        '-NoProfile -ExecutionPolicy Bypass -File "' + TmpPS + '"',
        '', SW_HIDE, ewWaitUntilTerminated, RC);
 
-  DeleteFile(TmpPS);
+  { Keep the PS script for troubleshooting }
+  // DeleteFile(TmpPS);
 
   if FileExists(OutIni) then
   begin
     Result := TryReadBeaconIni(OutIni, OutIP, OutName);
-    { temp file is small; keep for troubleshooting or delete if you prefer }
-    // DeleteFile(OutIni);
+    Log('DiscoverHostViaBeacon: Found beacon - IP=' + OutIP + ', Name=' + OutName);
+  end
+  else
+  begin
+    Log('DiscoverHostViaBeacon: No beacon found. Check log at: ' + LogFile);
   end;
 end;
 
@@ -379,28 +503,19 @@ begin
   Result := '';
   TmpFile := ExpandConstant('{tmp}\host_ip.txt');
 
-  // Use default route approach like the runtime code (more robust for VPN/WSL/multi-NIC)
+  // Enhanced IP detection: prioritize wired Ethernet over WiFi, filter link-local addresses
   PS :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
     '"$ErrorActionPreference=''Stop''; ' +
     '$ip = try { ' +
-    '  $route = Get-NetRoute -DestinationPrefix ''0.0.0.0/0'' -AddressFamily IPv4 | ' +
-    '           Sort-Object RouteMetric | Select-Object -First 1; ' +
-    '  if ($route) { ' +
-    '    (Get-NetIPAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4 | ' +
-    '      Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '      Select-Object -First 1 -ExpandProperty IPAddress) ' +
-    '  } else { ' +
-    '    (Get-NetIPAddress -AddressFamily IPv4 | ' +
-    '      Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '      Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
-    '  } ' +
-    '} catch { ' +
-    '  (Get-NetIPAddress -AddressFamily IPv4 | ' +
-    '    Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' } | ' +
-    '    Sort-Object -Property InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress) ' +
-    '}; ' +
-    'Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII"';
+    '  Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | ' +
+    '    Where-Object { $_.IPAddress -notmatch ''^169\.254\.'' -and $_.IPAddress -ne ''127.0.0.1'' -and $_.PrefixOrigin -in @(''Dhcp'',''Manual'') } | ' +
+    '    ForEach-Object { $iface = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; ' +
+    '      [PSCustomObject]@{ IP=$_.IPAddress; Name=$iface.Name; IsEthernet=($iface.Name -match ''Ethernet|LAN|Wired'') } } | ' +
+    '    Sort-Object @{Expression={$_.IsEthernet}; Descending=$true}, @{Expression={$_.IP}} | ' +
+    '    Select-Object -First 1 -ExpandProperty IP ' +
+    '} catch { $null }; ' +
+    'if ($ip) { Set-Content -Path ''' + TmpFile + ''' -Value $ip -NoNewline -Encoding ASCII }"';
 
   if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
           PS, '', SW_HIDE, ewWaitUntilTerminated, RC) then

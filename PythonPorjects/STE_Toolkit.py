@@ -1170,15 +1170,52 @@ def run_hidden(cmd, *, timeout=15, cwd=None, check=False, text=True, capture_out
     )
 
 def get_primary_ipv4() -> str:
-    """Return the primary non-loopback IPv4 without using visible shells."""
+    """Return the primary non-loopback IPv4, preferring wired Ethernet over WiFi.
+    
+    Priority order:
+    1. Wired Ethernet interfaces (Ethernet, LAN, etc.) with DHCP/Manual IP
+    2. WiFi interfaces with DHCP/Manual IP
+    3. Socket-based detection as final fallback
+    """
+    try:
+        # Method 1: PowerShell-based detection with interface type prioritization
+        ps_cmd = (
+            "$eth = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.IPAddress -notmatch '^169\\.254\\.' -and $_.IPAddress -ne '127.0.0.1' -and $_.PrefixOrigin -in @('Dhcp','Manual') } | "
+            "ForEach-Object { $iface = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; "
+            "[PSCustomObject]@{ IP=$_.IPAddress; Name=$iface.Name; Type=($iface.Name -match 'Ethernet|LAN|Wired') } } | "
+            "Sort-Object @{Expression={$_.Type}; Descending=$true}, @{Expression={$_.IP}} | "
+            "Select-Object -First 1 -ExpandProperty IP; "
+            "if ($eth) { $eth }"
+        )
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            creationflags=NO_WINDOW_FLAG
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            ip = result.stdout.strip()
+            if ip and not ip.startswith("169.254."):
+                logging.info(f"[get_primary_ipv4] Detected via PowerShell (prefers Ethernet): {ip}")
+                return ip
+    except Exception as e:
+        logging.debug(f"[get_primary_ipv4] PowerShell method failed: {e}")
+    
+    # Method 2: Socket-based detection (fast fallback)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
-        return ip
-    except Exception:
-        return ""
+        if ip and not ip.startswith("169.254."):
+            logging.info(f"[get_primary_ipv4] Detected via socket: {ip}")
+            return ip
+    except Exception as e:
+        logging.debug(f"[get_primary_ipv4] Socket method failed: {e}")
+    
+    return ""
 
 NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
 
@@ -1292,16 +1329,20 @@ def detect_and_set_single_use_mode() -> None:
         net_up = network_available_fast()
         wifi_off = is_wifi_disabled()
 
-        # Discover host
+        # Discover host - but respect manual IP settings
+        manual_ip = config.get("Offline", "manual_host_ip", fallback="false").lower() == "true"
         ip = config.get("Offline", "host_ip", fallback="").strip()
-        if not ip:
+        
+        # Only discover if IP not manually set
+        if not ip and not manual_ip:
             ip = discover_host_ip_quick(timeout_per_host=0.3)
-
-        host_reachable = ip and quick_ping_check(ip, timeout=0.6)
+        
+        # If IP was manually set, trust it even if unreachable (user knows what they're doing)
+        host_reachable = ip and (manual_ip or quick_ping_check(ip, timeout=0.6))
 
         if host_reachable:
             disable_single_use_mode(manual=False)
-            logging.info(f"[SINGLE USE MODE] Disabled - Host detected at {ip}")
+            logging.info(f"[SINGLE USE MODE] Disabled - Host {'(manual)' if manual_ip else 'detected'} at {ip}")
             return
 
         # Host not reachable; decide based on wifi/network state
@@ -1459,18 +1500,30 @@ def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
     r"""Best-effort discovery of the Host IP on the local subnet.
 
     Strategy:
+    - If this PC IS the host (has SharedMeshDrive share), return this PC's IP directly.
     - If Offline.host_ip exists and is reachable (ping + UNC probe), use it.
-    - Otherwise, ARP-scan likely gateway and a small range of last octets (1,10,20,50,100):
-      try \\<candidate>\SharedMeshDrive fast with quick checks.
+    - Otherwise, scan common subnet addresses looking for SharedMeshDrive.
     Returns the first responding IP or ''. Non-blocking per host with tight timeouts.
     """
     try:
-        # 1) Use configured IP if valid
+        # 1) CRITICAL: If this PC IS the host, return our own IP immediately
+        # This prevents the Host from discovering other hosts or old IPs
+        if is_this_pc_the_real_host():
+            local_ip = get_primary_ipv4()
+            if local_ip:
+                logging.debug(f"[discover] This PC is the Host - using own IP: {local_ip}")
+                return local_ip
+        
+        # 2) For non-Host PCs: Use configured IP if valid and reachable
         ip = config.get("Offline", "host_ip", fallback="").strip()
         if ip:
             if quick_ping_check(ip, timeout=timeout_per_host) or can_access_unc(rf"\\{ip}\SharedMeshDrive"):
+                logging.debug(f"[discover] Using existing reachable IP: {ip}")
                 return ip
-        # 2) Try common candidates on the local subnet
+            else:
+                logging.debug(f"[discover] Configured IP {ip} not reachable, scanning subnet...")
+        
+        # 3) Try common candidates on the local subnet
         local = get_primary_ipv4()
         if not local or local.count(".") != 3:
             return ""
@@ -1487,17 +1540,19 @@ def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
             try:
                 if quick_ping_check(cand, timeout=timeout_per_host):
                     if can_access_unc(rf"\\{cand}\SharedMeshDrive") or quick_unc_check(rf"\\{cand}\SharedMeshDrive", timeout=1):
+                        logging.debug(f"[discover] Found host via subnet scan: {cand}")
                         return cand
             except Exception:
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"[discover] Error during discovery: {e}")
     return ""
 
 def auto_connect_shared_working_folder() -> bool:
     """Ensure Offline.host_ip is discovered and connect to WorkingFuser UNC.
 
-    - Discovers host IP if missing.
+    - If IP was manually set, uses it without discovery.
+    - Otherwise discovers host IP if missing.
     - Updates Offline.host_ip and Fusers.working_folder_host.
     - Tries to connect silently to the share root and verifies the WorkingFuser path.
     Returns True on success, False otherwise.
@@ -1505,14 +1560,42 @@ def auto_connect_shared_working_folder() -> bool:
     if is_single_use_mode():
         return False
     try:
+        # CRITICAL: If this PC IS the host, use local paths directly - no SMB needed
+        if is_this_pc_the_real_host():
+            o = get_offline_cfg()
+            local_root = o.get("local_data_root", "").strip()
+            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+            if local_root and os.path.isdir(local_root):
+                local_working = os.path.join(local_root, wf_sub)
+                if os.path.exists(local_working):
+                    logging.info(f"[autoconnect] Host PC - using local path: {local_working}")
+                    return True
+                # Try to create
+                try:
+                    os.makedirs(local_working, exist_ok=True)
+                    logging.info(f"[autoconnect] Host PC - created local folder: {local_working}")
+                    return True
+                except Exception as e:
+                    logging.warning(f"[autoconnect] Host PC - could not create folder: {e}")
+            logging.debug("[autoconnect] Host PC - local_data_root not configured or missing")
+            return True  # Host is still valid even if folder doesn't exist yet
+        
         o = get_offline_cfg()
         ip = (o.get("host_ip") or "").strip()
-        if not ip:
-            ip = discover_host_ip_quick()
-            if ip:
-                set_host_ip(ip)
+        manual_ip = o.get("manual_host_ip", "false").lower() == "true"
+        
+        # If IP was manually set, use it even if unreachable (user knows what they're doing)
+        if not ip or (not manual_ip and not quick_ping_check(ip, timeout=0.5)):
+            # Only discover if IP not manually set
+            if not manual_ip:
+                discovered_ip = discover_host_ip_quick()
+                if discovered_ip and discovered_ip != ip:
+                    logging.info(f"[autoconnect] Auto-discovered new host IP: {discovered_ip}")
+                    set_host_ip(discovered_ip)
+                    ip = discovered_ip
 
         if not ip:
+            logging.debug("[autoconnect] No host IP available (manual or discovered)")
             return False
 
         # Try to connect to the share root quickly
@@ -1532,7 +1615,7 @@ def auto_connect_shared_working_folder() -> bool:
             return True
 
         # User can manually connect via Settings → Test Access if needed
-        logging.info(f"[autoconnect] Share not immediately accessible, skipping (on-demand connection)")
+        logging.debug(f"[autoconnect] Share not immediately accessible at {ip}")
         return False
         
     except Exception as e:
@@ -1957,6 +2040,12 @@ def check_network_share_status():
     """
     try:
         unc_path = resolve_shared_access_path()
+        
+        # Ensure unc_path is a string (defensive programming)
+        if not isinstance(unc_path, str):
+            logging.warning(f"[share-status] Invalid unc_path type: {type(unc_path)}")
+            return 'error', "● Configuration error", "#FF4500"
+        
         if not unc_path:
             return 'unconfigured', "● No network path configured", "#FFA500"  # Orange
         
@@ -1970,7 +2059,8 @@ def check_network_share_status():
         # Quick check first (fast path) - aggressive 1 second timeout for fast disconnect detection
         if quick_unc_check(unc_path, timeout=1):
             # Extract just the share name for cleaner display
-            share_name = unc_path.split('\\')[3] if len(unc_path.split('\\')) > 3 else unc_path
+            parts = unc_path.split('\\')
+            share_name = parts[3] if len(parts) > 3 else unc_path
             return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
         
         # Fallback: slower filesystem check with 2 second timeout
@@ -1987,14 +2077,17 @@ def check_network_share_status():
             t.join(2.0)  # 2 second timeout for fallback check
             
             if not result_queue.empty() and result_queue.get_nowait():
-                share_name = unc_path.split('\\')[3] if len(unc_path.split('\\')) > 3 else unc_path
+                parts = unc_path.split('\\')
+                share_name = parts[3] if len(parts) > 3 else unc_path
                 return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
         except:
             pass
         
         # Not accessible - drive may be disconnected/unplugged
-        host_ip = config.get("Offline", "host_ip", fallback="").strip()
-        share_name = config.get("Offline", "share_name", fallback="").strip()
+        # IMPORTANT: Use get_offline_cfg() to read fresh from disk, not cached config object
+        o = get_offline_cfg()
+        host_ip = (o.get("host_ip") or "").strip()
+        share_name = (o.get("share_name") or "").strip()
         if host_ip and share_name:
             return 'disconnected', f"○ Disconnected from {host_ip}", "#FF0000"  # Red
         else:
@@ -2024,6 +2117,29 @@ def connect_working_share_interactive(parent=None, silent=True):
     Uses the new SMB session cache to prevent ERROR 1219 collisions.
     Returns True if the working UNC is accessible.
     """
+    # CRITICAL: If this is the Host PC, skip ALL SMB attempts and use local path directly
+    # This prevents the Host from trying to connect to itself via SMB
+    try:
+        if is_this_pc_the_real_host():
+            o = get_offline_cfg()
+            local_root = o.get("local_data_root", "").strip()
+            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+            if local_root and os.path.isdir(local_root):
+                local_working = os.path.join(local_root, wf_sub)
+                if os.path.exists(local_working) or os.path.exists(local_root):
+                    logging.info(f"[connect] Host PC - using local path directly: {local_working}")
+                    return True
+                # Try to create the working folder
+                try:
+                    os.makedirs(local_working, exist_ok=True)
+                    logging.info(f"[connect] Host PC - created local working folder: {local_working}")
+                    return True
+                except Exception as e:
+                    logging.warning(f"[connect] Host PC - failed to create local folder: {e}")
+            logging.debug("[connect] Host PC detected but local_data_root not configured")
+    except Exception as e:
+        logging.debug(f"[connect] Host check failed: {e}")
+    
     unc_root, working_unc = _compute_working_unc_from_cfg()
     if not unc_root:
         logging.warning("[connect] No UNC root configured")
@@ -3596,6 +3712,12 @@ PATHS_CACHE = os.path.join(BASE_DIR, "config", "paths_cache.json")
 ICON_NAME   = 'assets/icon.ico'
 SPLASH_NAME = 'assets/splash.png'
 
+# Ensure config directory exists on startup
+try:
+    os.makedirs(os.path.join(BASE_DIR, "config"), exist_ok=True)
+except Exception:
+    pass  # Will be created on first write if needed
+
 config = configparser.ConfigParser()
 # Read bundled defaults then overlay site/explicit if present
 if CONFIG_PATH == DEFAULT_CONFIG_PATH:
@@ -3752,6 +3874,14 @@ def save_config() -> None:
             config[section][option] = value
             logging.debug(f"[save_config] Restored in-memory value [{section}]{option} = {value}")
         
+        # CRITICAL FIX: Reload config from disk to ensure in-memory state matches file
+        # This prevents stale cached values (like old IPs) from persisting in the UI
+        try:
+            config.read(target)
+            logging.info(f"[save_config] Reloaded config from {target} to sync in-memory state")
+        except Exception as reload_err:
+            logging.warning(f"[save_config] Failed to reload config: {reload_err}")
+        
     except Exception as e:
         # Restore values even on error
         for (section, option), value in original_values.items():
@@ -3786,6 +3916,8 @@ def _load_paths_cache() -> dict:
 def _save_paths_cache(d: dict) -> None:
     """Save the paths cache to JSON file."""
     try:
+        # Ensure config directory exists
+        os.makedirs(os.path.dirname(PATHS_CACHE), exist_ok=True)
         with open(PATHS_CACHE, "w", encoding="utf-8") as f:
             json.dump(d, f, indent=2)
     except Exception:
@@ -3874,19 +4006,42 @@ def set_host_ip(ip: str) -> None:
     """
     Persist *ip* to Offline.host_ip (single source of truth) and sync all dependent config values.
     
-    This updates:
+    CRITICAL UPDATE WORKFLOW:
+    When updating the toolkit to a new version, this function ensures all IP-related files
+    are updated on both the local config and the shared drive so User PCs can discover changes:
+    
+    Config Updates (local):
     - [Offline] host_ip (PRIMARY - single source of truth)
+    - [Offline] manual_host_ip (flag to prevent auto-updates)
     - [Network] host (synced from Offline.host_ip)
     - [Fusers] working_folder_host (synced from Offline.host_ip)
     - [Fusers] shared_working_unc (rebuilt from Offline.host_ip + share_name)
+    - config/fuser_config.json (updated via update_fuser_shared_path())
+    
+    Shared Drive Updates (for User PC discovery):
+    - HostInfo.ini beacon file (updated with new IP so User PCs can auto-discover)
+    - SMB share (re-created on new network with proper permissions)
+    - SMB session cache (cleared to prevent stale connections to old IP)
+    
+    This ensures that after an update or IP change:
+    1. Host PC config reflects new IP in all locations
+    2. Beacon file in shared drive advertises new IP to User PCs
+    3. User PCs can auto-discover and connect to new IP via beacon
+    4. Old SMB sessions are cleared to prevent connection errors
     """
     trimmed = ip.strip()
     if "Offline" not in config:
         config["Offline"] = {}
     offline = config["Offline"]
     
+    old_ip = offline.get("host_ip", "").strip()
+    
     # PRIMARY: Set the single source of truth
     offline["host_ip"] = trimmed
+    
+    # Mark as manually set so bootstrap won't auto-change it
+    offline["manual_host_ip"] = "true" if trimmed else "false"
+    
     if trimmed:
         offline["use_ip_unc"] = "True"
     else:
@@ -3909,14 +4064,118 @@ def set_host_ip(ip: str) -> None:
         wf_subdir = offline.get("working_fuser_subdir", "WorkingFuser").strip() or "WorkingFuser"
         config["Fusers"]["shared_working_unc"] = f"\\\\{trimmed}\\{share_name}\\{wf_subdir}"
         
-        logging.info(f"[set_host_ip] Updated host IP to {trimmed} (synced to Network.host, Fusers.working_folder_host, Fusers.shared_working_unc)")
+        logging.info(f"[set_host_ip] Manually set Host IP from '{old_ip}' to '{trimmed}'")
+        logging.info(f"[set_host_ip] Synced: Network.host, Fusers.working_folder_host, Fusers.shared_working_unc")
     else:
         logging.info("[set_host_ip] Cleared host IP")
         
     save_config()
 
-    apply_offline_settings()
+    # Update fuser shared path in fuser_config.json
     update_fuser_shared_path()
+    
+    # If IP changed and we have a local_data_root, update beacon and ensure share
+    if trimmed and old_ip != trimmed:
+        # CRITICAL: Clear SMB session cache when IP changes
+        # This forces new connections to use the new IP instead of cached old IP
+        global SMB_SESSION_CACHE
+        if old_ip:
+            with SMB_SESSION_LOCK:
+                # Clear old IP from cache
+                if old_ip in SMB_SESSION_CACHE:
+                    del SMB_SESSION_CACHE[old_ip]
+                    logging.info(f"[set_host_ip] Cleared SMB cache for old IP: {old_ip}")
+                # Also clear any sessions to the old IP (force disconnect)
+                try:
+                    subprocess.run(
+                        ['net', 'use', f'\\\\{old_ip}', '/delete', '/y'],
+                        capture_output=True,
+                        timeout=3,
+                        creationflags=NO_WINDOW_FLAG
+                    )
+                    logging.info(f"[set_host_ip] Disconnected SMB sessions to old IP: {old_ip}")
+                except Exception as e:
+                    logging.debug(f"[set_host_ip] Could not disconnect old IP (may not exist): {e}")
+        
+        local_root = offline.get("local_data_root", "").strip()
+        share_name = offline.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
+        
+        if local_root and os.path.isdir(local_root):
+            # Step 1: Update beacon file with new IP FIRST
+            try:
+                beacon_path = os.path.join(local_root, "HostInfo.ini")
+                host_name = socket.gethostname().split('.')[0]
+                beacon_content = (
+                    f"[Host]\n"
+                    f"ip={trimmed}\n"
+                    f"name={host_name}\n"
+                    f"share={share_name}\n"
+                    f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"guest_ok=1\n"
+                )
+                with open(beacon_path, 'w') as f:
+                    f.write(beacon_content)
+                logging.info(f"[set_host_ip] Updated beacon file with new IP: {beacon_path}")
+            except Exception as e:
+                logging.warning(f"[set_host_ip] Failed to update beacon: {e}")
+            
+            # Step 2: Remove and recreate the SMB share
+            try:
+                logging.info(f"[set_host_ip] Removing old SMB share '{share_name}'...")
+                
+                # Remove using net share command (more reliable than PowerShell)
+                result = subprocess.run(
+                    ["cmd", "/C", f"net share {share_name} /delete /yes"],
+                    capture_output=True,
+                    text=True,
+                    creationflags=NO_WINDOW_FLAG,
+                    timeout=10
+                )
+                
+                if result.returncode == 0:
+                    logging.info(f"[set_host_ip] Successfully removed old share")
+                else:
+                    logging.info(f"[set_host_ip] Share may not have existed (code {result.returncode})")
+                
+                # Wait for Windows to release the share
+                time.sleep(2)
+                
+                # Step 3: Create new share with proper permissions
+                logging.info(f"[set_host_ip] Creating new SMB share at {local_root}...")
+                
+                # Use PowerShell to create share with proper permissions
+                ps_create = (
+                    f"New-SmbShare -Name '{share_name}' -Path '{local_root}' "
+                    f"-ChangeAccess 'Authenticated Users' -FullAccess 'Administrators' -ErrorAction Stop"
+                )
+                result = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-Command", ps_create],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    creationflags=NO_WINDOW_FLAG
+                )
+                
+                if result.returncode == 0:
+                    logging.info(f"[set_host_ip] Successfully created SMB share '{share_name}'")
+                    
+                    # Wait for share to be accessible
+                    time.sleep(1)
+                    
+                    # Verify the share is accessible via UNC
+                    test_unc = f"\\\\{trimmed}\\{share_name}"
+                    if os.path.exists(test_unc):
+                        logging.info(f"[set_host_ip] ✓ Share accessible at {test_unc}")
+                    else:
+                        logging.warning(f"[set_host_ip] Share created but not immediately accessible at {test_unc}")
+                else:
+                    logging.warning(f"[set_host_ip] Share creation failed: {result.stderr}")
+                    
+            except Exception as e:
+                logging.warning(f"[set_host_ip] Failed to re-create share: {e}")
+    
+    # Re-apply offline settings to connect with new IP
+    apply_offline_settings()
     
     # Try to establish the UNC session
     if trimmed:  # Only try to connect if an IP was actually set
@@ -4089,6 +4348,67 @@ def set_host(host: str) -> None:
     save_config()
     refresh_settings_panel_from_config()
 
+def sync_beacon_with_config() -> bool:
+    """
+    Ensure the HostInfo.ini beacon in the shared drive matches the current config.ini IP.
+    This is critical after updates where the IP may have changed but the beacon wasn't updated.
+    
+    Returns True if beacon was updated, False if skipped or failed.
+    """
+    try:
+        o = get_offline_cfg()
+        current_ip = o.get("host_ip", "").strip()
+        local_root = o.get("local_data_root", "").strip()
+        share_name = o.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
+        
+        if not current_ip or not local_root:
+            logging.debug("[beacon-sync] No IP or local_data_root configured, skipping beacon sync")
+            return False
+            
+        if not os.path.isdir(local_root):
+            logging.debug(f"[beacon-sync] Local root doesn't exist: {local_root}")
+            return False
+        
+        beacon_path = os.path.join(local_root, "HostInfo.ini")
+        
+        # Check if beacon exists and read its current IP
+        beacon_ip = ""
+        if os.path.exists(beacon_path):
+            try:
+                import configparser
+                beacon_cfg = configparser.ConfigParser()
+                beacon_cfg.read(beacon_path)
+                beacon_ip = beacon_cfg.get("Host", "ip", fallback="").strip()
+            except Exception as e:
+                logging.debug(f"[beacon-sync] Failed to read beacon IP: {e}")
+        
+        # Update beacon if IP changed or beacon doesn't exist
+        if beacon_ip != current_ip:
+            host_name = socket.gethostname().split('.')[0]
+            beacon_content = (
+                f"[Host]\n"
+                f"ip={current_ip}\n"
+                f"name={host_name}\n"
+                f"share={share_name}\n"
+                f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"guest_ok=1\n"
+            )
+            with open(beacon_path, 'w') as f:
+                f.write(beacon_content)
+            
+            if beacon_ip:
+                logging.info(f"[beacon-sync] Updated beacon IP: {beacon_ip} -> {current_ip}")
+            else:
+                logging.info(f"[beacon-sync] Created beacon with IP: {current_ip}")
+            return True
+        else:
+            logging.debug(f"[beacon-sync] Beacon already up-to-date with IP: {current_ip}")
+            return False
+            
+    except Exception as e:
+        logging.warning(f"[beacon-sync] Failed to sync beacon: {e}")
+        return False
+
 def bootstrap_first_run_if_needed(log=None):
     """Host: ensure IP present and share exists. User: leave blanks."""
     o = config.setdefault('Offline', {})
@@ -4100,13 +4420,48 @@ def bootstrap_first_run_if_needed(log=None):
         o['use_ip_unc'] = 'True'
 
     if mode == 'HOST':
-        if not o.get('host_ip'):
-            ip = get_primary_ipv4()
-            if ip:
-                o['host_ip'] = ip
+        # HOST MODE: ALWAYS detect and use this PC's actual IP on startup
+        # A Host PC should NEVER use a stale saved IP from a previous session
+        # This ensures the beacon file always reflects the correct Host IP
+        #
+        # NOTE: User CAN manually override IP during a session (via Settings)
+        # for cases like switching between WiFi and Ethernet adapters.
+        # But on NEXT startup, we always re-detect the current IP.
+        
+        current_saved_ip = o.get('host_ip', '').strip()
+        detected_ip = get_primary_ipv4()
+        
+        if detected_ip:
+            if detected_ip != current_saved_ip:
+                logging.info(f"[bootstrap] HOST MODE: Detected IP change: {current_saved_ip or '(none)'} -> {detected_ip}")
+            else:
+                logging.info(f"[bootstrap] HOST MODE: IP confirmed: {detected_ip}")
+            
+            # ALWAYS use detected IP for Host mode on startup
+            o['host_ip'] = detected_ip
+            
+            # Reset manual flag on startup - Host always starts with detected IP
+            # User can still manually change during session if needed
+            o['manual_host_ip'] = 'false'
+        else:
+            logging.error("[bootstrap] HOST MODE: CRITICAL - Could not detect this PC's IP address!")
+            if current_saved_ip:
+                logging.warning(f"[bootstrap] HOST MODE: Falling back to saved IP: {current_saved_ip}")
+            else:
+                logging.error("[bootstrap] HOST MODE: No IP available - network may be disconnected")
+        
         o['use_ip_unc'] = 'True'
         ensure_offline_share_exists(log=log or (lambda m: None))
         save_config()
+        
+        # CRITICAL: Always sync beacon file with detected IP
+        # This ensures User PCs discover the CORRECT current Host IP
+        try:
+            sync_beacon_with_config()
+            logging.info(f"[bootstrap] HOST MODE: Beacon synced with IP: {o.get('host_ip', 'unknown')}")
+        except Exception as e:
+            logging.warning(f"[bootstrap] Failed to sync beacon: {e}")
+        
         # Start host beacon to advertise IP on LAN
         try:
             start_host_beacon()
@@ -4138,7 +4493,28 @@ def bootstrap_first_run_if_needed(log=None):
             start_host_beacon()
         except Exception:
             pass
-    # UPDATE mode: no changes so far
+    elif mode == 'UPDATE':
+        # UPDATE mode: preserve config but sync beacon if this PC has a shared drive
+        # This handles the case where:
+        # - User installs an update to the toolkit
+        # - The IP in config.ini changed since last install
+        # - The beacon file in the shared drive still has the old IP
+        # - Need to update beacon so other PCs can discover the new IP
+        try:
+            sync_beacon_with_config()
+        except Exception as e:
+            logging.debug(f"[bootstrap] UPDATE mode beacon sync: {e}")
+        
+        # Start beacons for both host and user discovery
+        try:
+            start_host_beacon()
+        except Exception:
+            pass
+        try:
+            start_user_listener()
+        except Exception:
+            pass
+    # For other modes (SINGLE_USE, etc.), no special bootstrap needed
 
 def refresh_settings_panel_from_config() -> None:
     """Update the Settings panel UI to reflect the latest config.ini values."""
@@ -6229,6 +6605,8 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     data["shared_path"] = unc_path
 
     try:
+        # Ensure config directory exists
+        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         logging.info(f"[fuser] shared_path -> {unc_path}")
@@ -7572,22 +7950,59 @@ pdf_docs = {
 
 # ─── VBS4 PDF Docs Helper ────────────────────────────────────────────────────
 
-VBS4_PDF_DIR = os.path.join(BASE_DIR, "PDF_EN")
-
 def find_vbs4_pdf_directories() -> list[str]:
-    """Find potential VBS4 PDF directories, checking both local and VBS4 installation paths."""
+    """Find VBS4 PDF directories by searching VBS4 installation paths.
+    
+    Uses the same dynamic VBS4 detection logic as get_vbs4_install_path() to find
+    docs/PDF_EN folders in all possible VBS4 installation structures:
+    - C:\\Builds\\VBS4\\VBS4_25.2\\docs\\PDF_EN
+    - C:\\Builds\\VBS4\\VBS4 25.2\\docs\\PDF_EN  
+    - C:\\Builds\\VBS4\\25.2\\docs\\PDF_EN
+    - Any other VBS4 installation detected by get_vbs4_install_path()
+    """
     directories = []
     
-    # Add local PDF_EN directory if it exists
-    if os.path.exists(VBS4_PDF_DIR):
-        directories.append(VBS4_PDF_DIR)
-    
-    # Add VBS4 installation PDF_EN directory if VBS4 is found
+    # Method 1: Use detected VBS4 installation path (most reliable)
     vbs4_exe = get_vbs4_install_path()
     if vbs4_exe and os.path.exists(vbs4_exe):
         vbs4_pdf_dir = os.path.join(os.path.dirname(vbs4_exe), "docs", "PDF_EN")
-        if os.path.exists(vbs4_pdf_dir) and vbs4_pdf_dir not in directories:
+        if os.path.exists(vbs4_pdf_dir):
             directories.append(vbs4_pdf_dir)
+    
+    # Method 2: Search common VBS4 installation roots for PDF_EN folders
+    # This catches cases where VBS4.exe might not be found but docs exist
+    search_roots = [
+        r"C:\Builds\VBS4", 
+        r"C:\Builds",
+        r"C:\Bohemia Interactive Simulations"
+    ]
+    
+    for root in search_roots:
+        if not os.path.isdir(root):
+            continue
+        
+        try:
+            # Search for versioned folders (VBS4_25.2, VBS4 25.2, 25.2, etc.)
+            for entry in os.listdir(root):
+                entry_path = os.path.join(root, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                
+                # Check if this looks like a VBS4 version folder
+                entry_upper = entry.upper()
+                is_vbs4_folder = (
+                    "VBS4" in entry_upper or
+                    re.search(r'VBS4[_\s.]?\d+', entry, re.IGNORECASE) or
+                    re.search(r'^\d+\.\d+$', entry)  # Just version numbers like "25.2"
+                )
+                
+                if is_vbs4_folder:
+                    pdf_dir = os.path.join(entry_path, "docs", "PDF_EN")
+                    if os.path.exists(pdf_dir) and pdf_dir not in directories:
+                        directories.append(pdf_dir)
+        except Exception as e:
+            logging.debug(f"Error searching {root} for PDF directories: {e}")
+            continue
     
     return directories
 
@@ -7598,10 +8013,12 @@ def open_vbs4_pdfs():
     if not pdf_dirs:
         messagebox.showerror("Error", 
             f"VBS4 PDF folders not found.\n\n"
-            f"Searched locations:\n"
-            f"  • {VBS4_PDF_DIR}\n"
-            f"  • <VBS4_Install>/docs/PDF_EN\n\n"
-            f"Please ensure VBS4 is properly installed and the path is set in Settings.")
+            f"Searched for docs/PDF_EN in:\n"
+            f"  • Detected VBS4 installation directory\n"
+            f"  • C:\\Builds\\VBS4\\[version]\\docs\\PDF_EN\n"
+            f"  • C:\\Builds\\[version]\\docs\\PDF_EN\n"
+            f"  • C:\\Bohemia Interactive Simulations\\[version]\\docs\\PDF_EN\n\n"
+            f"Please ensure VBS4 is properly installed.")
         return
 
     # Collect all PDFs from all directories
@@ -9418,9 +9835,13 @@ class MainApp(tk.Tk):
     def on_closing(self):
         """Handle window close event - kill fusers if this is a fuser computer."""
         try:
-            # Clear offline IP configuration to prevent repeated connection attempts
-            clear_offline_ip_configuration()
-            logging.info("[on_closing] Cleared offline configuration on exit")
+            # Only clear offline IP configuration on User PCs, NOT on Host PC
+            # Host PC needs to keep its IP so it can serve other PCs
+            if not is_host_machine():
+                clear_offline_ip_configuration()
+                logging.info("[on_closing] Cleared offline configuration on exit (User PC)")
+            else:
+                logging.info("[on_closing] Skipping IP clear - this is the Host PC")
         except Exception as e:
             logging.error(f"[on_closing] Failed to clear offline configuration: {e}")
         

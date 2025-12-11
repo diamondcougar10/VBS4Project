@@ -1,0 +1,235 @@
+=== STE Toolkit Crash Report ===
+Timestamp: 2025-12-10 17:39:03 UTC
+Uptime: 9.4s
+Thread: Thread-16 (<lambda>)
+Exception: PermissionError: [Errno 13] Permission denied: 'C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json.tmp'
+Role: FUSER
+Host IP (config): 
+Desired Fusers: 3
+Fuser Processes:
+count=0
+Memory: rss=111173632 vms=89313280
+Python: 3.12.9 | packaged by conda-forge | (main, Mar  4 2025, 22:37:18) [MSC v.1943 64 bit (AMD64)]
+Executable: C:\ProgramData\anaconda3\envs\myenv\python.exe
+Args: c:/Users/tifte/Documents/GitHub/VBS4Project/PythonPorjects/STE_Toolkit.py
+Traceback:
+Traceback (most recent call last):
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\threading.py", line 1075, in _bootstrap_inner
+    self.run()
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\threading.py", line 1012, in run
+    self._target(*self._args, **self._kwargs)
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 8407, in <lambda>
+    threading.Thread(target=lambda: enforce_photomesh_settings(log=log_fn), daemon=True).start()
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 1156, in enforce_photomesh_settings
+    apply_minimal_wizard_defaults()  # keeps Model3D/OBJ/3DML on (non-destructive)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 482, in apply_minimal_wizard_defaults
+    _save_json(cfg_path, cfg)
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 320, in _save_json
+    with open(tmp, "w", encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json.tmp'
+
+--- Log Tail (last 200 lines) ---
+2025-12-09 11:41:00,769 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:00,769 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:00,771 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:00,771 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:43,732 - ERROR - [kill_fusers] \U0001f534 KILL REQUEST - Full stack trace:
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16362, in <module>
+    run_with_splash()
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16065, in run_with_splash
+    kill_fusers()
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5476, in kill_fusers
+    stack_trace = ''.join(traceback.format_stack())
+
+2025-12-09 11:41:48,380 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:48,380 - DEBUG - STREAM b'sRGB' 41 1
+2025-12-09 11:41:48,380 - DEBUG - STREAM b'gAMA' 54 4
+2025-12-09 11:41:48,380 - DEBUG - STREAM b'pHYs' 70 9
+2025-12-09 11:41:48,380 - DEBUG - STREAM b'IDAT' 91 65445
+2025-12-09 11:41:51,194 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:51,194 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:51,317 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:51,317 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:51,320 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:51,320 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:51,333 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:51,333 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:51,333 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:41:51,333 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:41:58,866 - ERROR - [FUSER-FAILED] ID=2 reason=uncaught_exception error='list' object has no attribute 'find'
+Traceback (most recent call last):
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5248, in start_fuser_instance
+    workdir = _resolve_fuser_workdir(idx)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5115, in _resolve_fuser_workdir
+    base_path = working_fuser_unc()
+                ^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 752, in working_fuser_unc
+    return resolve_network_working_folder_from_cfg(get_offline_cfg())
+                                                   ^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 780, in get_offline_cfg
+    "enabled": o.getboolean("enabled", False),
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 1273, in get
+    return _impl(self._name, option, raw=raw, vars=vars,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 806, in getboolean
+    return self._get_conv(section, option, self._convert_to_boolean,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 786, in _get_conv
+    return self._get(section, conv, option, raw=raw, vars=vars,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 781, in _get
+    return conv(self.get(section, option, **kwargs))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 777, in get
+    return self._interpolation.before_get(self, section, option, value,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 367, in before_get
+    self._interpolate_some(parser, option, L, value, section, defaults, 1)
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 384, in _interpolate_some
+    p = rest.find("%")
+        ^^^^^^^^^
+AttributeError: 'list' object has no attribute 'find'
+2025-12-09 11:41:58,876 - ERROR - [start_fuser_instance] UNCAUGHT exception for idx 2: 'list' object has no attribute 'find'
+Traceback (most recent call last):
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5248, in start_fuser_instance
+    workdir = _resolve_fuser_workdir(idx)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5115, in _resolve_fuser_workdir
+    base_path = working_fuser_unc()
+                ^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 752, in working_fuser_unc
+    return resolve_network_working_folder_from_cfg(get_offline_cfg())
+                                                   ^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 780, in get_offline_cfg
+    "enabled": o.getboolean("enabled", False),
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 1273, in get
+    return _impl(self._name, option, raw=raw, vars=vars,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 806, in getboolean
+    return self._get_conv(section, option, self._convert_to_boolean,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 786, in _get_conv
+    return self._get(section, conv, option, raw=raw, vars=vars,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 781, in _get
+    return conv(self.get(section, option, **kwargs))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 777, in get
+    return self._interpolation.before_get(self, section, option, value,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 367, in before_get
+    self._interpolate_some(parser, option, L, value, section, defaults, 1)
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\configparser.py", line 384, in _interpolate_some
+    p = rest.find("%")
+        ^^^^^^^^^
+AttributeError: 'list' object has no attribute 'find'
+2025-12-09 11:41:58,878 - ERROR - [fuser-scale] \u2717 Fuser #2 failed to launch (parallel)
+2025-12-09 11:47:53,230 - ERROR - [startup-cleanup] Failed to clean orphaned fusers: 'charmap' codec can't encode character '\U0001f534' in position 0: character maps to <undefined>
+2025-12-09 11:47:53,244 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:47:53,244 - DEBUG - STREAM b'sRGB' 41 1
+2025-12-09 11:47:53,244 - DEBUG - STREAM b'gAMA' 54 4
+2025-12-09 11:47:53,244 - DEBUG - STREAM b'pHYs' 70 9
+2025-12-09 11:47:53,244 - DEBUG - STREAM b'IDAT' 91 65445
+2025-12-09 11:47:56,731 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:47:56,731 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:47:56,859 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:47:56,859 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:47:56,862 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:47:56,862 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:47:56,877 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:47:56,877 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:47:56,879 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:47:56,879 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:59:27,534 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:59:27,534 - DEBUG - STREAM b'sRGB' 41 1
+2025-12-09 11:59:27,534 - DEBUG - STREAM b'gAMA' 54 4
+2025-12-09 11:59:27,534 - DEBUG - STREAM b'pHYs' 70 9
+2025-12-09 11:59:27,534 - DEBUG - STREAM b'IDAT' 91 65445
+2025-12-09 11:59:31,510 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:59:31,510 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:59:31,626 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:59:31,626 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:59:31,631 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:59:31,631 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:59:31,645 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:59:31,645 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:59:31,648 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 11:59:31,648 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 11:59:56,333 - ERROR - [FUSER-FAILED] ID=2 reason=already_running_dialog detection=no log directory created workdir=\\192.168.10.201\SharedMeshDrive\WorkingFuser
+2025-12-09 11:59:56,334 - ERROR - [fuser-scale] \u2717 Fuser #2 failed to launch (parallel)
+2025-12-09 11:59:56,335 - ERROR - [FUSER-FAILED] ID=3 reason=already_running_dialog detection=no log directory created workdir=\\192.168.10.201\SharedMeshDrive\WorkingFuser
+2025-12-09 11:59:56,335 - ERROR - [fuser-scale] \u2717 Fuser #3 failed to launch (parallel)
+2025-12-09 11:59:56,337 - ERROR - [FUSER-FAILED] ID=1 reason=already_running_dialog detection=no log directory created workdir=\\192.168.10.201\SharedMeshDrive\WorkingFuser
+2025-12-09 11:59:56,338 - ERROR - [fuser-scale] \u2717 Fuser #1 failed to launch (parallel)
+2025-12-09 12:00:13,429 - ERROR - [FUSER-FAILED] ID=2 reason=already_running_dialog detection=no log directory created workdir=\\192.168.10.201\SharedMeshDrive\WorkingFuser
+2025-12-09 12:00:13,429 - ERROR - [fuser-scale] \u2717 Fuser #2 failed to launch (sequential retry)
+2025-12-09 12:02:54,309 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 12:02:54,309 - DEBUG - STREAM b'sRGB' 41 1
+2025-12-09 12:02:54,309 - DEBUG - STREAM b'gAMA' 54 4
+2025-12-09 12:02:54,309 - DEBUG - STREAM b'pHYs' 70 9
+2025-12-09 12:02:54,309 - DEBUG - STREAM b'IDAT' 91 65445
+2025-12-09 12:02:58,333 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 12:02:58,333 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 12:02:58,454 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 12:02:58,454 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 12:02:58,459 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 12:02:58,459 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 12:02:58,475 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 12:02:58,475 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 12:02:58,478 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 12:02:58,479 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 12:03:05,991 - ERROR - [start_fuser_instance] Failed to resolve fuser workdir: 'list' object has no attribute 'find'
+2025-12-09 12:03:05,991 - ERROR - [start_fuser_instance] Failed to resolve fuser workdir: 'list' object has no attribute 'find'
+2025-12-09 12:03:05,993 - ERROR - [fuser-scale] \u2717 Fuser #3 failed to launch (parallel)
+2025-12-09 12:03:05,994 - ERROR - [fuser-scale] \u2717 Fuser #1 failed to launch (parallel)
+2025-12-09 12:32:00,179 - ERROR - [kill_fusers] \U0001f534 KILL REQUEST - Full stack trace:
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16423, in <module>
+    run_with_splash()
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 16416, in run_with_splash
+    app.mainloop()
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\tkinter\__init__.py", line 1505, in mainloop
+    self.tk.mainloop(n)
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 9428, in on_closing
+    kill_all_fusers_on_exit()
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5890, in kill_all_fusers_on_exit
+    kill_fusers()
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 5537, in kill_fusers
+    stack_trace = ''.join(traceback.format_stack())
+
+2025-12-09 14:28:45,526 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 14:28:45,527 - DEBUG - STREAM b'sRGB' 41 1
+2025-12-09 14:28:45,527 - DEBUG - STREAM b'gAMA' 54 4
+2025-12-09 14:28:45,527 - DEBUG - STREAM b'pHYs' 70 9
+2025-12-09 14:28:45,527 - DEBUG - STREAM b'IDAT' 91 65445
+2025-12-09 14:28:51,006 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 14:28:51,006 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 14:28:51,095 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 14:28:51,095 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 14:28:51,099 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 14:28:51,099 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 14:28:51,112 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 14:28:51,112 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 14:28:51,116 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-09 14:28:51,116 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-09 14:30:22,467 - ERROR - [smb] Connection timeout for \\192.168.1.191\SharedMeshDrive
+2025-12-09 14:30:22,469 - ERROR - [connect] Failed to connect to \\192.168.1.191\SharedMeshDrive\WorkingFuser
+2025-12-10 12:38:54,652 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-10 12:38:54,653 - DEBUG - STREAM b'sRGB' 41 1
+2025-12-10 12:38:54,653 - DEBUG - STREAM b'gAMA' 54 4
+2025-12-10 12:38:54,653 - DEBUG - STREAM b'pHYs' 70 9
+2025-12-10 12:38:54,653 - DEBUG - STREAM b'IDAT' 91 65445
+2025-12-10 12:39:03,715 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-10 12:39:03,715 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-10 12:39:03,828 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-10 12:39:03,828 - DEBUG - STREAM b'IDAT' 41 8192
+2025-12-10 12:39:03,838 - DEBUG - STREAM b'IHDR' 16 13
+2025-12-10 12:39:03,840 - DEBUG - STREAM b'IDAT' 41 8192
+
