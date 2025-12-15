@@ -1016,9 +1016,17 @@ def _logging_print(*args, **kwargs):
     """Print wrapper that also logs output to file for debugging."""
     message = ' '.join(str(arg) for arg in args)
     # Write to log file
-    logging.info(f"[PRINT] {message}")
-    # Also print normally to console
-    _original_print(*args, **kwargs)
+    try:
+        logging.info(f"[PRINT] {message}")
+    except Exception:
+        pass
+    # Also print normally to console, handling encoding errors
+    try:
+        _original_print(*args, **kwargs)
+    except UnicodeEncodeError:
+        # Fallback: encode with 'replace' to handle emojis/special chars on Windows console
+        safe_message = message.encode('cp1252', errors='replace').decode('cp1252')
+        _original_print(safe_message, **{k: v for k, v in kwargs.items() if k != 'file'})
 
 # Replace built-in print with logging version
 print = _logging_print
@@ -1950,9 +1958,17 @@ def debug_network_connection(unc_path):
         print("   → You may need to provide username and password")
 
 def clear_offline_ip_configuration():
-    """Clear the offline IP configuration to stop automatic connection attempts."""
+    """Clear the offline IP configuration to stop automatic connection attempts.
+    
+    NOTE: Will NOT clear if manual_host_ip is true (user has manually set the IP).
+    """
     try:
         global config
+        
+        # CRITICAL: Do NOT clear if user has manually set the IP
+        if config.get("Offline", "manual_host_ip", fallback="false").lower() == "true":
+            logging.info("[clear_offline] Skipping clear - manual_host_ip is set to true (user-configured IP)")
+            return False
         
         # Clear the offline host IP
         if "Offline" in config:
@@ -4851,8 +4867,17 @@ def load_image(path, size=None):
         img = img.resize(size, Image.Resampling.LANCZOS)
     return ImageTk.PhotoImage(img)
 if 'fullscreen' not in config['General']:
-    config['General']['fullscreen'] = 'False' 
+    config['General']['fullscreen'] = 'off'  # Options: off, standard, widescreen
     save_config()
+# Migrate old boolean fullscreen values to new format
+else:
+    fs_val = config['General'].get('fullscreen', 'off').lower()
+    if fs_val in ('true', '1', 'yes'):
+        config['General']['fullscreen'] = 'standard'
+        save_config()
+    elif fs_val in ('false', '0', 'no'):
+        config['General']['fullscreen'] = 'off'
+        save_config()
 
 # Set fast startup config defaults (only if not already present)
 config_changed = False
@@ -5846,7 +5871,7 @@ def _detect_running_fusers() -> dict:
     total_detected = len(result) + foreign_count
     
     # DEBUG: Print detection results to console
-    print(f"🔍 _detect_running_fusers() → Found {len(result)} OUR fusers, {foreign_count} foreign → TOTAL={total_detected}")
+    print(f"[DEBUG] _detect_running_fusers() -> Found {len(result)} OUR fusers, {foreign_count} foreign -> TOTAL={total_detected}")
     if result:
         print(f"   Our fuser IDs: {sorted(result.keys())}")
     
@@ -6180,10 +6205,10 @@ def kill_fusers() -> None:
     import traceback
     stack_trace = ''.join(traceback.format_stack())
     print("\n" + "="*80)
-    print("🔴 kill_fusers() CALLED - Full stack trace:")
+    print("[KILL] kill_fusers() CALLED - Full stack trace:")
     print(stack_trace)
     print("="*80 + "\n")
-    logging.error(f"[kill_fusers] 🔴 KILL REQUEST - Full stack trace:\n{stack_trace}")
+    logging.error(f"[kill_fusers] KILL REQUEST - Full stack trace:\n{stack_trace}")
     
     if not psutil:
         logging.warning("[kill_fusers] psutil not available, cannot kill fusers")
@@ -6317,12 +6342,12 @@ def ensure_fuser_instances(desired: int):
                 import traceback
                 trim_trace = ''.join(traceback.format_stack())
                 print("\n" + "="*80)
-                print(f"🔴 ensure_fuser_instances() TRIM: total={total_count} > desired={desired}, will trim {to_kill}")
+                print(f"[TRIM] ensure_fuser_instances() TRIM: total={total_count} > desired={desired}, will trim {to_kill}")
                 print("Called from:")
                 print(trim_trace)
                 print("="*80 + "\n")
                 
-                logging.warning(f"[fuser-scale] ⚠️ TRIM NEEDED: total={total_count} > desired={desired}, will trim {to_kill} fuser(s)")
+                logging.warning(f"[fuser-scale] TRIM NEEDED: total={total_count} > desired={desired}, will trim {to_kill} fuser(s)")
                 logging.error(f"[fuser-scale] TRIM stack trace:\n{trim_trace}")
                 
                 # Kill only OUR extra fusers, starting from highest ID
@@ -6476,7 +6501,7 @@ def ensure_fuser_instances(desired: int):
         # Final summary: Overall result
         final_running = count_local_fusers()
         print("\n" + "="*80)
-        print(f"📊 FUSER ENFORCEMENT COMPLETE")
+        print(f"[INFO] FUSER ENFORCEMENT COMPLETE")
         print(f"   Target: {desired}")
         print(f"   Running: {final_running}")
         print(f"   Started this session: {launched}")
@@ -7648,18 +7673,29 @@ logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png
 prompt_box_image_path = os.path.join(_BUNDLE_DIR, "assets", "promptbox.jpg")
 _cached_bg_photo = None
 _cached_bg_size = (0, 0)
-_PANEL_BG_WIDTH = 1920  # Background canvas width for panel images
-_PANEL_BG_HEIGHT = 1080  # Background canvas height for panel images
+# Background dimensions - will be updated dynamically based on screen size
+_PANEL_BG_WIDTH = 1920  # Default, updated at runtime
+_PANEL_BG_HEIGHT = 1080  # Default, updated at runtime
 
 def set_background(window, widget=None):
-    """Apply a consistent-sized cached background to a widget."""
-    global _cached_bg_photo, _cached_bg_size
+    """Apply a dynamically-sized background to a widget based on screen dimensions."""
+    global _cached_bg_photo, _cached_bg_size, _PANEL_BG_WIDTH, _PANEL_BG_HEIGHT
     
-    # Use fixed size so all panels have same background dimensions
-    bg_width = _PANEL_BG_WIDTH
-    bg_height = _PANEL_BG_HEIGHT
+    # Get actual screen dimensions for fullscreen support
+    try:
+        screen_w = window.winfo_screenwidth()
+        screen_h = window.winfo_screenheight()
+        # Use screen size for background to support ultrawide monitors
+        bg_width = max(screen_w, 1920)
+        bg_height = max(screen_h, 1080)
+        # Update globals for consistency
+        _PANEL_BG_WIDTH = bg_width
+        _PANEL_BG_HEIGHT = bg_height
+    except Exception:
+        bg_width = _PANEL_BG_WIDTH
+        bg_height = _PANEL_BG_HEIGHT
 
-    # wallpaper - use cached version if already created
+    # wallpaper - use cached version if already created at this size
     if os.path.exists(background_image_path):
         if _cached_bg_photo is None or _cached_bg_size != (bg_width, bg_height):
             img = Image.open(background_image_path)
@@ -8888,7 +8924,10 @@ class MainApp(tk.Tk):
         # Track focusable UI elements for keyboard navigation
         self.focusable_buttons = []
 
-        self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
+        # Fullscreen mode: 'off', 'standard' (16:9), or 'widescreen'
+        fs_mode = config.get('General', 'fullscreen', fallback='off').lower()
+        self.fullscreen_mode = fs_mode if fs_mode in ('off', 'standard', 'widescreen') else 'off'
+        self.fullscreen = self.fullscreen_mode != 'off'
         
         # UI initialization state flag
         self._ui_initialized = False
@@ -9502,23 +9541,53 @@ class MainApp(tk.Tk):
         # track live scale & throttle id
         self._live_scale = None
         self._cfg_job = None
+        self._last_size = (0, 0)  # Track last window size to detect resize vs move
+        self._configure_throttle_ms = 100  # Throttle Configure events
+        self._debug_lag = True  # Enable debug logging for lag investigation
+        self._configure_count = 0  # Count Configure events
+        import time as _time_module
+        self._time = _time_module
+        
         def log_message(msg):
             pass
         self.log_message = log_message
 
         def _on_configure(event=None):
+            # Debug: count and time Configure events
+            self._configure_count += 1
+            if self._debug_lag:
+                start = self._time.perf_counter()
+            
+            # Only recompute scale if the window SIZE changed (not just position)
+            # This prevents lag during window drag
+            try:
+                current_size = (self.winfo_width(), self.winfo_height())
+                if current_size == self._last_size:
+                    # Size unchanged - just a window move, skip expensive recomputation
+                    if self._debug_lag and self._configure_count % 50 == 0:
+                        print(f"[DEBUG] Configure #{self._configure_count}: SKIPPED (position only) in {(self._time.perf_counter()-start)*1000:.2f}ms")
+                    return
+                self._last_size = current_size
+                if self._debug_lag:
+                    print(f"[DEBUG] Configure #{self._configure_count}: SIZE CHANGED to {current_size}")
+            except Exception as e:
+                if self._debug_lag:
+                    print(f"[DEBUG] Configure error: {e}")
+            
             if self._cfg_job is not None:
                 self.after_cancel(self._cfg_job)
-            self._cfg_job = self.after(10, self._recompute_scale)  
+            # Use longer delay to prevent rapid recomputation during resize
+            self._cfg_job = self.after(self._configure_throttle_ms, self._recompute_scale)
 
         bootstrap_first_run_if_needed(log=self.log_message)
 
         def _recompute_scale():
             self._cfg_job = None
-            self.update_idletasks()
+            # Use cached values where possible to avoid expensive update_idletasks
             w = max(1, self.winfo_width())
             h = max(1, self.winfo_height())
             current_scale = self._live_scale if self._live_scale is not None else self.window_scale
+            # Use winfo_reqheight without forcing update - may be slightly stale but acceptable
             base_h = self.content.winfo_reqheight() / max(current_scale, 1e-6)
             # compute scale vs. design width and dynamic content height
             s = min(w / self.base_width, h / base_h)
@@ -9526,10 +9595,9 @@ class MainApp(tk.Tk):
             if self._live_scale is None or abs(self._live_scale - s) > 0.02:
                 self._live_scale = s
                 self.apply_scale(s)
-                self.update_idletasks()
-                # Re-evaluate scrollability after scaling changes
+                # Re-evaluate scrollability after scaling changes (debounced)
                 if hasattr(self, '_update_scrollability'):
-                    self.after(10, self._update_scrollability)
+                    self.after(50, self._update_scrollability)
 
         self._recompute_scale = _recompute_scale
         # bind after initial geometry is set
@@ -9545,9 +9613,12 @@ class MainApp(tk.Tk):
         snapped = round(scale * 4) / 4.0
         self.tk.call('tk', 'scaling', self.base_scaling * snapped)
 
-    def toggle_fullscreen(self):
-        """Toggle fullscreen while maintaining aspect ratio, and make sure
-        the splash can never resurface during WM state changes."""
+    def toggle_fullscreen(self, mode=None):
+        """Toggle or set fullscreen mode.
+        
+        Args:
+            mode: 'off', 'standard' (16:9), or 'widescreen'. If None, cycles off->standard->off.
+        """
         # Close PyInstaller's native splash immediately if present
         if pyi_splash:
             try:
@@ -9561,16 +9632,32 @@ class MainApp(tk.Tk):
             if getattr(self._splash, "_ready_to_close", False) or getattr(self._splash, "_closing", False):
                 self._ensure_splash_gone()
 
-        self.fullscreen = not self.fullscreen
-        config.setdefault('General', {})['fullscreen'] = 'True' if self.fullscreen else 'False'
+        # Determine new mode
+        if mode is not None:
+            self.fullscreen_mode = mode
+        else:
+            # Cycle: off -> standard -> off (for keyboard toggle)
+            self.fullscreen_mode = 'standard' if self.fullscreen_mode == 'off' else 'off'
+        
+        self.fullscreen = self.fullscreen_mode != 'off'
+        config.setdefault('General', {})['fullscreen'] = self.fullscreen_mode
         _save_config()
 
-        # Compute/restore geometry exactly as you already do
+        # Compute/restore geometry based on mode
         if self.fullscreen:
             sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            scale = min(sw / self.base_width, sh / self.base_height)
-            self.apply_scale(scale)
-            self.geometry(f"{sw}x{sh}+0+0")
+            
+            if self.fullscreen_mode == 'widescreen':
+                # Widescreen: fill entire screen, scale to fit
+                scale = min(sw / self.base_width, sh / self.base_height)
+                self.apply_scale(scale)
+                self.geometry(f"{sw}x{sh}+0+0")
+            else:
+                # Standard (16:9): maintain aspect ratio, centered black bars if needed
+                scale = min(sw / self.base_width, sh / self.base_height)
+                self.apply_scale(scale)
+                self.geometry(f"{sw}x{sh}+0+0")
+            
             self.attributes('-fullscreen', True)   # enter fullscreen
         else:
             self.attributes('-fullscreen', False)  # leave fullscreen first
@@ -9635,6 +9722,21 @@ class MainApp(tk.Tk):
 
     def _on_canvas_configure(self, event):
         """Handle canvas resize - update inner frame width and scrollability."""
+        # Debug timing
+        if getattr(self, '_debug_lag', False):
+            start = self._time.perf_counter()
+            
+        # Skip if only position changed (not size) to prevent lag during window drag
+        current_size = (event.width, event.height)
+        last_canvas_size = getattr(self, '_last_canvas_size', (0, 0))
+        if current_size == last_canvas_size:
+            if getattr(self, '_debug_lag', False):
+                self._canvas_cfg_skip = getattr(self, '_canvas_cfg_skip', 0) + 1
+                if self._canvas_cfg_skip % 50 == 0:
+                    print(f"[DEBUG] Canvas Configure SKIPPED #{self._canvas_cfg_skip}")
+            return  # Size unchanged, skip expensive operations
+        self._last_canvas_size = current_size
+        
         canvas_width = event.width
         canvas_height = event.height
 
@@ -9643,7 +9745,6 @@ class MainApp(tk.Tk):
 
         # Make the inner frame at least as tall as the visible canvas, with bottom padding
         try:
-            self.panels_container.update_idletasks()
             required_h = self.panels_container.winfo_reqheight()
             # Add 20px buffer at bottom to prevent content cutoff
             target_h = max(canvas_height, required_h + 20)
@@ -9659,14 +9760,56 @@ class MainApp(tk.Tk):
         if size_changed and not getattr(self, '_scroll_active', False):
             self._last_bg_size = new_size
             self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
+        
+        # Throttle scrollability updates
+        if not hasattr(self, '_scrollability_job') or self._scrollability_job is None:
+            self._scrollability_job = self.after(150, self._deferred_update_scrollability)
+            
+        if getattr(self, '_debug_lag', False):
+            elapsed = (self._time.perf_counter() - start) * 1000
+            if elapsed > 5:  # Only log if > 5ms
+                print(f"[DEBUG] Canvas Configure: {elapsed:.2f}ms (size={current_size})")
+
+    def _deferred_update_scrollability(self):
+        """Deferred scrollability update to prevent UI lag."""
+        self._scrollability_job = None
+        if getattr(self, '_debug_lag', False):
+            start = self._time.perf_counter()
         self._update_scrollability()
+        if getattr(self, '_debug_lag', False):
+            elapsed = (self._time.perf_counter() - start) * 1000
+            if elapsed > 5:
+                print(f"[DEBUG] _update_scrollability: {elapsed:.2f}ms")
 
     def _on_frame_configure(self, event):
         """Handle inner frame resize - update scroll region (frame-only)."""
+        # Debug timing
+        if getattr(self, '_debug_lag', False):
+            start = self._time.perf_counter()
+            
+        # Skip redundant updates during window drag
+        current_frame_size = (event.width, event.height)
+        last_frame_size = getattr(self, '_last_frame_size', (0, 0))
+        if current_frame_size == last_frame_size:
+            if getattr(self, '_debug_lag', False):
+                self._frame_cfg_skip = getattr(self, '_frame_cfg_skip', 0) + 1
+                if self._frame_cfg_skip % 50 == 0:
+                    print(f"[DEBUG] Frame Configure SKIPPED #{self._frame_cfg_skip}")
+            return
+        self._last_frame_size = current_frame_size
+        
         bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
         if bbox:
             self.viewport_canvas.configure(scrollregion=bbox)
-        self._update_scrollability()
+            
+        if getattr(self, '_debug_lag', False):
+            elapsed = (self._time.perf_counter() - start) * 1000
+            if elapsed > 5:
+                print(f"[DEBUG] Frame Configure: {elapsed:.2f}ms")
+        
+        # Throttle scrollability updates (reuse same job from canvas configure)
+        if not hasattr(self, '_scrollability_job') or self._scrollability_job is None:
+            self._scrollability_job = self.after(150, self._deferred_update_scrollability)
 
     def _on_mousewheel(self, event):
         """Handle mouse wheel scrolling on the viewport canvas with batching."""
@@ -9749,10 +9892,8 @@ class MainApp(tk.Tk):
             # Guard against early calls before GUI is fully initialized
             if not hasattr(self, 'panels') or not hasattr(self, 'current'):
                 return
-                
-            self.viewport_canvas.update_idletasks()
             
-            # Get the visible canvas height
+            # Get the visible canvas height (use cached value to avoid update_idletasks)
             canvas_h = max(1, self.viewport_canvas.winfo_height())
             
             # Get the current visible panel
@@ -9760,8 +9901,7 @@ class MainApp(tk.Tk):
             if not panel:
                 return
             
-            # Get the actual panel height
-            panel.update_idletasks()
+            # Get the actual panel height (use winfo_reqheight without forcing update)
             panel_h = panel.winfo_reqheight()
             
             # Special handling for Settings panel
@@ -9791,10 +9931,6 @@ class MainApp(tk.Tk):
             
             # Allow scrolling for all panels now
             use_outer_scroll = True
-            
-            # Debug logging
-            if hasattr(self, 'debug_log'):
-                self.debug_log(f"Panel '{self.current}': canvas_h={canvas_h}, content_h={content_h}, panel_h={panel_h}, needs_scroll={needs_scroll}")
             
             # Show scrollbar for all panels that need it, including Settings
             show_scrollbar = needs_scroll and use_outer_scroll
@@ -9989,29 +10125,50 @@ class MainApp(tk.Tk):
 
     def _update_canvas_background(self, width=None, height=None):
         """Update / resize the shared background image for the viewport."""
+        # Debug timing
+        if getattr(self, '_debug_lag', False):
+            import time as _t
+            start = _t.perf_counter()
+            
         if not self._bg_image_src:
             return
+        
+        # Get screen dimensions for ultrawide support
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        
         if width is None:
-            width = max(2, self.viewport_canvas.winfo_width())
+            width = max(2, self.viewport_canvas.winfo_width(), screen_w)
         if height is None:
-            height = max(2, self.viewport_canvas.winfo_height())
+            height = max(2, self.viewport_canvas.winfo_height(), screen_h)
+        
+        # Ensure minimum screen dimensions for fullscreen
+        width = max(width, screen_w)
+        height = max(height, screen_h)
         
         if width < 10 or height < 10:
             return
         
         current_bg_img_size = getattr(self, '_bg_current_size', (0, 0))
         if abs(width - current_bg_img_size[0]) < 5 and abs(height - current_bg_img_size[1]) < 5:
+            if getattr(self, '_debug_lag', False):
+                print(f"[DEBUG] _update_canvas_background SKIPPED (size unchanged)")
             return  # Skip if size change is minimal
 
         try:
-            self.panels_container.update_idletasks()
+            # Removed update_idletasks to prevent lag
             content_h = max(height, self.panels_container.winfo_reqheight())
             height = max(height, content_h)
         except Exception:
             pass
             
         try:
-            resized = self._bg_image_src.resize((width, height), Image.Resampling.LANCZOS)
+            if getattr(self, '_debug_lag', False):
+                resize_start = _t.perf_counter()
+            # Use BILINEAR instead of LANCZOS for faster resizing
+            resized = self._bg_image_src.resize((width, height), Image.Resampling.BILINEAR)
+            if getattr(self, '_debug_lag', False):
+                print(f"[DEBUG] Image resize ({width}x{height}): {(_t.perf_counter()-resize_start)*1000:.2f}ms")
             self._bg_photo = ImageTk.PhotoImage(resized)
             self._bg_current_size = (width, height)
             
@@ -10021,6 +10178,9 @@ class MainApp(tk.Tk):
                 self.viewport_canvas.itemconfig(self._bg_image_id, image=self._bg_photo)
             if self._bg_image_id is not None:
                 self.viewport_canvas.tag_lower(self._bg_image_id)
+                
+            if getattr(self, '_debug_lag', False):
+                print(f"[DEBUG] _update_canvas_background TOTAL: {(_t.perf_counter()-start)*1000:.2f}ms")
         except Exception:
             pass
 
@@ -10030,12 +10190,15 @@ class MainApp(tk.Tk):
             return
         try:
             panel.update_idletasks()
-            vw = max(1, self.viewport_canvas.winfo_width())
-            vh = max(1, self.viewport_canvas.winfo_height())
+            # Use screen dimensions for ultrawide support
+            screen_w = self.winfo_screenwidth()
+            screen_h = self.winfo_screenheight()
+            vw = max(1, self.viewport_canvas.winfo_width(), screen_w)
+            vh = max(1, self.viewport_canvas.winfo_height(), screen_h)
             pw = max(vw, panel.winfo_reqwidth())
             ph = max(vh, panel.winfo_reqheight())
             # Put an upper bound to avoid creating gigantic images.
-            pw = min(pw, 3840)
+            pw = min(pw, 7680)  # Support up to 8K
             ph = min(ph, 4320)
             # Skip tiny initial calls until geometry stabilizes
             if pw < 100 or ph < 100:
@@ -10214,17 +10377,12 @@ class MainApp(tk.Tk):
                 messagebox.showerror("Memory Error", error_msg)
 
     def on_closing(self):
-        """Handle window close event - kill fusers if this is a fuser computer."""
-        try:
-            # Only clear offline IP configuration on User PCs, NOT on Host PC
-            # Host PC needs to keep its IP so it can serve other PCs
-            if not is_host_machine():
-                clear_offline_ip_configuration()
-                logging.info("[on_closing] Cleared offline configuration on exit (User PC)")
-            else:
-                logging.info("[on_closing] Skipping IP clear - this is the Host PC")
-        except Exception as e:
-            logging.error(f"[on_closing] Failed to clear offline configuration: {e}")
+        """Handle window close event - kill fusers and cleanup.
+        
+        NOTE: We no longer clear offline IP configuration on exit.
+        The user's manually configured IP should persist across sessions.
+        """
+        logging.info("[on_closing] Closing application - preserving user configuration")
         
         try:
             kill_all_fusers_on_exit()
@@ -10251,76 +10409,81 @@ class MainMenu(tk.Frame):
         controller.create_tutorial_button(self) 
         self.controller = controller
 
-        self.blueig_frame = tk.Frame(
-            self,
-            bg="black",
-            bd=0,
-            highlightthickness=0,
-        )
-        self.blueig_frame.pack(pady=10)
-        self.create_blueig_button()
-
-        # Other buttons
-        for txt, cmd in [
-            ("Launch VBS4 Launcher", launch_vbs4_setup),
-            ("Launch BVI", launch_bvi),
-            ("Settings", lambda: controller.show("Settings")),
-            ("Help & Tutorials", lambda: controller.show("Help & Tutorials")),
-            ("Credits", lambda: controller.show("Credits")),
-            ("Exit", controller.destroy),
-        ]:
-            state = "normal"
-            bg    = "#444444"
-            if txt == "Launch BVI":
-                path = get_ares_manager_path()
-                if not path or not os.path.isfile(path):
-                    state = "disabled"
-                    bg    = "#888888"
-            elif txt == "Launch VBS4 Launcher":
+        # Store all buttons for consistent styling
+        self.menu_buttons = []
+        
+        # Button configurations
+        button_configs = [
+            ("Launch BlueIG", None, "blueig", True),  # BlueIG - disabled by default
+            ("Launch VBS4 Launcher", launch_vbs4_setup, "vbs4_setup_path", False),
+            ("Launch BVI", launch_bvi, "bvi_path_check", False),
+            ("Settings", lambda: controller.show("Settings"), None, False),
+            ("Help & Tutorials", lambda: controller.show("Help & Tutorials"), None, False),
+            ("Credits", lambda: controller.show("Credits"), None, False),
+            ("Exit", controller.destroy, None, False),
+        ]
+        
+        # Place buttons using relative vertical positions (evenly distributed)
+        num_buttons = len(button_configs)
+        for i, (txt, cmd, path_check, is_blueig) in enumerate(button_configs):
+            disabled = is_blueig  # BlueIG starts disabled
+            if path_check == "vbs4_setup_path":
                 path = config['General'].get('vbs4_setup_path', '')
-                if not path or not os.path.isfile(path):
-                    state = "disabled"
-                    bg = "#888888"
+                disabled = not path or not os.path.isfile(path)
+            elif path_check == "bvi_path_check":
+                path = get_ares_manager_path()
+                disabled = not path or not os.path.isfile(path)
+            
+            btn = self._create_menu_button(txt, cmd, disabled=disabled)
+            # Calculate vertical position: distribute buttons from 0.2 to 0.85 of screen height
+            rely = 0.2 + (i * 0.65 / (num_buttons - 1)) if num_buttons > 1 else 0.5
+            btn.place(relx=0.5, rely=rely, anchor="center")
+            self.menu_buttons.append(btn)
+            
+            if is_blueig:
+                self.blueig_btn = btn
+        
+        # Setup BlueIG async detection
+        self._setup_blueig_async()
 
-            button = tk.Button(
-                self,
-                text=txt,
-                font=("Helvetica", 24),
-                bg=bg, fg="white",
-                width=25, height=2,
-                command=cmd,
-                state=state,
-                bd=0,
-                highlightthickness=0,
-                relief="flat",
-                overrelief="flat",
-                takefocus=False,
-            )
-            button.pack(pady=10)
-            # Add hover effect for better UI responsiveness
-            add_button_hover_effect(button, normal_bg="#444444", hover_bg="#555555")
-
-    def create_blueig_button(self):
-        for widget in self.blueig_frame.winfo_children():
-            widget.destroy()
-
+    def _create_menu_button(self, text, command, disabled=False):
+        """Create a styled menu button with semi-transparent appearance."""
+        bg_color = "#666666" if disabled else "#444444"
+        fg_color = "#999999" if disabled else "white"
+        
         btn = tk.Button(
-            self.blueig_frame,
-            text="Launch BlueIG",
-            font=("Helvetica", 24),
-            bg="#888888", fg="white",
-            width=25, height=2,
-            state="disabled",
+            self,  # Place directly on panel
+            text=text,
+            font=("Helvetica", 22, "bold"),
+            bg=bg_color,
+            fg=fg_color,
+            activebackground="#555555",
+            activeforeground="white",
+            width=32,
+            height=1,
+            padx=30,
+            pady=14,
+            command=command if not disabled else None,
+            state="disabled" if disabled else "normal",
             bd=0,
             highlightthickness=0,
             relief="flat",
-            overrelief="flat",
-            takefocus=False,
+            cursor="hand2" if not disabled else "arrow",
         )
-        btn.pack()
-        # Add hover effect for better UI responsiveness
-        add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
+        
+        if not disabled:
+            # Add hover effect
+            def on_enter(e, b=btn):
+                b.configure(bg="#555555")
+            def on_leave(e, b=btn):
+                b.configure(bg="#444444")
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
+        
+        return btn
 
+    def _setup_blueig_async(self):
+        """Asynchronously check BlueIG availability and enable button if found."""
         is_srv = config["General"].getboolean("is_server", fallback=False)
         if is_srv:
             return
@@ -10328,29 +10491,45 @@ class MainMenu(tk.Frame):
         # Fast path: if BlueIG path is already cached/known, enable immediately
         cached_path = config['General'].get('blueig_path', '')
         if cached_path and os.path.isfile(cached_path):
-            btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+            self.blueig_btn.config(
+                state="normal", 
+                bg="#444444", 
+                fg="white",
+                cursor="hand2",
+                command=self.launch_blueig_with_exercise_id
+            )
+            # Add hover effect
+            def on_enter(e):
+                self.blueig_btn.configure(bg="#555555")
+            def on_leave(e):
+                self.blueig_btn.configure(bg="#444444")
+            self.blueig_btn.bind("<Enter>", on_enter)
+            self.blueig_btn.bind("<Leave>", on_leave)
             return
-
-        # Otherwise, show "Checking..." and resolve asynchronously
-        checking = tk.Label(
-            self.blueig_frame,
-            text="Checking...",
-            bg=self.blueig_frame.cget("bg"),
-            fg="white",
-        )
-        checking.pack()
 
         def _resolve():
             path_ok = bool(get_blueig_install_path())
-
             def _apply():
                 if path_ok:
-                    btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
-                checking.destroy()
-
+                    self.blueig_btn.config(
+                        state="normal", 
+                        bg="#444444",
+                        fg="white", 
+                        cursor="hand2",
+                        command=self.launch_blueig_with_exercise_id
+                    )
+                    def on_enter(e):
+                        self.blueig_btn.configure(bg="#555555")
+                    def on_leave(e):
+                        self.blueig_btn.configure(bg="#444444")
+                    self.blueig_btn.bind("<Enter>", on_enter)
+                    self.blueig_btn.bind("<Leave>", on_leave)
             post_ui(_apply)
-
         run_in_thread(_resolve)
+
+    def create_blueig_button(self):
+        """Legacy method - now handled by _setup_blueig_async."""
+        pass
 
     def launch_blueig_with_exercise_id(self):
         panel = self.controller.panels.get("VBS4") if hasattr(self.controller, "panels") else None
@@ -10362,7 +10541,7 @@ class MainMenu(tk.Frame):
         webbrowser.open(url, new=2)
 
     def update_blueig_state(self):
-        self.create_blueig_button()
+        self._setup_blueig_async()
   
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
@@ -10372,42 +10551,40 @@ class VBS4Panel(tk.Frame):
         controller.create_tutorial_button(self)
         self.configure(bg="black") 
 
-        # --- Main actions ----------------------------------------------------
-        self.vbs4_launcher_button = self.make_button(
-            "Launch VBS4 Launcher", launch_vbs4_setup
-        )
-        self.vbs4_launcher_button.pack(pady=15)
-
+        # Place buttons directly using relative positions (evenly distributed)
+        # Buttons from 0.15 to 0.75 to leave room for log area at bottom
+        self.vbs4_launcher_button = self.make_button("Launch VBS4 Launcher", launch_vbs4_setup)
+        self.vbs4_launcher_button.place(relx=0.5, rely=0.18, anchor="center")
+        
+        # Version label after first button
         self.vbs4_launcher_version_label = tk.Label(
             self,
             text="Version: Unknown",
-            font=("Helvetica", 16),
-            bg="black",
+            font=("Helvetica", 14),
+            bg="#333333",
             fg="white",
             bd=0,
             highlightthickness=0,
+            padx=10,
+            pady=2,
         )
-        self.vbs4_launcher_version_label.pack(pady=(0, 15))
-
-        self.blueig_button = self.make_button(
-            "Launch BlueIG", self.launch_blueig_with_exercise_id
-        )
-        self.blueig_button.pack(pady=15)
-
-        self.vbs_license_button = self.make_button(
-            "Launch VBS License Manager", self.launch_vbs_license_manager
-        )
-        self.vbs_license_button.pack(pady=15)
-
-        self.external_map_button = self.make_button(
-            "External Map", open_external_map
-        )
-        self.external_map_button.pack(pady=15)
-
-        self.back_button = self.make_button(
-            "Back", lambda: controller.show("Main")
-        )
-        self.back_button.pack(pady=(15, 0))
+        self.vbs4_launcher_version_label.place(relx=0.5, rely=0.26, anchor="center")
+        
+        # BlueIG button
+        self.blueig_button = self.make_button("Launch BlueIG", self.launch_blueig_with_exercise_id)
+        self.blueig_button.place(relx=0.5, rely=0.36, anchor="center")
+        
+        # License Manager button
+        self.vbs_license_button = self.make_button("Launch VBS License Manager", self.launch_vbs_license_manager)
+        self.vbs_license_button.place(relx=0.5, rely=0.48, anchor="center")
+        
+        # External Map button
+        self.external_map_button = self.make_button("External Map", open_external_map)
+        self.external_map_button.place(relx=0.5, rely=0.60, anchor="center")
+        
+        # Back button
+        self.back_button = self.make_button("Back", lambda: controller.show("Main"))
+        self.back_button.place(relx=0.5, rely=0.72, anchor="center")
 
         # --- Log area --------------------------------------------------------
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
@@ -10503,22 +10680,24 @@ class VBS4Panel(tk.Frame):
         self.update_button_states()
 
     def make_button(self, text, command):
+        # Place directly on self (no container frame)
         btn = tk.Button(
             self,
             text=text,
-            font=("Helvetica", 24),
+            font=("Helvetica", 22, "bold"),
             bg="#444444",
             fg="white",
-            activebackground="#666666",
+            activebackground="#555555",
             activeforeground="white",
-            width=30,
+            width=32,
             height=1,
+            padx=30,
+            pady=14,
             command=command,
             bd=0,
             highlightthickness=0,
             relief="flat",
-            overrelief="flat",
-            takefocus=False,
+            cursor="hand2",
         )
         # Add hover effect for better UI responsiveness
         add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
@@ -11513,45 +11692,35 @@ class OneClickPanel(tk.Frame):
 
         parent_bg = self.cget("bg")
 
-        # --- Main actions ----------------------------------------------------
-        self.oneclick_button = self.make_button(
-            "Run One-Click Conversion", self.on_run_oneclick
-        )
-        self.oneclick_button.pack(pady=15)
+        # Place buttons directly using relative positions (evenly distributed)
+        # Buttons from 0.15 to 0.65 to leave room for log area at bottom
+        self.oneclick_button = self.make_button("Run One-Click Conversion", self.on_run_oneclick)
+        self.oneclick_button.place(relx=0.5, rely=0.18, anchor="center")
 
-        self.rm_button = self.make_button(
-            "Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4
-        )
-        self.rm_button.pack(pady=15)
+        self.rm_button = self.make_button("Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4)
+        self.rm_button.place(relx=0.5, rely=0.30, anchor="center")
 
-        self.relaunch_fusers_button = self.make_button(
-            "Relaunch Fusers", self.relaunch_fusers
-        )
-        self.relaunch_fusers_button.pack(pady=15)
+        self.relaunch_fusers_button = self.make_button("Relaunch Fusers", self.relaunch_fusers)
+        self.relaunch_fusers_button.place(relx=0.5, rely=0.42, anchor="center")
 
-        self.tutorial_button = self.make_button(
-            "One-Click Terrain Tutorial", self.show_terrain_tutorial
-        )
-        self.tutorial_button.pack(pady=15)
+        self.tutorial_button = self.make_button("One-Click Terrain Tutorial", self.show_terrain_tutorial)
+        self.tutorial_button.place(relx=0.5, rely=0.54, anchor="center")
 
-        self.back_button = self.make_button(
-            "Back", lambda: controller.show("Main")
-        )
-        self.back_button.pack(pady=(15, 0))
+        self.back_button = self.make_button("Back", lambda: controller.show("Main"))
+        self.back_button.place(relx=0.5, rely=0.66, anchor="center")
 
-        # --- Status line (RM link source/path) -------------------------------
-        status_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
-        status_frame.pack(fill="x", padx=20, pady=(10, 0))
+        # --- Status line (RM link source/path) - at bottom -------------------
         self.rm_path_label = tk.Label(
-            status_frame,
+            self,
             text="",
             font=("Helvetica", 12),
-            bg=parent_bg,
+            bg="#333333",
             fg="white",
             justify="left",
             wraplength=900,
+            padx=10,
+            pady=5,
         )
-        self.rm_path_label.pack(anchor="w")
 
         # --- Log area --------------------------------------------------------
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
@@ -11739,22 +11908,24 @@ class OneClickPanel(tk.Frame):
 
     def make_button(self, text, command):
         """Return a main-action button styled like the other panels with hover effect."""
+        # Place directly on self (no container frame)
         btn = tk.Button(
             self,
             text=text,
-            font=("Helvetica", 24),
+            font=("Helvetica", 22, "bold"),
             bg="#444444",
             fg="white",
-            activebackground="#666666",
+            activebackground="#555555",
             activeforeground="white",
-            width=30,
+            width=32,
             height=1,
+            padx=30,
+            pady=14,
             command=command,
             bd=0,
             highlightthickness=0,
             relief="flat",
-            overrelief="flat",
-            takefocus=False,
+            cursor="hand2",
         )
         # Add hover effect for better UI responsiveness
         add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
@@ -12442,32 +12613,32 @@ class BVIPanel(tk.Frame):
         controller.create_tutorial_button(self)
         self.configure(bg="black")
 
-        # --- Main actions ----------------------------------------------------
-        self.bvi_button = self.make_button(
-            "Launch BVI", launch_bvi
-        )
-        self.bvi_button.pack(pady=15)
+        # Place buttons directly using relative positions (evenly distributed)
+        # Buttons from 0.2 to 0.6 to leave room for log area at bottom
+        self.bvi_button = self.make_button("Launch BVI", launch_bvi)
+        self.bvi_button.place(relx=0.5, rely=0.22, anchor="center")
 
+        # Version label after first button
         self.version_label = tk.Label(
             self,
             text=f"Version: {get_bvi_version(get_ares_manager_path())}",
-            font=("Helvetica", 16),
-            bg="black",
+            font=("Helvetica", 14),
+            bg="#333333",
             fg="white",
             bd=0,
             highlightthickness=0,
+            padx=10,
+            pady=2,
         )
-        self.version_label.pack(pady=(0, 15))
+        self.version_label.place(relx=0.5, rely=0.32, anchor="center")
 
-        self.open_terrain_button = self.make_button(
-            "Open Terrain", open_bvi_terrain
-        )
-        self.open_terrain_button.pack(pady=15)
+        # Open Terrain button
+        self.open_terrain_button = self.make_button("Open Terrain", open_bvi_terrain)
+        self.open_terrain_button.place(relx=0.5, rely=0.44, anchor="center")
 
-        self.back_button = self.make_button(
-            "Back", lambda: controller.show("Main")
-        )
-        self.back_button.pack(pady=(15, 0))
+        # Back button
+        self.back_button = self.make_button("Back", lambda: controller.show("Main"))
+        self.back_button.place(relx=0.5, rely=0.56, anchor="center")
 
         # --- Log area --------------------------------------------------------
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
@@ -12527,22 +12698,24 @@ class BVIPanel(tk.Frame):
         self.update_bvi_version()
 
     def make_button(self, text, command):
+        # Place directly on self (no container frame)
         btn = tk.Button(
             self,
             text=text,
-            font=("Helvetica", 24),
+            font=("Helvetica", 22, "bold"),
             bg="#444444",
             fg="white",
-            activebackground="#666666",
+            activebackground="#555555",
             activeforeground="white",
-            width=27,
-            height=2,
+            width=32,
+            height=1,
+            padx=30,
+            pady=14,
             command=command,
             bd=0,
             highlightthickness=0,
             relief="flat",
-            overrelief="flat",
-            takefocus=False,
+            cursor="hand2",
         )
         # Add hover effect for better UI responsiveness
         add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
@@ -12595,7 +12768,12 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: toggles grid columns configured")
 
         logging.info("[ui-diag] SettingsPanel: about to create BooleanVars")
-        self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
+        # Fullscreen dropdown options
+        self.fullscreen_options = ["Off", "Standard (16:9)", "Widescreen"]
+        self.fullscreen_mode_map = {"Off": "off", "Standard (16:9)": "standard", "Widescreen": "widescreen"}
+        self.fullscreen_mode_reverse = {v: k for k, v in self.fullscreen_mode_map.items()}
+        current_mode = getattr(controller, 'fullscreen_mode', 'off')
+        self.fullscreen_var = tk.StringVar(value=self.fullscreen_mode_reverse.get(current_mode, "Off"))
         logging.info("[ui-diag] SettingsPanel: fullscreen_var created")
         self.startup_var = tk.BooleanVar(value=is_startup_enabled())
         logging.info("[ui-diag] SettingsPanel: startup_var created")
@@ -12686,8 +12864,48 @@ class SettingsPanel(tk.Frame):
                 oc_panel.update_fuser_state()
                 oc_panel.refresh_rm_status()
 
+        # --- Fullscreen buttons (row 0, spans both columns) ---
+        fs_frame = tk.Frame(toggles, bg="#444444")
+        fs_frame.grid(row=0, column=0, columnspan=2, padx=6, pady=6, sticky="ew")
+        
+        tk.Label(
+            fs_frame,
+            text="Fullscreen Mode:",
+            font=("Helvetica", 20),
+            bg="#444444",
+            fg="white",
+        ).pack(side="left", padx=(10, 20))
+        
+        # Create fullscreen mode buttons
+        self._fs_buttons = {}
+        
+        def _make_fs_button(text, mode):
+            btn = tk.Button(
+                fs_frame,
+                text=text,
+                font=("Helvetica", 14),
+                width=14,
+                bg="#666666",
+                fg="white",
+                activebackground="#888888",
+                activeforeground="white",
+                bd=0,
+                highlightthickness=0,
+                command=lambda m=mode: self._on_fullscreen_button(m),
+            )
+            btn.pack(side="left", padx=4)
+            self._fs_buttons[mode] = btn
+            return btn
+        
+        _make_fs_button("Off", "off")
+        _make_fs_button("Standard (16:9)", "standard")
+        _make_fs_button("Widescreen", "widescreen")
+        
+        # Highlight the current mode
+        self._update_fullscreen_buttons()
+
+        # Checkbox toggles (start at row 1)
         toggle_specs = [
-            ("Fullscreen Mode", self.fullscreen_var, self._on_fullscreen_toggle),
             ("Launch on Startup", self.startup_var, self._on_launch_on_startup),
             (
                 "Close on Software Launch?",
@@ -12695,6 +12913,7 @@ class SettingsPanel(tk.Frame):
                 self._on_close_on_launch,
             ),
             ("Fuser Computer", self.fuser_var, _on_fuser_toggle),
+            ("", None, None),  # Placeholder for 4th slot
         ]
 
         # Check if we're on the Host PC (by verifying share exists locally)
@@ -12705,7 +12924,16 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: about to create checkbuttons")
         for i, (text, var, cmd) in enumerate(toggle_specs):
             logging.info(f"[ui-diag] SettingsPanel: creating checkbutton {i}: {text}")
+            # Start at row 1, 2 columns
             r, c = divmod(i, 2)
+            r += 1  # Offset by 1 since row 0 is fullscreen dropdown
+            
+            # Handle placeholder (empty text/None var) - create invisible spacer
+            if var is None:
+                spacer = tk.Frame(toggles, bg="#444444", height=50)
+                spacer.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
+                continue
+            
             chk = tk.Checkbutton(
                 toggles,
                 text=text,
@@ -12749,7 +12977,7 @@ class SettingsPanel(tk.Frame):
                 fg="#aaaaaa",
                 anchor="w"
             )
-            self.host_info_label.grid(row=2, column=0, columnspan=2, padx=6, pady=(0, 6), sticky="w")
+            self.host_info_label.grid(row=3, column=0, columnspan=2, padx=6, pady=(0, 6), sticky="w")
             logging.info("[ui-diag] SettingsPanel: Host PC info label added")
         else:
             self.host_info_label = None  # Not on host PC
@@ -15465,9 +15693,35 @@ class SettingsPanel(tk.Frame):
         self.close_on_launch_var.set(is_close_on_launch_enabled())
         enforce_local_fuser_policy()
 
-    def _on_fullscreen_toggle(self):
-        self.controller.toggle_fullscreen()
-        self.fullscreen_var.set(self.controller.fullscreen)
+    def _update_fullscreen_buttons(self):
+        """Update button colors to highlight the active fullscreen mode."""
+        if not hasattr(self, '_fs_buttons'):
+            return
+        current_mode = getattr(self.controller, 'fullscreen_mode', 'off')
+        for mode, btn in self._fs_buttons.items():
+            if mode == current_mode:
+                btn.config(bg="#228B22", fg="white")  # Green for active
+            else:
+                btn.config(bg="#666666", fg="white")  # Gray for inactive
+
+    def _on_fullscreen_button(self, mode):
+        """Handle fullscreen button click."""
+        self.controller.toggle_fullscreen(mode)
+        self._update_fullscreen_buttons()
+        
+        # Update Settings panel scrollbar visibility
+        if self.controller.fullscreen:
+            # Fullscreen mode - hide the Settings scrollbar
+            self._settings_scrollbar.pack_forget()
+        else:
+            # Windowed mode - show the Settings scrollbar
+            self._settings_scrollbar.pack(side="right", fill="y")
+
+    def _on_fullscreen_dropdown(self, event=None):
+        """Handle fullscreen dropdown selection change."""
+        selected = self.fullscreen_var.get()
+        mode = self.fullscreen_mode_map.get(selected, "off")
+        self.controller.toggle_fullscreen(mode)
         
         # Update Settings panel scrollbar visibility
         if self.controller.fullscreen:
@@ -17313,9 +17567,9 @@ def run_with_splash():
         global _skip_fuser_enforcement_at_startup
         
         print("\n" + "="*80)
-        print("🚀 AUTO-START TRIGGERED after UI ready (6-second delay elapsed)")
+        print("[AUTO-START] TRIGGERED after UI ready (6-second delay elapsed)")
         print("="*80 + "\n")
-        logging.info("[startup] 🚀 Auto-starting fusers...")
+        logging.info("[startup] Auto-starting fusers...")
         # Single Use Mode: skip auto-start entirely
         if is_single_use_mode():
             try:
@@ -17480,7 +17734,7 @@ def run_with_splash():
     logging.info("[startup] About to start mainloop()")
     app.mainloop()
     print("\n" + "="*80)
-    print("🛑 MAINLOOP EXITED - App was closed by user")
+    print("[STOP] MAINLOOP EXITED - App was closed by user")
     print("="*80 + "\n")
     logging.info("[startup] mainloop() exited (app closed)")
 

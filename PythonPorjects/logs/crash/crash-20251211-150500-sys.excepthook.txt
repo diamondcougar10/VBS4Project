@@ -1,0 +1,20 @@
+Origin: sys.excepthook
+Timestamp: 20251211-150500
+Exe: STE_Toolkit.py
+Python: 3.12.3 | packaged by conda-forge | (main, Apr 15 2024, 18:20:11) [MSC v.1938 64 bit (AMD64)]
+Working Dir: C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects
+Platform Node: RyansWorkPC2
+Primary IP: 192.168.10.16
+Host IP (cfg): N/A (config may not yet be loaded)
+--- STACK TRACE ---
+Traceback (most recent call last):
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 17624, in <module>
+    run_with_splash()
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 17619, in run_with_splash
+    print("🛑 MAINLOOP EXITED - App was closed by user")
+  File "C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 1021, in _logging_print
+    _original_print(*args, **kwargs)
+  File "C:\ProgramData\anaconda3\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f6d1' in position 0: character maps to <undefined>

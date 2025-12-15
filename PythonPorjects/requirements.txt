@@ -3,3 +3,4 @@ configparser
 psutil
 pywin32
 pyinstaller
+pystray
