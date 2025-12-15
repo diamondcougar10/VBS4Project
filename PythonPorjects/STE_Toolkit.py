@@ -553,6 +553,7 @@ def _user_listener_loop():
     """
     sock = None
     last_set = 0
+    beacon_count = 0
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -562,6 +563,7 @@ def _user_listener_loop():
             pass
         sock.bind(("", BEACON_PORT))
         sock.settimeout(1.0)
+        logging.warning(f"[beacon] UDP listener bound to port {BEACON_PORT}, waiting for host beacons...")
         while not _LST_STOP.is_set():
             try:
                 data, _addr = sock.recvfrom(4096)
@@ -579,6 +581,11 @@ def _user_listener_loop():
                 if not ip or not pc:
                     continue
                 
+                beacon_count += 1
+                # Log first few beacons and then periodically for debugging
+                if beacon_count <= 3 or beacon_count % 30 == 0:
+                    logging.warning(f"[beacon] Received beacon #{beacon_count}: PC='{pc}', IP={ip}, role={role}")
+                
                 # Cache beacon data with fuser count for display
                 with _BEACON_CACHE_LOCK:
                     _BEACON_CACHE[pc] = {
@@ -592,26 +599,30 @@ def _user_listener_loop():
                 # Auto-discover host IP (user PCs only - NOT the host PC itself)
                 now = time.time()
                 if now - last_set < 3.0:
+                    logging.debug(f"[beacon] Skipping IP update - too soon since last set ({now - last_set:.1f}s < 3.0s)")
                     continue
                     
                 # HOST PCs should NEVER update their host_ip from beacons
                 # They ARE the host - they should keep their own IP
                 try:
                     if is_this_pc_the_real_host():
+                        logging.debug(f"[beacon] Skipping IP update - this PC is the host")
                         continue  # Skip IP update logic entirely for host PCs
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning(f"[beacon] Error checking if this PC is host: {e}")
                 
                 # If host_ip was manually set by user, don't auto-overwrite from beacons
                 o = get_offline_cfg()
                 manual_ip = o.get("manual_host_ip", "false").lower() == "true"
                 if manual_ip:
+                    logging.debug(f"[beacon] Skipping IP update - manual_host_ip=true (user set IP manually)")
                     continue  # User explicitly set the IP - don't auto-discover
                     
                 cur = config.get("Offline", "host_ip", fallback="").strip()
                 # Ignore beacons from ourselves (compare against our primary IP)
                 self_ip = get_primary_ipv4() or _machine_ip_fast()
                 if ip == self_ip:
+                    logging.debug(f"[beacon] Skipping beacon from ourselves (IP={ip})")
                     continue
                 
                 # SINGLE HOST ENFORCEMENT (for User PCs only):
@@ -620,22 +631,31 @@ def _user_listener_loop():
                 if role == "host":
                     if not cur:
                         # No host configured, adopt this one
-                        logging.info(f"[beacon] Discovered host {ip} from PC '{pc}' (role={role}); adopting")
+                        logging.warning(f"[beacon] *** ADOPTING HOST IP: {ip} from PC '{pc}' (role={role}) ***")
                         try:
-                            set_host_ip(ip, force_reshare=False, update_ui=True)
+                            # Use from_beacon=True to allow future beacon updates
+                            set_host_ip(ip, force_reshare=False, update_ui=True, from_beacon=True)
+                            logging.warning(f"[beacon] set_host_ip() completed successfully for {ip}")
                             connect_working_share_interactive(parent=None, silent=True)
-                        except Exception:
-                            pass
+                            logging.warning(f"[beacon] connect_working_share_interactive() completed")
+                        except Exception as e:
+                            logging.error(f"[beacon] FAILED to set host IP {ip}: {e}")
+                            import traceback
+                            logging.error(f"[beacon] Traceback: {traceback.format_exc()}")
                         last_set = now
                     elif cur != ip:
                         # Different host detected - log but DON'T auto-switch
                         # User should manually change if they want a different host
                         # This prevents flip-flopping between hosts
                         logging.warning(f"[beacon] Different host detected: {ip} from PC '{pc}' (current: {cur}) - ignoring (use Change Host IP to switch)")
+                    else:
+                        logging.debug(f"[beacon] Host beacon received, IP already set to {cur}")
+                else:
+                    logging.debug(f"[beacon] Ignoring non-host beacon from {pc} (role={role})")
             except socket.timeout:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                logging.error(f"[beacon] Exception in listener loop: {e}")
     finally:
         try:
             if sock:
@@ -646,14 +666,22 @@ def _user_listener_loop():
 def start_user_listener():
     global _LST_THREAD
     if _LST_THREAD and _LST_THREAD.is_alive():
+        logging.debug("[beacon] User listener already running, skipping start")
         return
     try:
         _LST_STOP.clear()
-    except Exception:
-        pass
-    _LST_THREAD = threading.Thread(target=_user_listener_loop, name="user-listener", daemon=True)
-    _LST_THREAD.start()
-    logging.info("[beacon] User UDP listener started")
+    except Exception as e:
+        logging.warning(f"[beacon] Error clearing stop flag: {e}")
+    try:
+        _LST_THREAD = threading.Thread(target=_user_listener_loop, name="user-listener", daemon=True)
+        _LST_THREAD.start()
+        logging.warning(f"[beacon] User UDP listener started on port {BEACON_PORT}")
+        logging.warning(f"[beacon] Current host_ip in config: '{config.get('Offline', 'host_ip', fallback='')}' ")
+        logging.warning(f"[beacon] manual_host_ip flag: '{config.get('Offline', 'manual_host_ip', fallback='false')}'")
+    except Exception as e:
+        logging.error(f"[beacon] FAILED to start user listener: {e}")
+        import traceback
+        logging.error(f"[beacon] Traceback: {traceback.format_exc()}")
 
 def stop_user_listener():
     try:
@@ -1597,53 +1625,58 @@ def quick_unc_check(unc_path, timeout=3):
         return False
 
 def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
-    r"""Best-effort discovery of the Host IP on the local subnet.
+    r"""Best-effort discovery of the Host IP.
 
     Strategy:
     - If this PC IS the host (has SharedMeshDrive share), return this PC's IP directly.
     - If Offline.host_ip exists and is reachable (ping + UNC probe), use it.
-    - Otherwise, scan common subnet addresses looking for SharedMeshDrive.
-    Returns the first responding IP or ''. Non-blocking per host with tight timeouts.
+    - Otherwise, check if beacon cache has a host IP from recent broadcasts.
+    
+    NOTE: We do NOT scan hard-coded subnet IPs because host IP varies by location.
+    The primary discovery mechanism is via UDP beacons from the Host PC.
+    Returns the first valid IP or ''.
     """
+    logging.info("[discover] discover_host_ip_quick() called")
     try:
         # 1) CRITICAL: If this PC IS the host, return our own IP immediately
         # This prevents the Host from discovering other hosts or old IPs
         if is_this_pc_the_real_host():
             local_ip = get_primary_ipv4()
             if local_ip:
-                logging.debug(f"[discover] This PC is the Host - using own IP: {local_ip}")
+                logging.info(f"[discover] This PC is the Host - using own IP: {local_ip}")
                 return local_ip
         
         # 2) For non-Host PCs: Use configured IP if valid and reachable
         ip = config.get("Offline", "host_ip", fallback="").strip()
+        logging.info(f"[discover] Current config host_ip: '{ip}'")
         if ip:
-            if quick_ping_check(ip, timeout=timeout_per_host) or can_access_unc(rf"\\{ip}\SharedMeshDrive"):
-                logging.debug(f"[discover] Using existing reachable IP: {ip}")
+            reachable = quick_ping_check(ip, timeout=timeout_per_host)
+            logging.info(f"[discover] Ping check for {ip}: reachable={reachable}")
+            if reachable or can_access_unc(rf"\\{ip}\SharedMeshDrive"):
+                logging.info(f"[discover] Using existing reachable IP: {ip}")
                 return ip
             else:
-                logging.debug(f"[discover] Configured IP {ip} not reachable, scanning subnet...")
+                logging.info(f"[discover] Configured IP {ip} not reachable, checking beacon cache...")
+        else:
+            logging.info("[discover] No host_ip in config, checking beacon cache...")
         
-        # 3) Try common candidates on the local subnet
-        local = get_primary_ipv4()
-        if not local or local.count(".") != 3:
-            return ""
-        parts = local.split(".")
-        base = ".".join(parts[:3])
-        candidates = [
-            f"{base}.1",
-            f"{base}.10",
-            f"{base}.20",
-            f"{base}.50",
-            f"{base}.100",
-        ]
-        for cand in candidates:
-            try:
-                if quick_ping_check(cand, timeout=timeout_per_host):
-                    if can_access_unc(rf"\\{cand}\SharedMeshDrive") or quick_unc_check(rf"\\{cand}\SharedMeshDrive", timeout=1):
-                        logging.debug(f"[discover] Found host via subnet scan: {cand}")
-                        return cand
-            except Exception:
-                continue
+        # 3) Check beacon cache for any host beacons we've received
+        # The beacon listener runs in background and caches discovered hosts
+        with _BEACON_CACHE_LOCK:
+            cache_size = len(_BEACON_CACHE)
+            logging.info(f"[discover] Beacon cache has {cache_size} entries")
+            for pc_name, data in _BEACON_CACHE.items():
+                logging.info(f"[discover] Beacon cache entry: PC='{pc_name}', role='{data.get('role')}', ip='{data.get('ip')}')")
+                if data.get("role") == "host":
+                    beacon_ip = data.get("ip", "").strip()
+                    if beacon_ip:
+                        logging.info(f"[discover] Found host IP from beacon cache: {beacon_ip} (PC: {pc_name})")
+                        return beacon_ip
+        
+        # 4) No IP found - beacon listener will update when host broadcasts
+        logging.debug("[discover] No host IP found - waiting for beacon broadcast from Host PC")
+        return ""
+        
     except Exception as e:
         logging.warning(f"[discover] Error during discovery: {e}")
     return ""
@@ -1691,7 +1724,8 @@ def auto_connect_shared_working_folder() -> bool:
                 discovered_ip = discover_host_ip_quick()
                 if discovered_ip and discovered_ip != ip:
                     logging.info(f"[autoconnect] Auto-discovered new host IP: {discovered_ip}")
-                    set_host_ip(discovered_ip)
+                    # Use from_beacon=True since this is auto-discovery, not manual
+                    set_host_ip(discovered_ip, from_beacon=True)
                     ip = discovered_ip
 
         if not ip:
@@ -4290,7 +4324,7 @@ def remove_and_recreate_share(share_name: str) -> bool:
         logging.error(f"[share] Error removing/recreating share: {e}")
         return False
 
-def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True) -> None:
+def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True, from_beacon: bool = False) -> None:
     """
     Persist *ip* to Offline.host_ip (single source of truth) and sync all dependent config values.
     
@@ -4306,7 +4340,7 @@ def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True) -> 
     
     Config Updates (local):
     - [Offline] host_ip (PRIMARY - single source of truth)
-    - [Offline] manual_host_ip (flag to prevent auto-updates)
+    - [Offline] manual_host_ip (flag to prevent auto-updates - NOT set for beacon discoveries)
     - [Network] host (synced from Offline.host_ip)
     - [Fusers] working_folder_host (synced from Offline.host_ip)
     - [Fusers] shared_working_unc (rebuilt from Offline.host_ip + share_name)
@@ -4322,50 +4356,70 @@ def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True) -> 
         ip: The new IP address to set
         force_reshare: If True, always remove and recreate the SMB share (default True)
         update_ui: If True, trigger UI status updates after IP change (default True)
+        from_beacon: If True, this IP was auto-discovered via beacon (don't mark as manual)
     """
+    logging.warning(f"[set_host_ip] CALLED: ip='{ip}', force_reshare={force_reshare}, update_ui={update_ui}, from_beacon={from_beacon}")
+    
     trimmed = ip.strip()
     if "Offline" not in config:
-        config["Offline"] = {}
-    offline = config["Offline"]
+        config.add_section("Offline")
     
-    old_ip = offline.get("host_ip", "").strip()
+    old_ip = config.get("Offline", "host_ip", fallback="").strip()
     ip_actually_changed = old_ip != trimmed
+    logging.warning(f"[set_host_ip] old_ip='{old_ip}', new_ip='{trimmed}', changed={ip_actually_changed}")
     
-    # PRIMARY: Set the single source of truth
-    offline["host_ip"] = trimmed
+    # PRIMARY: Set the single source of truth using explicit config.set() for reliability
+    config.set("Offline", "host_ip", trimmed)
+    logging.warning(f"[set_host_ip] Set config Offline.host_ip = '{trimmed}'")
     
-    # Mark as manually set so bootstrap won't auto-change it
-    offline["manual_host_ip"] = "true" if trimmed else "false"
+    # Verify it was set correctly
+    verify_ip = config.get("Offline", "host_ip", fallback="FAILED")
+    logging.warning(f"[set_host_ip] Verification read: host_ip = '{verify_ip}'")
+    
+    # Mark as manually set ONLY for actual manual changes (not beacon discoveries)
+    # Beacon-discovered IPs should allow future beacon updates to override
+    if not from_beacon:
+        config.set("Offline", "manual_host_ip", "true" if trimmed else "false")
+    # If from_beacon, don't change the manual_host_ip flag - leave it as-is
     
     if trimmed:
-        offline["use_ip_unc"] = "True"
+        config.set("Offline", "use_ip_unc", "True")
     else:
-        offline["use_ip_unc"] = offline.get("use_ip_unc", "True")
+        current_use_ip = config.get("Offline", "use_ip_unc", fallback="True")
+        config.set("Offline", "use_ip_unc", current_use_ip)
     
     # SYNC: Update all dependent config values to match
-    share_name = offline.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
-    wf_subdir = offline.get("working_fuser_subdir", "WorkingFuser").strip() or "WorkingFuser"
+    share_name = config.get("Offline", "share_name", fallback="SharedMeshDrive").strip() or "SharedMeshDrive"
+    wf_subdir = config.get("Offline", "working_fuser_subdir", fallback="WorkingFuser").strip() or "WorkingFuser"
     
     if trimmed:
         # Sync [Network] host
         if "Network" not in config:
-            config["Network"] = {}
-        config["Network"]["host"] = trimmed
+            config.add_section("Network")
+        config.set("Network", "host", trimmed)
         
         # Sync [Fusers] working_folder_host
         if "Fusers" not in config:
-            config["Fusers"] = {}
-        config["Fusers"]["working_folder_host"] = trimmed
+            config.add_section("Fusers")
+        config.set("Fusers", "working_folder_host", trimmed)
         
         # Rebuild [Fusers] shared_working_unc from IP + share_name
-        config["Fusers"]["shared_working_unc"] = f"\\\\{trimmed}\\{share_name}\\{wf_subdir}"
+        config.set("Fusers", "shared_working_unc", f"\\\\{trimmed}\\{share_name}\\{wf_subdir}")
         
-        logging.info(f"[set_host_ip] Set Host IP from '{old_ip}' to '{trimmed}'")
-        logging.info(f"[set_host_ip] Synced: Network.host, Fusers.working_folder_host, Fusers.shared_working_unc")
+        logging.warning(f"[set_host_ip] Set Host IP from '{old_ip}' to '{trimmed}'")
+        logging.warning(f"[set_host_ip] Synced: Network.host, Fusers.working_folder_host, Fusers.shared_working_unc")
     else:
-        logging.info("[set_host_ip] Cleared host IP")
+        logging.warning("[set_host_ip] Cleared host IP")
         
-    save_config()
+    # CRITICAL: Use synchronous save to ensure IP is persisted IMMEDIATELY
+    # The debounced save_config() was causing race conditions where other code
+    # would re-read from disk before the async save completed
+    logging.warning("[set_host_ip] Calling save_config_now() for immediate sync save...")
+    save_config_now()
+    
+    # Verify the save worked by re-reading from config
+    final_verify = config.get("Offline", "host_ip", fallback="FAILED_VERIFY")
+    logging.warning(f"[set_host_ip] Post-save verification: host_ip = '{final_verify}'")
 
     # Update fuser shared path in fuser_config.json
     update_fuser_shared_path()
@@ -4400,7 +4454,7 @@ def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True) -> 
                 except Exception as e:
                     logging.debug(f"[set_host_ip] Could not disconnect old IP (may not exist): {e}")
         
-        local_root = offline.get("local_data_root", "").strip()
+        local_root = config.get("Offline", "local_data_root", fallback="").strip()
         
         if local_root and os.path.isdir(local_root):
             # Step 2: Update beacon file with new IP (OVERWRITES any existing - single host enforcement)
@@ -4937,28 +4991,38 @@ def refresh_settings_panel_from_config() -> None:
     Also updates OneClick panel status if it has a host status box."""
 
     app = APP_INSTANCE
-    if not app or not hasattr(app, "panels"):
+    if not app:
+        logging.debug("[refresh_settings] APP_INSTANCE is None, cannot refresh UI")
+        return
+    if not hasattr(app, "panels"):
+        logging.debug("[refresh_settings] APP_INSTANCE has no 'panels' attribute yet (UI not initialized)")
         return
 
     def _apply():
         # Update Settings panel
         try:
             panel = app.panels.get("Settings")
-        except Exception:
-            panel = None
-        if panel and hasattr(panel, "reload_from_config"):
-            panel.reload_from_config()
+            if panel and hasattr(panel, "reload_from_config"):
+                current_ip = config.get("Offline", "host_ip", fallback="")
+                logging.warning(f"[refresh_settings] Updating Settings panel with host_ip='{current_ip}'")
+                panel.reload_from_config()
+                logging.warning("[refresh_settings] Settings panel reload_from_config() completed")
+            else:
+                logging.debug("[refresh_settings] Settings panel not found or no reload_from_config method")
+        except Exception as e:
+            logging.error(f"[refresh_settings] Error updating Settings panel: {e}")
         
         # Also update OneClick panel host status box if it exists
         try:
             oneclick = app.panels.get("OneClick")
             if oneclick and hasattr(oneclick, "force_update_host_status"):
                 oneclick.force_update_host_status()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"[refresh_settings] Error updating OneClick panel: {e}")
 
     try:
         post_ui(_apply)
+        logging.debug("[refresh_settings] UI update queued via post_ui()")
     except Exception:
         try:
             _apply()
@@ -9615,6 +9679,36 @@ class MainApp(tk.Tk):
         # Update panel button states now that warmup has discovered paths
         self._refresh_panel_button_states()
         
+        # CRITICAL FIX: Schedule delayed refresh to catch late-arriving beacon IP updates
+        # For USER mode on install/update, the beacon listener may receive the host IP
+        # AFTER the SettingsPanel is created with a blank IP. This ensures the IP is updated.
+        def _delayed_ip_refresh():
+            try:
+                current_ip = config.get("Offline", "host_ip", fallback="")
+                logging.warning(f"[startup] Delayed IP refresh triggered - current host_ip in config: '{current_ip}'")
+                
+                # Re-read config and update Settings panel if IP was discovered via beacon
+                if hasattr(self, "panels") and "Settings" in self.panels:
+                    panel = self.panels["Settings"]
+                    if hasattr(panel, "reload_from_config"):
+                        panel.reload_from_config()
+                        # Log what the UI now shows
+                        if hasattr(panel, "host_ip_var"):
+                            ui_ip = panel.host_ip_var.get()
+                            logging.warning(f"[startup] Delayed IP refresh completed - UI now shows: '{ui_ip}'")
+                        else:
+                            logging.warning("[startup] Delayed IP refresh completed")
+                else:
+                    logging.warning("[startup] Delayed IP refresh - panels not ready yet")
+            except Exception as e:
+                logging.error(f"[startup] Delayed IP refresh failed: {e}")
+        
+        # Schedule multiple refresh attempts to catch late beacon arrivals
+        # Beacons are sent every 2 seconds, so check at 1s, 3s, and 5s after UI init
+        self.after(1000, _delayed_ip_refresh)
+        self.after(3000, _delayed_ip_refresh)
+        self.after(5000, _delayed_ip_refresh)
+        
         # Check if we're in offline mode and show appropriate warning
         if hasattr(self, 'network_status') and self.network_status == "offline":
             self.show_warning_banner("Host not reachable — running in offline mode")
@@ -13313,6 +13407,24 @@ class SettingsPanel(tk.Frame):
         self.host_ip_var = tk.StringVar(
             value=config.get("Offline", "host_ip", fallback="")
         )
+        
+        # CRITICAL FIX: If host_ip is blank on init, schedule periodic checks
+        # for beacon-discovered IP. This handles the race condition where beacons
+        # arrive after SettingsPanel is created but before UI is fully visible.
+        if not self.host_ip_var.get().strip():
+            def _check_for_beacon_ip():
+                current = self.host_ip_var.get().strip()
+                if not current:
+                    # Re-read from config in case beacon listener updated it
+                    new_ip = config.get("Offline", "host_ip", fallback="").strip()
+                    if new_ip:
+                        self.host_ip_var.set(new_ip)
+                        logging.info(f"[SettingsPanel] Updated host_ip from beacon: {new_ip}")
+                    else:
+                        # Schedule another check if still blank
+                        self.after(2000, _check_for_beacon_ip)
+            # Initial check after 1 second
+            self.after(1000, _check_for_beacon_ip)
 
         tk.Label(
             host_row,
@@ -14062,7 +14174,7 @@ class SettingsPanel(tk.Frame):
         if hasattr(self, "lbl_vbs4"):
             self.lbl_vbs4.config(text=general.get("vbs4_path", "") or "[not set]")
         if hasattr(self, "lbl_vbs4_setup"):
-            self.lbl_vbs4_setup.config(general.get("vbs4_setup_path", ""))
+            self.lbl_vbs4_setup.config(text=general.get("vbs4_setup_path", "") or "[not set]")
         if hasattr(self, "lbl_blueig"):
             self.lbl_blueig.config(text=general.get("blueig_path", "") or "[not set]")
         if hasattr(self, "lbl_ares"):
@@ -14070,7 +14182,7 @@ class SettingsPanel(tk.Frame):
         if hasattr(self, "lbl_browser"):
             self.lbl_browser.config(text=general.get("browser_path", "") or get_default_browser() or "[not set]")
         if hasattr(self, "lbl_vbs_license"):
-            self.lbl_vbs_license.config(general.get("vbs_license_manager_path", ""))
+            self.lbl_vbs_license.config(text=general.get("vbs_license_manager_path", "") or "[not set]")
         if hasattr(self, "lbl_oneclick"):
             self.lbl_oneclick.config(text=general.get("oneclick_output", "") or get_oneclick_output_path() or "[not set]")
 
@@ -17609,6 +17721,27 @@ def run_with_splash():
     except Exception:
         pass
     # MainApp.__init__ already calls withdraw()
+    
+    # CRITICAL FIX: Start beacon listener EARLY for USER mode
+    # This allows us to receive host IP broadcasts before UI is fully initialized.
+    # The beacon listener runs in background and will update config when host is found.
+    mode = config.get('General', 'first_run_mode', fallback='').upper()
+    logging.info(f"[startup] first_run_mode='{mode}'")
+    logging.info(f"[startup] Current host_ip in config: '{config.get('Offline', 'host_ip', fallback='')}'")
+    logging.info(f"[startup] manual_host_ip flag: '{config.get('Offline', 'manual_host_ip', fallback='false')}'")
+    
+    if mode in ('USER', 'UPDATE', ''):
+        # Start listening for host beacons immediately
+        logging.info(f"[startup] Mode is '{mode}' - starting early beacon listener")
+        try:
+            start_user_listener()
+            logging.warning("[startup] Early beacon listener started successfully")
+        except Exception as e:
+            logging.error(f"[startup] FAILED to start early beacon listener: {e}")
+            import traceback
+            logging.error(f"[startup] Traceback: {traceback.format_exc()}")
+    else:
+        logging.warning(f"[startup] Mode is '{mode}' - skipping early beacon listener (HOST mode uses own IP)")
     
     # Clean up any orphaned fusers from previous sessions BEFORE starting new ones
     try:
