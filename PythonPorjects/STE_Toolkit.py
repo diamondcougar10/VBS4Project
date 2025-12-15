@@ -2418,15 +2418,17 @@ def _heartbeat_path_for_this_pc() -> str:
     name = f"{platform.node()}({_machine_ip_fast()})"
     return os.path.join(root, f"{name}.json")
 
-def _atomic_write_json(path: str, data: dict) -> None:
-    """Atomically write JSON to path (best effort)."""
+def _atomic_write_json(path: str, data: dict) -> bool:
+    """Atomically write JSON to path (best effort). Returns True on success."""
     try:
         tmp = f"{path}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, separators=(",", ":"))
         os.replace(tmp, path)
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        logging.warning(f"[presence] _atomic_write_json failed for {path}: {e}")
+        return False
 
 def write_presence_heartbeat() -> None:
     """Write/update our presence file on the WorkingFuser share."""
@@ -2447,8 +2449,11 @@ def write_presence_heartbeat() -> None:
         "ts": int(time.time()),
         "fusers": count_local_fusers(),
     }
-    _atomic_write_json(p, payload)
-    logging.debug(f"[presence] Heartbeat written successfully to {p}")
+    success = _atomic_write_json(p, payload)
+    if success:
+        logging.debug(f"[presence] Heartbeat written successfully to {p}")
+    else:
+        logging.warning(f"[presence] Failed to write heartbeat to {p}")
 
 def cleanup_stale_presence() -> None:
     """Delete very old heartbeats (> 24h) to keep the folder tidy."""
@@ -2471,12 +2476,16 @@ def cleanup_stale_presence() -> None:
             pass
 
 def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
-    """Return list of active PCs by scanning SeedFuser folders in WorkingFuser root.
+    """Return list of active PCs by scanning KeepAlive files, heartbeat files, and SeedFuser folders.
     
-    Each PC creates exactly one SeedFuser folder with pattern:
-    <PCNAME>(<IP>)_SeedFuser (e.g., HAMMERKIT1-2(192.168.10.115)_SeedFuser)
+    Detection sources (in order of reliability):
+    1. KeepAlive JSON files in WorkingFuser root (updated by fusers every ~10s, most reliable)
+    2. Heartbeat JSON files in _clients folder (updated by STE_Toolkit every 20s)
+    3. SeedFuser folders in WorkingFuser root (fallback for PCs with running fusers)
     
-    We scan ONLY these SeedFuser folders to detect unique connected PCs.
+    Each fuser writes a KeepAlive file with pattern: KeepAlive_PCNAME(IP)_N.json
+    Each PC writes a heartbeat JSON file with pattern: PCNAME(IP).json
+    Each PC creates SeedFuser folders with pattern: PCNAME(IP)_SeedFuser
     """
     # Get WorkingFuser root
     try:
@@ -2507,10 +2516,100 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
             logging.debug(f"[presence] scan: local path doesn't exist: {root}")
             return []
     
-    # Scan ONLY for SeedFuser folders - one per PC
-    out = []
-    pc_map = {}  # Deduplicate by PC name: {pc_name: {"pc", "ip", "fusers"}}
+    pc_map = {}  # Deduplicate by PC name: {pc_name: {"pc", "ip", "fusers", "ts"}}
+    now = time.time()
+    KEEPALIVE_TTL_SECS = 120  # 2 minutes for KeepAlive files
     
+    # METHOD 1: Scan KeepAlive files in WorkingFuser root (PRIMARY - most reliable, written by fusers)
+    # Pattern: KeepAlive_PCNAME(IP)_N.json where N is the fuser instance number
+    try:
+        for item in os.listdir(root):
+            if not (item.startswith('KeepAlive_') and item.endswith('.json')):
+                continue
+            
+            filepath = os.path.join(root, item)
+            if not os.path.isfile(filepath):
+                continue
+            
+            try:
+                # Use file modification time as freshness indicator
+                mtime = os.path.getmtime(filepath)
+                age = now - mtime
+                
+                # Skip stale KeepAlive files if active_only
+                if active_only and age > KEEPALIVE_TTL_SECS:
+                    continue
+                
+                # Parse PC name and IP from filename: KeepAlive_PCNAME(IP)_N.json
+                # Remove prefix and suffix
+                name_part = item[len('KeepAlive_'):-len('.json')]  # PCNAME(IP)_N
+                
+                # Remove the instance number suffix (_N)
+                if '_' in name_part:
+                    # Split from the right to handle PC names with underscores
+                    parts = name_part.rsplit('_', 1)
+                    if len(parts) == 2 and parts[1].isdigit():
+                        name_part = parts[0]  # PCNAME(IP)
+                
+                # Extract PC name and IP
+                if '(' in name_part and ')' in name_part:
+                    pc_name = name_part.split('(')[0]
+                    ip_part = name_part.split('(')[1].split(')')[0]
+                    
+                    # Count or increment fuser count for this PC
+                    if pc_name in pc_map:
+                        pc_map[pc_name]["fusers"] += 1
+                        # Keep the most recent timestamp
+                        if mtime > pc_map[pc_name].get("ts", 0):
+                            pc_map[pc_name]["ts"] = mtime
+                    else:
+                        pc_map[pc_name] = {
+                            "pc": pc_name,
+                            "ip": ip_part,
+                            "fusers": 1,
+                            "ts": mtime
+                        }
+                    logging.debug(f"[presence] scan: found PC from KeepAlive: {pc_name} ({ip_part}) age={age:.0f}s")
+            except Exception as e:
+                logging.debug(f"[presence] scan: error processing KeepAlive {item}: {e}")
+    except Exception as e:
+        logging.debug(f"[presence] scan: error listing root for KeepAlive: {e}")
+    
+    # METHOD 2: Scan heartbeat JSON files in _clients folder (written by STE_Toolkit)
+    clients_dir = os.path.join(root, HEARTBEAT_DIR_NAME)
+    if os.path.isdir(clients_dir):
+        try:
+            for filename in os.listdir(clients_dir):
+                if not filename.endswith('.json'):
+                    continue
+                filepath = os.path.join(clients_dir, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    pc_name = data.get("pc", "unknown")
+                    ts = float(data.get("ts", 0))
+                    
+                    # Skip stale heartbeats if active_only (older than 90 seconds)
+                    if active_only and (now - ts) > HEARTBEAT_TTL_SECS:
+                        logging.debug(f"[presence] scan: stale heartbeat for {pc_name} (age={now-ts:.0f}s)")
+                        continue
+                    
+                    # Only add if not already found via KeepAlive (KeepAlive is more reliable)
+                    if pc_name not in pc_map:
+                        pc_map[pc_name] = {
+                            "pc": pc_name,
+                            "ip": data.get("ip", "unknown"),
+                            "fusers": data.get("fusers", 0),
+                            "ts": ts
+                        }
+                        logging.debug(f"[presence] scan: found PC from heartbeat: {pc_name} ({data.get('ip', '?')}) fusers={data.get('fusers', 0)}")
+                except Exception as e:
+                    logging.debug(f"[presence] scan: error reading heartbeat {filename}: {e}")
+        except Exception as e:
+            logging.debug(f"[presence] scan: error listing _clients dir: {e}")
+    
+    # METHOD 3: Scan SeedFuser folders as fallback (for PCs that may not have written heartbeats yet)
     try:
         for item in os.listdir(root):
             item_path = os.path.join(root, item)
@@ -2537,20 +2636,32 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
                 pc_name = name_part.split('(')[0]
                 ip_part = name_part.split('(')[1].split(')')[0]
                 
-                # Add to map (deduplicate by PC name)
+                # Only add if not already found via heartbeat (heartbeat is more reliable)
                 if pc_name not in pc_map:
+                    # Check folder modification time for freshness
+                    try:
+                        mtime = os.path.getmtime(item_path)
+                        age = now - mtime
+                        # Skip folders older than 5 minutes if active_only
+                        if active_only and age > 300:
+                            logging.debug(f"[presence] scan: stale SeedFuser for {pc_name} (age={age:.0f}s)")
+                            continue
+                    except Exception:
+                        pass
+                    
                     pc_map[pc_name] = {
                         "pc": pc_name,
                         "ip": ip_part,
-                        "fusers": 1  # SeedFuser indicates PC is connected
+                        "fusers": 1,  # SeedFuser indicates at least 1 fuser
+                        "ts": 0  # No timestamp for folder-based detection
                     }
                     logging.debug(f"[presence] scan: found PC from SeedFuser: {pc_name} ({ip_part})")
         
-        out = list(pc_map.values())
-        logging.debug(f"[presence] scan: found {len(out)} unique PCs via SeedFuser folders")
-        
     except Exception as e:
         logging.warning(f"[presence] scan: error scanning directory {root}: {e}")
+    
+    out = list(pc_map.values())
+    logging.debug(f"[presence] scan: found {len(out)} unique PCs total")
     
     return out
 
@@ -3940,7 +4051,64 @@ FAST_START_CLI = "--fast-start" in sys.argv
 # synchronize UI state (e.g., refresh Settings fields after config updates).
 APP_INSTANCE = None
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Debounced Config Save System
+# Prevents UI lag by coalescing rapid save calls into a single background write
+# ─────────────────────────────────────────────────────────────────────────────
+import threading
+
+_config_save_timer = None
+_config_save_lock = threading.Lock()
+_CONFIG_SAVE_DELAY_MS = 500  # Debounce delay in milliseconds
+
 def save_config() -> None:
+    """Queue a debounced config save. Multiple rapid calls coalesce into one save."""
+    global _config_save_timer
+    
+    with _config_save_lock:
+        # Cancel any pending save
+        if _config_save_timer is not None:
+            _config_save_timer.cancel()
+            _config_save_timer = None
+            logging.debug("[save_config] Cancelled pending save, rescheduling")
+        
+        # Schedule new save after delay
+        _config_save_timer = threading.Timer(
+            _CONFIG_SAVE_DELAY_MS / 1000.0,
+            _do_background_save
+        )
+        _config_save_timer.daemon = True  # Don't block app exit
+        _config_save_timer.start()
+        logging.debug(f"[save_config] Queued debounced save in {_CONFIG_SAVE_DELAY_MS}ms")
+
+def _do_background_save():
+    """Execute the actual save in background thread."""
+    global _config_save_timer
+    with _config_save_lock:
+        _config_save_timer = None
+    try:
+        logging.debug("[save_config] Background save starting...")
+        start_time = time.perf_counter()
+        _save_config_sync()
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logging.debug(f"[save_config] Background save completed in {elapsed:.1f}ms")
+    except Exception as e:
+        logging.error(f"[save_config] Background save failed: {e}")
+
+def save_config_now() -> None:
+    """Force immediate synchronous save. Use on app close."""
+    global _config_save_timer
+    
+    with _config_save_lock:
+        # Cancel any pending debounced save
+        if _config_save_timer is not None:
+            _config_save_timer.cancel()
+            _config_save_timer = None
+    
+    # Do immediate sync save
+    _save_config_sync()
+
+def _save_config_sync() -> None:
     """Save to the active CONFIG_PATH (respects --config CLI override) with atomic write.
     Preserves [Offline.host_ip] reference placeholders in dependent sections."""
     # Always save to SITE_CONFIG_PATH (next to EXE) unless --config was specified
@@ -3998,13 +4166,9 @@ def save_config() -> None:
             config[section][option] = value
             logging.debug(f"[save_config] Restored in-memory value [{section}]{option} = {value}")
         
-        # CRITICAL FIX: Reload config from disk to ensure in-memory state matches file
-        # This prevents stale cached values (like old IPs) from persisting in the UI
-        try:
-            config.read(target)
-            logging.info(f"[save_config] Reloaded config from {target} to sync in-memory state")
-        except Exception as reload_err:
-            logging.warning(f"[save_config] Failed to reload config: {reload_err}")
+        # NOTE: Do NOT reload config from disk here!
+        # The file contains placeholder strings like [Offline.host_ip] which would
+        # overwrite the actual IP values we just restored, breaking network connections.
         
     except Exception as e:
         # Restore values even on error
@@ -7935,10 +8099,10 @@ def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover
         global PERF_HOVER_EVENT_SUMMARY_INTERVAL, PERF_HOVER_RENDER_WARN_MS, PERF_HOVER_CFG_WARN_MS
 
         if 'PERF_HOVER_LOG' not in globals():
-            PERF_HOVER_LOG = False  # master enable - disabled, issue resolved
+            PERF_HOVER_LOG = False  # master enable - disabled, issue fixed (was tooltip calling network I/O)
         if 'PERF_HOVER_DEFER_FLUSH' not in globals():
             # When True: measure config time immediately, schedule render flush measurement via after_idle
-            PERF_HOVER_DEFER_FLUSH = False
+            PERF_HOVER_DEFER_FLUSH = True  # Enable deferred flush for better perf
         if 'PERF_HOVER_EVENT_SUMMARY_INTERVAL' not in globals():
             PERF_HOVER_EVENT_SUMMARY_INTERVAL = 50  # print aggregate every N events
         if 'PERF_HOVER_RENDER_WARN_MS' not in globals():
@@ -9213,12 +9377,14 @@ class MainApp(tk.Tk):
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
         # Skip offline settings in Single Use Mode (no network/fusers)
+        # CRITICAL: Run apply_offline_settings in BACKGROUND THREAD to avoid UI freeze
         if not is_single_use_mode():
-            try:
-                apply_offline_settings()
-            except Exception as exc:
-                logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
-                pass
+            def _apply_offline_bg():
+                try:
+                    apply_offline_settings()
+                except Exception as exc:
+                    logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
+            run_in_thread(_apply_offline_bg)
 
         # Start by showing "Main"
         self.current = None
@@ -9968,6 +10134,15 @@ class MainApp(tk.Tk):
 
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
+        # Guard: Don't try to show panels before UI is initialized
+        if not hasattr(self, 'panels') or not self.panels:
+            logging.warning(f"[show] Ignoring request to show '{name}' - UI not yet initialized")
+            return
+        
+        if name not in self.panels:
+            logging.warning(f"[show] Unknown panel '{name}'")
+            return
+        
         # Stop OneClick status updates if we're leaving that panel
         if hasattr(self, 'current') and self.current == 'OneClick':
             oneclick = self.panels.get('OneClick')
@@ -10383,6 +10558,12 @@ class MainApp(tk.Tk):
         The user's manually configured IP should persist across sessions.
         """
         logging.info("[on_closing] Closing application - preserving user configuration")
+        
+        # Force immediate save of any pending config changes
+        try:
+            save_config_now()
+        except Exception as e:
+            logging.warning(f"[on_closing] Failed to save config: {e}")
         
         try:
             kill_all_fusers_on_exit()
@@ -13225,29 +13406,43 @@ class SettingsPanel(tk.Frame):
         self.share_status_label.pack(side="left", fill="x", expand=True)
 
         def _test_connection():
-            """Test network connectivity and show detailed results."""
-            o = get_offline_cfg()
-            unc_root = build_unc_from_cfg(o)
-            working_fuser = working_fuser_unc()
-            host = o.get("host_ip", "")
-            result_lines = []
-            # 1. Ping host
-            if host:
-                ping_ok = _test_network_connectivity(host)
-                result_lines.append(f"Ping {host}: {'✓' if ping_ok else '✗'}")
-            else:
-                result_lines.append("Ping: No host IP configured ✗")
-            # 2. UNC root
-            unc_ok = _unc_usable(unc_root)
-            result_lines.append(f"Share {unc_root}: {'✓' if unc_ok else '✗'}")
-            # 3. WorkingFuser subfolder
-            fuser_ok = _unc_usable(working_fuser)
-            result_lines.append(f"WorkingFuser {working_fuser}: {'✓' if fuser_ok else '✗'}")
-            # Show results
-            msg = "\n".join(result_lines)
-            messagebox.showinfo("Connection Test", msg)
-            # Trigger immediate status refresh after test
-            self._force_share_status_update()
+            """Test network connectivity and show detailed results.
+            Runs in background thread to avoid UI freeze during network checks."""
+            # Show immediate feedback
+            try:
+                self.share_status_label.config(text="◐ Testing connection...", fg="#FFFF00")
+            except:
+                pass
+            
+            def _do_test():
+                o = get_offline_cfg()
+                unc_root = build_unc_from_cfg(o)
+                working_fuser = working_fuser_unc()
+                host = o.get("host_ip", "")
+                result_lines = []
+                # 1. Ping host
+                if host:
+                    ping_ok = _test_network_connectivity(host)
+                    result_lines.append(f"Ping {host}: {'✓' if ping_ok else '✗'}")
+                else:
+                    result_lines.append("Ping: No host IP configured ✗")
+                # 2. UNC root
+                unc_ok = _unc_usable(unc_root)
+                result_lines.append(f"Share {unc_root}: {'✓' if unc_ok else '✗'}")
+                # 3. WorkingFuser subfolder
+                fuser_ok = _unc_usable(working_fuser)
+                result_lines.append(f"WorkingFuser {working_fuser}: {'✓' if fuser_ok else '✗'}")
+                # Show results on UI thread
+                msg = "\n".join(result_lines)
+                
+                def _show_result():
+                    messagebox.showinfo("Connection Test", msg)
+                    # Trigger immediate status refresh after test
+                    self._force_share_status_update()
+                
+                self.after(0, _show_result)
+            
+            run_in_thread(_do_test)
 
         def _refresh_status():
             """Force an immediate share status check."""
@@ -13279,6 +13474,7 @@ class SettingsPanel(tk.Frame):
         def create_tooltip(widget, text_func):
             def on_enter(event):
                 try:
+                    # Use cached status to avoid blocking network I/O on hover
                     tooltip_text = text_func()
                     # Create a simple tooltip window
                     tooltip = tk.Toplevel()
@@ -13303,10 +13499,21 @@ class SettingsPanel(tk.Frame):
             widget.bind("<Enter>", on_enter)
             widget.bind("<Leave>", on_leave)
         
-        # Tooltip that shows detailed share status
+        # Tooltip that shows detailed share status - uses CACHED status to avoid UI lag
+        # The status is already being updated periodically by _update_share_status()
         def get_tooltip_text():
             try:
-                status_code, status_msg, _ = check_network_share_status()
+                # Use the cached status from the label itself - NO network call!
+                cached_status = getattr(self, '_last_share_status', None)
+                if cached_status:
+                    # Parse the cached status key format: "status_code:status_msg"
+                    parts = cached_status.split(':', 1)
+                    status_code = parts[0] if len(parts) > 0 else 'unknown'
+                    status_msg = parts[1] if len(parts) > 1 else cached_status
+                else:
+                    status_code = 'checking'
+                    status_msg = 'Status not yet checked'
+                
                 status_name = {
                     'connected': 'Connected',
                     'local': 'Local (Host PC)',
@@ -13316,9 +13523,11 @@ class SettingsPanel(tk.Frame):
                     'error': 'Error'
                 }.get(status_code, 'Unknown')
                 
-                return f"Network Share Status: {status_name}\n{status_msg.replace('●', '').replace('○', '').replace('◐', '').strip()}"
+                # Clean up the message for display
+                clean_msg = status_msg.replace('●', '').replace('○', '').replace('◐', '').strip()
+                return f"Network Share Status: {status_name}\n{clean_msg}"
             except Exception as e:
-                return f"Network Share Status: Error\n{str(e)}"
+                return f"Network Share Status: Unknown\n(hover to refresh)"
         
         create_tooltip(self.share_status_label, get_tooltip_text)
 
@@ -13877,28 +14086,19 @@ class SettingsPanel(tk.Frame):
     def _update_share_status(self):
         """Update the share status indicator based on current network share availability.
 
-        Runs the check on a background thread to avoid blocking the UI thread. UI is updated via after().
-        Only shows "Checking..." if the check takes longer than 500ms to avoid flashing.
-        Only updates UI if status actually changed for smooth experience.
-        
-        Checks every 3 seconds to quickly detect drive disconnection events (e.g., USB unplugged).
+        Runs the check on a background thread to avoid blocking the UI thread.
+        Checks every 5 seconds to detect drive disconnection events.
         """
         # Prevent overlapping background checks
         if getattr(self, "_share_check_busy", False):
             # Try again a bit later if a previous check is still running
-            self.after(3000, self._update_share_status)
+            self.after(5000, self._update_share_status)
             return
 
         self._share_check_busy = True
-        
-        # Track the last known status to avoid unnecessary UI updates
-        last_status = getattr(self, "_last_share_status", None)
-        check_start_time = time.time()
-        checking_shown = False
 
         def _work():
-            nonlocal checking_shown
-            result = ('checking', '◐ Checking...', '#FFFF00')
+            result = None
             try:
                 # Use timeout wrapper to prevent hanging forever
                 result_queue = Queue()
@@ -13918,23 +14118,12 @@ class SettingsPanel(tk.Frame):
                 # If thread is still alive, it timed out
                 if check_thread.is_alive():
                     logging.warning("[share-status] Check timed out after 5 seconds")
-                    result = ('error', '● Timeout checking share', '#FF4500')
+                    result = ('error', '● Timeout', '#FF4500')
                 elif not result_queue.empty():
                     result = result_queue.get_nowait()
                 else:
                     logging.warning("[share-status] No result after thread completion")
                     result = ('error', '● Check failed', '#FF4500')
-                
-                # If check took longer than 500ms, show "Checking..." briefly
-                # This prevents flash for fast checks but gives feedback for slow ones
-                elapsed = time.time() - check_start_time
-                if elapsed > 0.5 and not checking_shown:
-                    checking_shown = True
-                    try:
-                        if hasattr(self, "share_status_label"):
-                            self.after(0, lambda: self.share_status_label.config(text="◐ Checking...", fg="#FFFF00"))
-                    except:
-                        pass
                         
             except Exception as e:
                 logging.warning(f"Share status check wrapper error: {e}")
@@ -13942,37 +14131,26 @@ class SettingsPanel(tk.Frame):
 
             def _apply():
                 try:
-                    status_code, status_msg, status_color = result
-                    
-                    # Only update UI if status actually changed (prevents flashing)
-                    current_status_key = f"{status_code}:{status_msg}"
-                    if last_status != current_status_key:
-                        # Update share status label
+                    if result:
+                        status_code, status_msg, status_color = result
+                        
+                        # Always update the share status label with final result
                         if hasattr(self, "share_status_label"):
                             self.share_status_label.config(text=status_msg, fg=status_color)
                         
-                        # Update compact host status line (map status to simple bool for backwards compat)
+                        # Update compact host status line
                         if hasattr(self, "host_status_label"):
                             is_ok = status_code in ('connected', 'local')
-                            self.host_status_label.config(text=self._format_host_status(is_ok if status_code != 'checking' else None))
-                        
-                        # Remember this status
-                        self._last_share_status = current_status_key
-                        
-                        # Log status changes for troubleshooting
-                        if status_code == 'disconnected' and last_status and 'connected' in last_status.lower():
-                            logging.warning(f"[share-status] Share became disconnected - drive may have been unplugged")
-                        elif status_code in ('connected', 'local') and last_status and 'disconnect' in last_status.lower():
-                            logging.info(f"[share-status] Share reconnected")
+                            self.host_status_label.config(text=self._format_host_status(is_ok))
                         
                 except Exception as e:
                     logging.error(f"[share-status] Error updating UI: {e}")
                 finally:
-                    # ALWAYS clear busy flag and schedule next update - ensures loop continues
+                    # ALWAYS clear busy flag and schedule next update
                     self._share_check_busy = False
                     try:
-                        # Schedule next update in 3 seconds (faster detection of drive disconnection)
-                        self.after(3000, self._update_share_status)
+                        # Schedule next update in 5 seconds
+                        self.after(5000, self._update_share_status)
                     except Exception:
                         # Widget destroyed, stop the loop
                         pass
@@ -13981,12 +14159,8 @@ class SettingsPanel(tk.Frame):
             try:
                 self.after(0, _apply)
             except Exception:
-                # If widget is destroyed, clean up and reschedule
+                # If widget is destroyed, clean up
                 self._share_check_busy = False
-                try:
-                    self.after(3000, self._update_share_status)
-                except:
-                    pass
 
         run_in_thread(_work)
 
@@ -14807,9 +14981,9 @@ class SettingsPanel(tk.Frame):
                     except Exception:
                         pass
                     finally:
-                        # Allow future scans and schedule next refresh
+                        # Allow future scans and schedule next refresh (5 seconds for responsive detection)
                         self._pcs_refresh_busy = False
-                        self.after(10000, self._refresh_connected_pcs)
+                        self.after(5000, self._refresh_connected_pcs)
 
                 # Update UI on main thread
                 self.after(0, _apply)
@@ -14817,7 +14991,7 @@ class SettingsPanel(tk.Frame):
                 # Ensure busy flag clears and reschedule even on unexpected errors
                 def _clear_and_resched():
                     self._pcs_refresh_busy = False
-                    self.after(10000, self._refresh_connected_pcs)
+                    self.after(5000, self._refresh_connected_pcs)
                 self.after(0, _clear_and_resched)
 
         # Run scan off the UI thread
@@ -17495,55 +17669,58 @@ def run_with_splash():
         # Now app.panels should be initialized and we can safely access it
 
         if hasattr(app, 'panels') and 'OneClick' in app.panels:
-            # Use a single short delay for background tasks
-            app.after(5, update_fuser_shared_path)
-            app.after(10, app.panels['OneClick'].update_fuser_state)
+            # CRITICAL: Run file I/O operations in background thread to prevent UI lag
+            # update_fuser_shared_path does file reads/writes which can block
+            app.after(5, lambda: run_in_thread(update_fuser_shared_path))
+            # update_fuser_state is mostly fast config reads but schedule slightly later
+            app.after(50, app.panels['OneClick'].update_fuser_state)
             
             # Improved fuser startup sequence: connect UNC first, then enable enforcement
+            # CRITICAL: This runs in a BACKGROUND THREAD to prevent UI freeze
             def _restore_then_enforce():
                 global _allow_fuser_enforcement
                 
-                try:
-                    # 1) Auto-connect to the host's WorkingFuser share FIRST
-                    logging.info("[fuser-startup] Establishing UNC connection before fuser operations")
+                def _do_restore_work():
+                    """All the heavy work runs in this background thread."""
+                    global _allow_fuser_enforcement
                     try:
-                        run_in_thread(auto_connect_shared_working_folder)
-                        # Give the connection a moment to establish
-                        time.sleep(0.5)
+                        # 1) Auto-connect to the host's WorkingFuser share FIRST
+                        logging.info("[fuser-startup] Establishing UNC connection before fuser operations")
+                        try:
+                            auto_connect_shared_working_folder()  # Run directly in this thread
+                        except Exception as e:
+                            logging.warning(f"[fuser-startup] UNC auto-connect failed: {e}")
+                        
+                        # 2) Ensure LocalFuser directories exist on UNC
+                        try:
+                            from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
+                            desired_count = get_fuser_counts()[1]
+                            ensure_localfuser_dirs_on_unc(pm_config, desired_count)
+                            migrate_local_localfuser_to_unc_if_needed(pm_config)
+                        except Exception as e:
+                            logging.error(f"[fuser-startup] Failed to ensure LocalFuser folders on UNC: {e}")
+                        
+                        # 3) Now enable enforcement (this gates the policy to prevent premature kills)
+                        logging.info("[fuser-startup] Enabling fuser enforcement now that UNC is ready")
+                        _allow_fuser_enforcement = True
+                        
+                        # 4) Restore fusers - DISABLED, now using _autostart_fusers() instead
+                        # restore_fusers_on_startup() uses old code that doesn't use per-instance workdirs
+                        # Our new _autostart_fusers() at 3-second mark handles this properly
+                        logging.info("[fuser-startup] Skipping restore_fusers_on_startup (using _autostart_fusers instead)")
+                        
+                        # 5) Apply policy enforcement (won't kill if UNC check fails)
+                        logging.info("[fuser-startup] Running first policy enforcement")
+                        enforce_local_fuser_policy()
+                        
+                        # 6) Start presence heartbeat service
+                        start_presence_service()
+                        
                     except Exception as e:
-                        logging.warning(f"[fuser-startup] UNC auto-connect failed: {e}")
-                    
-                    # 2) Ensure LocalFuser directories exist on UNC
-                    try:
-                        from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
-                        desired_count = get_fuser_counts()[1]
-                        ensure_localfuser_dirs_on_unc(pm_config, desired_count)
-                        migrate_local_localfuser_to_unc_if_needed(pm_config)
-                    except Exception as e:
-                        logging.error(f"[fuser-startup] Failed to ensure LocalFuser folders on UNC: {e}")
-                    
-                    # 3) Now enable enforcement (this gates the policy to prevent premature kills)
-                    logging.info("[fuser-startup] Enabling fuser enforcement now that UNC is ready")
-                    _allow_fuser_enforcement = True
-                    
-                    # 4) Restore fusers - DISABLED, now using _autostart_fusers() instead
-                    # restore_fusers_on_startup() uses old code that doesn't use per-instance workdirs
-                    # Our new _autostart_fusers() at 3-second mark handles this properly
-                    logging.info("[fuser-startup] Skipping restore_fusers_on_startup (using _autostart_fusers instead)")
-                    # try:
-                    #     restore_fusers_on_startup()
-                    # except Exception as e:
-                    #     logging.warning(f"[fuser-startup] Restore failed: {e}")
-                    
-                    # 5) Apply policy enforcement (won't kill if UNC check fails)
-                    logging.info("[fuser-startup] Running first policy enforcement")
-                    enforce_local_fuser_policy()
-                    
-                    # 6) Start presence heartbeat service
-                    start_presence_service()
-                    
-                except Exception as e:
-                    logging.error(f"[fuser-startup] Startup sequence failed: {e}")
+                        logging.error(f"[fuser-startup] Startup sequence failed: {e}")
+                
+                # Run all heavy work in background thread
+                run_in_thread(_do_restore_work)
             
             app.after(15, _restore_then_enforce)
 
@@ -17615,91 +17792,94 @@ def run_with_splash():
         
         # Readiness-gated auto-start loop
         def _auto_start_tick():
-            try:
+            # Run readiness check in background thread to avoid blocking UI
+            def _check_readiness():
                 try:
-                    machine_ip = get_primary_ipv4()
-                except Exception:
-                    machine_ip = ""
-                frozen = is_frozen_build()
-                configured_host = get_host_ip() or get_host()
-                logging.info(f"[startup] auto-start tick: frozen={frozen} host={is_host} ip={machine_ip} configured_host={configured_host}")
-
-                ready, diag = ready_for_fusers()
-                # Structured readiness logs
-                logging.info(f"[ready] exe_ok={diag.get('exe_ok')} path=\"{diag.get('exe_path','')}\"")
-                logging.info(f"[ready] share_ok={diag.get('share_ok')} root=\"{diag.get('working_root','')}\" write_test={diag.get('write_test')}")
-                logging.info(f"[ready] seed_ok={diag.get('seed_ok')} seed_pids={diag.get('seed_pids')}")
-                logging.info(f"[ready] loopback_ok={diag.get('loopback_ok')}")
-                logging.info(f"[ready] -> ready={diag.get('ready')}")
-
-                if not ready:
-                    # Try again in 500ms
                     try:
-                        app.after(500, _auto_start_tick)
+                        machine_ip = get_primary_ipv4()
                     except Exception:
-                        pass
-                    return
+                        machine_ip = ""
+                    frozen = is_frozen_build()
+                    configured_host = get_host_ip() or get_host()
+                    logging.info(f"[startup] auto-start tick: frozen={frozen} host={is_host} ip={machine_ip} configured_host={configured_host}")
 
-                # Clear the skip flag FIRST so enforcement can run
-                print("[OK] Clearing enforcement skip flag")
-                global _skip_fuser_enforcement_at_startup
-                _skip_fuser_enforcement_at_startup = False
+                    ready, diag = ready_for_fusers()
+                    # Structured readiness logs
+                    logging.info(f"[ready] exe_ok={diag.get('exe_ok')} path=\"{diag.get('exe_path','')}\"")
+                    logging.info(f"[ready] share_ok={diag.get('share_ok')} root=\"{diag.get('working_root','')}\" write_test={diag.get('write_test')}")
+                    logging.info(f"[ready] seed_ok={diag.get('seed_ok')} seed_pids={diag.get('seed_pids')}")
+                    logging.info(f"[ready] loopback_ok={diag.get('loopback_ok')}")
+                    logging.info(f"[ready] -> ready={diag.get('ready')}")
 
-                # Launch fusers in a background thread to avoid blocking UI
-                def _launch_in_background():
-                    try:
-                        print("[OK] Background launch thread STARTED")
-                        logging.info("[startup] Background fuser launch thread started")
-
-                        existing_count = count_local_fusers()
-                        print(f"[INFO] Existing fuser count: {existing_count}")
-                        logging.info(f"[startup] Existing fuser count: {existing_count}")
-
-                        print(f"[INFO] Calling ensure_fuser_instances({target})...")
-                        logging.info(f"[startup] About to call ensure_fuser_instances({target})")
-                        ensure_fuser_instances(target)
-
-                        # Wait briefly for processes to fully initialize before checking count
-                        time.sleep(0.3)
-                        final_running = count_local_fusers()
-                        print(f"[OK] AUTO-START COMPLETE: {final_running}/{target} fusers running")
-                        logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
-
-                        # Persist a first-run completion marker
+                    if not ready:
+                        # Try again in 500ms - schedule on UI thread
                         try:
-                            flag = _first_run_flag_path()
-                            with open(flag, 'w', encoding='utf-8') as f:
-                                f.write('ok')
+                            app.after(500, _auto_start_tick)
                         except Exception:
                             pass
+                        return
 
-                        try:
-                            show_info_toast(app, f"Fusers {target}/{target} started", duration_ms=3500)
-                        except Exception:
-                            pass
-                        try:
-                            post_ui(log_to_console, f"> Fusers {target}/{target} started")
-                        except Exception:
-                            pass
+                    # Clear the skip flag FIRST so enforcement can run
+                    print("[OK] Clearing enforcement skip flag")
+                    global _skip_fuser_enforcement_at_startup
+                    _skip_fuser_enforcement_at_startup = False
 
-                        try:
-                            refresh_settings_panel_from_config()
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        import traceback
-                        error_msg = traceback.format_exc()
-                        print(f"[ERROR] AUTO-START FAILED: {e}")
-                        print(error_msg)
-                        logging.error(f"[startup] Fuser auto-start failed: {e}")
-                        logging.error(f"[startup] Traceback: {error_msg}")
+                    # Launch fusers (already in background thread)
+                    _launch_fusers_now()
+                except Exception as e:
+                    logging.error(f"[startup] readiness check failed: {e}")
+            
+            import threading
+            threading.Thread(target=_check_readiness, daemon=True).start()
 
-                import threading
-                print("[OK] Starting background launch thread...")
-                threading.Thread(target=_launch_in_background, daemon=True).start()
-                logging.info("[startup] Background fuser launch thread dispatched")
+        def _launch_fusers_now():
+            """Launch fusers - called from background thread after readiness check passes."""
+            try:
+                print("[OK] Background launch thread STARTED")
+                logging.info("[startup] Background fuser launch thread started")
+
+                existing_count = count_local_fusers()
+                print(f"[INFO] Existing fuser count: {existing_count}")
+                logging.info(f"[startup] Existing fuser count: {existing_count}")
+
+                print(f"[INFO] Calling ensure_fuser_instances({target})...")
+                logging.info(f"[startup] About to call ensure_fuser_instances({target})")
+                ensure_fuser_instances(target)
+
+                # Wait briefly for processes to fully initialize before checking count
+                time.sleep(0.3)
+                final_running = count_local_fusers()
+                print(f"[OK] AUTO-START COMPLETE: {final_running}/{target} fusers running")
+                logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
+
+                # Persist a first-run completion marker
+                try:
+                    flag = _first_run_flag_path()
+                    with open(flag, 'w', encoding='utf-8') as f:
+                        f.write('ok')
+                except Exception:
+                    pass
+
+                try:
+                    show_info_toast(app, f"Fusers {target}/{target} started", duration_ms=3500)
+                except Exception:
+                    pass
+                try:
+                    post_ui(log_to_console, f"> Fusers {target}/{target} started")
+                except Exception:
+                    pass
+
+                try:
+                    refresh_settings_panel_from_config()
+                except Exception:
+                    pass
             except Exception as e:
-                logging.error(f"[startup] auto-start tick failed: {e}")
+                import traceback
+                error_msg = traceback.format_exc()
+                print(f"[ERROR] AUTO-START FAILED: {e}")
+                print(error_msg)
+                logging.error(f"[startup] Fuser auto-start failed: {e}")
+                logging.error(f"[startup] Traceback: {error_msg}")
 
         # Start the readiness loop immediately
         _auto_start_tick()
