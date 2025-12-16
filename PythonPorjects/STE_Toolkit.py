@@ -2740,11 +2740,23 @@ def get_connected_pcs_summary() -> dict:
     return summary
 
 def _presence_loop():
-    """Background thread that writes heartbeat every ~20s."""
+    """Background thread that writes heartbeat every ~20s and cleans stale folders hourly."""
+    last_stale_cleanup = 0
+    stale_cleanup_interval = 3600  # 1 hour between stale folder cleanups
+    
     while not _HB_STOP.is_set():
         try:
             write_presence_heartbeat()
             cleanup_stale_presence()
+            
+            # Periodic stale folder cleanup (once per hour)
+            now = time.time()
+            if now - last_stale_cleanup > stale_cleanup_interval:
+                try:
+                    cleanup_stale_fuser_folders(max_age_hours=24.0)
+                    last_stale_cleanup = now
+                except Exception as e:
+                    logging.debug(f"[presence] Stale folder cleanup failed: {e}")
         except Exception:
             pass
         _HB_STOP.wait(20.0)
@@ -2786,6 +2798,12 @@ def stop_presence_service():
         if p and os.path.isfile(p):
             os.remove(p)
             logging.info("[presence] Heartbeat file removed")
+        
+        # Clean up our fuser folders on exit
+        try:
+            cleanup_our_fuser_folders()
+        except Exception as e:
+            logging.debug(f"[presence] Folder cleanup on exit failed: {e}")
     except Exception:
         pass
 
@@ -6422,10 +6440,244 @@ def start_fuser_instance(idx: int) -> bool:
             pass
         return False
 
+
+def _get_our_fuser_folder_prefix() -> str:
+    """
+    Get the folder prefix used by this PC for fuser working directories.
+    PhotoMesh creates folders like: PCNAME(IP)_LocalFuser1, PCNAME(IP)_SeedFuser, etc.
+    Returns: prefix like 'RYANSWORKPC2(192.168.10.16)' or empty string if unavailable.
+    """
+    try:
+        pc_name = os.environ.get('COMPUTERNAME') or platform.node() or ''
+        if not pc_name:
+            return ''
+        
+        ip = get_primary_ipv4() or ''
+        if ip:
+            return f"{pc_name}({ip})"
+        else:
+            return pc_name
+    except Exception as e:
+        logging.warning(f"[fuser-cleanup] Failed to get folder prefix: {e}")
+        return ''
+
+
+def cleanup_our_fuser_folders() -> int:
+    """
+    Remove fuser working directories created by THIS PC.
+    
+    PhotoMesh Fuser creates folders in WorkingFuser with patterns like:
+    - PCNAME(IP)_LocalFuser1, PCNAME(IP)_LocalFuser2, PCNAME(IP)_LocalFuser3
+    - PCNAME(IP)_SeedFuser
+    - PCNAME(IP)_1, PCNAME(IP)_2, PCNAME(IP)_3
+    
+    This function finds and removes folders matching our PC's prefix.
+    
+    Returns:
+        Number of folders removed.
+    """
+    removed_count = 0
+    
+    try:
+        # Get the WorkingFuser root directory
+        work_mode = config.get("Fusers", "work_mode", fallback="local").strip().lower()
+        
+        if work_mode == "local":
+            # Local mode: use local path
+            o = get_offline_cfg()
+            local_root = o.get("local_data_root", r"D:\\SharedMeshDrive").strip()
+            wf_sub = o.get("working_fuser_subdir", "WorkingFuser").strip()
+            wf_root = os.path.join(local_root, wf_sub)
+        else:
+            # Shared mode: use UNC path
+            wf_root = working_fuser_unc()
+        
+        if not wf_root or not os.path.isdir(wf_root):
+            logging.debug(f"[fuser-cleanup] WorkingFuser root not accessible: {wf_root}")
+            return 0
+        
+        # Get our folder prefix (e.g., "RYANSWORKPC2(192.168.10.16)")
+        our_prefix = _get_our_fuser_folder_prefix()
+        if not our_prefix:
+            logging.warning("[fuser-cleanup] Could not determine our folder prefix, skipping cleanup")
+            return 0
+        
+        logging.info(f"[fuser-cleanup] Cleaning folders with prefix: {our_prefix}")
+        
+        # Also get just the PC name for legacy folder patterns
+        pc_name = os.environ.get('COMPUTERNAME') or platform.node() or ''
+        
+        # List all directories in WorkingFuser root
+        try:
+            items = os.listdir(wf_root)
+        except OSError as e:
+            logging.warning(f"[fuser-cleanup] Failed to list {wf_root}: {e}")
+            return 0
+        
+        for item in items:
+            item_path = os.path.join(wf_root, item)
+            
+            # Skip non-directories and system folders
+            if not os.path.isdir(item_path):
+                continue
+            if item.startswith('_') or item.startswith('.'):
+                continue
+            
+            # Check if this folder belongs to us
+            is_ours = False
+            
+            # Pattern 1: PCNAME(IP)_* (e.g., RYANSWORKPC2(192.168.10.16)_LocalFuser1)
+            if item.startswith(our_prefix + "_"):
+                is_ours = True
+            # Pattern 2: PCNAME(IP)_N where N is a number (e.g., RYANSWORKPC2(192.168.10.16)_1)
+            elif item.startswith(our_prefix):
+                suffix = item[len(our_prefix):]
+                if suffix.startswith("_") and suffix[1:].isdigit():
+                    is_ours = True
+            
+            if is_ours:
+                try:
+                    shutil.rmtree(item_path)
+                    removed_count += 1
+                    logging.info(f"[fuser-cleanup] Removed: {item}")
+                except OSError as e:
+                    logging.warning(f"[fuser-cleanup] Failed to remove {item}: {e}")
+        
+        if removed_count > 0:
+            logging.info(f"[fuser-cleanup] Cleaned up {removed_count} fuser folder(s)")
+        else:
+            logging.debug("[fuser-cleanup] No folders to clean up")
+            
+    except Exception as e:
+        logging.error(f"[fuser-cleanup] Error during cleanup: {e}")
+    
+    return removed_count
+
+
+def cleanup_stale_fuser_folders(max_age_hours: float = 24.0) -> int:
+    """
+    Remove fuser working directories from PCs that haven't been active.
+    
+    Checks for folders from other PCs and removes them if:
+    1. No corresponding KeepAlive heartbeat file exists, OR
+    2. The heartbeat is older than max_age_hours
+    
+    Args:
+        max_age_hours: Maximum age in hours before a folder is considered stale.
+        
+    Returns:
+        Number of folders removed.
+    """
+    removed_count = 0
+    
+    try:
+        # Get the WorkingFuser root directory
+        work_mode = config.get("Fusers", "work_mode", fallback="local").strip().lower()
+        
+        if work_mode == "local":
+            # Local mode: skip stale cleanup (only local folders)
+            logging.debug("[stale-cleanup] Skipping stale folder cleanup in local mode")
+            return 0
+        
+        # Shared mode: use UNC path
+        wf_root = working_fuser_unc()
+        
+        if not wf_root or not os.path.isdir(wf_root):
+            logging.debug(f"[stale-cleanup] WorkingFuser root not accessible: {wf_root}")
+            return 0
+        
+        # Get active PCs from KeepAlive files
+        active_pcs = set()
+        clients_dir = _working_clients_dir()
+        if clients_dir and os.path.isdir(clients_dir):
+            now = time.time()
+            max_age_seconds = max_age_hours * 3600
+            
+            for filename in os.listdir(clients_dir):
+                if filename.startswith("KeepAlive_") and filename.endswith(".json"):
+                    filepath = os.path.join(clients_dir, filename)
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        ts = float(data.get("ts", 0))
+                        if now - ts < max_age_seconds:
+                            # Extract PC name from KeepAlive filename
+                            # Pattern: KeepAlive_PCNAME(IP)_N.json
+                            parts = filename[len("KeepAlive_"):-len(".json")]
+                            # Get the prefix (PCNAME(IP))
+                            if "_" in parts:
+                                prefix = parts.rsplit("_", 1)[0]
+                                active_pcs.add(prefix.upper())
+                    except Exception:
+                        pass
+        
+        logging.debug(f"[stale-cleanup] Active PCs: {active_pcs}")
+        
+        # Get our prefix to skip our own folders
+        our_prefix = _get_our_fuser_folder_prefix().upper()
+        
+        # List all directories in WorkingFuser root
+        try:
+            items = os.listdir(wf_root)
+        except OSError as e:
+            logging.warning(f"[stale-cleanup] Failed to list {wf_root}: {e}")
+            return 0
+        
+        for item in items:
+            item_path = os.path.join(wf_root, item)
+            
+            # Skip non-directories and system folders
+            if not os.path.isdir(item_path):
+                continue
+            if item.startswith('_') or item.startswith('.'):
+                continue
+            
+            # Extract the PC prefix from folder name (PCNAME(IP))
+            # Pattern: PCNAME(IP)_suffix
+            if "(" in item and ")" in item:
+                try:
+                    paren_end = item.rindex(")")
+                    if "_" in item[paren_end:]:
+                        prefix = item[:paren_end + 1].upper()
+                    else:
+                        continue  # Not a fuser folder pattern
+                except ValueError:
+                    continue
+            else:
+                continue  # Not a fuser folder pattern
+            
+            # Skip our own folders
+            if prefix == our_prefix:
+                continue
+            
+            # Check if this PC is active
+            if prefix not in active_pcs:
+                try:
+                    # Double-check: is the folder old enough?
+                    folder_mtime = os.path.getmtime(item_path)
+                    age_hours = (time.time() - folder_mtime) / 3600
+                    
+                    if age_hours > max_age_hours:
+                        shutil.rmtree(item_path)
+                        removed_count += 1
+                        logging.info(f"[stale-cleanup] Removed stale folder: {item} (age: {age_hours:.1f}h)")
+                except OSError as e:
+                    logging.warning(f"[stale-cleanup] Failed to remove {item}: {e}")
+        
+        if removed_count > 0:
+            logging.info(f"[stale-cleanup] Cleaned up {removed_count} stale folder(s)")
+            
+    except Exception as e:
+        logging.error(f"[stale-cleanup] Error during cleanup: {e}")
+    
+    return removed_count
+
+
 def kill_fusers() -> None:
     """
     Kill ALL local PhotoMeshFuser.exe instances using psutil (no CMD windows).
     Attempts graceful termination first, then force kill if needed.
+    Also cleans up the working directories created by our fusers.
     """
     global _FUSER_PROCESSES
     
@@ -6478,6 +6730,10 @@ def kill_fusers() -> None:
     
     # Clear the process reference list after killing
     _FUSER_PROCESSES.clear()
+    
+    # Clean up our fuser working directories after killing processes
+    if killed_count > 0:
+        run_in_thread(cleanup_our_fuser_folders)
     
     # Trigger immediate status update on OneClick panel if it exists
     try:
@@ -15270,16 +15526,33 @@ class SettingsPanel(tk.Frame):
                     finally:
                         # Allow future scans and schedule next refresh (5 seconds for responsive detection)
                         self._pcs_refresh_busy = False
-                        self.after(5000, self._refresh_connected_pcs)
+                        try:
+                            if self.winfo_exists():
+                                self.after(5000, self._refresh_connected_pcs)
+                        except Exception:
+                            pass
 
-                # Update UI on main thread
-                self.after(0, _apply)
+                # Update UI on main thread (guard against destroyed widget)
+                try:
+                    if self.winfo_exists():
+                        self.after(0, _apply)
+                except Exception:
+                    self._pcs_refresh_busy = False
             except Exception:
                 # Ensure busy flag clears and reschedule even on unexpected errors
+                self._pcs_refresh_busy = False
                 def _clear_and_resched():
                     self._pcs_refresh_busy = False
-                    self.after(5000, self._refresh_connected_pcs)
-                self.after(0, _clear_and_resched)
+                    try:
+                        if self.winfo_exists():
+                            self.after(5000, self._refresh_connected_pcs)
+                    except Exception:
+                        pass
+                try:
+                    if self.winfo_exists():
+                        self.after(0, _clear_and_resched)
+                except Exception:
+                    pass
 
         # Run scan off the UI thread
         run_in_thread(_scan_and_update)
