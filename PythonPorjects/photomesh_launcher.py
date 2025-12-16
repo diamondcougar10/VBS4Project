@@ -767,8 +767,19 @@ def get_offline_cfg() -> dict:
     The ``host_name`` value is maintained by ``STE_Toolkit.set_host`` so that
     older tools reading this config continue to work without changes.
     """
+    # Default values in case of any config parsing issues
+    defaults = {
+        "enabled": False,
+        "host_name": "KIT-HOST",
+        "host_ip": "",
+        "share_name": "SharedMeshDrive",
+        "local_data_root": os.path.normpath(r"D:\\SharedMeshDrive"),
+        "working_fuser_subdir": "WorkingFuser",
+        "use_ip_unc": True,
+    }
+    
     if config is None:
-        return {}  # Config not yet initialized
+        return defaults  # Config not yet initialized
     try:
         config.read(CONFIG_PATH)
     except Exception:
@@ -776,16 +787,57 @@ def get_offline_cfg() -> dict:
     if "Offline" not in config:
         config["Offline"] = {}
     o = config["Offline"]
+    
+    # Wrap each access in try/except to handle corrupted config values
+    # (e.g., lists instead of strings, % interpolation errors)
+    try:
+        enabled = o.getboolean("enabled", False)
+    except Exception:
+        enabled = defaults["enabled"]
+    
+    try:
+        host_name = o.get("host_name", "KIT-HOST")
+        host_name = host_name.strip() if isinstance(host_name, str) else defaults["host_name"]
+    except Exception:
+        host_name = defaults["host_name"]
+    
+    try:
+        host_ip = o.get("host_ip", "")
+        host_ip = host_ip.strip() if isinstance(host_ip, str) else defaults["host_ip"]
+    except Exception:
+        host_ip = defaults["host_ip"]
+    
+    try:
+        share_name = o.get("share_name", "SharedMeshDrive")
+        share_name = share_name.strip() if isinstance(share_name, str) else defaults["share_name"]
+    except Exception:
+        share_name = defaults["share_name"]
+    
+    try:
+        local_data_root = o.get("local_data_root", r"D:\\SharedMeshDrive")
+        local_data_root = os.path.normpath(local_data_root) if isinstance(local_data_root, str) else defaults["local_data_root"]
+    except Exception:
+        local_data_root = defaults["local_data_root"]
+    
+    try:
+        working_fuser_subdir = o.get("working_fuser_subdir", "WorkingFuser")
+        working_fuser_subdir = working_fuser_subdir.strip() if isinstance(working_fuser_subdir, str) else defaults["working_fuser_subdir"]
+    except Exception:
+        working_fuser_subdir = defaults["working_fuser_subdir"]
+    
+    try:
+        use_ip_unc = o.getboolean("use_ip_unc", True)
+    except Exception:
+        use_ip_unc = defaults["use_ip_unc"]
+    
     return {
-        "enabled": o.getboolean("enabled", False),
-        "host_name": o.get("host_name", "KIT-HOST").strip(),
-        "host_ip": o.get("host_ip", "").strip(),
-        "share_name": o.get("share_name", "SharedMeshDrive").strip(),
-        "local_data_root": os.path.normpath(
-            o.get("local_data_root", r"D:\\SharedMeshDrive")
-        ),
-        "working_fuser_subdir": o.get("working_fuser_subdir", "WorkingFuser").strip(),
-        "use_ip_unc": o.getboolean("use_ip_unc", True),
+        "enabled": enabled,
+        "host_name": host_name,
+        "host_ip": host_ip,
+        "share_name": share_name,
+        "local_data_root": local_data_root,
+        "working_fuser_subdir": working_fuser_subdir,
+        "use_ip_unc": use_ip_unc,
     }
 
 

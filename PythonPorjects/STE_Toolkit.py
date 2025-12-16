@@ -696,18 +696,38 @@ def post_ui(fn, *args, **kwargs):
     _UI_QUEUE.put((fn, args, kwargs))
 
 
-def pump_ui_queue(root, interval_ms=33):
-    """Process queued UI work at ~30 FPS without blocking."""
+def pump_ui_queue(root, interval_ms=33, max_items=10, time_budget_ms=5):
+    """Process queued UI work at ~30 FPS without blocking.
+    
+    Args:
+        root: Tk root window
+        interval_ms: Base interval between pumps (default 33ms = ~30 FPS)
+        max_items: Maximum items to process per tick to prevent frame starvation
+        time_budget_ms: Maximum time budget per tick in milliseconds
+    """
+    import time as _time
+    start_time = _time.perf_counter()
+    items_processed = 0
+    
     try:
-        while True:
+        while items_processed < max_items:
+            # Check time budget
+            elapsed_ms = (_time.perf_counter() - start_time) * 1000
+            if elapsed_ms >= time_budget_ms:
+                # Time budget exhausted, yield back to Tk and continue immediately
+                root.after(0, pump_ui_queue, root, interval_ms, max_items, time_budget_ms)
+                return
+            
             fn, args, kwargs = _UI_QUEUE.get_nowait()
             try:
                 fn(*args, **kwargs)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[ui-queue] Error in queued callback: {e}")
+            items_processed += 1
     except Empty:
         pass
-    root.after(interval_ms, pump_ui_queue, root)
+    
+    root.after(interval_ms, pump_ui_queue, root, interval_ms, max_items, time_budget_ms)
 
 # =============================================================================
 # Splash Screen (non-blocking, keeps main focused)
@@ -2309,6 +2329,32 @@ def connect_working_share_interactive(parent=None, silent=True):
     logging.error(f"[connect] Failed to connect to {working_unc}")
     return False
 
+
+def connect_working_share_async(callback=None, parent=None):
+    """
+    Async wrapper for connect_working_share_interactive.
+    Runs the connection logic in a background thread to prevent UI blocking.
+    
+    Args:
+        callback: Function to call with result (True/False) on UI thread. Optional.
+        parent: Parent widget (unused, kept for API compatibility).
+    
+    Usage:
+        connect_working_share_async(lambda success: print(f"Connected: {success}"))
+    """
+    def _work():
+        try:
+            result = connect_working_share_interactive(parent=None, silent=True)
+        except Exception as e:
+            logging.error(f"[connect-async] Error in background connection: {e}")
+            result = False
+        
+        if callback:
+            post_ui(callback, result)
+    
+    run_in_thread(_work)
+
+
 def _unc_usable(unc_root: str) -> bool:
     """Tolerant UNC availability check.
     Accepts cases where Windows has a session but Python's os.path may lag.
@@ -2833,6 +2879,70 @@ def extract_progress(line: str) -> int | None:
         if total:
             return int(done / total * 100)
     return None
+
+
+# Global cache for tail-reading log files to avoid re-reading entire files
+_LOG_READ_OFFSETS: dict = {}  # path -> (last_offset, last_mtime, last_progress)
+
+
+def tail_read_progress(log_path: str, chunk_size: int = 8192) -> int | None:
+    """
+    Efficiently read progress from a log file by seeking from the end.
+    Caches the last read position to avoid re-reading the entire file.
+    
+    Args:
+        log_path: Path to the log file
+        chunk_size: Number of bytes to read from the end (default 8KB)
+        
+    Returns:
+        Progress percentage (0-100) if found, None otherwise
+    """
+    global _LOG_READ_OFFSETS
+    
+    try:
+        stat_info = os.stat(log_path)
+        file_size = stat_info.st_size
+        mtime = stat_info.st_mtime
+        
+        # Check cache - if file hasn't changed, return cached progress
+        cache_entry = _LOG_READ_OFFSETS.get(log_path)
+        if cache_entry:
+            last_offset, last_mtime, last_progress = cache_entry
+            if mtime == last_mtime and last_offset >= file_size:
+                return last_progress
+        
+        if file_size == 0:
+            return None
+        
+        # Read from near the end of the file
+        read_start = max(0, file_size - chunk_size)
+        
+        with open(log_path, 'rb') as f:
+            f.seek(read_start)
+            data = f.read(chunk_size)
+        
+        # Decode and scan for progress (scan from end to find latest)
+        try:
+            text = data.decode('utf-8', errors='ignore')
+        except Exception:
+            text = data.decode('latin-1', errors='ignore')
+        
+        lines = text.splitlines()
+        progress = None
+        for line in reversed(lines):
+            p = extract_progress(line)
+            if p is not None:
+                progress = p
+                break
+        
+        # Cache the result
+        _LOG_READ_OFFSETS[log_path] = (file_size, mtime, progress)
+        
+        return progress
+        
+    except Exception as e:
+        logging.debug(f"[tail_read_progress] Error reading {log_path}: {e}")
+        return None
 
 # =============================================================================
 # NETWORK / PATH HELPERS
@@ -3948,12 +4058,197 @@ try:
 except Exception:
     pass  # Will be created on first write if needed
 
-config = configparser.ConfigParser()
+# Use interpolation=None to prevent errors from % characters in config values
+# (e.g., paths with URL-encoded characters or formatting strings)
+config = configparser.ConfigParser(interpolation=None)
 # Read bundled defaults then overlay site/explicit if present
 if CONFIG_PATH == DEFAULT_CONFIG_PATH:
     config.read([DEFAULT_CONFIG_PATH, SITE_CONFIG_PATH], encoding='utf-8')
 else:
     config.read([DEFAULT_CONFIG_PATH, CONFIG_PATH], encoding='utf-8')
+
+
+def sanitize_config() -> int:
+    """
+    Validate and repair corrupted config values.
+    Runs on startup to detect and fix:
+    - Values that are lists instead of strings
+    - Values with problematic % characters that could cause interpolation errors
+    - Missing required sections
+    
+    Creates a backup before making repairs.
+    Returns the number of values that were repaired.
+    """
+    repairs = 0
+    backup_created = False
+    
+    # Ensure required sections exist
+    required_sections = ["Offline", "Network", "Fusers", "Paths"]
+    for section in required_sections:
+        if section not in config:
+            config[section] = {}
+            logging.info(f"[config-sanitize] Created missing section: [{section}]")
+            repairs += 1
+    
+    # Check all values in all sections
+    for section in config.sections():
+        for key in list(config[section].keys()):
+            try:
+                value = config[section][key]
+                
+                # Check if value is not a string (should never happen with ConfigParser but let's be safe)
+                if not isinstance(value, str):
+                    # Create backup before first repair
+                    if not backup_created:
+                        _backup_config("pre-sanitize")
+                        backup_created = True
+                    
+                    old_value = repr(value)
+                    # Convert to string or use empty string
+                    if isinstance(value, (list, tuple)):
+                        new_value = ",".join(str(v) for v in value) if value else ""
+                    elif value is None:
+                        new_value = ""
+                    else:
+                        new_value = str(value)
+                    config[section][key] = new_value
+                    logging.warning(f"[config-sanitize] Fixed non-string value in [{section}].{key}: {old_value} -> '{new_value}'")
+                    repairs += 1
+                    continue
+                
+                # Check for malformed interpolation sequences that could cause errors
+                # (e.g., single % not followed by proper format, or %( without closing )s)
+                if "%" in value:
+                    # Check for problematic patterns: %( without )s, or lone % at end
+                    import re
+                    # Pattern for valid interpolation: %(name)s or %% (escaped)
+                    # Everything else with % could be problematic
+                    problematic = False
+                    
+                    # Check for %( that doesn't have matching )s
+                    if "%(" in value and ")s" not in value:
+                        problematic = True
+                    
+                    # Check for single % at end of string
+                    if value.endswith("%") and not value.endswith("%%"):
+                        problematic = True
+                    
+                    # Check for % followed by a character that's not ( or %
+                    if re.search(r"%[^(%]", value):
+                        # This could be a URL-encoded value like %20, which is fine
+                        # but we should escape it for safety
+                        pass  # URL encoding is OK since we disabled interpolation
+                    
+                    if problematic:
+                        # Create backup before first repair
+                        if not backup_created:
+                            _backup_config("pre-sanitize")
+                            backup_created = True
+                        
+                        # Escape all % characters by doubling them
+                        new_value = value.replace("%", "%%")
+                        config[section][key] = new_value
+                        logging.warning(f"[config-sanitize] Escaped problematic % in [{section}].{key}: '{value}' -> '{new_value}'")
+                        repairs += 1
+                
+            except Exception as e:
+                # If we can't even read the value, clear it
+                logging.error(f"[config-sanitize] Error reading [{section}].{key}, clearing: {e}")
+                if not backup_created:
+                    _backup_config("pre-sanitize")
+                    backup_created = True
+                try:
+                    config[section][key] = ""
+                    repairs += 1
+                except Exception:
+                    pass
+    
+    # Validate specific critical values
+    critical_validations = [
+        ("Offline", "host_ip", r"^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})?$"),  # Empty or valid IP
+        ("Offline", "share_name", r"^[a-zA-Z0-9_\-\$]*$"),  # Valid share name chars
+        ("Fusers", "host_count", r"^\d*$"),  # Empty or number
+        ("Fusers", "user_count", r"^\d*$"),  # Empty or number
+    ]
+    
+    import re
+    for section, key, pattern in critical_validations:
+        if section in config and key in config[section]:
+            value = config[section][key]
+            if not re.match(pattern, value):
+                if not backup_created:
+                    _backup_config("pre-sanitize")
+                    backup_created = True
+                logging.warning(f"[config-sanitize] Invalid value in [{section}].{key}: '{value}' (doesn't match {pattern}), clearing")
+                config[section][key] = ""
+                repairs += 1
+    
+    if repairs > 0:
+        logging.info(f"[config-sanitize] Repaired {repairs} config value(s)")
+        # Save the repaired config
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                config.write(f)
+            logging.info(f"[config-sanitize] Saved repaired config to {CONFIG_PATH}")
+        except Exception as e:
+            logging.error(f"[config-sanitize] Failed to save repaired config: {e}")
+    else:
+        logging.debug("[config-sanitize] Config validation passed, no repairs needed")
+    
+    return repairs
+
+
+def _backup_config(reason: str = "backup") -> str | None:
+    """
+    Create a timestamped backup of the config file.
+    
+    Args:
+        reason: Label for the backup (e.g., "pre-sanitize", "pre-update")
+        
+    Returns:
+        Path to the backup file, or None if backup failed.
+    """
+    if not os.path.exists(CONFIG_PATH):
+        return None
+    
+    try:
+        backup_dir = os.path.join(BASE_DIR, "config", "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # Timestamp format: YYYYMMDD-HHMMSS
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_name = f"config-{reason}-{timestamp}.ini"
+        backup_path = os.path.join(backup_dir, backup_name)
+        
+        import shutil
+        shutil.copy2(CONFIG_PATH, backup_path)
+        logging.info(f"[config-backup] Created backup: {backup_path}")
+        
+        # Clean up old backups (keep last 10)
+        try:
+            backups = sorted([
+                f for f in os.listdir(backup_dir) 
+                if f.startswith("config-") and f.endswith(".ini")
+            ])
+            if len(backups) > 10:
+                for old_backup in backups[:-10]:
+                    os.remove(os.path.join(backup_dir, old_backup))
+                    logging.debug(f"[config-backup] Removed old backup: {old_backup}")
+        except Exception as e:
+            logging.debug(f"[config-backup] Cleanup failed: {e}")
+        
+        return backup_path
+        
+    except Exception as e:
+        logging.error(f"[config-backup] Failed to create backup: {e}")
+        return None
+
+
+# Run config sanitization immediately after loading
+try:
+    _config_repairs = sanitize_config()
+except Exception as e:
+    logging.error(f"[config-sanitize] Sanitization failed: {e}")
 
 # Share config with photomesh_launcher module to prevent conflicts
 import photomesh_launcher
@@ -4765,7 +5060,7 @@ def sync_beacon_with_config() -> bool:
         if os.path.exists(beacon_path):
             try:
                 import configparser
-                beacon_cfg = configparser.ConfigParser()
+                beacon_cfg = configparser.ConfigParser(interpolation=None)
                 beacon_cfg.read(beacon_path)
                 beacon_ip = beacon_cfg.get("Host", "ip", fallback="").strip()
             except Exception as e:
@@ -4904,7 +5199,7 @@ def bootstrap_first_run_if_needed(log=None):
                 if os.path.exists(beacon_path):
                     try:
                         import configparser
-                        beacon_cfg = configparser.ConfigParser()
+                        beacon_cfg = configparser.ConfigParser(interpolation=None)
                         beacon_cfg.read(beacon_path)
                         beacon_ip = beacon_cfg.get("Host", "ip", fallback="").strip()
                         beacon_share = beacon_cfg.get("Host", "share", fallback="").strip()
@@ -12260,14 +12555,8 @@ def find_terra_explorer() -> str:
         latest = max(paths, key=os.path.getmtime) if paths else None
         percent = None
         if latest:
-            try:
-                with open(latest, "r", errors="ignore") as f:
-                    for line in reversed(f.readlines()):
-                        percent = extract_progress(line)
-                        if percent is not None:
-                            break
-            except Exception:
-                pass
+            # Use efficient tail-read instead of reading entire file
+            percent = tail_read_progress(latest)
 
         if percent is not None:
             self.progress_var.set(percent)
@@ -12759,8 +13048,31 @@ class OneClickPanel(tk.Frame):
                     
                 finally:
                     self._host_status_check_busy = False
-                    # Schedule next update in 500ms for faster fuser detection
-                    self._pending_host_status_update = self.after(500, self._update_host_status_box)
+                    # Adaptive polling interval:
+                    # - Fast (1s) during first 15 seconds after launch/relaunch
+                    # - Medium (3s) during steady-state connected
+                    # - Slow (10s) if disconnected/offline
+                    startup_window = 15.0  # seconds
+                    startup_time = getattr(self, '_host_status_startup_time', None)
+                    if startup_time is None:
+                        self._host_status_startup_time = time.time()
+                        startup_time = self._host_status_startup_time
+                    
+                    elapsed = time.time() - startup_time
+                    is_connected = share_result and 'Connected' in share_result[0]
+                    is_disconnected = share_result and ('Disconnected' in share_result[0] or 'Error' in share_result[0])
+                    
+                    if elapsed < startup_window:
+                        # Fast polling during startup
+                        poll_interval = 1000  # 1 second
+                    elif is_disconnected:
+                        # Slow polling when disconnected
+                        poll_interval = 10000  # 10 seconds
+                    else:
+                        # Medium polling during steady-state
+                        poll_interval = 3000  # 3 seconds
+                    
+                    self._pending_host_status_update = self.after(poll_interval, self._update_host_status_box)
             
             # Apply result on UI thread
             try:
@@ -12908,14 +13220,8 @@ class OneClickPanel(tk.Frame):
         latest = max(paths, key=os.path.getmtime) if paths else None
         percent = None
         if latest:
-            try:
-                with open(latest, "r", errors="ignore") as f:
-                    for line in reversed(f.readlines()):
-                        percent = extract_progress(line)
-                        if percent is not None:
-                            break
-            except Exception:
-                pass
+            # Use efficient tail-read instead of reading entire file
+            percent = tail_read_progress(latest)
 
         if percent is not None:
             self.progress_var.set(percent)
@@ -15534,92 +15840,129 @@ class SettingsPanel(tk.Frame):
         """
         One‑click: connect if needed, then open the working folder in Explorer.
         Opens the WorkingFuser subfolder (not just the share root).
+        All network/filesystem operations run in background thread to prevent UI freeze.
         """
-        # Get the WorkingFuser UNC path (includes the WorkingFuser subfolder)
-        try:
-            path = working_fuser_unc()
-        except Exception:
-            path = ""
+        # Show loading indicator
+        self.controller.config(cursor="wait")
+        self.update_idletasks()
         
-        # Convert to local if we're on Host PC
-        if path:
-            path = unc_to_local_if_host(path)
-        
-        logging.info(f"[open_working_folder] Resolved WorkingFuser path: '{path}'")
-        
-        # Check if path is empty
-        if not path:
-            messagebox.showerror("Open Working Folder",
-                                 "Working folder path is not configured.\n\n"
-                                 "Please configure Host IP and Share Name in Offline Settings.")
-            return
-        
-        # If it's a local path (Host PC), just open it directly
-        if not path.startswith("\\\\"):
-            logging.info(f"[open_working_folder] Opening local path: {path}")
-            if os.path.exists(path):
-                self.controller.open_folder_foreground(path)
-            else:
-                messagebox.showerror("Open Working Folder",
-                                   f"Cannot access local path:\n{path}\n\n"
-                                   "The folder may not exist yet. Try enabling fusers first.")
-            return
-        
-        # For UNC paths (User PCs), ensure connection to the share root first
-        share_root = resolve_shared_access_path()  # Just the share root for connection
-        logging.info(f"[open_working_folder] Connecting to share root: {share_root}")
-        
-        if not connect_working_share_interactive(parent=self, silent=True):
-            logging.warning(f"[open_working_folder] connect_working_share_interactive reported failure for {path}")
-            # Fallback 1: Quick direct UNC check – Explorer sometimes succeeds despite our session logic
+        def _background_work():
+            """Do all network/filesystem checks in background thread."""
+            result = {"action": None, "path": None, "error": None}
+            
+            # Get the WorkingFuser UNC path (includes the WorkingFuser subfolder)
             try:
-                if quick_unc_check(path, timeout=1):
-                    logging.info(f"[open_working_folder] Fallback quick check passed; opening anyway: {path}")
-                    self.controller.open_folder_foreground(path)
-                    return
-            except Exception as e:
-                logging.debug(f"[open_working_folder] quick_unc_check fallback error: {e}")
-            # Fallback 2: Try to establish raw session then re-check
-            try:
-                unc_root = os.path.dirname(os.path.dirname(path))  # \\host\share
-                ensure_smb_session_cached(unc_root)
-                if quick_unc_check(path, timeout=1.5):
-                    logging.info(f"[open_working_folder] Session fallback succeeded; opening: {path}")
-                    self.controller.open_folder_foreground(path)
-                    return
-            except Exception as e:
-                logging.debug(f"[open_working_folder] session fallback error: {e}")
-            # Fallback 3: If share root accessible, attempt folder creation then open
-            try:
-                if quick_unc_check(share_root, timeout=1.5):
-                    if not os.path.exists(path):
-                        try:
-                            os.makedirs(path, exist_ok=True)
-                            logging.info(f"[open_working_folder] Created missing WorkingFuser folder via fallback.")
-                        except Exception as e:
-                            logging.debug(f"[open_working_folder] Could not create WorkingFuser folder: {e}")
-                    if os.path.exists(path):
-                        logging.info(f"[open_working_folder] Root reachable; opening (degraded success): {path}")
-                        self.controller.open_folder_foreground(path)
-                        return
-            except Exception as e:
-                logging.debug(f"[open_working_folder] root fallback error: {e}")
-            messagebox.showerror("Open Working Folder",
-                                 f"Cannot access:\n{path}\n\n"
-                                 "Use 'Test Access' button to diagnose the connection issue.")
-            return
+                path = working_fuser_unc()
+            except Exception:
+                path = ""
+            
+            # Convert to local if we're on Host PC
+            if path:
+                path = unc_to_local_if_host(path)
+            
+            logging.info(f"[open_working_folder] Resolved WorkingFuser path: '{path}'")
+            
+            # Check if path is empty
+            if not path:
+                result["action"] = "error"
+                result["error"] = "Working folder path is not configured.\n\nPlease configure Host IP and Share Name in Offline Settings."
+                return result
+            
+            result["path"] = path
+            
+            # If it's a local path (Host PC), just check if it exists
+            if not path.startswith("\\\\"):
+                logging.info(f"[open_working_folder] Checking local path: {path}")
+                if os.path.exists(path):
+                    result["action"] = "open"
+                else:
+                    result["action"] = "error"
+                    result["error"] = f"Cannot access local path:\n{path}\n\nThe folder may not exist yet. Try enabling fusers first."
+                return result
+            
+            # For UNC paths (User PCs), ensure connection to the share root first
+            share_root = resolve_shared_access_path()  # Just the share root for connection
+            logging.info(f"[open_working_folder] Connecting to share root: {share_root}")
+            
+            if not connect_working_share_interactive(parent=None, silent=True):
+                logging.warning(f"[open_working_folder] connect_working_share_interactive reported failure for {path}")
+                # Fallback 1: Quick direct UNC check – Explorer sometimes succeeds despite our session logic
+                try:
+                    if quick_unc_check(path, timeout=1):
+                        logging.info(f"[open_working_folder] Fallback quick check passed; opening anyway: {path}")
+                        result["action"] = "open"
+                        return result
+                except Exception as e:
+                    logging.debug(f"[open_working_folder] quick_unc_check fallback error: {e}")
+                # Fallback 2: Try to establish raw session then re-check
+                try:
+                    unc_root = os.path.dirname(os.path.dirname(path))  # \\host\share
+                    ensure_smb_session_cached(unc_root)
+                    if quick_unc_check(path, timeout=1.5):
+                        logging.info(f"[open_working_folder] Session fallback succeeded; opening: {path}")
+                        result["action"] = "open"
+                        return result
+                except Exception as e:
+                    logging.debug(f"[open_working_folder] session fallback error: {e}")
+                # Fallback 3: If share root accessible, attempt folder creation then open
+                try:
+                    if quick_unc_check(share_root, timeout=1.5):
+                        if not os.path.exists(path):
+                            try:
+                                os.makedirs(path, exist_ok=True)
+                                logging.info(f"[open_working_folder] Created missing WorkingFuser folder via fallback.")
+                            except Exception as e:
+                                logging.debug(f"[open_working_folder] Could not create WorkingFuser folder: {e}")
+                        if os.path.exists(path):
+                            logging.info(f"[open_working_folder] Root reachable; opening (degraded success): {path}")
+                            result["action"] = "open"
+                            return result
+                except Exception as e:
+                    logging.debug(f"[open_working_folder] root fallback error: {e}")
+                
+                result["action"] = "error"
+                result["error"] = f"Cannot access:\n{path}\n\nUse 'Test Access' button to diagnose the connection issue."
+                return result
 
-        # Once share is connected, open the WorkingFuser subfolder
-        logging.info(f"[open_working_folder] Connection successful, opening WorkingFuser: {path}")
+            # Once share is connected, verify the subfolder exists
+            logging.info(f"[open_working_folder] Connection successful, checking WorkingFuser: {path}")
+            
+            if not os.path.exists(path):
+                result["action"] = "error"
+                result["error"] = f"WorkingFuser folder doesn't exist:\n{path}\n\nTry enabling fusers first to create the folder."
+                return result
+            
+            result["action"] = "open"
+            return result
         
-        # Verify the subfolder exists
-        if not os.path.exists(path):
-            messagebox.showerror("Open Working Folder",
-                                 f"WorkingFuser folder doesn't exist:\n{path}\n\n"
-                                 "Try enabling fusers first to create the folder.")
-            return
+        def _on_complete(result):
+            """Handle result on UI thread."""
+            # Restore cursor
+            try:
+                self.controller.config(cursor="")
+            except Exception:
+                pass
+            
+            action = result.get("action")
+            path = result.get("path")
+            error = result.get("error")
+            
+            if action == "error":
+                messagebox.showerror("Open Working Folder", error)
+            elif action == "open" and path:
+                self.controller.open_folder_foreground(path)
         
-        self.controller.open_folder_foreground(path)
+        def _thread_wrapper():
+            """Run background work and post result to UI thread."""
+            try:
+                result = _background_work()
+            except Exception as e:
+                logging.error(f"[open_working_folder] Background work error: {e}")
+                result = {"action": "error", "error": f"Unexpected error:\n{e}"}
+            post_ui(_on_complete, result)
+        
+        # Run in background thread
+        run_in_thread(_thread_wrapper)
 
     def _auto_find_share(self):
         o = get_offline_cfg()
