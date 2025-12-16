@@ -75,8 +75,8 @@ if sys.platform == 'win32':
         min_ws = 64 * 1024 * 1024    # 64MB minimum working set
         max_ws = 2048 * 1024 * 1024  # 2GB maximum working set
         kernel32.SetProcessWorkingSetSize(handle, min_ws, max_ws)
-    except:
-        pass
+    except Exception:
+        pass  # Non-critical: working set hint is just an optimization
 
 # ============================================================================
 # IMPORTS
@@ -110,60 +110,10 @@ import traceback
 import csv
 import time as _time_mod_for_perf  # separate alias for perf timing if needed
 
-# Crash logging setup (early so hooks apply before other threads start)
-_CRASH_DIR = os.path.join(os.getcwd(), "logs", "crash")
-try:
-    os.makedirs(_CRASH_DIR, exist_ok=True)
-except Exception:
-    pass
+# NOTE: Early crash handlers removed - consolidated crash handling is at line ~1065
+# The comprehensive crash handler (_build_crash_report, _write_crash_report) captures
+# more diagnostic info including memory stats, fuser counts, and log tail.
 
-def _write_crash_log(exc_type, exc_value, exc_tb, origin="main"):
-    try:
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        fname = f"crash-{ts}-{origin}.txt"
-        path = os.path.join(_CRASH_DIR, fname)
-        stack = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        diag = [
-            f"Origin: {origin}",
-            f"Timestamp: {ts}",
-            f"Exe: {sys.argv[0]}",
-            f"Python: {sys.version}",
-            f"Working Dir: {os.getcwd()}",
-            f"Platform Node: {platform.node()}",
-            f"Primary IP: {socket.gethostbyname(socket.gethostname()) if socket.gethostname() else 'unknown'}",
-            f"Host IP (cfg): N/A (config may not yet be loaded)",
-            "--- STACK TRACE ---",
-            stack,
-        ]
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(diag))
-        try:
-            logging = globals().get('logging')
-            if logging:
-                logging.error(f"[crash] Unhandled exception captured -> {path}")
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-def _global_excepthook(exc_type, exc_value, exc_tb):
-    _write_crash_log(exc_type, exc_value, exc_tb, origin="sys.excepthook")
-    sys.__excepthook__(exc_type, exc_value, exc_tb)
-
-sys.excepthook = _global_excepthook
-
-def _threading_excepthook(args):
-    _write_crash_log(args.exc_type, args.exc_value, args.exc_traceback, origin="thread")
-    if hasattr(threading, '__excepthook__'):
-        try:
-            threading.__excepthook__(args)
-        except Exception:
-            pass
-
-try:
-    threading.excepthook = _threading_excepthook  # Python 3.8+
-except Exception:
-    pass
 try:
     import psutil
 except Exception:
@@ -183,8 +133,10 @@ if DISABLE_GENERAL_LOGGING:
         _lg_patch.info = lambda *a, **k: None
         _lg_patch.debug = lambda *a, **k: None
         _lg_patch.warning = lambda *a, **k: None
-    except Exception:
-        pass
+    except Exception as e:
+        # Keep stderr output since logging may not work
+        import sys
+        print(f"[WARN] Failed to patch logging: {e}", file=sys.stderr)
 
 from photomesh_launcher import (
     get_offline_cfg,
@@ -540,11 +492,11 @@ def stop_host_beacon():
         if _BCN_THREAD and _BCN_THREAD.is_alive():
             try:
                 _BCN_THREAD.join(timeout=1.5)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[beacon] Exception joining beacon thread: {e}")
         _BCN_THREAD = None
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug(f"[beacon] Exception stopping host beacon: {e}")
 
 def _user_listener_loop():
     """
@@ -690,11 +642,11 @@ def stop_user_listener():
         if _LST_THREAD and _LST_THREAD.is_alive():
             try:
                 _LST_THREAD.join(timeout=1.5)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"[beacon] Exception joining listener thread: {e}")
         _LST_THREAD = None
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug(f"[beacon] Exception stopping user listener: {e}")
 
 def get_live_fuser_counts_from_beacons(timeout_sec=10):
     """
@@ -960,33 +912,42 @@ class SplashScreen(tk.Toplevel):
             except Exception:
                 pass
 
-# --- Log batching ---
-_log_buf = io.StringIO()
-_log_dirty = False
+# --- Log batching (thread-safe) ---
+# Use a Queue instead of StringIO to allow safe writes from worker threads
+_log_queue: Queue = Queue()
 
 
 def ui_log_flush(text_widget):
-    global _log_dirty
-    if _log_dirty:
-        text = _log_buf.getvalue()
-        _log_buf.seek(0)
-        _log_buf.truncate(0)
+    """Flush queued log messages to the UI text widget. Call from UI thread only."""
+    messages = []
+    # Drain all pending messages from the queue (non-blocking)
+    while True:
+        try:
+            msg = _log_queue.get_nowait()
+            messages.append(msg)
+        except Empty:
+            break
+    
+    if messages:
         text_widget.config(state="normal")
-        text_widget.insert("end", text)
+        text_widget.insert("end", "".join(messages))
         text_widget.see("end")
         text_widget.config(state="disabled")
-        _log_dirty = False
 
 
 def ui_log_schedule_flush(root, text_widget, interval_ms=100):
-    ui_log_flush(text_widget)
-    root.after(interval_ms, ui_log_schedule_flush, root, text_widget)
+    """Schedule periodic log flushes. Call once at startup."""
+    try:
+        if root.winfo_exists():
+            ui_log_flush(text_widget)
+            root.after(interval_ms, ui_log_schedule_flush, root, text_widget)
+    except Exception:
+        pass
 
 
 def log_to_console(line: str):
-    global _log_dirty
-    _log_buf.write(line + "\n")
-    _log_dirty = True
+    """Thread-safe: append a log line to the UI console buffer."""
+    _log_queue.put(line + "\n")
 
 # =============================================================================
 # CONSTANTS & GLOBALS
@@ -1038,26 +999,8 @@ if not any(isinstance(h, logging.StreamHandler) and h.stream == sys.stdout for h
     _console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     _root_logger.addHandler(_console_handler)
 
-# Custom print wrapper that also logs to file
-_original_print = print
-def _logging_print(*args, **kwargs):
-    """Print wrapper that also logs output to file for debugging."""
-    message = ' '.join(str(arg) for arg in args)
-    # Write to log file
-    try:
-        logging.info(f"[PRINT] {message}")
-    except Exception:
-        pass
-    # Also print normally to console, handling encoding errors
-    try:
-        _original_print(*args, **kwargs)
-    except UnicodeEncodeError:
-        # Fallback: encode with 'replace' to handle emojis/special chars on Windows console
-        safe_message = message.encode('cp1252', errors='replace').decode('cp1252')
-        _original_print(safe_message, **{k: v for k, v in kwargs.items() if k != 'file'})
-
-# Replace built-in print with logging version
-print = _logging_print
+# Note: Print monkeypatching was removed - it conflicted with DISABLE_GENERAL_LOGGING
+# and added overhead to every print statement. Use logging.info() directly when needed.
 
 logging.info(f"=== STE Toolkit Starting - Log file: {_LOG_FILE_PATH} ===")
 
@@ -8161,9 +8104,19 @@ _cached_bg_size = (0, 0)
 _PANEL_BG_WIDTH = 1920  # Default, updated at runtime
 _PANEL_BG_HEIGHT = 1080  # Default, updated at runtime
 
+# Cache for background labels - keyed by widget id to allow label reuse
+_bg_label_cache: dict = {}
+
+
 def set_background(window, widget=None):
-    """Apply a dynamically-sized background to a widget based on screen dimensions."""
+    """Apply a dynamically-sized background to a widget based on screen dimensions.
+    
+    Reuses existing background labels to avoid widget accumulation.
+    """
     global _cached_bg_photo, _cached_bg_size, _PANEL_BG_WIDTH, _PANEL_BG_HEIGHT
+    
+    target = widget or window
+    target_id = id(target)
     
     # Get actual screen dimensions for fullscreen support
     try:
@@ -8179,23 +8132,43 @@ def set_background(window, widget=None):
         bg_width = _PANEL_BG_WIDTH
         bg_height = _PANEL_BG_HEIGHT
 
-    # wallpaper - use cached version if already created at this size
-    if os.path.exists(background_image_path):
-        if _cached_bg_photo is None or _cached_bg_size != (bg_width, bg_height):
-            img = Image.open(background_image_path)
-            img = img.resize((bg_width, bg_height), Image.Resampling.LANCZOS)
-            _cached_bg_photo = ImageTk.PhotoImage(img)
-            _cached_bg_size = (bg_width, bg_height)
-        
-        lbl = tk.Label(widget or window, image=_cached_bg_photo)
-        lbl.image = _cached_bg_photo
-        lbl.place(x=0, y=0, relwidth=1, relheight=1)
+    # Skip if no background image
+    if not os.path.exists(background_image_path):
+        return
+    
+    # Create/update cached photo if size changed
+    if _cached_bg_photo is None or _cached_bg_size != (bg_width, bg_height):
+        img = Image.open(background_image_path)
+        img = img.resize((bg_width, bg_height), Image.Resampling.LANCZOS)
+        _cached_bg_photo = ImageTk.PhotoImage(img)
+        _cached_bg_size = (bg_width, bg_height)
+    
+    # Reuse existing label if we have one for this widget
+    if target_id in _bg_label_cache:
+        lbl = _bg_label_cache[target_id]
         try:
-            lbl.lower()
+            if lbl.winfo_exists():
+                lbl.configure(image=_cached_bg_photo)
+                lbl.image = _cached_bg_photo
+                return
         except Exception:
             pass
+        # Label was destroyed, remove from cache
+        del _bg_label_cache[target_id]
+    
+    # Create new label and cache it
+    lbl = tk.Label(target, image=_cached_bg_photo)
+    lbl.image = _cached_bg_photo
+    lbl.place(x=0, y=0, relwidth=1, relheight=1)
+    try:
+        lbl.lower()
+    except Exception:
+        pass
+    _bg_label_cache[target_id] = lbl
+
 
 def set_wallpaper(window):
+    """Legacy wallpaper function - prefer set_background() for new code."""
     if not os.path.exists(background_image_path):
         return
 
