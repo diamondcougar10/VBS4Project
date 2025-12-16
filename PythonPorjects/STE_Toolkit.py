@@ -12544,19 +12544,91 @@ class OneClickPanel(tk.Frame):
         run_in_thread(_work)
 
     def relaunch_fusers(self):
+        """Relaunch fusers with animated loading indicator."""
+        # Disable button and start loading animation
         try:
-            self.log_message("Relaunching fusers …")
-            relaunch = globals().get("relaunch_fusers")
-            if callable(relaunch):
-                relaunch()
-            running = count_local_fusers()
-            self.log_message(f"Fusers relaunched. Running: {running}")
-            
-            # Force immediate status update
-            if hasattr(self, 'force_update_host_status'):
-                self.force_update_host_status()
-        except Exception as e:
-            self.log_message(f"Failed to relaunch fusers: {e}")
+            self.relaunch_fusers_button.config(state="disabled")
+        except Exception:
+            pass
+        
+        self._fuser_loading_active = True
+        self._start_fuser_loading_animation()
+        
+        # Also show animated toast notification
+        try:
+            self._fuser_loading_toast = show_loading_toast(
+                self.winfo_toplevel(), 
+                "Relaunching Fusers", 
+                duration_ms=10000
+            )
+        except Exception:
+            self._fuser_loading_toast = None
+        
+        def _do_relaunch():
+            try:
+                self.log_message("Relaunching fusers …")
+                relaunch = globals().get("relaunch_fusers")
+                if callable(relaunch):
+                    relaunch()
+                
+                # Brief delay to let fusers initialize
+                time.sleep(2.0)
+                
+                running = count_local_fusers()
+                self.log_message(f"✓ Fusers relaunched. Running: {running}")
+                
+                # Dismiss loading toast and show completion
+                try:
+                    post_ui(dismiss_loading_toast, getattr(self, '_fuser_loading_toast', None))
+                    post_ui(show_info_toast, self.winfo_toplevel(), f"✓ Fusers {running} ready", 3000)
+                except Exception:
+                    pass
+                
+                # Force immediate status update
+                if hasattr(self, 'force_update_host_status'):
+                    post_ui(self.force_update_host_status)
+            except Exception as e:
+                self.log_message(f"Failed to relaunch fusers: {e}")
+                try:
+                    post_ui(dismiss_loading_toast, getattr(self, '_fuser_loading_toast', None))
+                except Exception:
+                    pass
+            finally:
+                # Stop loading animation and re-enable button
+                self._fuser_loading_active = False
+                post_ui(self._stop_fuser_loading_animation)
+        
+        # Run in background thread to not block UI
+        run_in_thread(_do_relaunch)
+    
+    def _start_fuser_loading_animation(self):
+        """Start the animated 'Fuser Loading...' text on the button."""
+        self._loading_dot_count = 0
+        self._animate_fuser_loading()
+    
+    def _animate_fuser_loading(self):
+        """Cycle through 'Fuser Loading.', 'Fuser Loading..', 'Fuser Loading...'"""
+        if not getattr(self, '_fuser_loading_active', False):
+            return
+        
+        try:
+            dots = "." * (self._loading_dot_count % 4)
+            if self._loading_dot_count % 4 == 0:
+                dots = ""
+            self.relaunch_fusers_button.config(text=f"Fuser Loading{dots}")
+            self._loading_dot_count += 1
+            # Schedule next animation frame (400ms interval for smooth animation)
+            self.after(400, self._animate_fuser_loading)
+        except Exception:
+            pass
+    
+    def _stop_fuser_loading_animation(self):
+        """Stop the loading animation and restore button text."""
+        self._fuser_loading_active = False
+        try:
+            self.relaunch_fusers_button.config(text="Relaunch Fusers", state="normal")
+        except Exception:
+            pass
 
     def log_message(self, message):
         post_ui(log_to_console, f"> {message}")
@@ -17759,6 +17831,105 @@ def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 400
     except Exception as exc:
         pass
 
+
+def show_loading_toast(parent: tk.Misc | None, base_message: str = "Fuser Loading", 
+                       duration_ms: int = 6000) -> tk.Toplevel | None:
+    """Display an animated loading notification with cycling dots.
+    
+    Returns the toast window so it can be dismissed early if needed.
+    The toast auto-dismisses after duration_ms.
+    """
+    if parent is None:
+        return None
+
+    try:
+        toast = tk.Toplevel(parent)
+        toast.wm_overrideredirect(True)
+        toast.attributes("-topmost", True)
+
+        # Container frame for spinner and text
+        frame = tk.Frame(toast, bg="#333333")
+        frame.pack(fill="both", expand=True)
+        
+        # Spinner characters for animation
+        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        spinner_idx = [0]  # Use list to allow modification in nested function
+        
+        spinner_label = tk.Label(
+            frame,
+            text=spinner_chars[0],
+            bg="#333333",
+            fg="#4CAF50",  # Green spinner
+            font=("Helvetica", 14),
+            padx=8,
+            pady=10,
+        )
+        spinner_label.pack(side="left")
+        
+        message_label = tk.Label(
+            frame,
+            text=f"{base_message}...",
+            bg="#333333",
+            fg="white",
+            font=("Helvetica", 12),
+            padx=8,
+            pady=10,
+            wraplength=350,
+            justify="left",
+        )
+        message_label.pack(side="left")
+
+        parent.update_idletasks()
+        toast.update_idletasks()
+
+        px = parent.winfo_rootx()
+        py = parent.winfo_rooty()
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        tw = toast.winfo_width()
+        th = toast.winfo_height()
+
+        if pw <= 1 or ph <= 1:
+            x = px + 40
+            y = py + 40
+        else:
+            x = px + max(0, (pw - tw) // 2)
+            y = py + max(0, ph - th - 60)
+
+        toast.geometry(f"+{x}+{y}")
+        
+        # Animation function
+        def animate():
+            if not toast.winfo_exists():
+                return
+            try:
+                spinner_idx[0] = (spinner_idx[0] + 1) % len(spinner_chars)
+                spinner_label.config(text=spinner_chars[spinner_idx[0]])
+                toast.after(100, animate)  # 100ms per frame for smooth animation
+            except Exception:
+                pass
+        
+        # Start animation
+        animate()
+        
+        # Auto-dismiss after duration
+        toast.after(max(1000, duration_ms), lambda: toast.destroy() if toast.winfo_exists() else None)
+        
+        return toast
+    except Exception as exc:
+        return None
+
+
+def dismiss_loading_toast(toast: tk.Toplevel | None) -> None:
+    """Dismiss a loading toast early."""
+    if toast is None:
+        return
+    try:
+        if toast.winfo_exists():
+            toast.destroy()
+    except Exception:
+        pass
+
 def run_command_server(host: str = "", port: int = 9100) -> None:
     """Listen for incoming command strings and execute them."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -17976,6 +18147,8 @@ def run_with_splash():
     app.after(20, setup_delayed_tasks)
     
     # Auto-start fusers after UI is fully loaded (readiness-gated)
+    _fuser_startup_toast = [None]  # Use list to allow modification in nested functions
+    
     def _autostart_fusers():
         global _skip_fuser_enforcement_at_startup
         
@@ -17992,7 +18165,8 @@ def run_with_splash():
             _skip_fuser_enforcement_at_startup = False
             return
         try:
-            show_info_toast(app, "Starting fusers now…", duration_ms=3000)
+            # Show animated loading toast instead of static message
+            _fuser_startup_toast[0] = show_loading_toast(app, "Starting Fusers", duration_ms=15000)
         except Exception:
             pass
         try:
@@ -18096,12 +18270,17 @@ def run_with_splash():
                 except Exception:
                     pass
 
+                # Dismiss loading toast and show completion message
                 try:
-                    show_info_toast(app, f"Fusers {target}/{target} started", duration_ms=3500)
+                    post_ui(dismiss_loading_toast, _fuser_startup_toast[0])
                 except Exception:
                     pass
                 try:
-                    post_ui(log_to_console, f"> Fusers {target}/{target} started")
+                    show_info_toast(app, f"✓ Fusers {final_running}/{target} ready", duration_ms=3500)
+                except Exception:
+                    pass
+                try:
+                    post_ui(log_to_console, f"> ✓ Fusers {final_running}/{target} ready")
                 except Exception:
                     pass
 
