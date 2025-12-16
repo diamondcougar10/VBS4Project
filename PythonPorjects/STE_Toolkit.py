@@ -9958,6 +9958,64 @@ class MainApp(tk.Tk):
 
         self.after(10, self._update_scrollability)
         self.after(10, lambda: self.event_generate("<Configure>"))
+        
+        # Force viewport to sync to new canvas size (fixes button spread after leaving fullscreen)
+        self.after(25, self._sync_viewport_to_canvas)
+        
+        # Force panel layout refresh after mode change
+        self.after(50, self._refresh_panel_layouts)
+
+    def _sync_viewport_to_canvas(self):
+        """Force the canvas window item (panels_container) to match the visible viewport size."""
+        try:
+            self.update_idletasks()
+
+            if not hasattr(self, "viewport_canvas") or not hasattr(self, "canvas_frame_id"):
+                return
+
+            cw = max(1, self.viewport_canvas.winfo_width())
+            ch = max(1, self.viewport_canvas.winfo_height())
+
+            # Hard reset the embedded frame to the *current* viewport size (this is the key part)
+            self.viewport_canvas.itemconfig(self.canvas_frame_id, width=cw, height=ch)
+
+            # Reset cached sizes so configure handlers don't skip the next real resize
+            self._last_canvas_size = (0, 0)
+            self._last_frame_size = (0, 0)
+
+            # Update scrollregion to reflect the new reality
+            bbox = self.viewport_canvas.bbox("all")
+            if bbox:
+                self.viewport_canvas.configure(scrollregion=bbox)
+
+        except Exception as e:
+            logging.debug(f"[layout] Viewport sync error: {e}")
+
+    def _refresh_panel_layouts(self):
+        """Force all panels with buttons_container to recalculate their layout."""
+        try:
+            for panel_name, panel in self.panels.items():
+                if hasattr(panel, 'buttons_container'):
+                    container = panel.buttons_container
+                    # Force geometry update
+                    container.update_idletasks()
+                    # Get current container dimensions
+                    w = container.winfo_width()
+                    h = container.winfo_height()
+                    # Re-place all children to force geometry recalculation
+                    for child in container.winfo_children():
+                        info = child.place_info()
+                        if info:
+                            # Re-apply place with same options to force recalculation
+                            opts = {}
+                            for key in ['relx', 'rely', 'anchor', 'x', 'y', 'relwidth', 'relheight', 'width', 'height']:
+                                if key in info and info[key]:
+                                    opts[key] = info[key]
+                            if opts:
+                                child.place_forget()
+                                child.place(**opts)
+        except Exception as e:
+            logging.debug(f"[layout] Panel refresh error: {e}")
 
     def _init_scrollable_viewport(self):
         """Initialize the canvas-based scrollable viewport for panels."""
@@ -10025,14 +10083,22 @@ class MainApp(tk.Tk):
         # Always match the width
         self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
 
-        # Make the inner frame at least as tall as the visible canvas, with bottom padding
-        try:
-            required_h = self.panels_container.winfo_reqheight()
-            # Add 20px buffer at bottom to prevent content cutoff
-            target_h = max(canvas_height, required_h + 20)
-            self.viewport_canvas.itemconfig(self.canvas_frame_id, height=target_h)
-        except Exception:
-            pass
+        # Shrink-first approach: always shrink to visible canvas height first
+        # This prevents the "stuck large height" issue when leaving fullscreen
+        self.viewport_canvas.itemconfig(self.canvas_frame_id, height=canvas_height)
+
+        # After idle, expand only if content genuinely needs more space
+        def _expand_if_needed():
+            try:
+                required_h = self.panels_container.winfo_reqheight()
+                # Only expand if content actually needs more space
+                if required_h > canvas_height:
+                    target_h = required_h + 20  # Add buffer for scrollability
+                    self.viewport_canvas.itemconfig(self.canvas_frame_id, height=target_h)
+            except Exception:
+                pass
+
+        self.after_idle(_expand_if_needed)
 
         current_bg_size = getattr(self, '_last_bg_size', (0, 0))
         new_size = (event.width, event.height)
@@ -10848,14 +10914,22 @@ class VBS4Panel(tk.Frame):
         controller.create_tutorial_button(self)
         self.configure(bg="black") 
 
-        # Place buttons directly using relative positions (evenly distributed)
-        # Buttons from 0.15 to 0.75 to leave room for log area at bottom
-        self.vbs4_launcher_button = self.make_button("Launch VBS4 Launcher", launch_vbs4_setup)
-        self.vbs4_launcher_button.place(relx=0.5, rely=0.18, anchor="center")
+        # --- Log area (pack first at bottom so buttons container gets remaining space) ---
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
+
+        # --- Buttons container (fills remaining space above log) ---
+        self.buttons_container = tk.Frame(self, bg="black")
+        self.buttons_container.pack(side="top", fill="both", expand=True)
+        set_background(controller, self.buttons_container)
+
+        # Place buttons in container using relative positions (evenly distributed)
+        self.vbs4_launcher_button = self.make_button("Launch VBS4 Launcher", launch_vbs4_setup, self.buttons_container)
+        self.vbs4_launcher_button.place(relx=0.5, rely=0.12, anchor="center")
         
         # Version label after first button
         self.vbs4_launcher_version_label = tk.Label(
-            self,
+            self.buttons_container,
             text="Version: Unknown",
             font=("Helvetica", 14),
             bg="#333333",
@@ -10865,27 +10939,23 @@ class VBS4Panel(tk.Frame):
             padx=10,
             pady=2,
         )
-        self.vbs4_launcher_version_label.place(relx=0.5, rely=0.26, anchor="center")
+        self.vbs4_launcher_version_label.place(relx=0.5, rely=0.22, anchor="center")
         
         # BlueIG button
-        self.blueig_button = self.make_button("Launch BlueIG", self.launch_blueig_with_exercise_id)
+        self.blueig_button = self.make_button("Launch BlueIG", self.launch_blueig_with_exercise_id, self.buttons_container)
         self.blueig_button.place(relx=0.5, rely=0.36, anchor="center")
         
         # License Manager button
-        self.vbs_license_button = self.make_button("Launch VBS License Manager", self.launch_vbs_license_manager)
-        self.vbs_license_button.place(relx=0.5, rely=0.48, anchor="center")
+        self.vbs_license_button = self.make_button("Launch VBS License Manager", self.launch_vbs_license_manager, self.buttons_container)
+        self.vbs_license_button.place(relx=0.5, rely=0.52, anchor="center")
         
         # External Map button
-        self.external_map_button = self.make_button("External Map", open_external_map)
-        self.external_map_button.place(relx=0.5, rely=0.60, anchor="center")
+        self.external_map_button = self.make_button("External Map", open_external_map, self.buttons_container)
+        self.external_map_button.place(relx=0.5, rely=0.68, anchor="center")
         
         # Back button
-        self.back_button = self.make_button("Back", lambda: controller.show("Main"))
-        self.back_button.place(relx=0.5, rely=0.72, anchor="center")
-
-        # --- Log area --------------------------------------------------------
-        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
+        self.back_button = self.make_button("Back", lambda: controller.show("Main"), self.buttons_container)
+        self.back_button.place(relx=0.5, rely=0.84, anchor="center")
 
         tk.Label(
             self.log_frame,
@@ -10976,10 +11046,10 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_version()
         self.update_button_states()
 
-    def make_button(self, text, command):
-        # Place directly on self (no container frame)
+    def make_button(self, text, command, parent=None):
+        # Place on specified parent or self
         btn = tk.Button(
-            self,
+            parent or self,
             text=text,
             font=("Helvetica", 22, "bold"),
             bg="#444444",
@@ -11989,26 +12059,6 @@ class OneClickPanel(tk.Frame):
 
         parent_bg = self.cget("bg")
 
-        # Place buttons directly using relative positions (evenly distributed)
-        # Buttons from 0.15 to 0.65 to leave room for log area at bottom
-        self.oneclick_button = self.make_button("Run One-Click Conversion", self.on_run_oneclick)
-        self.oneclick_button.place(relx=0.5, rely=0.18, anchor="center")
-
-        self.rm_button = self.make_button("Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4)
-        self.rm_button.place(relx=0.5, rely=0.30, anchor="center")
-
-        self.relaunch_fusers_button = self.make_button("Relaunch Fusers", self.relaunch_fusers)
-        self.relaunch_fusers_button.place(relx=0.5, rely=0.42, anchor="center")
-
-        self.tutorial_button = self.make_button("One-Click Terrain Tutorial", self.show_terrain_tutorial)
-        self.tutorial_button.place(relx=0.5, rely=0.54, anchor="center")
-
-        self.help_button = self.make_button("Help Guide", open_oneclick_terrain_guide)
-        self.help_button.place(relx=0.5, rely=0.66, anchor="center")
-
-        self.back_button = self.make_button("Back", lambda: controller.show("Main"))
-        self.back_button.place(relx=0.5, rely=0.78, anchor="center")
-
         # --- Status line (RM link source/path) - at bottom -------------------
         self.rm_path_label = tk.Label(
             self,
@@ -12022,9 +12072,33 @@ class OneClickPanel(tk.Frame):
             pady=5,
         )
 
-        # --- Log area --------------------------------------------------------
+        # --- Log area (pack first at bottom so buttons container gets remaining space) ---
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
+
+        # --- Buttons container (fills remaining space above log) ---
+        self.buttons_container = tk.Frame(self, bg="black")
+        self.buttons_container.pack(side="top", fill="both", expand=True)
+        set_background(controller, self.buttons_container)
+
+        # Place buttons in container using relative positions (evenly distributed)
+        self.oneclick_button = self.make_button("Run One-Click Conversion", self.on_run_oneclick, self.buttons_container)
+        self.oneclick_button.place(relx=0.5, rely=0.10, anchor="center")
+
+        self.rm_button = self.make_button("Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4, self.buttons_container)
+        self.rm_button.place(relx=0.5, rely=0.26, anchor="center")
+
+        self.relaunch_fusers_button = self.make_button("Relaunch Fusers", self.relaunch_fusers, self.buttons_container)
+        self.relaunch_fusers_button.place(relx=0.5, rely=0.42, anchor="center")
+
+        self.tutorial_button = self.make_button("One-Click Terrain Tutorial", self.show_terrain_tutorial, self.buttons_container)
+        self.tutorial_button.place(relx=0.5, rely=0.58, anchor="center")
+
+        self.help_button = self.make_button("Help Guide", open_oneclick_terrain_guide, self.buttons_container)
+        self.help_button.place(relx=0.5, rely=0.74, anchor="center")
+
+        self.back_button = self.make_button("Back", lambda: controller.show("Main"), self.buttons_container)
+        self.back_button.place(relx=0.5, rely=0.90, anchor="center")
 
         tk.Label(
             self.log_frame,
@@ -12206,11 +12280,11 @@ class OneClickPanel(tk.Frame):
             except:
                 pass
 
-    def make_button(self, text, command):
+    def make_button(self, text, command, parent=None):
         """Return a main-action button styled like the other panels with hover effect."""
-        # Place directly on self (no container frame)
+        # Place on specified parent or self
         btn = tk.Button(
-            self,
+            parent or self,
             text=text,
             font=("Helvetica", 22, "bold"),
             bg="#444444",
@@ -12913,14 +12987,22 @@ class BVIPanel(tk.Frame):
         controller.create_tutorial_button(self)
         self.configure(bg="black")
 
-        # Place buttons directly using relative positions (evenly distributed)
-        # Buttons from 0.2 to 0.6 to leave room for log area at bottom
-        self.bvi_button = self.make_button("Launch BVI", launch_bvi)
-        self.bvi_button.place(relx=0.5, rely=0.22, anchor="center")
+        # --- Log area (pack first at bottom so buttons container gets remaining space) ---
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
+
+        # --- Buttons container (fills remaining space above log) ---
+        self.buttons_container = tk.Frame(self, bg="black")
+        self.buttons_container.pack(side="top", fill="both", expand=True)
+        set_background(controller, self.buttons_container)
+
+        # Place buttons in container using relative positions (evenly distributed)
+        self.bvi_button = self.make_button("Launch BVI", launch_bvi, self.buttons_container)
+        self.bvi_button.place(relx=0.5, rely=0.15, anchor="center")
 
         # Version label after first button
         self.version_label = tk.Label(
-            self,
+            self.buttons_container,
             text=f"Version: {get_bvi_version(get_ares_manager_path())}",
             font=("Helvetica", 14),
             bg="#333333",
@@ -12930,19 +13012,15 @@ class BVIPanel(tk.Frame):
             padx=10,
             pady=2,
         )
-        self.version_label.place(relx=0.5, rely=0.32, anchor="center")
+        self.version_label.place(relx=0.5, rely=0.30, anchor="center")
 
         # Open Terrain button
-        self.open_terrain_button = self.make_button("Open Terrain", open_bvi_terrain)
-        self.open_terrain_button.place(relx=0.5, rely=0.44, anchor="center")
+        self.open_terrain_button = self.make_button("Open Terrain", open_bvi_terrain, self.buttons_container)
+        self.open_terrain_button.place(relx=0.5, rely=0.50, anchor="center")
 
         # Back button
-        self.back_button = self.make_button("Back", lambda: controller.show("Main"))
-        self.back_button.place(relx=0.5, rely=0.56, anchor="center")
-
-        # --- Log area --------------------------------------------------------
-        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
+        self.back_button = self.make_button("Back", lambda: controller.show("Main"), self.buttons_container)
+        self.back_button.place(relx=0.5, rely=0.70, anchor="center")
 
         tk.Label(
             self.log_frame,
@@ -12997,10 +13075,10 @@ class BVIPanel(tk.Frame):
 
         self.update_bvi_version()
 
-    def make_button(self, text, command):
-        # Place directly on self (no container frame)
+    def make_button(self, text, command, parent=None):
+        # Place on specified parent or self
         btn = tk.Button(
-            self,
+            parent or self,
             text=text,
             font=("Helvetica", 22, "bold"),
             bg="#444444",
