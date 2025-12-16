@@ -1,0 +1,26 @@
+Origin: thread
+Timestamp: 20251216-093842
+Exe: c:/Users/tifte/Documents/GitHub/VBS4Project/PythonPorjects/STE_Toolkit.py
+Python: 3.12.9 | packaged by conda-forge | (main, Mar  4 2025, 22:37:18) [MSC v.1943 64 bit (AMD64)]
+Working Dir: C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects
+Platform Node: RyansWorkPC2
+Primary IP: 192.168.10.16
+Host IP (cfg): N/A (config may not yet be loaded)
+--- STACK TRACE ---
+Traceback (most recent call last):
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\threading.py", line 1075, in _bootstrap_inner
+    self.run()
+  File "C:\ProgramData\anaconda3\envs\myenv\Lib\threading.py", line 1012, in run
+    self._target(*self._args, **self._kwargs)
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\STE_Toolkit.py", line 9396, in <lambda>
+    threading.Thread(target=lambda: enforce_photomesh_settings(log=log_fn), daemon=True).start()
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 1156, in enforce_photomesh_settings
+    apply_minimal_wizard_defaults()  # keeps Model3D/OBJ/3DML on (non-destructive)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 482, in apply_minimal_wizard_defaults
+    _save_json(cfg_path, cfg)
+  File "c:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\photomesh_launcher.py", line 320, in _save_json
+    with open(tmp, "w", encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'C:\\Program Files\\Skyline\\PhotoMesh\\Tools\\PhotomeshWizard\\config.json.tmp'

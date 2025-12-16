@@ -8873,7 +8873,29 @@ def open_photomesh_help():
     else:
         messagebox.showerror("Error", "PhotoMesh help not found.")
 
+def open_oneclick_terrain_guide():
+    """Open the One-Click Terrain User Guide PDF."""
+    roots = [
+        os.path.join(BASE_DIR, "Help_Tutorials"),
+        r"C:\\Program Files (x86)\\STE Toolkit\\_internal\\Help_Tutorials",
+    ]
+    path = _find_file("One-Click_Terrain_User_Guide_v2.pdf", roots)
+    if path:
+        try:
+            if APP_INSTANCE:
+                APP_INSTANCE.launch_app_foreground(path)
+            else:
+                subprocess.Popen([path], shell=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open One-Click Terrain User Guide:\n{e}")
+    else:
+        messagebox.showerror("Error", 
+            "One-Click Terrain User Guide not found.\n\n"
+            "Expected file: One-Click_Terrain_User_Guide_v2.pdf\n"
+            f"Searched in: {roots}")
+
 oct_help_items = {
+    "One-Click Terrain User Guide": open_oneclick_terrain_guide,
     "Reality Mesh Help": open_reality_mesh_docs,
     "PhotoMesh Help": open_photomesh_help,
 }
@@ -11981,8 +12003,11 @@ class OneClickPanel(tk.Frame):
         self.tutorial_button = self.make_button("One-Click Terrain Tutorial", self.show_terrain_tutorial)
         self.tutorial_button.place(relx=0.5, rely=0.54, anchor="center")
 
+        self.help_button = self.make_button("Help Guide", open_oneclick_terrain_guide)
+        self.help_button.place(relx=0.5, rely=0.66, anchor="center")
+
         self.back_button = self.make_button("Back", lambda: controller.show("Main"))
-        self.back_button.place(relx=0.5, rely=0.66, anchor="center")
+        self.back_button.place(relx=0.5, rely=0.78, anchor="center")
 
         # --- Status line (RM link source/path) - at bottom -------------------
         self.rm_path_label = tk.Label(
