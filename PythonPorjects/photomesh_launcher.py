@@ -314,12 +314,72 @@ def _load_json(path: str) -> dict:
         return {}
 
 
-def _save_json(path: str, data: dict) -> None:
-    """Atomically write JSON *data* to *path*."""
+def _save_json(path: str, data: dict, max_retries: int = 3) -> bool:
+    """Atomically write JSON *data* to *path*.
+    
+    Returns True on success, False on failure.
+    Handles:
+    - Permission errors (e.g., writing to Program Files without elevation)
+    - File locking errors on Windows (WinError 32)
+    - Retry logic for transient failures
+    """
+    import time
+    
+    # Check if path is in a protected folder (Program Files, etc.)
+    # If so, skip silently - user doesn't have write permissions
+    protected_folders = [
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        os.environ.get("SYSTEMROOT", r"C:\Windows"),
+    ]
+    for pf in protected_folders:
+        if pf and path.lower().startswith(pf.lower()):
+            logging.debug(f"[save_json] Skipping protected path: {path}")
+            return False
+    
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, path)
+    
+    for attempt in range(max_retries):
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            
+            # os.replace is atomic on POSIX but may fail on Windows if target is locked
+            for replace_attempt in range(3):
+                try:
+                    os.replace(tmp, path)
+                    return True
+                except PermissionError as e:
+                    if replace_attempt < 2:
+                        time.sleep(0.1 * (replace_attempt + 1))  # Backoff: 0.1s, 0.2s
+                    else:
+                        raise
+            return True
+            
+        except PermissionError as e:
+            # Permission denied - likely need elevation or file locked
+            logging.warning(f"[save_json] Permission denied for {path}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(0.1 * (attempt + 1))
+            else:
+                # Clean up temp file if it exists
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
+                return False
+        except Exception as e:
+            logging.warning(f"[save_json] Failed to save {path}: {e}")
+            # Clean up temp file if it exists
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+            return False
+    
+    return False
 
 
 def _save_config() -> None:

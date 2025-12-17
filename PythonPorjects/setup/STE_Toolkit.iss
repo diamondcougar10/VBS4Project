@@ -566,9 +566,18 @@ begin
   if GetIniString('General', 'reality_mesh_to_vbs4', '', Ini) = '' then
     SetIniString('General', 'reality_mesh_to_vbs4', '\\{host}\SharedMeshDrive\RealityMeshInstall\' + RM_LINK_NAME, Ini);
 
-  SetIniString('Fusers', 'desired_count', '0',                Ini);
+  { Host PC should also be a fuser computer if PhotoMesh Fuser is installed }
+  if HasPhotoMeshFuser() then
+  begin
+    SetIniString('Fusers', 'desired_count', '3',                Ini);
+    SetIniString('Fusers', 'fuser_computer','True',             Ini);
+  end
+  else
+  begin
+    SetIniString('Fusers', 'desired_count', '0',                Ini);
+    SetIniString('Fusers', 'fuser_computer','False',            Ini);
+  end;
   SetIniString('Fusers', 'host_count',    '1',                Ini);
-  SetIniString('Fusers', 'fuser_computer','False',            Ini);
   SetIniString('Fusers', 'working_folder_host', HostName,     Ini);
   SetIniString('Fusers', 'shared_working_unc', AddBackslash(Base) + 'WorkingFuser', Ini);
 

@@ -570,7 +570,7 @@ def _user_listener_loop():
                     logging.debug(f"[beacon] Skipping IP update - manual_host_ip=true (user set IP manually)")
                     continue  # User explicitly set the IP - don't auto-discover
                     
-                cur = config.get("Offline", "host_ip", fallback="").strip()
+                cur = safe_config_get("Offline", "host_ip", "")
                 # Ignore beacons from ourselves (compare against our primary IP)
                 self_ip = get_primary_ipv4() or _machine_ip_fast()
                 if ip == self_ip:
@@ -1610,7 +1610,7 @@ def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
                 return local_ip
         
         # 2) For non-Host PCs: Use configured IP if valid and reachable
-        ip = config.get("Offline", "host_ip", fallback="").strip()
+        ip = safe_config_get("Offline", "host_ip", "")
         logging.info(f"[discover] Current config host_ip: '{ip}'")
         if ip:
             reachable = quick_ping_check(ip, timeout=timeout_per_host)
@@ -4068,6 +4068,30 @@ else:
     config.read([DEFAULT_CONFIG_PATH, CONFIG_PATH], encoding='utf-8')
 
 
+def safe_config_get(section: str, key: str, fallback: str = "") -> str:
+    """
+    Safely get a string value from config, handling corrupted values.
+    
+    This handles cases where config values might be:
+    - Lists instead of strings (returns fallback)
+    - Non-string types (converts to string)
+    - Missing sections/keys (returns fallback)
+    
+    Returns a stripped string value.
+    """
+    try:
+        val = config.get(section, key, fallback=fallback)
+        if isinstance(val, list):
+            # Corrupted value - return fallback
+            return fallback
+        if not isinstance(val, str):
+            # Convert non-strings to strings
+            val = str(val) if val is not None else fallback
+        return val.strip() if val else fallback
+    except Exception:
+        return fallback
+
+
 def sanitize_config() -> int:
     """
     Validate and repair corrupted config values.
@@ -4272,7 +4296,7 @@ def sync_host_ip_references():
     This fixes configs where IP addresses got out of sync across different sections.
     """
     try:
-        primary_ip = config.get("Offline", "host_ip", fallback="").strip()
+        primary_ip = safe_config_get("Offline", "host_ip", "")
         if not primary_ip:
             logging.info("[sync_ip] No primary host IP configured, skipping sync")
             return
@@ -4416,7 +4440,7 @@ def _save_config_sync() -> None:
         os.makedirs(os.path.dirname(target), exist_ok=True)
         
         # Store actual values and replace with reference placeholders
-        primary_ip = config.get("Offline", "host_ip", fallback="").strip()
+        primary_ip = safe_config_get("Offline", "host_ip", "")
         original_values = {}
         
         logging.info(f"[save_config] Saving config to: {target}")
@@ -4540,7 +4564,7 @@ def get_host_ip() -> str:
     """Return the configured host IP (blank when unset)."""
 
     try:
-        ip = config.get("Offline", "host_ip", fallback="").strip()
+        ip = safe_config_get("Offline", "host_ip", "")
         return ip
     except Exception as e:
         return ""
@@ -4620,7 +4644,7 @@ def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True, fro
     if "Offline" not in config:
         config.add_section("Offline")
     
-    old_ip = config.get("Offline", "host_ip", fallback="").strip()
+    old_ip = safe_config_get("Offline", "host_ip", "")
     ip_actually_changed = old_ip != trimmed
     logging.warning(f"[set_host_ip] old_ip='{old_ip}', new_ip='{trimmed}', changed={ip_actually_changed}")
     
@@ -5679,7 +5703,7 @@ def is_host_machine() -> bool:
     3. If this PC's IP matches the configured host_ip
     """
     # Method 1: Check if local_data_root is configured (strongest indicator)
-    local_root = config.get('Offline', 'local_data_root', fallback='').strip()
+    local_root = safe_config_get('Offline', 'local_data_root', '')
     if local_root and os.path.isdir(local_root):
         return True
     
@@ -5689,7 +5713,7 @@ def is_host_machine() -> bool:
     
     # Method 3: Check if this PC's IP matches the configured host_ip
     try:
-        host_ip = config.get('Offline', 'host_ip', fallback='').strip()
+        host_ip = safe_config_get('Offline', 'host_ip', '')
         if host_ip:
             # Get this PC's primary IP
             my_ip = get_primary_ipv4()
@@ -7027,7 +7051,7 @@ def ensure_fuser_instances(desired: int):
         return
     
     try:
-        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
         logging.info(f"[fuser-scale] is_fuser_computer: {is_fuser}")
     
         desired = _clamp_fusers(desired, is_fuser)
@@ -7265,8 +7289,8 @@ def get_last_launched_fuser_count() -> int:
 def kill_all_fusers_on_exit():
     """Kill all fusers when the toolkit exits (only if this is a fuser computer)."""
     try:
-        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        kill_on_exit = config["Fusers"].getboolean("kill_on_exit", fallback=True)
+        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
+        kill_on_exit = config.getboolean("Fusers", "kill_on_exit", fallback=True)
         
         print("\n" + "="*80)
         print("APP CLOSING - Exit Handler Called")
@@ -7323,7 +7347,7 @@ def restore_fusers_on_startup():
             pass
         return
     try:
-        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
         is_host = is_host_machine()
         
         if not is_fuser and not is_host:
@@ -7417,7 +7441,7 @@ def enforce_local_fuser_policy():
             logging.info("[fuser-policy] GATED: enforcement disabled until UNC ready (shared mode)")
             return
         
-        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
         logging.info(f"[fuser-policy] is_fuser_computer: {is_fuser}")
         
         host_ct, desired_ct = get_fuser_counts()
@@ -7523,8 +7547,8 @@ def _assert_shared_path_is_unc():
         logging.warning(f"[self-heal] ✗ Working folder is NOT a UNC path: {shared}")
         
         # Get host IP and share name from config
-        host_ip = config.get("Offline", "host_ip", fallback="").strip()
-        share_name = config.get("Offline", "share_name", fallback="SharedMeshDrive").strip()
+        host_ip = safe_config_get("Offline", "host_ip", "")
+        share_name = safe_config_get("Offline", "share_name", "SharedMeshDrive")
         
         if not host_ip:
             logging.error("[self-heal] Cannot fix: host_ip not configured")
@@ -7635,12 +7659,12 @@ def apply_offline_settings() -> None:
         return
     # Ensure Network.host is set from Offline.host_ip for proper initialization
     try:
-        host_ip = config.get("Offline", "host_ip", fallback="").strip()
+        host_ip = safe_config_get("Offline", "host_ip", "")
         if host_ip:
             if "Network" not in config:
                 config["Network"] = {}
             # Ensure Network.host matches Offline.host_ip for proper initialization
-            if config.get("Network", "host", fallback="").strip() != host_ip:
+            if safe_config_get("Network", "host", "") != host_ip:
                 config["Network"]["host"] = host_ip
                 save_config()
     except Exception as e:
@@ -10685,36 +10709,6 @@ class MainApp(tk.Tk):
 
     def _on_mousewheel(self, event):
         """Handle mouse wheel scrolling on the viewport canvas with batching."""
-        # If we're in the Settings panel, check if the event is over the inner settings canvas
-        try:
-            if self.current == 'Settings':
-                settings = self.panels.get('Settings')
-                if settings is not None:
-                    # Find if the event originated from the inner settings canvas
-                    w = event.widget
-                    while w is not None:
-                        if w is getattr(settings, '_settings_canvas', None):
-                            # If we're directly over the settings canvas or its scrollbar,
-                            # let it handle the event (but don't break yet)
-                            is_settings_scroll = True
-                            break
-                        w = getattr(w, 'master', None)
-                    else:
-                        # We're in Settings panel but not over the inner canvas,
-                        # so use the outer scrollbar
-                        is_settings_scroll = False
-                else:
-                    is_settings_scroll = False
-            else:
-                is_settings_scroll = False
-        except Exception:
-            is_settings_scroll = False
-
-        # For Settings panel, prioritize the inner scroller when the event is over it
-        if is_settings_scroll:
-            # Let the event propagate to the inner settings scroller
-            return
-
         focused = self.focus_get()
         if focused and hasattr(focused, 'master'):
             parent = focused.master
@@ -10776,35 +10770,28 @@ class MainApp(tk.Tk):
             # Get the actual panel height (use winfo_reqheight without forcing update)
             panel_h = panel.winfo_reqheight()
             
-            # Special handling for Settings panel
-            if self.current == 'Settings':
-                # For Settings, always enable the outer scrollbar
-                # Force a large enough content_h to ensure the scrollbar appears
-                content_h = max(panel_h, canvas_h + 100)  # Make it always need scrolling
-                needs_scroll = True
+            # Calculate content height normally for all panels
+            # Fallback approach: use the canvas_frame_id
+            bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
+            if not bbox:
+                # Try with 'all' as a last resort
+                bbox = self.viewport_canvas.bbox('all')
+            
+            # Make sure we have a valid bounding box
+            if bbox:
+                frame_h = bbox[3] - bbox[1]
+                # Use the larger of panel requested height or frame bbox
+                content_h = max(panel_h, frame_h)
             else:
-                # For other panels, calculate normally
-                # Fallback approach: use the canvas_frame_id
-                bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
-                if not bbox:
-                    # Try with 'all' as a last resort
-                    bbox = self.viewport_canvas.bbox('all')
-                
-                # Make sure we have a valid bounding box
-                if bbox:
-                    frame_h = bbox[3] - bbox[1]
-                    # Use the larger of panel requested height or frame bbox
-                    content_h = max(panel_h, frame_h)
-                else:
-                    content_h = panel_h
-                
-                # Determine if scrolling is needed - content must be noticeably larger than canvas
-                needs_scroll = content_h > (canvas_h + 10)
+                content_h = panel_h
+            
+            # Determine if scrolling is needed - content must be noticeably larger than canvas
+            needs_scroll = content_h > (canvas_h + 10)
             
             # Allow scrolling for all panels now
             use_outer_scroll = True
             
-            # Show scrollbar for all panels that need it, including Settings
+            # Show scrollbar for all panels that need it
             show_scrollbar = needs_scroll and use_outer_scroll
             
             # Apply scrollbar visibility change
@@ -10894,7 +10881,9 @@ class MainApp(tk.Tk):
         # Hide all panels then show the requested one
         for p in self.panels.values():
             p.pack_forget()
-        force_full_height = name not in ("Credits", "Contact Us")
+        # Settings needs to propagate its full height for scrolling to work
+        # Other panels with fixed layouts can suppress propagation
+        force_full_height = name not in ("Credits", "Contact Us", "Settings")
         try:
             panel.pack_propagate(False if force_full_height else True)
         except Exception:
@@ -10935,19 +10924,26 @@ class MainApp(tk.Tk):
     def _resize_canvas_to_panel(self, panel):
         """Force scrollregion to the visible panel's requested size (frame-only)."""
         try:
-            # Try to get bbox from the frame window (no redundant update_idletasks)
-            bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
+            # For panels that need scrolling (like Settings), use their full requested height
+            # This ensures the scrollregion covers all content even if the frame is constrained
+            panel.update_idletasks()  # Ensure geometry is calculated
+            req_w = panel.winfo_reqwidth()
+            req_h = panel.winfo_reqheight()
             
-            # If we can't get a bbox, fall back to panel's requested dimensions
-            if not bbox:
-                req_w = panel.winfo_reqwidth()
-                req_h = panel.winfo_reqheight()
-                bbox = (0, 0, req_w, req_h)
+            # Get canvas dimensions
+            canvas_w = self.viewport_canvas.winfo_width()
+            canvas_h = self.viewport_canvas.winfo_height()
             
-            # Set the scrollregion generously to ensure scrollability when needed
-            # Add a small buffer to height to ensure the last elements are fully visible
-            x1, y1, x2, y2 = bbox
-            self.viewport_canvas.configure(scrollregion=(x1, y1, x2, y2 + 20))
+            # Use the larger of canvas size or panel requested size
+            scroll_w = max(canvas_w, req_w)
+            scroll_h = max(canvas_h, req_h)
+            
+            # If panel content is taller than canvas, expand the frame to fit
+            if req_h > canvas_h:
+                self.viewport_canvas.itemconfig(self.canvas_frame_id, height=req_h + 50)
+            
+            # Set the scrollregion to cover all content
+            self.viewport_canvas.configure(scrollregion=(0, 0, scroll_w, scroll_h + 50))
         except Exception as e:
             pass
 
@@ -12406,10 +12402,25 @@ def find_terra_explorer() -> str:
         run_in_thread(_pipeline)
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
-        """Launch the external Reality Mesh to VBS4 application."""
+        """Launch the external Reality Mesh to VBS4 application (Host PC only)."""
         sys_settings_path = os.path.join(_BUNDLE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
+        
+        # Copy settings file if it exists
+        if os.path.isfile(sys_settings_path):
+            try:
+                shutil.copy2(sys_settings_path, os.path.join(BASE_DIR, 'RealityMeshSystemSettings.txt'))
+            except Exception:
+                pass
+        
+        # Only auto-launch Reality Mesh on the Host PC
+        # User PCs can't access the local shortcut via network share
+        if is_this_pc_the_real_host():
+            self.log_message("Host PC detected - auto-launching Reality Mesh to VBS4...")
+            self.launch_reality_mesh_to_vbs4()
+        else:
+            self.log_message("User PC detected - skipping auto-launch of Reality Mesh (use manual launch button)")
         
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
@@ -13481,6 +13492,7 @@ class OneClickPanel(tk.Frame):
         self.one_click_conversion()
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
+        """Launch the external Reality Mesh to VBS4 application (Host PC only)."""
         sys_settings_path = os.path.join(_BUNDLE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
@@ -13489,7 +13501,14 @@ class OneClickPanel(tk.Frame):
                 shutil.copy2(sys_settings_path, os.path.join(BASE_DIR, 'RealityMeshSystemSettings.txt'))
             except Exception:
                 pass
-        self.launch_reality_mesh_to_vbs4()
+        
+        # Only auto-launch Reality Mesh on the Host PC
+        # User PCs can't access the local shortcut via network share
+        if is_this_pc_the_real_host():
+            self.log_message("Host PC detected - auto-launching Reality Mesh to VBS4...")
+            self.launch_reality_mesh_to_vbs4()
+        else:
+            self.log_message("User PC detected - skipping auto-launch of Reality Mesh (use manual launch button)")
 
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
@@ -13738,16 +13757,18 @@ class SettingsPanel(tk.Frame):
 
         self.configure(bg="black")  # header removed; fixed header used
         logging.info("[ui-diag] SettingsPanel: configure complete")
-        self.grid_rowconfigure(7, weight=1, minsize=400)
+        
+        # Simple layout - no internal scrolling, let the outer viewport handle it
+        # Use pack layout with all content stacking vertically
         self.grid_columnconfigure(0, weight=1)
         logging.info("[ui-diag] SettingsPanel: grid configuration complete")
 
         # --- Top toggles -------------------------------------------------
         logging.info("[ui-diag] SettingsPanel: creating toggles frame")
         toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0, highlightthickness=0)
-        logging.info("[ui-diag] SettingsPanel: toggles frame created, about to grid")
-        toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
-        logging.info("[ui-diag] SettingsPanel: toggles gridded")
+        logging.info("[ui-diag] SettingsPanel: toggles frame created, about to pack")
+        toggles.pack(fill="x", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: toggles packed")
         toggles.grid_columnconfigure(0, weight=1)
         toggles.grid_columnconfigure(1, weight=1)
         logging.info("[ui-diag] SettingsPanel: toggles grid columns configured")
@@ -13940,9 +13961,12 @@ class SettingsPanel(tk.Frame):
                 chk.config(state="disabled", fg="#888888")  # Gray out the text
                 # Automatically check it since we're the host
                 self.fuser_var.set(True)
+                # Ensure Fusers section exists before setting value
+                if "Fusers" not in config:
+                    config["Fusers"] = {}
                 config["Fusers"]["fuser_computer"] = "True"
                 save_config()
-                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer checkbox disabled (Host PC detected - share exists locally)")
+                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer auto-enabled for Host PC (share exists locally)")
                 # Store reference for potential future updates
                 self.fuser_computer_checkbox = chk
             
@@ -13971,8 +13995,8 @@ class SettingsPanel(tk.Frame):
         # --- Local fuser controls -----------------------------------------
         frow = tk.Frame(self, bg="black")
         logging.info("[ui-diag] SettingsPanel: frow frame created")
-        frow.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
-        logging.info("[ui-diag] SettingsPanel: frow gridded")
+        frow.pack(fill="x", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: frow packed")
 
         self.fuser_count_label = tk.Label(
             frow,
@@ -14068,10 +14092,10 @@ class SettingsPanel(tk.Frame):
         # --- Connected Fuser PCs (Host-visible indicator) ----------------
         logging.info("[ui-diag] SettingsPanel: creating conn_row frame")
         conn_row = tk.Frame(self, bg="black")
-        logging.info("[ui-diag] SettingsPanel: conn_row created, about to grid (removed 'after' param to fix hang)")
-        # Position remote fuser UI widgets in row=3 (below local fusers in row=2)
-        conn_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
-        logging.info("[ui-diag] SettingsPanel: conn_row gridded")
+        logging.info("[ui-diag] SettingsPanel: conn_row created, about to pack")
+        # Position remote fuser UI widgets below local fusers
+        conn_row.pack(fill="x", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: conn_row packed")
 
         self.connected_pcs_label = tk.Label(
             conn_row,
@@ -14106,7 +14130,7 @@ class SettingsPanel(tk.Frame):
 
         # --- Network Host -----------------------------------------------
         net_frame = tk.Frame(self, bg="black")
-        net_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 6))
+        net_frame.pack(fill="x", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
         # Host IP management - now auto-discovered via beacons
@@ -14126,7 +14150,7 @@ class SettingsPanel(tk.Frame):
                 current = self.host_ip_var.get().strip()
                 if not current:
                     # Re-read from config in case beacon listener updated it
-                    new_ip = config.get("Offline", "host_ip", fallback="").strip()
+                    new_ip = safe_config_get("Offline", "host_ip", "")
                     if new_ip:
                         self.host_ip_var.set(new_ip)
                         logging.info(f"[SettingsPanel] Updated host_ip from beacon: {new_ip}")
@@ -14355,7 +14379,7 @@ class SettingsPanel(tk.Frame):
 
         # --- Container for Offline and Troubleshoot sections (side-by-side) ---
         sections_container = tk.Frame(self, bg="black")
-        sections_container.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+        sections_container.pack(fill="x", padx=10, pady=10)
         sections_container.grid_columnconfigure(0, weight=1)
         sections_container.grid_columnconfigure(1, weight=1)
 
@@ -14535,7 +14559,7 @@ class SettingsPanel(tk.Frame):
 
         # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
-        rm_row.grid(row=6, column=0, sticky="ew", padx=10, pady=5)
+        rm_row.pack(fill="x", padx=10, pady=5)
         tk.Label(
             rm_row,
             text="Reality Mesh Install Folder",
@@ -14572,7 +14596,7 @@ class SettingsPanel(tk.Frame):
             bd=0,
         ).pack(side="left", padx=8)
 
-        # --- Scrollable Application Locations ---------------------------
+        # --- Application Locations (no internal scroll - uses main viewport) --
         locs_box = tk.LabelFrame(
             self,
             text="Application Locations",
@@ -14582,119 +14606,14 @@ class SettingsPanel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        # Row 7 expands for the scroller; keep Back button at row 8 non‑scrolling
-        self.grid_rowconfigure(7, weight=1, minsize=600)
-        locs_box.grid(row=7, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        locs_box.pack(fill="x", padx=10, pady=(0, 10))
 
-        # Canvas + vertical scrollbar
-        self._settings_canvas = tk.Canvas(
-            locs_box, bg="black", highlightthickness=0, bd=0
-        )
-        self._settings_scrollbar = tk.Scrollbar(locs_box, orient="vertical",
-                            command=self._settings_canvas.yview)
-        self._settings_canvas.configure(yscrollcommand=self._settings_scrollbar.set)
-        
-        # Configure pixel-based scrolling to prevent sub-pixel artifacts
-        self._settings_canvas.configure(yscrollincrement=1)
-        
-        self._settings_canvas.pack(side="left", fill="both", expand=True)
-        
-        # Only show the Settings panel scrollbar when in windowed mode
-        if not controller.fullscreen:
-            self._settings_scrollbar.pack(side="right", fill="y")
-
-        # Inner frame to hold the path rows
-        self._settings_inner = tk.Frame(self._settings_canvas, bg="black")
-        win_id = self._settings_canvas.create_window(
-            (0, 0), window=self._settings_inner, anchor="nw"
-        )
-        
-        # Wheel event batching for smooth settings scrolling
-        self._set_wheel_accum = 0
-        self._set_wheel_job = None
-
-        # Keep inner frame width equal to visible canvas width
-        def _on_canvas_resize(evt):
-            self._settings_canvas.itemconfig(win_id, width=evt.width)
-        self._settings_canvas.bind("<Configure>", _on_canvas_resize)
-
-        # Maintain scrollregion with a bit of bottom pad so last row is fully visible
-        _SCROLLER_BOTTOM_PAD = 50
-        def _update_scrollregion(_evt=None):
-            bbox = self._settings_canvas.bbox("all")
-            if bbox:
-                x0, y0, x1, y1 = bbox
-                self._settings_canvas.configure(
-                    scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD)
-                )
-        self._settings_inner.bind("<Configure>", _update_scrollregion)
-
-        # Smooth wheel behavior with batching (Windows/macOS: <MouseWheel>, X11: Button-4/5)
-        def _on_mousewheel(evt):
-            delta = 0
-            if hasattr(evt, 'delta') and evt.delta:
-                delta = evt.delta
-            elif hasattr(evt, 'num'):
-                delta = -120 if evt.num == 4 else 120 if evt.num == 5 else 0
-
-            self._set_wheel_accum += delta
-            if self._set_wheel_job is not None:
-                return "break"
-
-            def _flush():
-                steps = int(self._set_wheel_accum / 120)
-                if steps:
-                    # Pause background resizes in the outer viewport while we scroll the inner canvas
-                    try:
-                        self.controller._scroll_active = True
-                        if self.controller._scroll_timer:
-                            self.controller.after_cancel(self.controller._scroll_timer)
-                        self.controller._scroll_timer = self.controller.after(100, self.controller._reset_scroll_state)
-                    except Exception:
-                        pass
-
-                    self._settings_canvas.yview_scroll(-steps, "units")
-
-                self._set_wheel_accum = 0
-                self._set_wheel_job = None
-                return "break"
-
-            self._set_wheel_job = self.after(8, _flush)
-            return "break"
-
-        def _bind_wheel(evt):
-            # Bind specifically to the settings canvas and inner frame, not globally
-            self._settings_canvas.bind("<MouseWheel>", _on_mousewheel, add=True)
-            self._settings_canvas.bind("<Button-4>", _on_mousewheel, add=True)
-            self._settings_canvas.bind("<Button-5>", _on_mousewheel, add=True)
-            self._settings_inner.bind("<MouseWheel>", _on_mousewheel, add=True)
-            self._settings_inner.bind("<Button-4>", _on_mousewheel, add=True)
-            self._settings_inner.bind("<Button-5>", _on_mousewheel, add=True)
-
-        def _unbind_wheel(evt):
-            # Unbind from settings canvas and inner frame
-            try:
-                self._settings_canvas.unbind("<MouseWheel>")
-                self._settings_canvas.unbind("<Button-4>")
-                self._settings_canvas.unbind("<Button-5>")
-                self._settings_inner.unbind("<MouseWheel>")
-                self._settings_inner.unbind("<Button-4>")
-                self._settings_inner.unbind("<Button-5>")
-            except Exception:
-                pass
-
-        # Bind to both canvas and inner frame for better coverage
-        self._settings_canvas.bind("<Enter>", _bind_wheel)
-        self._settings_canvas.bind("<Leave>", _unbind_wheel)
-        self._settings_inner.bind("<Enter>", _bind_wheel)
-        self._settings_inner.bind("<Leave>", _unbind_wheel)
-
-        # ---- Add the existing path rows into `self._settings_inner` exactly as before ----
+        # ---- Add the path rows directly into locs_box ----
         self.lbl_projects_root = self._create_path_row(
             "Change Projects Root",
             self._on_change_projects_root,
             get_projects_root(),
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         # Use cached paths from config for instant display (no scanning during startup)
         # The paths are already cached by get_vbs4_install_path() etc. during warmup
@@ -14706,58 +14625,44 @@ class SettingsPanel(tk.Frame):
             "Set VBS4 Install Location",
             self._on_set_vbs4,
             cached_vbs4,
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         self.lbl_vbs4_setup = self._create_path_row(
             "Set VBS4 Setup Launcher Location",
             self._on_set_vbs4_setup,
             config["General"].get("vbs4_setup_path", ""),
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         self.lbl_blueig = self._create_path_row(
             "Set BlueIG Install Location",
             self._on_set_blueig,
             cached_blueig,
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         self.lbl_ares = self._create_path_row(
             "Set ARES Manager Location",
             self._on_set_ares,
             cached_ares,
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         self.lbl_browser = self._create_path_row(
             "Pick Default Browser",
             self._on_set_browser,
             get_default_browser(),
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         self.lbl_vbs_license = self._create_path_row(
             "Set VBS License Manager Location",
             self._on_set_vbs_license_manager,
             config["General"].get("vbs_license_manager_path", ""),
-            parent=self._settings_inner,
+            parent=locs_box,
         )
         self.lbl_oneclick = self._create_path_row(
             "Set One-Click Output Folder",
             self._on_set_oneclick,
             get_oneclick_output_path(),
-            parent=self._settings_inner,
+            parent=locs_box,
         )
-
-        # Spacer so the last row can scroll above the bottom edge
-        tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
-
-        # Force update of layout and scroll region to ensure all items are visible
-        self._settings_inner.update_idletasks()
-        self._settings_canvas.update_idletasks()
-        self._settings_canvas.yview_moveto(0)
-        
-        # Manually update scroll region to ensure all content is accessible
-        bbox = self._settings_canvas.bbox("all")
-        if bbox:
-            x0, y0, x1, y1 = bbox
-            self._settings_canvas.configure(scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD))
 
         # Back button and tutorial
         tk.Button(
@@ -14771,7 +14676,10 @@ class SettingsPanel(tk.Frame):
             command=lambda: controller.show("Main"),
             bd=0,
             highlightthickness=0,
-        ).grid(row=8, column=0, pady=10)
+        ).pack(pady=10)
+        
+        # Bottom spacer to ensure content is fully scrollable by outer viewport
+        tk.Frame(self, height=50, bg="black").pack(fill="x")
 
         logging.info("[ui-diag] SettingsPanel: about to setup auto-connect")
         # Silent auto-connect on first load (no prompts) - run in background to avoid blocking UI
@@ -14810,7 +14718,7 @@ class SettingsPanel(tk.Frame):
                 ip = ip_override
             else:
                 # Read directly from config to get freshest value
-                ip = config.get("Offline", "host_ip", fallback="").strip()
+                ip = safe_config_get("Offline", "host_ip", "")
             
             host_txt = ip if ip else "[no host set]"
             if connected is None:
@@ -15715,9 +15623,13 @@ class SettingsPanel(tk.Frame):
             """Run expensive psutil scan in background thread."""
             try:
                 running = count_local_fusers()
-                is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+                # Safely get fuser_computer setting, handling missing section
                 try:
-                    desired_raw = int(config["Fusers"].get("desired_count", "3") or 3)
+                    is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
+                except Exception:
+                    is_fuser = False
+                try:
+                    desired_raw = int(config.get("Fusers", "desired_count", fallback="3") or 3)
                 except Exception:
                     desired_raw = 3
                 desired = _clamp_fusers(desired_raw, is_fuser)
