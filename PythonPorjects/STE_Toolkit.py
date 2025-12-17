@@ -10924,26 +10924,31 @@ class MainApp(tk.Tk):
     def _resize_canvas_to_panel(self, panel):
         """Force scrollregion to the visible panel's requested size (frame-only)."""
         try:
-            # For panels that need scrolling (like Settings), use their full requested height
-            # This ensures the scrollregion covers all content even if the frame is constrained
-            panel.update_idletasks()  # Ensure geometry is calculated
-            req_w = panel.winfo_reqwidth()
-            req_h = panel.winfo_reqheight()
-            
             # Get canvas dimensions
             canvas_w = self.viewport_canvas.winfo_width()
             canvas_h = self.viewport_canvas.winfo_height()
             
-            # Use the larger of canvas size or panel requested size
-            scroll_w = max(canvas_w, req_w)
-            scroll_h = max(canvas_h, req_h)
-            
-            # If panel content is taller than canvas, expand the frame to fit
-            if req_h > canvas_h:
-                self.viewport_canvas.itemconfig(self.canvas_frame_id, height=req_h + 50)
-            
-            # Set the scrollregion to cover all content
-            self.viewport_canvas.configure(scrollregion=(0, 0, scroll_w, scroll_h + 50))
+            # For Settings panel (which uses pack layout and needs to scroll), expand to fit content
+            # For other panels with buttons_container (which use relative placement), keep viewport size
+            if self.current == "Settings":
+                panel.update_idletasks()  # Ensure geometry is calculated
+                req_w = panel.winfo_reqwidth()
+                req_h = panel.winfo_reqheight()
+                
+                # Use the larger of canvas size or panel requested size
+                scroll_w = max(canvas_w, req_w)
+                scroll_h = max(canvas_h, req_h)
+                
+                # If panel content is taller than canvas, expand the frame to fit
+                if req_h > canvas_h:
+                    self.viewport_canvas.itemconfig(self.canvas_frame_id, height=req_h + 50)
+                
+                # Set the scrollregion to cover all content
+                self.viewport_canvas.configure(scrollregion=(0, 0, scroll_w, scroll_h + 50))
+            else:
+                # For other panels, keep frame at viewport size for proper button layout
+                self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_w, height=canvas_h)
+                self.viewport_canvas.configure(scrollregion=(0, 0, canvas_w, canvas_h))
         except Exception as e:
             pass
 
@@ -16670,28 +16675,12 @@ class SettingsPanel(tk.Frame):
         """Handle fullscreen button click."""
         self.controller.toggle_fullscreen(mode)
         self._update_fullscreen_buttons()
-        
-        # Update Settings panel scrollbar visibility
-        if self.controller.fullscreen:
-            # Fullscreen mode - hide the Settings scrollbar
-            self._settings_scrollbar.pack_forget()
-        else:
-            # Windowed mode - show the Settings scrollbar
-            self._settings_scrollbar.pack(side="right", fill="y")
 
     def _on_fullscreen_dropdown(self, event=None):
         """Handle fullscreen dropdown selection change."""
         selected = self.fullscreen_var.get()
         mode = self.fullscreen_mode_map.get(selected, "off")
         self.controller.toggle_fullscreen(mode)
-        
-        # Update Settings panel scrollbar visibility
-        if self.controller.fullscreen:
-            # Fullscreen mode - hide the Settings scrollbar
-            self._settings_scrollbar.pack_forget()
-        else:
-            # Windowed mode - show the Settings scrollbar
-            self._settings_scrollbar.pack(side="right", fill="y")
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
