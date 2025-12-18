@@ -75,8 +75,8 @@ if sys.platform == 'win32':
         min_ws = 64 * 1024 * 1024    # 64MB minimum working set
         max_ws = 2048 * 1024 * 1024  # 2GB maximum working set
         kernel32.SetProcessWorkingSetSize(handle, min_ws, max_ws)
-    except Exception:
-        pass  # Non-critical: working set hint is just an optimization
+    except:
+        pass
 
 # ============================================================================
 # IMPORTS
@@ -107,36 +107,65 @@ from queue import Queue, Empty
 import io
 import time
 import traceback
-import csv
-import time as _time_mod_for_perf  # separate alias for perf timing if needed
 
-# NOTE: Early crash handlers removed - consolidated crash handling is at line ~1065
-# The comprehensive crash handler (_build_crash_report, _write_crash_report) captures
-# more diagnostic info including memory stats, fuser counts, and log tail.
+# Crash logging setup (early so hooks apply before other threads start)
+_CRASH_DIR = os.path.join(os.getcwd(), "logs", "crash")
+try:
+    os.makedirs(_CRASH_DIR, exist_ok=True)
+except Exception:
+    pass
 
+def _write_crash_log(exc_type, exc_value, exc_tb, origin="main"):
+    try:
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        fname = f"crash-{ts}-{origin}.txt"
+        path = os.path.join(_CRASH_DIR, fname)
+        stack = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        diag = [
+            f"Origin: {origin}",
+            f"Timestamp: {ts}",
+            f"Exe: {sys.argv[0]}",
+            f"Python: {sys.version}",
+            f"Working Dir: {os.getcwd()}",
+            f"Platform Node: {platform.node()}",
+            f"Primary IP: {socket.gethostbyname(socket.gethostname()) if socket.gethostname() else 'unknown'}",
+            f"Host IP (cfg): N/A (config may not yet be loaded)",
+            "--- STACK TRACE ---",
+            stack,
+        ]
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(diag))
+        try:
+            logging = globals().get('logging')
+            if logging:
+                logging.error(f"[crash] Unhandled exception captured -> {path}")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def _global_excepthook(exc_type, exc_value, exc_tb):
+    _write_crash_log(exc_type, exc_value, exc_tb, origin="sys.excepthook")
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _global_excepthook
+
+def _threading_excepthook(args):
+    _write_crash_log(args.exc_type, args.exc_value, args.exc_traceback, origin="thread")
+    if hasattr(threading, '__excepthook__'):
+        try:
+            threading.__excepthook__(args)
+        except Exception:
+            pass
+
+try:
+    threading.excepthook = _threading_excepthook  # Python 3.8+
+except Exception:
+    pass
 try:
     import psutil
 except Exception:
     psutil = None
-
-# ---------------------------------------------------------------------------
-# Runtime logging suppression & performance instrumentation flags
-# ---------------------------------------------------------------------------
-DISABLE_GENERAL_LOGGING = True  # Set True to silence existing info/debug logs
-if DISABLE_GENERAL_LOGGING:
-    import logging as _lg_patch
-    try:
-        _lg_patch_info = _lg_patch.info
-        _lg_patch_debug = _lg_patch.debug
-        _lg_patch_warning = _lg_patch.warning
-        # Replace non-critical outputs with no-ops (errors still visible)
-        _lg_patch.info = lambda *a, **k: None
-        _lg_patch.debug = lambda *a, **k: None
-        _lg_patch.warning = lambda *a, **k: None
-    except Exception as e:
-        # Keep stderr output since logging may not work
-        import sys
-        print(f"[WARN] Failed to patch logging: {e}", file=sys.stderr)
 
 from photomesh_launcher import (
     get_offline_cfg,
@@ -492,11 +521,11 @@ def stop_host_beacon():
         if _BCN_THREAD and _BCN_THREAD.is_alive():
             try:
                 _BCN_THREAD.join(timeout=1.5)
-            except Exception as e:
-                logging.debug(f"[beacon] Exception joining beacon thread: {e}")
+            except Exception:
+                pass
         _BCN_THREAD = None
-    except Exception as e:
-        logging.debug(f"[beacon] Exception stopping host beacon: {e}")
+    except Exception:
+        pass
 
 def _user_listener_loop():
     """
@@ -505,7 +534,6 @@ def _user_listener_loop():
     """
     sock = None
     last_set = 0
-    beacon_count = 0
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -515,7 +543,6 @@ def _user_listener_loop():
             pass
         sock.bind(("", BEACON_PORT))
         sock.settimeout(1.0)
-        logging.warning(f"[beacon] UDP listener bound to port {BEACON_PORT}, waiting for host beacons...")
         while not _LST_STOP.is_set():
             try:
                 data, _addr = sock.recvfrom(4096)
@@ -533,81 +560,37 @@ def _user_listener_loop():
                 if not ip or not pc:
                     continue
                 
-                beacon_count += 1
-                # Log first few beacons and then periodically for debugging
-                if beacon_count <= 3 or beacon_count % 30 == 0:
-                    logging.warning(f"[beacon] Received beacon #{beacon_count}: PC='{pc}', IP={ip}, role={role}")
-                
                 # Cache beacon data with fuser count for display
                 with _BEACON_CACHE_LOCK:
                     _BEACON_CACHE[pc] = {
                         "ip": ip,
-                        "role": role,
                         "fuser_count": int(d.get("fuser_count", 0)),
                         "ts": d.get("ts", int(time.time())),
                         "last_seen": time.time(),
                     }
                 
-                # Auto-discover host IP (user PCs only - NOT the host PC itself)
+                # Auto-discover host IP (user PCs only)
                 now = time.time()
                 if now - last_set < 3.0:
-                    logging.debug(f"[beacon] Skipping IP update - too soon since last set ({now - last_set:.1f}s < 3.0s)")
                     continue
-                    
-                # HOST PCs should NEVER update their host_ip from beacons
-                # They ARE the host - they should keep their own IP
-                try:
-                    if is_this_pc_the_real_host():
-                        logging.debug(f"[beacon] Skipping IP update - this PC is the host")
-                        continue  # Skip IP update logic entirely for host PCs
-                except Exception as e:
-                    logging.warning(f"[beacon] Error checking if this PC is host: {e}")
-                
-                # If host_ip was manually set by user, don't auto-overwrite from beacons
-                o = get_offline_cfg()
-                manual_ip = o.get("manual_host_ip", "false").lower() == "true"
-                if manual_ip:
-                    logging.debug(f"[beacon] Skipping IP update - manual_host_ip=true (user set IP manually)")
-                    continue  # User explicitly set the IP - don't auto-discover
-                    
-                cur = safe_config_get("Offline", "host_ip", "")
+                cur = config.get("Offline", "host_ip", fallback="").strip()
                 # Ignore beacons from ourselves (compare against our primary IP)
                 self_ip = get_primary_ipv4() or _machine_ip_fast()
                 if ip == self_ip:
-                    logging.debug(f"[beacon] Skipping beacon from ourselves (IP={ip})")
                     continue
-                
-                # SINGLE HOST ENFORCEMENT (for User PCs only):
-                # Only respond to beacons with role="host" (actual hosts)
-                # User beacons are just for status display, not IP discovery
-                if role == "host":
-                    if not cur:
-                        # No host configured, adopt this one
-                        logging.warning(f"[beacon] *** ADOPTING HOST IP: {ip} from PC '{pc}' (role={role}) ***")
-                        try:
-                            # Use from_beacon=True to allow future beacon updates
-                            set_host_ip(ip, force_reshare=False, update_ui=True, from_beacon=True)
-                            logging.warning(f"[beacon] set_host_ip() completed successfully for {ip}")
-                            connect_working_share_interactive(parent=None, silent=True)
-                            logging.warning(f"[beacon] connect_working_share_interactive() completed")
-                        except Exception as e:
-                            logging.error(f"[beacon] FAILED to set host IP {ip}: {e}")
-                            import traceback
-                            logging.error(f"[beacon] Traceback: {traceback.format_exc()}")
-                        last_set = now
-                    elif cur != ip:
-                        # Different host detected - log but DON'T auto-switch
-                        # User should manually change if they want a different host
-                        # This prevents flip-flopping between hosts
-                        logging.warning(f"[beacon] Different host detected: {ip} from PC '{pc}' (current: {cur}) - ignoring (use Change Host IP to switch)")
-                    else:
-                        logging.debug(f"[beacon] Host beacon received, IP already set to {cur}")
-                else:
-                    logging.debug(f"[beacon] Ignoring non-host beacon from {pc} (role={role})")
+                # Only adopt host from a beacon explicitly marked as role='host'
+                if role == "host" and (not cur or cur != ip):
+                    logging.info(f"[beacon] Discovered host {ip} (role={role}); applying")
+                    try:
+                        set_host_ip(ip)
+                        connect_working_share_interactive(parent=None, silent=True)
+                    except Exception:
+                        pass
+                    last_set = now
             except socket.timeout:
                 pass
-            except Exception as e:
-                logging.error(f"[beacon] Exception in listener loop: {e}")
+            except Exception:
+                pass
     finally:
         try:
             if sock:
@@ -618,22 +601,14 @@ def _user_listener_loop():
 def start_user_listener():
     global _LST_THREAD
     if _LST_THREAD and _LST_THREAD.is_alive():
-        logging.debug("[beacon] User listener already running, skipping start")
         return
     try:
         _LST_STOP.clear()
-    except Exception as e:
-        logging.warning(f"[beacon] Error clearing stop flag: {e}")
-    try:
-        _LST_THREAD = threading.Thread(target=_user_listener_loop, name="user-listener", daemon=True)
-        _LST_THREAD.start()
-        logging.warning(f"[beacon] User UDP listener started on port {BEACON_PORT}")
-        logging.warning(f"[beacon] Current host_ip in config: '{config.get('Offline', 'host_ip', fallback='')}' ")
-        logging.warning(f"[beacon] manual_host_ip flag: '{config.get('Offline', 'manual_host_ip', fallback='false')}'")
-    except Exception as e:
-        logging.error(f"[beacon] FAILED to start user listener: {e}")
-        import traceback
-        logging.error(f"[beacon] Traceback: {traceback.format_exc()}")
+    except Exception:
+        pass
+    _LST_THREAD = threading.Thread(target=_user_listener_loop, name="user-listener", daemon=True)
+    _LST_THREAD.start()
+    logging.info("[beacon] User UDP listener started")
 
 def stop_user_listener():
     try:
@@ -642,11 +617,11 @@ def stop_user_listener():
         if _LST_THREAD and _LST_THREAD.is_alive():
             try:
                 _LST_THREAD.join(timeout=1.5)
-            except Exception as e:
-                logging.debug(f"[beacon] Exception joining listener thread: {e}")
+            except Exception:
+                pass
         _LST_THREAD = None
-    except Exception as e:
-        logging.debug(f"[beacon] Exception stopping user listener: {e}")
+    except Exception:
+        pass
 
 def get_live_fuser_counts_from_beacons(timeout_sec=10):
     """
@@ -696,38 +671,18 @@ def post_ui(fn, *args, **kwargs):
     _UI_QUEUE.put((fn, args, kwargs))
 
 
-def pump_ui_queue(root, interval_ms=33, max_items=10, time_budget_ms=5):
-    """Process queued UI work at ~30 FPS without blocking.
-    
-    Args:
-        root: Tk root window
-        interval_ms: Base interval between pumps (default 33ms = ~30 FPS)
-        max_items: Maximum items to process per tick to prevent frame starvation
-        time_budget_ms: Maximum time budget per tick in milliseconds
-    """
-    import time as _time
-    start_time = _time.perf_counter()
-    items_processed = 0
-    
+def pump_ui_queue(root, interval_ms=33):
+    """Process queued UI work at ~30 FPS without blocking."""
     try:
-        while items_processed < max_items:
-            # Check time budget
-            elapsed_ms = (_time.perf_counter() - start_time) * 1000
-            if elapsed_ms >= time_budget_ms:
-                # Time budget exhausted, yield back to Tk and continue immediately
-                root.after(0, pump_ui_queue, root, interval_ms, max_items, time_budget_ms)
-                return
-            
+        while True:
             fn, args, kwargs = _UI_QUEUE.get_nowait()
             try:
                 fn(*args, **kwargs)
-            except Exception as e:
-                logging.debug(f"[ui-queue] Error in queued callback: {e}")
-            items_processed += 1
+            except Exception:
+                pass
     except Empty:
         pass
-    
-    root.after(interval_ms, pump_ui_queue, root, interval_ms, max_items, time_budget_ms)
+    root.after(interval_ms, pump_ui_queue, root)
 
 # =============================================================================
 # Splash Screen (non-blocking, keeps main focused)
@@ -932,42 +887,33 @@ class SplashScreen(tk.Toplevel):
             except Exception:
                 pass
 
-# --- Log batching (thread-safe) ---
-# Use a Queue instead of StringIO to allow safe writes from worker threads
-_log_queue: Queue = Queue()
+# --- Log batching ---
+_log_buf = io.StringIO()
+_log_dirty = False
 
 
 def ui_log_flush(text_widget):
-    """Flush queued log messages to the UI text widget. Call from UI thread only."""
-    messages = []
-    # Drain all pending messages from the queue (non-blocking)
-    while True:
-        try:
-            msg = _log_queue.get_nowait()
-            messages.append(msg)
-        except Empty:
-            break
-    
-    if messages:
+    global _log_dirty
+    if _log_dirty:
+        text = _log_buf.getvalue()
+        _log_buf.seek(0)
+        _log_buf.truncate(0)
         text_widget.config(state="normal")
-        text_widget.insert("end", "".join(messages))
+        text_widget.insert("end", text)
         text_widget.see("end")
         text_widget.config(state="disabled")
+        _log_dirty = False
 
 
 def ui_log_schedule_flush(root, text_widget, interval_ms=100):
-    """Schedule periodic log flushes. Call once at startup."""
-    try:
-        if root.winfo_exists():
-            ui_log_flush(text_widget)
-            root.after(interval_ms, ui_log_schedule_flush, root, text_widget)
-    except Exception:
-        pass
+    ui_log_flush(text_widget)
+    root.after(interval_ms, ui_log_schedule_flush, root, text_widget)
 
 
 def log_to_console(line: str):
-    """Thread-safe: append a log line to the UI console buffer."""
-    _log_queue.put(line + "\n")
+    global _log_dirty
+    _log_buf.write(line + "\n")
+    _log_dirty = True
 
 # =============================================================================
 # CONSTANTS & GLOBALS
@@ -987,42 +933,14 @@ SHOW_SELECTION_TOAST = False
 # =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
-# Determine log file path - use app directory for installed version
-_LOG_BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) \
-                else os.path.abspath(os.path.dirname(__file__))
-_LOG_FILE_PATH = os.path.join(_LOG_BASE_DIR, 'logs', 'ste_toolkit.log')
-
-# Ensure logs directory exists
-try:
-    os.makedirs(os.path.dirname(_LOG_FILE_PATH), exist_ok=True)
-except Exception:
-    _LOG_FILE_PATH = 'ste_toolkit.log'  # Fallback to current dir
-
-# Create root logger
-_root_logger = logging.getLogger()
-_root_logger.setLevel(logging.DEBUG)
-
-# Prevent duplicate handlers if module is re-imported
-if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', '').endswith('ste_toolkit.log') 
-           for h in _root_logger.handlers):
-    # File handler - captures everything
-    _file_handler = logging.FileHandler(_LOG_FILE_PATH, mode='a', encoding='utf-8')
-    _file_handler.setLevel(logging.DEBUG)
-    _file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    _root_logger.addHandler(_file_handler)
-
-# Prevent duplicate console handlers
-if not any(isinstance(h, logging.StreamHandler) and h.stream == sys.stdout for h in _root_logger.handlers):
-    # Console handler - also shows in terminal
-    _console_handler = logging.StreamHandler(sys.stdout)
-    _console_handler.setLevel(logging.INFO)
-    _console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    _root_logger.addHandler(_console_handler)
-
-# Note: Print monkeypatching was removed - it conflicted with DISABLE_GENERAL_LOGGING
-# and added overhead to every print statement. Use logging.info() directly when needed.
-
-logging.info(f"=== STE Toolkit Starting - Log file: {_LOG_FILE_PATH} ===")
+logging.basicConfig(
+    level=logging.DEBUG,
+    filename='ste_toolkit.log',
+    filemode='a',
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+# Force flush logs immediately to help diagnose startup hangs
+logging.getLogger().handlers[0].setLevel(logging.DEBUG)
 
 # =============================================================================
 # CRASH LOGGING (unhandled exceptions)
@@ -1233,101 +1151,15 @@ def run_hidden(cmd, *, timeout=15, cwd=None, check=False, text=True, capture_out
     )
 
 def get_primary_ipv4() -> str:
-    """Return the primary non-loopback IPv4, preferring wired Ethernet (LAN) over WiFi.
-    
-    REQUIREMENT: "The toolkit should default to the local lan network, but if we need
-    to change the IP to the wireless wifi IP over the lan network we want to force
-    the lan connection"
-    
-    Priority order:
-    1. Wired Ethernet interfaces (Ethernet, LAN, etc.) with DHCP/Manual IP - PREFERRED
-    2. WiFi interfaces with DHCP/Manual IP - fallback only
-    3. Socket-based detection as final fallback
-    
-    This ensures LAN is preferred over WiFi for network stability with fusers.
-    """
-    try:
-        # Method 1: PowerShell-based detection with interface type prioritization
-        # Explicitly prefers Ethernet/LAN/Wired interfaces over WiFi/Wireless
-        ps_cmd = (
-            "$eth = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
-            "Where-Object { $_.IPAddress -notmatch '^169\\.254\\.' -and $_.IPAddress -ne '127.0.0.1' -and $_.PrefixOrigin -in @('Dhcp','Manual') } | "
-            "ForEach-Object { $iface = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; "
-            "$isEthernet = ($iface.Name -match 'Ethernet|LAN|Wired|eth|Local Area') -and ($iface.Name -notmatch 'Wi-?Fi|Wireless|WLAN'); "
-            "[PSCustomObject]@{ IP=$_.IPAddress; Name=$iface.Name; IsEthernet=$isEthernet; Status=$iface.Status } } | "
-            "Where-Object { $_.Status -eq 'Up' } | "
-            "Sort-Object @{Expression={$_.IsEthernet}; Descending=$true}, @{Expression={$_.IP}} | "
-            "Select-Object -First 1 -ExpandProperty IP; "
-            "if ($eth) { $eth }"
-        )
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            creationflags=NO_WINDOW_FLAG
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            ip = result.stdout.strip()
-            if ip and not ip.startswith("169.254."):
-                logging.info(f"[get_primary_ipv4] Detected via PowerShell (LAN preferred): {ip}")
-                return ip
-    except Exception as e:
-        logging.debug(f"[get_primary_ipv4] PowerShell method failed: {e}")
-    
-    # Method 2: Socket-based detection (fast fallback)
+    """Return the primary non-loopback IPv4 without using visible shells."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
-        if ip and not ip.startswith("169.254."):
-            logging.info(f"[get_primary_ipv4] Detected via socket: {ip}")
-            return ip
-    except Exception as e:
-        logging.debug(f"[get_primary_ipv4] Socket method failed: {e}")
-    
-    return ""
-
-
-def get_all_network_interfaces() -> list:
-    """Return a list of all available network interfaces with their IPs.
-    
-    Returns list of dicts: [{'name': str, 'ip': str, 'is_ethernet': bool, 'is_up': bool}]
-    Useful for showing users available network options when manually setting IP.
-    """
-    interfaces = []
-    try:
-        ps_cmd = (
-            "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
-            "Where-Object { $_.IPAddress -notmatch '^169\\.254\\.' -and $_.IPAddress -ne '127.0.0.1' } | "
-            "ForEach-Object { $iface = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; "
-            "$isEthernet = ($iface.Name -match 'Ethernet|LAN|Wired|eth|Local Area') -and ($iface.Name -notmatch 'Wi-?Fi|Wireless|WLAN'); "
-            "[PSCustomObject]@{ IP=$_.IPAddress; Name=$iface.Name; IsEthernet=$isEthernet; Status=$iface.Status } } | "
-            "ConvertTo-Json"
-        )
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            creationflags=NO_WINDOW_FLAG
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            data = json.loads(result.stdout.strip())
-            # Handle both single object and array
-            if isinstance(data, dict):
-                data = [data]
-            for item in data:
-                interfaces.append({
-                    'name': item.get('Name', 'Unknown'),
-                    'ip': item.get('IP', ''),
-                    'is_ethernet': bool(item.get('IsEthernet', False)),
-                    'is_up': item.get('Status', '') == 'Up'
-                })
-    except Exception as e:
-        logging.debug(f"[get_all_network_interfaces] Failed: {e}")
-    return interfaces
+        return ip
+    except Exception:
+        return ""
 
 NO_WINDOW_FLAG = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
 
@@ -1354,23 +1186,15 @@ def network_available_fast() -> bool:
         return False
 
 # =============================================================================
-# SINGLE USE MODE - Standalone offline operation (explicitly selected in installer)
+# SINGLE USE MODE - Automatic offline/standalone operation (User PCs only)
 # =============================================================================
-# Single Use Mode is COMPLETELY INDEPENDENT from Host/User modes.
-# It is ONLY enabled when force_single_use_mode=true is set in config.ini
-# (which happens when user selects "Single Use Mode" in the installer).
-# Default is False - Host and User installs are never affected.
-_SINGLE_USE_MODE = False  # Runtime state - default disabled
+# NOTE: Previously defaulted to True. We keep default True so legacy code that
+# checks early still sees a conservative standalone assumption until detection runs.
+_SINGLE_USE_MODE = True  # Runtime state
 _SINGLE_USE_MANUAL_DISABLED = False  # User pressed "Disable Single Use Mode" in settings for this session
 
 def is_single_use_mode() -> bool:
-    """Return True if running in Single Use Mode (standalone, no network/fusers).
-    
-    Can be overridden in dev with environment variable STE_DISABLE_SINGLE_USE=1
-    """
-    # Dev override: allow disabling Single Use Mode via env var for testing
-    if os.environ.get('STE_DISABLE_SINGLE_USE', '').lower() in ('1', 'true', 'yes'):
-        return False
+    """Return True if running in Single Use Mode (standalone, no network/fusers)."""
     return bool(_SINGLE_USE_MODE)
 
 def enable_single_use_mode(reason: str = "") -> None:
@@ -1406,39 +1230,64 @@ def is_wifi_disabled() -> bool:
         return False
 
 def detect_and_set_single_use_mode() -> None:
-    """Check if Single Use Mode should be enabled.
+    """Auto-detect if we should run in Single Use Mode on USER PCs.
 
-    Single Use Mode is COMPLETELY INDEPENDENT from Host/User modes.
-    It is ONLY enabled when:
-      1. Installer explicitly selected "Single Use Mode" (sets force_single_use_mode=true)
-      2. User manually set force_single_use_mode=true in config.ini
-    
-    Host and User installs are NEVER affected by this - they always disable Single Use Mode.
+    Rules:
+      1. Host PCs (share exists locally) never enter Single Use Mode automatically.
+      2. If user manually disabled Single Use Mode this session, do not re-enable.
+      3. Only enable when ALL of the following hold for a USER PC:
+           - Cannot discover or ping a host IP
+           - AND either Wi-Fi disabled OR general network unavailable
+      4. Config overrides via [General] force_single_use_mode=true/false still apply.
     """
     global _SINGLE_USE_MODE
     try:
         # Manual session override - respect user's explicit disable
         if _SINGLE_USE_MANUAL_DISABLED:
-            logging.info("[SINGLE USE MODE] Manual session override active; skipping")
+            logging.info("[SINGLE USE MODE] Manual session override active; skipping auto-detect")
             return
 
-        # Check config setting - this is the ONLY way to enable Single Use Mode
-        force_single_use = config.get("General", "force_single_use_mode", fallback="false").lower()
-        
-        if force_single_use == "true":
-            # Explicitly enabled via installer or manual config
-            enable_single_use_mode("force_single_use_mode=true in config")
-            return
-        else:
-            # Not explicitly enabled - disable Single Use Mode
-            # This includes Host, User, Update installs - they all have force_single_use_mode=false
+        # Host PCs should never auto-enable Single Use Mode
+        if is_this_pc_the_real_host():
             disable_single_use_mode(manual=False)
-            logging.info("[SINGLE USE MODE] Disabled - force_single_use_mode is not true")
+            logging.info("[SINGLE USE MODE] Host PC detected - forcing disabled")
             return
-            
+
+        # DEV override in config
+        force_single_use = config.get("General", "force_single_use_mode", fallback="").lower()
+        if force_single_use == "true":
+            enable_single_use_mode("config override true")
+            return
+        elif force_single_use == "false":
+            disable_single_use_mode(manual=False)
+            logging.info("[SINGLE USE MODE] Disabled via config override (false)")
+            return
+
+        # Basic network availability
+        net_up = network_available_fast()
+        wifi_off = is_wifi_disabled()
+
+        # Discover host
+        ip = config.get("Offline", "host_ip", fallback="").strip()
+        if not ip:
+            ip = discover_host_ip_quick(timeout_per_host=0.3)
+
+        host_reachable = ip and quick_ping_check(ip, timeout=0.6)
+
+        if host_reachable:
+            disable_single_use_mode(manual=False)
+            logging.info(f"[SINGLE USE MODE] Disabled - Host detected at {ip}")
+            return
+
+        # Host not reachable; decide based on wifi/network state
+        if (not net_up or wifi_off) and not host_reachable:
+            enable_single_use_mode("no host reachable; wifi/network down")
+        else:
+            disable_single_use_mode(manual=False)
+            logging.info("[SINGLE USE MODE] Disabled - network present (awaiting host discovery)")
     except Exception as e:
-        logging.warning(f"[SINGLE USE MODE] Detection error ({e}); defaulting to disabled")
-        disable_single_use_mode(manual=False)
+        logging.warning(f"[SINGLE USE MODE] Detection error ({e}); enabling conservative standalone fallback")
+        enable_single_use_mode("exception fallback")
 
 # =============================================================================
 # SINGLETON / PROCESS GUARD
@@ -1491,24 +1340,18 @@ _UNC_SESS_COOLDOWN = 120
 _NET_USE_LAST_TS = 0.0
 _NET_USE_MIN_GAP = 1.0     # at least 1s between 'net use' calls
 
-def quick_ping_check(host_ip: str, timeout: float = 0.5) -> bool:
-    """Quick ping check to avoid spinning up SMB when host is plainly offline.
-    
-    Uses Windows ping with minimal timeout for fast response.
-    """
+def quick_ping_check(host_ip: str, timeout: float = 0.8) -> bool:
+    """Quick ping check to avoid spinning up SMB when host is plainly offline."""
     if not host_ip:
         return False
         
     try:
-        # Convert timeout to ms for -w flag (minimum 100ms for reliability)
-        ping_timeout_ms = max(100, int(timeout * 1000))
-        
         # Use ping with short timeout and single attempt
         result = subprocess.run(
-            ["ping", "-n", "1", "-w", str(ping_timeout_ms), host_ip],
+            ["ping", "-n", "1", "-w", "400", host_ip],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=timeout + 0.3,  # Give subprocess a bit more than ping timeout
+            timeout=timeout,
             creationflags=0x08000000 
         )
         return result.returncode == 0
@@ -1588,67 +1431,48 @@ def quick_unc_check(unc_path, timeout=3):
         return False
 
 def discover_host_ip_quick(timeout_per_host: float = 0.5) -> str:
-    r"""Best-effort discovery of the Host IP.
+    r"""Best-effort discovery of the Host IP on the local subnet.
 
     Strategy:
-    - If this PC IS the host (has SharedMeshDrive share), return this PC's IP directly.
     - If Offline.host_ip exists and is reachable (ping + UNC probe), use it.
-    - Otherwise, check if beacon cache has a host IP from recent broadcasts.
-    
-    NOTE: We do NOT scan hard-coded subnet IPs because host IP varies by location.
-    The primary discovery mechanism is via UDP beacons from the Host PC.
-    Returns the first valid IP or ''.
+    - Otherwise, ARP-scan likely gateway and a small range of last octets (1,10,20,50,100):
+      try \\<candidate>\SharedMeshDrive fast with quick checks.
+    Returns the first responding IP or ''. Non-blocking per host with tight timeouts.
     """
-    logging.info("[discover] discover_host_ip_quick() called")
     try:
-        # 1) CRITICAL: If this PC IS the host, return our own IP immediately
-        # This prevents the Host from discovering other hosts or old IPs
-        if is_this_pc_the_real_host():
-            local_ip = get_primary_ipv4()
-            if local_ip:
-                logging.info(f"[discover] This PC is the Host - using own IP: {local_ip}")
-                return local_ip
-        
-        # 2) For non-Host PCs: Use configured IP if valid and reachable
-        ip = safe_config_get("Offline", "host_ip", "")
-        logging.info(f"[discover] Current config host_ip: '{ip}'")
+        # 1) Use configured IP if valid
+        ip = config.get("Offline", "host_ip", fallback="").strip()
         if ip:
-            reachable = quick_ping_check(ip, timeout=timeout_per_host)
-            logging.info(f"[discover] Ping check for {ip}: reachable={reachable}")
-            if reachable or can_access_unc(rf"\\{ip}\SharedMeshDrive"):
-                logging.info(f"[discover] Using existing reachable IP: {ip}")
+            if quick_ping_check(ip, timeout=timeout_per_host) or can_access_unc(rf"\\{ip}\SharedMeshDrive"):
                 return ip
-            else:
-                logging.info(f"[discover] Configured IP {ip} not reachable, checking beacon cache...")
-        else:
-            logging.info("[discover] No host_ip in config, checking beacon cache...")
-        
-        # 3) Check beacon cache for any host beacons we've received
-        # The beacon listener runs in background and caches discovered hosts
-        with _BEACON_CACHE_LOCK:
-            cache_size = len(_BEACON_CACHE)
-            logging.info(f"[discover] Beacon cache has {cache_size} entries")
-            for pc_name, data in _BEACON_CACHE.items():
-                logging.info(f"[discover] Beacon cache entry: PC='{pc_name}', role='{data.get('role')}', ip='{data.get('ip')}')")
-                if data.get("role") == "host":
-                    beacon_ip = data.get("ip", "").strip()
-                    if beacon_ip:
-                        logging.info(f"[discover] Found host IP from beacon cache: {beacon_ip} (PC: {pc_name})")
-                        return beacon_ip
-        
-        # 4) No IP found - beacon listener will update when host broadcasts
-        logging.debug("[discover] No host IP found - waiting for beacon broadcast from Host PC")
-        return ""
-        
-    except Exception as e:
-        logging.warning(f"[discover] Error during discovery: {e}")
+        # 2) Try common candidates on the local subnet
+        local = get_primary_ipv4()
+        if not local or local.count(".") != 3:
+            return ""
+        parts = local.split(".")
+        base = ".".join(parts[:3])
+        candidates = [
+            f"{base}.1",
+            f"{base}.10",
+            f"{base}.20",
+            f"{base}.50",
+            f"{base}.100",
+        ]
+        for cand in candidates:
+            try:
+                if quick_ping_check(cand, timeout=timeout_per_host):
+                    if can_access_unc(rf"\\{cand}\SharedMeshDrive") or quick_unc_check(rf"\\{cand}\SharedMeshDrive", timeout=1):
+                        return cand
+            except Exception:
+                continue
+    except Exception:
+        pass
     return ""
 
 def auto_connect_shared_working_folder() -> bool:
     """Ensure Offline.host_ip is discovered and connect to WorkingFuser UNC.
 
-    - If IP was manually set, uses it without discovery.
-    - Otherwise discovers host IP if missing.
+    - Discovers host IP if missing.
     - Updates Offline.host_ip and Fusers.working_folder_host.
     - Tries to connect silently to the share root and verifies the WorkingFuser path.
     Returns True on success, False otherwise.
@@ -1656,43 +1480,14 @@ def auto_connect_shared_working_folder() -> bool:
     if is_single_use_mode():
         return False
     try:
-        # CRITICAL: If this PC IS the host, use local paths directly - no SMB needed
-        if is_this_pc_the_real_host():
-            o = get_offline_cfg()
-            local_root = o.get("local_data_root", "").strip()
-            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
-            if local_root and os.path.isdir(local_root):
-                local_working = os.path.join(local_root, wf_sub)
-                if os.path.exists(local_working):
-                    logging.info(f"[autoconnect] Host PC - using local path: {local_working}")
-                    return True
-                # Try to create
-                try:
-                    os.makedirs(local_working, exist_ok=True)
-                    logging.info(f"[autoconnect] Host PC - created local folder: {local_working}")
-                    return True
-                except Exception as e:
-                    logging.warning(f"[autoconnect] Host PC - could not create folder: {e}")
-            logging.debug("[autoconnect] Host PC - local_data_root not configured or missing")
-            return True  # Host is still valid even if folder doesn't exist yet
-        
         o = get_offline_cfg()
         ip = (o.get("host_ip") or "").strip()
-        manual_ip = o.get("manual_host_ip", "false").lower() == "true"
-        
-        # If IP was manually set, use it even if unreachable (user knows what they're doing)
-        if not ip or (not manual_ip and not quick_ping_check(ip, timeout=0.5)):
-            # Only discover if IP not manually set
-            if not manual_ip:
-                discovered_ip = discover_host_ip_quick()
-                if discovered_ip and discovered_ip != ip:
-                    logging.info(f"[autoconnect] Auto-discovered new host IP: {discovered_ip}")
-                    # Use from_beacon=True since this is auto-discovery, not manual
-                    set_host_ip(discovered_ip, from_beacon=True)
-                    ip = discovered_ip
+        if not ip:
+            ip = discover_host_ip_quick()
+            if ip:
+                set_host_ip(ip)
 
         if not ip:
-            logging.debug("[autoconnect] No host IP available (manual or discovered)")
             return False
 
         # Try to connect to the share root quickly
@@ -1712,7 +1507,7 @@ def auto_connect_shared_working_folder() -> bool:
             return True
 
         # User can manually connect via Settings → Test Access if needed
-        logging.debug(f"[autoconnect] Share not immediately accessible at {ip}")
+        logging.info(f"[autoconnect] Share not immediately accessible, skipping (on-demand connection)")
         return False
         
     except Exception as e:
@@ -1955,17 +1750,9 @@ def debug_network_connection(unc_path):
         print("   → You may need to provide username and password")
 
 def clear_offline_ip_configuration():
-    """Clear the offline IP configuration to stop automatic connection attempts.
-    
-    NOTE: Will NOT clear if manual_host_ip is true (user has manually set the IP).
-    """
+    """Clear the offline IP configuration to stop automatic connection attempts."""
     try:
         global config
-        
-        # CRITICAL: Do NOT clear if user has manually set the IP
-        if config.get("Offline", "manual_host_ip", fallback="false").lower() == "true":
-            logging.info("[clear_offline] Skipping clear - manual_host_ip is set to true (user-configured IP)")
-            return False
         
         # Clear the offline host IP
         if "Offline" in config:
@@ -2140,83 +1927,57 @@ def check_network_share_status():
     - 'unconfigured': No share configured
     - 'error': Error during check
     
-    Optimized for speed:
-    - Host PCs check local path instantly (no network)
-    - User PCs do quick ping first, then UNC check only if ping succeeds
+    Uses aggressive timeouts (1s quick check, 2s fallback) to rapidly detect
+    drive disconnection events like USB unplugging.
     """
     try:
-        # FAST PATH: Host PC with local path - instant check
-        if is_this_pc_the_real_host():
-            try:
-                o = get_offline_cfg()
-                if not isinstance(o, dict):
-                    o = {}
-                local_root = str(o.get("local_data_root", "") or "").strip()
-                wf_sub = str(o.get("working_fuser_subdir", "WorkingFuser") or "WorkingFuser").strip() or "WorkingFuser"
-            except Exception as e:
-                logging.warning(f"[share-status] Error reading config for host check: {e}")
-                local_root = ""
-                wf_sub = "WorkingFuser"
-            if local_root:
-                local_working = os.path.join(local_root, wf_sub)
-                if os.path.isdir(local_working):
-                    return 'local', f"● Local: {os.path.basename(local_root)}", "#00BFFF"
-                elif os.path.isdir(local_root):
-                    return 'local', f"● Local: {os.path.basename(local_root)}", "#00BFFF"
-                else:
-                    return 'error', f"● Local path missing", "#FF4500"
-        
         unc_path = resolve_shared_access_path()
-        
-        # Ensure unc_path is a string
-        if not isinstance(unc_path, str):
-            logging.warning(f"[share-status] Invalid unc_path type: {type(unc_path)}")
-            return 'error', "● Configuration error", "#FF4500"
-        
         if not unc_path:
-            return 'unconfigured', "● No network path configured", "#FFA500"
+            return 'unconfigured', "● No network path configured", "#FFA500"  # Orange
         
-        # If it's a local path, just check if it exists (instant)
+        # If it's a local path (Host PC), just check if it exists
         if not unc_path.startswith("\\\\"):
-            if os.path.isdir(unc_path):
-                return 'local', f"● Local: {os.path.basename(unc_path)}", "#00BFFF"
+            if os.path.exists(unc_path):
+                return 'local', f"● Local: {os.path.basename(unc_path)}", "#00BFFF"  # Sky blue
             else:
-                return 'error', f"● Local path missing", "#FF4500"
+                return 'error', f"● Local path missing: {os.path.basename(unc_path)}", "#FF4500"  # Orange-red
         
-        # FAST PATH: Quick ping to host IP first (much faster than UNC check)
+        # Quick check first (fast path) - aggressive 1 second timeout for fast disconnect detection
+        if quick_unc_check(unc_path, timeout=1):
+            # Extract just the share name for cleaner display
+            share_name = unc_path.split('\\')[3] if len(unc_path.split('\\')) > 3 else unc_path
+            return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
+        
+        # Fallback: slower filesystem check with 2 second timeout
         try:
-            o = get_offline_cfg()
-            if not isinstance(o, dict):
-                o = {}
-            host_ip = str(o.get("host_ip", "") or "").strip()
-            share_name = str(o.get("share_name", "SharedMeshDrive") or "SharedMeshDrive").strip()
-        except Exception as e:
-            logging.warning(f"[share-status] Error reading config for UNC check: {e}")
-            host_ip = ""
-            share_name = "SharedMeshDrive"
+            result_queue = Queue()
+            def _check_exists():
+                try:
+                    result_queue.put(os.path.exists(unc_path))
+                except:
+                    result_queue.put(False)
+            
+            t = threading.Thread(target=_check_exists, daemon=True)
+            t.start()
+            t.join(2.0)  # 2 second timeout for fallback check
+            
+            if not result_queue.empty() and result_queue.get_nowait():
+                share_name = unc_path.split('\\')[3] if len(unc_path.split('\\')) > 3 else unc_path
+                return 'connected', f"● Connected: {share_name}", "#00FF00"  # Green
+        except:
+            pass
         
-        if host_ip:
-            # Quick ping with 0.3 second timeout - if this fails, host is definitely down
-            if not quick_ping_check(host_ip, timeout=0.3):
-                return 'disconnected', f"○ Host {host_ip} unreachable", "#FF0000"
-        
-        # Host responded to ping - do quick os.path.isdir since host is known up
-        # This is faster than full quick_unc_check which tries net view, dir, etc.
-        try:
-            if os.path.isdir(unc_path):
-                return 'connected', f"● Connected: {share_name}", "#00FF00"
-        except Exception:
-            pass  # Fall through to disconnected
-        
-        # Ping succeeded but path check failed - share may not exist or permissions issue
-        if host_ip:
-            return 'disconnected', f"○ Share not accessible on {host_ip}", "#FFA500"
+        # Not accessible - drive may be disconnected/unplugged
+        host_ip = config.get("Offline", "host_ip", fallback="").strip()
+        share_name = config.get("Offline", "share_name", fallback="").strip()
+        if host_ip and share_name:
+            return 'disconnected', f"○ Disconnected from {host_ip}", "#FF0000"  # Red
         else:
-            return 'unconfigured', "○ Share not configured", "#FFA500"
+            return 'unconfigured', "○ Share not configured", "#FFA500"  # Orange
             
     except Exception as e:
         logging.error(f"[share-status] Error checking share: {e}")
-        return 'error', f"● Error: {str(e)[:30]}", "#FF4500"
+        return 'error', f"● Error: {str(e)[:30]}", "#FF4500"  # Orange-red
 
 def _compute_working_unc_from_cfg():
     """
@@ -2238,29 +1999,6 @@ def connect_working_share_interactive(parent=None, silent=True):
     Uses the new SMB session cache to prevent ERROR 1219 collisions.
     Returns True if the working UNC is accessible.
     """
-    # CRITICAL: If this is the Host PC, skip ALL SMB attempts and use local path directly
-    # This prevents the Host from trying to connect to itself via SMB
-    try:
-        if is_this_pc_the_real_host():
-            o = get_offline_cfg()
-            local_root = o.get("local_data_root", "").strip()
-            wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
-            if local_root and os.path.isdir(local_root):
-                local_working = os.path.join(local_root, wf_sub)
-                if os.path.exists(local_working) or os.path.exists(local_root):
-                    logging.info(f"[connect] Host PC - using local path directly: {local_working}")
-                    return True
-                # Try to create the working folder
-                try:
-                    os.makedirs(local_working, exist_ok=True)
-                    logging.info(f"[connect] Host PC - created local working folder: {local_working}")
-                    return True
-                except Exception as e:
-                    logging.warning(f"[connect] Host PC - failed to create local folder: {e}")
-            logging.debug("[connect] Host PC detected but local_data_root not configured")
-    except Exception as e:
-        logging.debug(f"[connect] Host check failed: {e}")
-    
     unc_root, working_unc = _compute_working_unc_from_cfg()
     if not unc_root:
         logging.warning("[connect] No UNC root configured")
@@ -2328,32 +2066,6 @@ def connect_working_share_interactive(parent=None, silent=True):
         logging.error(f"[connect] Error trying credential fallback: {e}")
     logging.error(f"[connect] Failed to connect to {working_unc}")
     return False
-
-
-def connect_working_share_async(callback=None, parent=None):
-    """
-    Async wrapper for connect_working_share_interactive.
-    Runs the connection logic in a background thread to prevent UI blocking.
-    
-    Args:
-        callback: Function to call with result (True/False) on UI thread. Optional.
-        parent: Parent widget (unused, kept for API compatibility).
-    
-    Usage:
-        connect_working_share_async(lambda success: print(f"Connected: {success}"))
-    """
-    def _work():
-        try:
-            result = connect_working_share_interactive(parent=None, silent=True)
-        except Exception as e:
-            logging.error(f"[connect-async] Error in background connection: {e}")
-            result = False
-        
-        if callback:
-            post_ui(callback, result)
-    
-    run_in_thread(_work)
-
 
 def _unc_usable(unc_root: str) -> bool:
     """Tolerant UNC availability check.
@@ -2441,17 +2153,15 @@ def _heartbeat_path_for_this_pc() -> str:
     name = f"{platform.node()}({_machine_ip_fast()})"
     return os.path.join(root, f"{name}.json")
 
-def _atomic_write_json(path: str, data: dict) -> bool:
-    """Atomically write JSON to path (best effort). Returns True on success."""
+def _atomic_write_json(path: str, data: dict) -> None:
+    """Atomically write JSON to path (best effort)."""
     try:
         tmp = f"{path}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, separators=(",", ":"))
         os.replace(tmp, path)
-        return True
-    except Exception as e:
-        logging.warning(f"[presence] _atomic_write_json failed for {path}: {e}")
-        return False
+    except Exception:
+        pass
 
 def write_presence_heartbeat() -> None:
     """Write/update our presence file on the WorkingFuser share."""
@@ -2472,11 +2182,8 @@ def write_presence_heartbeat() -> None:
         "ts": int(time.time()),
         "fusers": count_local_fusers(),
     }
-    success = _atomic_write_json(p, payload)
-    if success:
-        logging.debug(f"[presence] Heartbeat written successfully to {p}")
-    else:
-        logging.warning(f"[presence] Failed to write heartbeat to {p}")
+    _atomic_write_json(p, payload)
+    logging.debug(f"[presence] Heartbeat written successfully to {p}")
 
 def cleanup_stale_presence() -> None:
     """Delete very old heartbeats (> 24h) to keep the folder tidy."""
@@ -2499,16 +2206,12 @@ def cleanup_stale_presence() -> None:
             pass
 
 def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
-    """Return list of active PCs by scanning KeepAlive files, heartbeat files, and SeedFuser folders.
+    """Return list of active PCs by scanning SeedFuser folders in WorkingFuser root.
     
-    Detection sources (in order of reliability):
-    1. KeepAlive JSON files in WorkingFuser root (updated by fusers every ~10s, most reliable)
-    2. Heartbeat JSON files in _clients folder (updated by STE_Toolkit every 20s)
-    3. SeedFuser folders in WorkingFuser root (fallback for PCs with running fusers)
+    Each PC creates exactly one SeedFuser folder with pattern:
+    <PCNAME>(<IP>)_SeedFuser (e.g., HAMMERKIT1-2(192.168.10.115)_SeedFuser)
     
-    Each fuser writes a KeepAlive file with pattern: KeepAlive_PCNAME(IP)_N.json
-    Each PC writes a heartbeat JSON file with pattern: PCNAME(IP).json
-    Each PC creates SeedFuser folders with pattern: PCNAME(IP)_SeedFuser
+    We scan ONLY these SeedFuser folders to detect unique connected PCs.
     """
     # Get WorkingFuser root
     try:
@@ -2539,100 +2242,10 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
             logging.debug(f"[presence] scan: local path doesn't exist: {root}")
             return []
     
-    pc_map = {}  # Deduplicate by PC name: {pc_name: {"pc", "ip", "fusers", "ts"}}
-    now = time.time()
-    KEEPALIVE_TTL_SECS = 120  # 2 minutes for KeepAlive files
+    # Scan ONLY for SeedFuser folders - one per PC
+    out = []
+    pc_map = {}  # Deduplicate by PC name: {pc_name: {"pc", "ip", "fusers"}}
     
-    # METHOD 1: Scan KeepAlive files in WorkingFuser root (PRIMARY - most reliable, written by fusers)
-    # Pattern: KeepAlive_PCNAME(IP)_N.json where N is the fuser instance number
-    try:
-        for item in os.listdir(root):
-            if not (item.startswith('KeepAlive_') and item.endswith('.json')):
-                continue
-            
-            filepath = os.path.join(root, item)
-            if not os.path.isfile(filepath):
-                continue
-            
-            try:
-                # Use file modification time as freshness indicator
-                mtime = os.path.getmtime(filepath)
-                age = now - mtime
-                
-                # Skip stale KeepAlive files if active_only
-                if active_only and age > KEEPALIVE_TTL_SECS:
-                    continue
-                
-                # Parse PC name and IP from filename: KeepAlive_PCNAME(IP)_N.json
-                # Remove prefix and suffix
-                name_part = item[len('KeepAlive_'):-len('.json')]  # PCNAME(IP)_N
-                
-                # Remove the instance number suffix (_N)
-                if '_' in name_part:
-                    # Split from the right to handle PC names with underscores
-                    parts = name_part.rsplit('_', 1)
-                    if len(parts) == 2 and parts[1].isdigit():
-                        name_part = parts[0]  # PCNAME(IP)
-                
-                # Extract PC name and IP
-                if '(' in name_part and ')' in name_part:
-                    pc_name = name_part.split('(')[0]
-                    ip_part = name_part.split('(')[1].split(')')[0]
-                    
-                    # Count or increment fuser count for this PC
-                    if pc_name in pc_map:
-                        pc_map[pc_name]["fusers"] += 1
-                        # Keep the most recent timestamp
-                        if mtime > pc_map[pc_name].get("ts", 0):
-                            pc_map[pc_name]["ts"] = mtime
-                    else:
-                        pc_map[pc_name] = {
-                            "pc": pc_name,
-                            "ip": ip_part,
-                            "fusers": 1,
-                            "ts": mtime
-                        }
-                    logging.debug(f"[presence] scan: found PC from KeepAlive: {pc_name} ({ip_part}) age={age:.0f}s")
-            except Exception as e:
-                logging.debug(f"[presence] scan: error processing KeepAlive {item}: {e}")
-    except Exception as e:
-        logging.debug(f"[presence] scan: error listing root for KeepAlive: {e}")
-    
-    # METHOD 2: Scan heartbeat JSON files in _clients folder (written by STE_Toolkit)
-    clients_dir = os.path.join(root, HEARTBEAT_DIR_NAME)
-    if os.path.isdir(clients_dir):
-        try:
-            for filename in os.listdir(clients_dir):
-                if not filename.endswith('.json'):
-                    continue
-                filepath = os.path.join(clients_dir, filename)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    
-                    pc_name = data.get("pc", "unknown")
-                    ts = float(data.get("ts", 0))
-                    
-                    # Skip stale heartbeats if active_only (older than 90 seconds)
-                    if active_only and (now - ts) > HEARTBEAT_TTL_SECS:
-                        logging.debug(f"[presence] scan: stale heartbeat for {pc_name} (age={now-ts:.0f}s)")
-                        continue
-                    
-                    # Only add if not already found via KeepAlive (KeepAlive is more reliable)
-                    if pc_name not in pc_map:
-                        pc_map[pc_name] = {
-                            "pc": pc_name,
-                            "ip": data.get("ip", "unknown"),
-                            "fusers": data.get("fusers", 0),
-                            "ts": ts
-                        }
-                        logging.debug(f"[presence] scan: found PC from heartbeat: {pc_name} ({data.get('ip', '?')}) fusers={data.get('fusers', 0)}")
-                except Exception as e:
-                    logging.debug(f"[presence] scan: error reading heartbeat {filename}: {e}")
-        except Exception as e:
-            logging.debug(f"[presence] scan: error listing _clients dir: {e}")
-    
-    # METHOD 3: Scan SeedFuser folders as fallback (for PCs that may not have written heartbeats yet)
     try:
         for item in os.listdir(root):
             item_path = os.path.join(root, item)
@@ -2659,32 +2272,20 @@ def scan_connected_fuser_pcs(active_only: bool = True) -> list[dict]:
                 pc_name = name_part.split('(')[0]
                 ip_part = name_part.split('(')[1].split(')')[0]
                 
-                # Only add if not already found via heartbeat (heartbeat is more reliable)
+                # Add to map (deduplicate by PC name)
                 if pc_name not in pc_map:
-                    # Check folder modification time for freshness
-                    try:
-                        mtime = os.path.getmtime(item_path)
-                        age = now - mtime
-                        # Skip folders older than 5 minutes if active_only
-                        if active_only and age > 300:
-                            logging.debug(f"[presence] scan: stale SeedFuser for {pc_name} (age={age:.0f}s)")
-                            continue
-                    except Exception:
-                        pass
-                    
                     pc_map[pc_name] = {
                         "pc": pc_name,
                         "ip": ip_part,
-                        "fusers": 1,  # SeedFuser indicates at least 1 fuser
-                        "ts": 0  # No timestamp for folder-based detection
+                        "fusers": 1  # SeedFuser indicates PC is connected
                     }
                     logging.debug(f"[presence] scan: found PC from SeedFuser: {pc_name} ({ip_part})")
         
+        out = list(pc_map.values())
+        logging.debug(f"[presence] scan: found {len(out)} unique PCs via SeedFuser folders")
+        
     except Exception as e:
         logging.warning(f"[presence] scan: error scanning directory {root}: {e}")
-    
-    out = list(pc_map.values())
-    logging.debug(f"[presence] scan: found {len(out)} unique PCs total")
     
     return out
 
@@ -2729,23 +2330,11 @@ def get_connected_pcs_summary() -> dict:
     return summary
 
 def _presence_loop():
-    """Background thread that writes heartbeat every ~20s and cleans stale folders hourly."""
-    last_stale_cleanup = 0
-    stale_cleanup_interval = 3600  # 1 hour between stale folder cleanups
-    
+    """Background thread that writes heartbeat every ~20s."""
     while not _HB_STOP.is_set():
         try:
             write_presence_heartbeat()
             cleanup_stale_presence()
-            
-            # Periodic stale folder cleanup (once per hour)
-            now = time.time()
-            if now - last_stale_cleanup > stale_cleanup_interval:
-                try:
-                    cleanup_stale_fuser_folders(max_age_hours=24.0)
-                    last_stale_cleanup = now
-                except Exception as e:
-                    logging.debug(f"[presence] Stale folder cleanup failed: {e}")
         except Exception:
             pass
         _HB_STOP.wait(20.0)
@@ -2787,12 +2376,6 @@ def stop_presence_service():
         if p and os.path.isfile(p):
             os.remove(p)
             logging.info("[presence] Heartbeat file removed")
-        
-        # Clean up our fuser folders on exit
-        try:
-            cleanup_our_fuser_folders()
-        except Exception as e:
-            logging.debug(f"[presence] Folder cleanup on exit failed: {e}")
     except Exception:
         pass
 
@@ -2880,70 +2463,6 @@ def extract_progress(line: str) -> int | None:
             return int(done / total * 100)
     return None
 
-
-# Global cache for tail-reading log files to avoid re-reading entire files
-_LOG_READ_OFFSETS: dict = {}  # path -> (last_offset, last_mtime, last_progress)
-
-
-def tail_read_progress(log_path: str, chunk_size: int = 8192) -> int | None:
-    """
-    Efficiently read progress from a log file by seeking from the end.
-    Caches the last read position to avoid re-reading the entire file.
-    
-    Args:
-        log_path: Path to the log file
-        chunk_size: Number of bytes to read from the end (default 8KB)
-        
-    Returns:
-        Progress percentage (0-100) if found, None otherwise
-    """
-    global _LOG_READ_OFFSETS
-    
-    try:
-        stat_info = os.stat(log_path)
-        file_size = stat_info.st_size
-        mtime = stat_info.st_mtime
-        
-        # Check cache - if file hasn't changed, return cached progress
-        cache_entry = _LOG_READ_OFFSETS.get(log_path)
-        if cache_entry:
-            last_offset, last_mtime, last_progress = cache_entry
-            if mtime == last_mtime and last_offset >= file_size:
-                return last_progress
-        
-        if file_size == 0:
-            return None
-        
-        # Read from near the end of the file
-        read_start = max(0, file_size - chunk_size)
-        
-        with open(log_path, 'rb') as f:
-            f.seek(read_start)
-            data = f.read(chunk_size)
-        
-        # Decode and scan for progress (scan from end to find latest)
-        try:
-            text = data.decode('utf-8', errors='ignore')
-        except Exception:
-            text = data.decode('latin-1', errors='ignore')
-        
-        lines = text.splitlines()
-        progress = None
-        for line in reversed(lines):
-            p = extract_progress(line)
-            if p is not None:
-                progress = p
-                break
-        
-        # Cache the result
-        _LOG_READ_OFFSETS[log_path] = (file_size, mtime, progress)
-        
-        return progress
-        
-    except Exception as e:
-        logging.debug(f"[tail_read_progress] Error reading {log_path}: {e}")
-        return None
-
 # =============================================================================
 # NETWORK / PATH HELPERS
 # =============================================================================
@@ -2981,78 +2500,6 @@ def _exe_version_tuple(exe: str) -> tuple[int, ...] | None:
         return ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF
     except Exception:
         return None
-
-def _extract_vbs4_version_from_path(path: str) -> tuple[int, ...]:
-    """Attempt to extract a version tuple from any VBS4-related path segment.
-
-    Supports patterns:
-        VBS4_25.2, VBS4 25.2, VBS4-25.2.1, VBS4_25, VBS4 25.3.1
-    Falls back to first naked version-like segment if preceded by VBS4 elsewhere.
-    Returns empty tuple on failure.
-    """
-    path_parts = re.split(r'[\\/]', path)
-    version_pat = re.compile(r'^VBS4[ _.-]*(\d+(?:\.\d+){0,3})$', re.IGNORECASE)
-    for part in path_parts:
-        m = version_pat.match(part)
-        if m:
-            ver_str = m.group(1)
-            try:
-                return tuple(int(x) for x in ver_str.split('.'))
-            except ValueError:
-                return ()
-    # Secondary: if any part is exactly VBS4 and a later part looks like version digits
-    if any(p.upper() == 'VBS4' for p in path_parts):
-        bare_version_pat = re.compile(r'^(\d+)(?:\.\d+){0,3}$')
-        for part in path_parts:
-            if bare_version_pat.match(part):
-                try:
-                    return tuple(int(x) for x in part.split('.'))
-                except ValueError:
-                    return ()
-    return ()  # empty tuple signals 'no version found'
-
-def _extract_blueig_version_from_path(path: str) -> tuple[int, ...]:
-    """Extract BlueIG version tuple from any path segment.
-    Matches: BlueIG_7.2, BlueIG 7.2.1, BlueIG-7, Blue IG 7.3
-    Returns empty tuple if not found.
-    """
-    parts = re.split(r'[\\/]', path)
-    pattern = re.compile(r'^Blue\s*IG[ _.-]*(\d+(?:\.\d+){0,3})$', re.IGNORECASE)
-    for part in parts:
-        m = pattern.match(part)
-        if m:
-            try:
-                return tuple(int(x) for x in m.group(1).split('.'))
-            except ValueError:
-                return ()
-    # Fallback: if "BlueIG" present and later a naked version segment
-    if any(re.match(r'^Blue\s*IG$', p, re.IGNORECASE) for p in parts):
-        naked = re.compile(r'^\d+(?:\.\d+){0,3}$')
-        for part in parts:
-            if naked.match(part):
-                try:
-                    return tuple(int(x) for x in part.split('.'))
-                except ValueError:
-                    return ()
-    return ()
-
-def _extract_ares_version_from_path(path: str) -> tuple[int, ...]:
-    """Extract ARES/Manager version from path segments.
-    Matches segments like ARESdevreleasev7.1 or ARES-v7.2 or Manager_v7.3
-    Uses existing get_bvi_version style but simplified.
-    Returns empty tuple if none.
-    """
-    parts = re.split(r'[\\/]', path)
-    pattern = re.compile(r'^ARES.*?v?(\d+(?:\.\d+){0,3})$', re.IGNORECASE)
-    for part in parts:
-        m = pattern.match(part)
-        if m:
-            ver_str = m.group(1)
-            try:
-                return tuple(int(x) for x in ver_str.split('.'))
-            except ValueError:
-                return ()
-    return ()
 
 def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str:
     """Return the best VBS4.exe path found on the system.
@@ -3096,65 +2543,22 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
     roots = []
     
     # Add version-specific paths first (most likely to contain latest VBS4)
-    # Search patterns for common VBS4 installation structures
-    # Support nested VBS4 subdirectories (e.g., C:\Builds\VBS4\VBS4\VBS4_25.1)
-    builds_bases = [
-        r"C:\Builds\VBS4",
-        r"C:\Builds",
-    ]
-    # Prioritize versioned VBS4 root folders (e.g. VBS4_25.2 or VBS4 25.2)
-    try:
-        _version_root = r"C:\Builds\VBS4"
-        if os.path.isdir(_version_root):
-            for _entry in os.listdir(_version_root):
-                if re.match(r"^VBS4[ _][0-9]+(?:\.[0-9]+)?$", _entry, re.IGNORECASE):
-                    _full = os.path.join(_version_root, _entry)
-                    if _full not in roots:
-                        roots.append(_full)
-    except Exception:
-        pass
-    
-    def _scan_for_vbs4_folders(base_path, max_depth=3, current_depth=0):
-        """Recursively scan for VBS4-related folders up to max_depth levels."""
-        if current_depth >= max_depth or not os.path.isdir(base_path):
-            return []
-        
-        found_folders = []
+    builds_vbs4_base = r"C:\Builds\VBS4"
+    if os.path.isdir(builds_vbs4_base):
         try:
-            for entry in os.listdir(base_path):
-                entry_path = os.path.join(base_path, entry)
-                if not os.path.isdir(entry_path):
-                    continue
-                
-                entry_upper = entry.upper()
-                # Match VBS4 patterns: "VBS4", "VBS4 25.1", "VBS4_25.1", version numbers, "YYMEA"
-                is_vbs4_folder = (
-                    "VBS4" in entry_upper or 
-                    "YYMEA" in entry_upper or 
-                    re.search(r'VBS4[_\s.]?\d+', entry, re.IGNORECASE) or
-                    re.search(r'\d+\.\d+', entry)
-                )
-                
-                if is_vbs4_folder:
-                    found_folders.append(entry_path)
-                    # Continue scanning deeper into VBS4 folders
-                    if "VBS4" in entry_upper:
-                        found_folders.extend(_scan_for_vbs4_folders(entry_path, max_depth, current_depth + 1))
+            # Look for version-numbered subdirectories first
+            version_folders = []
+            for entry in os.listdir(builds_vbs4_base):
+                entry_path = os.path.join(builds_vbs4_base, entry)
+                if os.path.isdir(entry_path):
+                    # Add version folders like "VBS4 25.1 YYMEA_General"
+                    if "VBS4" in entry or "YYMEA" in entry or re.search(r'\d+\.\d+', entry):
+                        version_folders.append(entry_path)
+                        roots.append(entry_path)
+            if version_folders:
+                logging.info("[discover] Found %d VBS4 version folders in %s", len(version_folders), builds_vbs4_base)
         except (OSError, PermissionError) as e:
-            if current_depth == 0:
-                logging.warning("[discover] Could not list %s: %s", base_path, e)
-        
-        return found_folders
-    
-    for builds_base in builds_bases:
-        if os.path.isdir(builds_base):
-            vbs4_folders = _scan_for_vbs4_folders(builds_base, max_depth=3)
-            roots.extend(vbs4_folders)
-            if vbs4_folders:
-                logging.info("[discover] Found %d VBS4 folders in %s (including nested)", len(vbs4_folders), builds_base)
-    
-    if roots:
-        logging.info("[discover] Found %d VBS4 version folders", len(roots))
+            logging.warning("[discover] Could not list %s: %s", builds_vbs4_base, e)
     
     # Add standard search roots
     roots.extend([
@@ -3168,7 +2572,6 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
         roots.append(r"C:\\")
 
     best_path = ""
-    # Key layout: (has_version, version_tuple, mtime)
     best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
 
     for root in roots:
@@ -3193,13 +2596,8 @@ def get_vbs4_install_path(*, time_budget_sec=0.9, allow_full_drive=False) -> str
                     continue
                 exe_path = os.path.join(dirpath, name)
                 ver = _exe_version_tuple(exe_path)
-                path_ver = _extract_vbs4_version_from_path(exe_path)
-                version_tuple = ver or path_ver or ()
-                try:
-                    mtime = os.path.getmtime(exe_path)
-                except Exception:
-                    mtime = 0.0
-                key = (1 if version_tuple else 0, version_tuple, mtime)
+                mtime = os.path.getmtime(exe_path)
+                key = (1 if ver else 0, ver or (), mtime)
                 if key > best_key:
                     best_key = key
                     best_path = exe_path
@@ -3300,65 +2698,23 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
         roots.append(os.path.dirname(vbs4_exe))
     
     # Add version-specific paths that may contain VBSLauncher.exe
-    # These cover patterns like "C:\Builds\VBS4\VBS4 25.1 YYMEA_General" and "C:\Builds\VBS4\VBS4_25.1"
-    # Support nested VBS4 subdirectories (e.g., C:\Builds\VBS4\VBS4\VBS4_25.1)
-    builds_bases = [
-        r"C:\Builds\VBS4",
-        r"C:\Builds",
-    ]
-    # Prioritize versioned VBS4 root folders for launcher discovery
-    try:
-        _launcher_version_root = r"C:\Builds\VBS4"
-        if os.path.isdir(_launcher_version_root):
-            for _entry in os.listdir(_launcher_version_root):
-                if re.match(r"^VBS4[ _][0-9]+(?:\.[0-9]+)?$", _entry, re.IGNORECASE):
-                    _full = os.path.join(_launcher_version_root, _entry)
-                    if _full not in roots:
-                        roots.append(_full)
-    except Exception:
-        pass
-    
-    def _scan_for_vbs4_folders(base_path, max_depth=3, current_depth=0):
-        """Recursively scan for VBS4-related folders up to max_depth levels."""
-        if current_depth >= max_depth or not os.path.isdir(base_path):
-            return []
-        
-        found_folders = []
+    # These cover patterns like "C:\Builds\VBS4\VBS4 25.1 YYMEA_General"
+    builds_vbs4_base = r"C:\Builds\VBS4"
+    if os.path.isdir(builds_vbs4_base):
         try:
-            for entry in os.listdir(base_path):
-                entry_path = os.path.join(base_path, entry)
-                if not os.path.isdir(entry_path):
-                    continue
-                
-                entry_upper = entry.upper()
-                # Match VBS4 patterns: "VBS4", "VBS4 25.1", "VBS4_25.1", version numbers, "YYMEA"
-                is_vbs4_folder = (
-                    "VBS4" in entry_upper or 
-                    "YYMEA" in entry_upper or 
-                    re.search(r'VBS4[_\s.]?\d+', entry, re.IGNORECASE) or
-                    re.search(r'\d+\.\d+', entry)
-                )
-                
-                if is_vbs4_folder:
-                    found_folders.append(entry_path)
-                    # Continue scanning deeper into VBS4 folders
-                    if "VBS4" in entry_upper:
-                        found_folders.extend(_scan_for_vbs4_folders(entry_path, max_depth, current_depth + 1))
+            # Look for version-numbered subdirectories first (most specific)
+            version_folders = []
+            for entry in os.listdir(builds_vbs4_base):
+                entry_path = os.path.join(builds_vbs4_base, entry)
+                if os.path.isdir(entry_path):
+                    # Add version folders like "VBS4 25.1 YYMEA_General"
+                    if "VBS4" in entry or "YYMEA" in entry or re.search(r'\d+\.\d+', entry):
+                        version_folders.append(entry_path)
+                        roots.append(entry_path)
+            if version_folders:
+                logging.info("[discover] Found %d VBS4 version folders in %s", len(version_folders), builds_vbs4_base)
         except (OSError, PermissionError) as e:
-            if current_depth == 0:
-                logging.warning("[discover] Could not list %s: %s", base_path, e)
-        
-        return found_folders
-    
-    for builds_base in builds_bases:
-        if os.path.isdir(builds_base):
-            vbs4_folders = _scan_for_vbs4_folders(builds_base, max_depth=3)
-            roots.extend(vbs4_folders)
-            if vbs4_folders:
-                logging.info("[discover] Found %d potential VBS4 launcher folders in %s (including nested)", len(vbs4_folders), builds_base)
-    
-    if roots:
-        logging.info("[discover] Found %d potential VBS4 launcher folders", len(roots))
+            logging.warning("[discover] Could not list %s: %s", builds_vbs4_base, e)
     
     # Add standard search roots
     roots.extend([
@@ -3391,17 +2747,15 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
                             yield p
 
     def _rank(p: str):
-        ver = _exe_version_tuple(p)
-        path_ver = _extract_vbs4_version_from_path(p)
-        version_tuple = ver or path_ver or ()
+        ver = _exe_version_tuple(p) or ()
+        mtime = 0.0
         try:
             mtime = os.path.getmtime(p)
         except Exception:
-            mtime = 0.0
+            pass
         is_exe = 1 if p.lower().endswith('.exe') else 0
-        has_ver = 1 if version_tuple else 0
-        # Ranking: prefer actual exe, then having version, then version tuple, then mtime
-        return (is_exe, has_ver, version_tuple, mtime)
+        has_ver = 1 if ver else 0
+        return (is_exe, has_ver, ver, mtime)
 
     # 2a) Try common roots first
     candidates = list(_iter_candidates(roots, respect_deadline=True))
@@ -3429,124 +2783,36 @@ def get_vbs4_launcher_path(*, time_budget_sec=0.9, allow_full_drive=False) -> st
     return ''
 
 def get_blueig_install_path() -> str:
-    cfg_path = config['General'].get('blueig_path', '').strip()
-    if cfg_path and os.path.isfile(cfg_path):
-        return cfg_path
-    cache = _load_paths_cache()
-    cache_key = 'blueig_install_path'
-    if cache_key in cache:
-        cached = cache[cache_key]
-        if cached and os.path.isfile(cached):
-            config['General']['blueig_path'] = cached
-            try:
-                save_config()
-            except Exception:
-                pass
-            return cached
-    roots = [
-        r"C:\\Program Files\\BlueIG",
-        r"C:\\Program Files (x86)\\BlueIG",
-        r"C:\\BISIM",
-        r"C:\\Builds",
-        r"C:\\Bohemia Interactive Simulations",
-    ]
-    deadline = time.time() + 0.8
-    best_path = ''
-    best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
-    for root in roots:
-        if time.time() > deadline:
-            break
-        if not os.path.isdir(root):
-            continue
-        for dirpath, _d, files in os.walk(root):
-            if time.time() > deadline:
-                break
-            if 'BlueIG.exe' not in files:
-                continue
-            exe_path = os.path.join(dirpath, 'BlueIG.exe')
-            ver = _exe_version_tuple(exe_path)
-            path_ver = _extract_blueig_version_from_path(exe_path)
-            version_tuple = ver or path_ver or ()
-            try:
-                mtime = os.path.getmtime(exe_path)
-            except Exception:
-                mtime = 0.0
-            key = (1 if version_tuple else 0, version_tuple, mtime)
-            if key > best_key:
-                best_key = key
-                best_path = exe_path
-    if best_path:
-        config['General']['blueig_path'] = best_path
-        cache[cache_key] = best_path
-        _save_paths_cache(cache)
-        try:
+    path = config['General'].get('blueig_path', '')
+    if not path or not os.path.isfile(path):
+        path = find_executable('BlueIG.exe', time_budget_sec=0.5, allow_full_drive=False)
+        if path:
+            config['General']['blueig_path'] = path
             save_config()
-        except Exception:
-            pass
-    return best_path or ''
+    return path or ''
 
 def get_ares_manager_path() -> str:
-    path_cfg = config['General'].get('bvi_manager_path', '').strip()
-    if path_cfg and os.path.isfile(path_cfg):
-        return path_cfg
-    cache = _load_paths_cache()
-    cache_key = 'ares_manager_path'
-    if cache_key in cache:
-        cached = cache[cache_key]
-        if cached and os.path.isfile(cached):
-            config['General']['bvi_manager_path'] = cached
-            try:
-                save_config()
-            except Exception:
-                pass
-            return cached
-    roots = [
+    """Return ARES Manager path; try to auto-discover if not in config."""
+    path = config['General'].get('bvi_manager_path', '').strip()
+    if path and os.path.isfile(path):
+        return path
+
+    candidates = [
         r"C:\\Program Files\\ARES",
         r"C:\\Program Files (x86)\\ARES",
-        r"C:\\Builds",
-        r"C:\\Bohemia Interactive Simulations",
         r"D:\\Program Files\\ARES",
         r"D:\\ARES",
     ]
-    deadline = time.time() + 0.8
-    best_path = ''
-    best_key: tuple[int, tuple[int, ...], float] = (0, (), 0.0)
-    target_names = {"ares.manager.exe", "ARES.Manager.exe"}
-    for root in roots:
-        if time.time() > deadline:
-            break
-        if not os.path.isdir(root):
-            continue
-        for dirpath, _d, files in os.walk(root):
-            if time.time() > deadline:
-                break
-            local = {f.lower(): f for f in files}
-            intersection = target_names.intersection(local.keys())
-            if not intersection:
-                continue
-            for lname in intersection:
-                exe_name = local[lname]
-                exe_path = os.path.join(dirpath, exe_name)
-                ver = _exe_version_tuple(exe_path)
-                path_ver = _extract_ares_version_from_path(exe_path)
-                version_tuple = ver or path_ver or ()
-                try:
-                    mtime = os.path.getmtime(exe_path)
-                except Exception:
-                    mtime = 0.0
-                key = (1 if version_tuple else 0, version_tuple, mtime)
-                if key > best_key:
-                    best_key = key
-                    best_path = exe_path
-    if best_path:
-        config['General']['bvi_manager_path'] = clean_path(best_path)
-        cache[cache_key] = best_path
-        _save_paths_cache(cache)
-        try:
-            save_config()
-        except Exception:
-            pass
-    return best_path or ''
+    found = find_executable("ares.manager.exe", additional_paths=candidates, time_budget_sec=0.5, allow_full_drive=False)
+    if not found:
+        found = find_executable("ARES.Manager.exe", additional_paths=candidates, time_budget_sec=0.5, allow_full_drive=False)
+
+    if found:
+        config['General']['bvi_manager_path'] = clean_path(found)
+        save_config()
+        return found
+
+    return ''
 
 # =============================================================================
 # VERSION & EXECUTABLE DISCOVERY
@@ -4052,227 +3318,12 @@ PATHS_CACHE = os.path.join(BASE_DIR, "config", "paths_cache.json")
 ICON_NAME   = 'assets/icon.ico'
 SPLASH_NAME = 'assets/splash.png'
 
-# Ensure config directory exists on startup
-try:
-    os.makedirs(os.path.join(BASE_DIR, "config"), exist_ok=True)
-except Exception:
-    pass  # Will be created on first write if needed
-
-# Use interpolation=None to prevent errors from % characters in config values
-# (e.g., paths with URL-encoded characters or formatting strings)
-config = configparser.ConfigParser(interpolation=None)
+config = configparser.ConfigParser()
 # Read bundled defaults then overlay site/explicit if present
 if CONFIG_PATH == DEFAULT_CONFIG_PATH:
     config.read([DEFAULT_CONFIG_PATH, SITE_CONFIG_PATH], encoding='utf-8')
 else:
     config.read([DEFAULT_CONFIG_PATH, CONFIG_PATH], encoding='utf-8')
-
-
-def safe_config_get(section: str, key: str, fallback: str = "") -> str:
-    """
-    Safely get a string value from config, handling corrupted values.
-    
-    This handles cases where config values might be:
-    - Lists instead of strings (returns fallback)
-    - Non-string types (converts to string)
-    - Missing sections/keys (returns fallback)
-    
-    Returns a stripped string value.
-    """
-    try:
-        val = config.get(section, key, fallback=fallback)
-        if isinstance(val, list):
-            # Corrupted value - return fallback
-            return fallback
-        if not isinstance(val, str):
-            # Convert non-strings to strings
-            val = str(val) if val is not None else fallback
-        return val.strip() if val else fallback
-    except Exception:
-        return fallback
-
-
-def sanitize_config() -> int:
-    """
-    Validate and repair corrupted config values.
-    Runs on startup to detect and fix:
-    - Values that are lists instead of strings
-    - Values with problematic % characters that could cause interpolation errors
-    - Missing required sections
-    
-    Creates a backup before making repairs.
-    Returns the number of values that were repaired.
-    """
-    repairs = 0
-    backup_created = False
-    
-    # Ensure required sections exist
-    required_sections = ["Offline", "Network", "Fusers", "Paths"]
-    for section in required_sections:
-        if section not in config:
-            config[section] = {}
-            logging.info(f"[config-sanitize] Created missing section: [{section}]")
-            repairs += 1
-    
-    # Check all values in all sections
-    for section in config.sections():
-        for key in list(config[section].keys()):
-            try:
-                value = config[section][key]
-                
-                # Check if value is not a string (should never happen with ConfigParser but let's be safe)
-                if not isinstance(value, str):
-                    # Create backup before first repair
-                    if not backup_created:
-                        _backup_config("pre-sanitize")
-                        backup_created = True
-                    
-                    old_value = repr(value)
-                    # Convert to string or use empty string
-                    if isinstance(value, (list, tuple)):
-                        new_value = ",".join(str(v) for v in value) if value else ""
-                    elif value is None:
-                        new_value = ""
-                    else:
-                        new_value = str(value)
-                    config[section][key] = new_value
-                    logging.warning(f"[config-sanitize] Fixed non-string value in [{section}].{key}: {old_value} -> '{new_value}'")
-                    repairs += 1
-                    continue
-                
-                # Check for malformed interpolation sequences that could cause errors
-                # (e.g., single % not followed by proper format, or %( without closing )s)
-                if "%" in value:
-                    # Check for problematic patterns: %( without )s, or lone % at end
-                    import re
-                    # Pattern for valid interpolation: %(name)s or %% (escaped)
-                    # Everything else with % could be problematic
-                    problematic = False
-                    
-                    # Check for %( that doesn't have matching )s
-                    if "%(" in value and ")s" not in value:
-                        problematic = True
-                    
-                    # Check for single % at end of string
-                    if value.endswith("%") and not value.endswith("%%"):
-                        problematic = True
-                    
-                    # Check for % followed by a character that's not ( or %
-                    if re.search(r"%[^(%]", value):
-                        # This could be a URL-encoded value like %20, which is fine
-                        # but we should escape it for safety
-                        pass  # URL encoding is OK since we disabled interpolation
-                    
-                    if problematic:
-                        # Create backup before first repair
-                        if not backup_created:
-                            _backup_config("pre-sanitize")
-                            backup_created = True
-                        
-                        # Escape all % characters by doubling them
-                        new_value = value.replace("%", "%%")
-                        config[section][key] = new_value
-                        logging.warning(f"[config-sanitize] Escaped problematic % in [{section}].{key}: '{value}' -> '{new_value}'")
-                        repairs += 1
-                
-            except Exception as e:
-                # If we can't even read the value, clear it
-                logging.error(f"[config-sanitize] Error reading [{section}].{key}, clearing: {e}")
-                if not backup_created:
-                    _backup_config("pre-sanitize")
-                    backup_created = True
-                try:
-                    config[section][key] = ""
-                    repairs += 1
-                except Exception:
-                    pass
-    
-    # Validate specific critical values
-    critical_validations = [
-        ("Offline", "host_ip", r"^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})?$"),  # Empty or valid IP
-        ("Offline", "share_name", r"^[a-zA-Z0-9_\-\$]*$"),  # Valid share name chars
-        ("Fusers", "host_count", r"^\d*$"),  # Empty or number
-        ("Fusers", "user_count", r"^\d*$"),  # Empty or number
-    ]
-    
-    import re
-    for section, key, pattern in critical_validations:
-        if section in config and key in config[section]:
-            value = config[section][key]
-            if not re.match(pattern, value):
-                if not backup_created:
-                    _backup_config("pre-sanitize")
-                    backup_created = True
-                logging.warning(f"[config-sanitize] Invalid value in [{section}].{key}: '{value}' (doesn't match {pattern}), clearing")
-                config[section][key] = ""
-                repairs += 1
-    
-    if repairs > 0:
-        logging.info(f"[config-sanitize] Repaired {repairs} config value(s)")
-        # Save the repaired config
-        try:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                config.write(f)
-            logging.info(f"[config-sanitize] Saved repaired config to {CONFIG_PATH}")
-        except Exception as e:
-            logging.error(f"[config-sanitize] Failed to save repaired config: {e}")
-    else:
-        logging.debug("[config-sanitize] Config validation passed, no repairs needed")
-    
-    return repairs
-
-
-def _backup_config(reason: str = "backup") -> str | None:
-    """
-    Create a timestamped backup of the config file.
-    
-    Args:
-        reason: Label for the backup (e.g., "pre-sanitize", "pre-update")
-        
-    Returns:
-        Path to the backup file, or None if backup failed.
-    """
-    if not os.path.exists(CONFIG_PATH):
-        return None
-    
-    try:
-        backup_dir = os.path.join(BASE_DIR, "config", "backups")
-        os.makedirs(backup_dir, exist_ok=True)
-        
-        # Timestamp format: YYYYMMDD-HHMMSS
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_name = f"config-{reason}-{timestamp}.ini"
-        backup_path = os.path.join(backup_dir, backup_name)
-        
-        import shutil
-        shutil.copy2(CONFIG_PATH, backup_path)
-        logging.info(f"[config-backup] Created backup: {backup_path}")
-        
-        # Clean up old backups (keep last 10)
-        try:
-            backups = sorted([
-                f for f in os.listdir(backup_dir) 
-                if f.startswith("config-") and f.endswith(".ini")
-            ])
-            if len(backups) > 10:
-                for old_backup in backups[:-10]:
-                    os.remove(os.path.join(backup_dir, old_backup))
-                    logging.debug(f"[config-backup] Removed old backup: {old_backup}")
-        except Exception as e:
-            logging.debug(f"[config-backup] Cleanup failed: {e}")
-        
-        return backup_path
-        
-    except Exception as e:
-        logging.error(f"[config-backup] Failed to create backup: {e}")
-        return None
-
-
-# Run config sanitization immediately after loading
-try:
-    _config_repairs = sanitize_config()
-except Exception as e:
-    logging.error(f"[config-sanitize] Sanitization failed: {e}")
 
 # Share config with photomesh_launcher module to prevent conflicts
 import photomesh_launcher
@@ -4296,7 +3347,7 @@ def sync_host_ip_references():
     This fixes configs where IP addresses got out of sync across different sections.
     """
     try:
-        primary_ip = safe_config_get("Offline", "host_ip", "")
+        primary_ip = config.get("Offline", "host_ip", fallback="").strip()
         if not primary_ip:
             logging.info("[sync_ip] No primary host IP configured, skipping sync")
             return
@@ -4365,64 +3416,7 @@ FAST_START_CLI = "--fast-start" in sys.argv
 # synchronize UI state (e.g., refresh Settings fields after config updates).
 APP_INSTANCE = None
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Debounced Config Save System
-# Prevents UI lag by coalescing rapid save calls into a single background write
-# ─────────────────────────────────────────────────────────────────────────────
-import threading
-
-_config_save_timer = None
-_config_save_lock = threading.Lock()
-_CONFIG_SAVE_DELAY_MS = 500  # Debounce delay in milliseconds
-
 def save_config() -> None:
-    """Queue a debounced config save. Multiple rapid calls coalesce into one save."""
-    global _config_save_timer
-    
-    with _config_save_lock:
-        # Cancel any pending save
-        if _config_save_timer is not None:
-            _config_save_timer.cancel()
-            _config_save_timer = None
-            logging.debug("[save_config] Cancelled pending save, rescheduling")
-        
-        # Schedule new save after delay
-        _config_save_timer = threading.Timer(
-            _CONFIG_SAVE_DELAY_MS / 1000.0,
-            _do_background_save
-        )
-        _config_save_timer.daemon = True  # Don't block app exit
-        _config_save_timer.start()
-        logging.debug(f"[save_config] Queued debounced save in {_CONFIG_SAVE_DELAY_MS}ms")
-
-def _do_background_save():
-    """Execute the actual save in background thread."""
-    global _config_save_timer
-    with _config_save_lock:
-        _config_save_timer = None
-    try:
-        logging.debug("[save_config] Background save starting...")
-        start_time = time.perf_counter()
-        _save_config_sync()
-        elapsed = (time.perf_counter() - start_time) * 1000
-        logging.debug(f"[save_config] Background save completed in {elapsed:.1f}ms")
-    except Exception as e:
-        logging.error(f"[save_config] Background save failed: {e}")
-
-def save_config_now() -> None:
-    """Force immediate synchronous save. Use on app close."""
-    global _config_save_timer
-    
-    with _config_save_lock:
-        # Cancel any pending debounced save
-        if _config_save_timer is not None:
-            _config_save_timer.cancel()
-            _config_save_timer = None
-    
-    # Do immediate sync save
-    _save_config_sync()
-
-def _save_config_sync() -> None:
     """Save to the active CONFIG_PATH (respects --config CLI override) with atomic write.
     Preserves [Offline.host_ip] reference placeholders in dependent sections."""
     # Always save to SITE_CONFIG_PATH (next to EXE) unless --config was specified
@@ -4440,7 +3434,7 @@ def _save_config_sync() -> None:
         os.makedirs(os.path.dirname(target), exist_ok=True)
         
         # Store actual values and replace with reference placeholders
-        primary_ip = safe_config_get("Offline", "host_ip", "")
+        primary_ip = config.get("Offline", "host_ip", fallback="").strip()
         original_values = {}
         
         logging.info(f"[save_config] Saving config to: {target}")
@@ -4480,10 +3474,6 @@ def _save_config_sync() -> None:
             config[section][option] = value
             logging.debug(f"[save_config] Restored in-memory value [{section}]{option} = {value}")
         
-        # NOTE: Do NOT reload config from disk here!
-        # The file contains placeholder strings like [Offline.host_ip] which would
-        # overwrite the actual IP values we just restored, breaking network connections.
-        
     except Exception as e:
         # Restore values even on error
         for (section, option), value in original_values.items():
@@ -4518,8 +3508,6 @@ def _load_paths_cache() -> dict:
 def _save_paths_cache(d: dict) -> None:
     """Save the paths cache to JSON file."""
     try:
-        # Ensure config directory exists
-        os.makedirs(os.path.dirname(PATHS_CACHE), exist_ok=True)
         with open(PATHS_CACHE, "w", encoding="utf-8") as f:
             json.dump(d, f, indent=2)
     except Exception:
@@ -4564,7 +3552,7 @@ def get_host_ip() -> str:
     """Return the configured host IP (blank when unset)."""
 
     try:
-        ip = safe_config_get("Offline", "host_ip", "")
+        ip = config.get("Offline", "host_ip", fallback="").strip()
         return ip
     except Exception as e:
         return ""
@@ -4604,280 +3592,57 @@ def remove_and_recreate_share(share_name: str) -> bool:
         logging.error(f"[share] Error removing/recreating share: {e}")
         return False
 
-def set_host_ip(ip: str, force_reshare: bool = True, update_ui: bool = True, from_beacon: bool = False) -> None:
+def set_host_ip(ip: str) -> None:
     """
     Persist *ip* to Offline.host_ip (single source of truth) and sync all dependent config values.
     
-    CRITICAL UPDATE WORKFLOW - FULL IP CHANGE HANDLING:
-    When the host IP is changed (manually or programmatically), this function ensures:
-    
-    1. ONLY ONE ACTIVE HOST: Any existing host beacons are overwritten with new IP
-    2. IP CHANGE TRIGGERS RE-SHARE: SMB share is removed and recreated on new IP network
-    3. CONFIGS AUTO-UPDATE: All fuser config files and beacon files contain new IP
-    4. WORKING FOLDER STATUS REFLECTS NEW IP: GUI shows correct IP and status
-    5. MANUAL RE-SHARE NOT REQUIRED: Entire process completes automatically
-    6. LAN PREFERENCE: Defaults to LAN unless WiFi manually set
-    
-    Config Updates (local):
+    This updates:
     - [Offline] host_ip (PRIMARY - single source of truth)
-    - [Offline] manual_host_ip (flag to prevent auto-updates - NOT set for beacon discoveries)
     - [Network] host (synced from Offline.host_ip)
     - [Fusers] working_folder_host (synced from Offline.host_ip)
     - [Fusers] shared_working_unc (rebuilt from Offline.host_ip + share_name)
-    - config/fuser_config.json (updated via update_fuser_shared_path())
-    
-    Shared Drive Updates (for User PC discovery):
-    - HostInfo.ini beacon file (OVERWRITTEN with new IP - enforces single host)
-    - SMB share (DELETED and RECREATED on new network with proper permissions)
-    - SMB session cache (cleared to prevent stale connections to old IP)
-    - WorkingFuser folder (contents cleared for clean reconnection)
-    
-    Args:
-        ip: The new IP address to set
-        force_reshare: If True, always remove and recreate the SMB share (default True)
-        update_ui: If True, trigger UI status updates after IP change (default True)
-        from_beacon: If True, this IP was auto-discovered via beacon (don't mark as manual)
     """
-    logging.warning(f"[set_host_ip] CALLED: ip='{ip}', force_reshare={force_reshare}, update_ui={update_ui}, from_beacon={from_beacon}")
-    
     trimmed = ip.strip()
     if "Offline" not in config:
-        config.add_section("Offline")
+        config["Offline"] = {}
+    offline = config["Offline"]
     
-    old_ip = safe_config_get("Offline", "host_ip", "")
-    ip_actually_changed = old_ip != trimmed
-    logging.warning(f"[set_host_ip] old_ip='{old_ip}', new_ip='{trimmed}', changed={ip_actually_changed}")
-    
-    # PRIMARY: Set the single source of truth using explicit config.set() for reliability
-    config.set("Offline", "host_ip", trimmed)
-    logging.warning(f"[set_host_ip] Set config Offline.host_ip = '{trimmed}'")
-    
-    # Verify it was set correctly
-    verify_ip = config.get("Offline", "host_ip", fallback="FAILED")
-    logging.warning(f"[set_host_ip] Verification read: host_ip = '{verify_ip}'")
-    
-    # Mark as manually set ONLY for actual manual changes (not beacon discoveries)
-    # Beacon-discovered IPs should allow future beacon updates to override
-    if not from_beacon:
-        config.set("Offline", "manual_host_ip", "true" if trimmed else "false")
-    # If from_beacon, don't change the manual_host_ip flag - leave it as-is
-    
+    # PRIMARY: Set the single source of truth
+    offline["host_ip"] = trimmed
     if trimmed:
-        config.set("Offline", "use_ip_unc", "True")
+        offline["use_ip_unc"] = "True"
     else:
-        current_use_ip = config.get("Offline", "use_ip_unc", fallback="True")
-        config.set("Offline", "use_ip_unc", current_use_ip)
+        offline["use_ip_unc"] = offline.get("use_ip_unc", "True")
     
     # SYNC: Update all dependent config values to match
-    share_name = config.get("Offline", "share_name", fallback="SharedMeshDrive").strip() or "SharedMeshDrive"
-    wf_subdir = config.get("Offline", "working_fuser_subdir", fallback="WorkingFuser").strip() or "WorkingFuser"
-    
     if trimmed:
         # Sync [Network] host
         if "Network" not in config:
-            config.add_section("Network")
-        config.set("Network", "host", trimmed)
+            config["Network"] = {}
+        config["Network"]["host"] = trimmed
         
         # Sync [Fusers] working_folder_host
         if "Fusers" not in config:
-            config.add_section("Fusers")
-        config.set("Fusers", "working_folder_host", trimmed)
+            config["Fusers"] = {}
+        config["Fusers"]["working_folder_host"] = trimmed
         
         # Rebuild [Fusers] shared_working_unc from IP + share_name
-        config.set("Fusers", "shared_working_unc", f"\\\\{trimmed}\\{share_name}\\{wf_subdir}")
+        share_name = offline.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
+        wf_subdir = offline.get("working_fuser_subdir", "WorkingFuser").strip() or "WorkingFuser"
+        config["Fusers"]["shared_working_unc"] = f"\\\\{trimmed}\\{share_name}\\{wf_subdir}"
         
-        logging.warning(f"[set_host_ip] Set Host IP from '{old_ip}' to '{trimmed}'")
-        logging.warning(f"[set_host_ip] Synced: Network.host, Fusers.working_folder_host, Fusers.shared_working_unc")
+        logging.info(f"[set_host_ip] Updated host IP to {trimmed} (synced to Network.host, Fusers.working_folder_host, Fusers.shared_working_unc)")
     else:
-        logging.warning("[set_host_ip] Cleared host IP")
+        logging.info("[set_host_ip] Cleared host IP")
         
-    # CRITICAL: Use synchronous save to ensure IP is persisted IMMEDIATELY
-    # The debounced save_config() was causing race conditions where other code
-    # would re-read from disk before the async save completed
-    logging.warning("[set_host_ip] Calling save_config_now() for immediate sync save...")
-    save_config_now()
-    
-    # Verify the save worked by re-reading from config
-    final_verify = config.get("Offline", "host_ip", fallback="FAILED_VERIFY")
-    logging.warning(f"[set_host_ip] Post-save verification: host_ip = '{final_verify}'")
+    save_config()
 
-    # Update fuser shared path in fuser_config.json
+    apply_offline_settings()
     update_fuser_shared_path()
     
-    # CRITICAL: Handle IP change - clear old connections and recreate share
-    if trimmed and (ip_actually_changed or force_reshare):
-        logging.info(f"[set_host_ip] IP change detected or force_reshare=True, performing full network transition...")
-        
-        # Step 1: Clear SMB session cache for old IP
-        global SMB_SESSION_CACHE
-        if old_ip:
-            with SMB_SESSION_LOCK:
-                # Clear old IP from cache
-                if old_ip in SMB_SESSION_CACHE:
-                    del SMB_SESSION_CACHE[old_ip]
-                    logging.info(f"[set_host_ip] Cleared SMB cache for old IP: {old_ip}")
-                # Force disconnect all sessions to old IP
-                try:
-                    subprocess.run(
-                        ['net', 'use', f'\\\\{old_ip}', '/delete', '/y'],
-                        capture_output=True,
-                        timeout=3,
-                        creationflags=NO_WINDOW_FLAG
-                    )
-                    subprocess.run(
-                        ['net', 'use', f'\\\\{old_ip}\\IPC$', '/delete', '/y'],
-                        capture_output=True,
-                        timeout=3,
-                        creationflags=NO_WINDOW_FLAG
-                    )
-                    logging.info(f"[set_host_ip] Disconnected SMB sessions to old IP: {old_ip}")
-                except Exception as e:
-                    logging.debug(f"[set_host_ip] Could not disconnect old IP (may not exist): {e}")
-        
-        local_root = config.get("Offline", "local_data_root", fallback="").strip()
-        
-        if local_root and os.path.isdir(local_root):
-            # Step 2: Update beacon file with new IP (OVERWRITES any existing - single host enforcement)
-            try:
-                beacon_path = os.path.join(local_root, "HostInfo.ini")
-                host_name = socket.gethostname().split('.')[0]
-                beacon_content = (
-                    f"[Host]\n"
-                    f"ip={trimmed}\n"
-                    f"name={host_name}\n"
-                    f"share={share_name}\n"
-                    f"working_fuser={wf_subdir}\n"
-                    f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"guest_ok=1\n"
-                    f"single_host_enforced=1\n"
-                )
-                with open(beacon_path, 'w') as f:
-                    f.write(beacon_content)
-                logging.info(f"[set_host_ip] Updated beacon file with new IP: {beacon_path}")
-            except Exception as e:
-                logging.warning(f"[set_host_ip] Failed to update beacon: {e}")
-            
-            # Step 3: Remove and recreate the SMB share on new network
-            try:
-                logging.info(f"[set_host_ip] Removing old SMB share '{share_name}'...")
-                
-                # Remove using net share command
-                result = subprocess.run(
-                    ["cmd", "/C", f"net share {share_name} /delete /yes"],
-                    capture_output=True,
-                    text=True,
-                    creationflags=NO_WINDOW_FLAG,
-                    timeout=10
-                )
-                
-                if result.returncode == 0:
-                    logging.info(f"[set_host_ip] Successfully removed old share")
-                else:
-                    logging.info(f"[set_host_ip] Share may not have existed (code {result.returncode})")
-                
-                # Wait for Windows to release the share
-                time.sleep(1)
-                
-                # Step 4: Create new share with proper permissions
-                logging.info(f"[set_host_ip] Creating new SMB share at {local_root}...")
-                
-                # Use net share command for broader compatibility
-                share_cmd = f'net share {share_name}="{local_root}" /GRANT:"Authenticated Users",CHANGE /GRANT:"Administrators",FULL'
-                result = subprocess.run(
-                    ["cmd", "/C", share_cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    creationflags=NO_WINDOW_FLAG
-                )
-                
-                if result.returncode == 0:
-                    logging.info(f"[set_host_ip] Successfully created SMB share '{share_name}'")
-                else:
-                    # Fallback: Try with Everyone permission
-                    logging.info(f"[set_host_ip] Retrying share creation with Everyone permission...")
-                    share_cmd_everyone = f'net share {share_name}="{local_root}" /GRANT:Everyone,FULL'
-                    result = subprocess.run(
-                        ["cmd", "/C", share_cmd_everyone],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        creationflags=NO_WINDOW_FLAG
-                    )
-                    if result.returncode == 0:
-                        logging.info(f"[set_host_ip] Successfully created SMB share with Everyone permission")
-                    else:
-                        logging.warning(f"[set_host_ip] Share creation failed: {result.stderr}")
-                
-                # Step 5: Enable firewall rules for SMB
-                try:
-                    subprocess.run(
-                        ["cmd", "/C", 'netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes'],
-                        capture_output=True,
-                        timeout=5,
-                        creationflags=NO_WINDOW_FLAG
-                    )
-                except Exception:
-                    pass
-                
-                # Wait for share to be accessible
-                time.sleep(1)
-                
-                # Step 6: Verify the share is accessible via UNC
-                test_unc = f"\\\\{trimmed}\\{share_name}"
-                try:
-                    if os.path.exists(test_unc):
-                        logging.info(f"[set_host_ip] ✓ Share accessible at {test_unc}")
-                    else:
-                        logging.warning(f"[set_host_ip] Share created but not immediately accessible at {test_unc}")
-                except Exception:
-                    pass
-                    
-            except Exception as e:
-                logging.warning(f"[set_host_ip] Failed to re-create share: {e}")
-            
-            # Step 7: Update fuser config files on the shared drive
-            try:
-                working_folder = os.path.join(local_root, wf_subdir)
-                if os.path.isdir(working_folder):
-                    # Update any host_ip.txt or similar marker files
-                    host_ip_marker = os.path.join(working_folder, "host_ip.txt")
-                    with open(host_ip_marker, 'w') as f:
-                        f.write(f"{trimmed}\n")
-                    logging.info(f"[set_host_ip] Updated host_ip marker in WorkingFuser")
-            except Exception as e:
-                logging.debug(f"[set_host_ip] Could not update WorkingFuser marker: {e}")
-    
-    # Re-apply offline settings to connect with new IP
-    apply_offline_settings()
-    
-    # CRITICAL: Only try SMB connection if this is NOT the host PC
-    # The Host PC uses local paths and should NEVER try to connect to itself via SMB
-    if trimmed and not is_this_pc_the_real_host():
-        # Clear ENTIRE SMB session cache to force fresh connections with new IP
-        with SMB_SESSION_LOCK:
-            SMB_SESSION_CACHE.clear()
-            logging.info("[set_host_ip] Cleared entire SMB session cache")
-        
-        # Try to establish the UNC session with new IP
+    # Try to establish the UNC session
+    if trimmed:  # Only try to connect if an IP was actually set
         connect_working_share_interactive(parent=None, silent=True)
-    elif is_this_pc_the_real_host():
-        logging.info("[set_host_ip] Skipping SMB connection - this PC is the host (uses local paths)")
-    
-    # CRITICAL: Update UI status labels to reflect new IP
-    if update_ui:
-        try:
-            refresh_settings_panel_from_config()
-            # Also trigger beacon broadcast with new IP
-            if is_this_pc_the_real_host():
-                try:
-                    stop_host_beacon()
-                    start_host_beacon()
-                    logging.info("[set_host_ip] Restarted host beacon with new IP")
-                except Exception:
-                    pass
-        except Exception as e:
-            logging.debug(f"[set_host_ip] UI refresh failed: {e}")
 
 def build_unc_from_cfg(o: dict | None = None) -> str:
     """Return ``\\\\<ip>\\<share>`` based on Offline config (IP only)."""
@@ -4892,9 +3657,7 @@ def build_unc_from_cfg(o: dict | None = None) -> str:
 
 def is_this_pc_the_real_host() -> bool:
     """
-    Determine if this PC is the actual host by checking:
-    1. If the SharedMeshDrive share exists locally (most reliable)
-    2. If our IP matches the configured host_ip (fallback)
+    Determine if this PC is the actual host by checking if the SharedMeshDrive share exists locally.
     
     This is more reliable than just comparing IPs, because:
     - Config might have stale/incorrect host IP
@@ -4902,13 +3665,13 @@ def is_this_pc_the_real_host() -> bool:
     - Only the true host will have the share folder as a local directory
     
     Returns:
-        True if this PC is the host (share exists OR IP matches)
+        True if this PC has the SharedMeshDrive share configured locally
     """
     try:
         o = get_offline_cfg()
         share_name = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
         
-        # Method 1: Query Windows for the share (most reliable)
+        # Query Windows for the share
         rc, out, err = _run(["net", "share", share_name], timeout=3.0)
         if rc == 0:
             # Parse output for the "Path" line
@@ -4922,15 +3685,7 @@ def is_this_pc_the_real_host() -> bool:
                             logging.info(f"[host-detect] This PC IS the host - share '{share_name}' exists at {local_path}")
                             return True
         
-        # Method 2: Check if our IP matches the configured host IP (fallback)
-        host_ip = (o.get("host_ip") or "").strip()
-        if host_ip:
-            our_ip = get_primary_ipv4()
-            if our_ip and our_ip == host_ip:
-                logging.info(f"[host-detect] This PC IS the host - our IP ({our_ip}) matches configured host_ip")
-                return True
-        
-        logging.info(f"[host-detect] This PC is NOT the host - share '{share_name}' not found locally and IP doesn't match")
+        logging.info(f"[host-detect] This PC is NOT the host - share '{share_name}' not found locally")
         return False
     except Exception as e:
         logging.warning(f"[host-detect] Failed to check if host: {e}")
@@ -5056,67 +3811,6 @@ def set_host(host: str) -> None:
     save_config()
     refresh_settings_panel_from_config()
 
-def sync_beacon_with_config() -> bool:
-    """
-    Ensure the HostInfo.ini beacon in the shared drive matches the current config.ini IP.
-    This is critical after updates where the IP may have changed but the beacon wasn't updated.
-    
-    Returns True if beacon was updated, False if skipped or failed.
-    """
-    try:
-        o = get_offline_cfg()
-        current_ip = o.get("host_ip", "").strip()
-        local_root = o.get("local_data_root", "").strip()
-        share_name = o.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
-        
-        if not current_ip or not local_root:
-            logging.debug("[beacon-sync] No IP or local_data_root configured, skipping beacon sync")
-            return False
-            
-        if not os.path.isdir(local_root):
-            logging.debug(f"[beacon-sync] Local root doesn't exist: {local_root}")
-            return False
-        
-        beacon_path = os.path.join(local_root, "HostInfo.ini")
-        
-        # Check if beacon exists and read its current IP
-        beacon_ip = ""
-        if os.path.exists(beacon_path):
-            try:
-                import configparser
-                beacon_cfg = configparser.ConfigParser(interpolation=None)
-                beacon_cfg.read(beacon_path)
-                beacon_ip = beacon_cfg.get("Host", "ip", fallback="").strip()
-            except Exception as e:
-                logging.debug(f"[beacon-sync] Failed to read beacon IP: {e}")
-        
-        # Update beacon if IP changed or beacon doesn't exist
-        if beacon_ip != current_ip:
-            host_name = socket.gethostname().split('.')[0]
-            beacon_content = (
-                f"[Host]\n"
-                f"ip={current_ip}\n"
-                f"name={host_name}\n"
-                f"share={share_name}\n"
-                f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"guest_ok=1\n"
-            )
-            with open(beacon_path, 'w') as f:
-                f.write(beacon_content)
-            
-            if beacon_ip:
-                logging.info(f"[beacon-sync] Updated beacon IP: {beacon_ip} -> {current_ip}")
-            else:
-                logging.info(f"[beacon-sync] Created beacon with IP: {current_ip}")
-            return True
-        else:
-            logging.debug(f"[beacon-sync] Beacon already up-to-date with IP: {current_ip}")
-            return False
-            
-    except Exception as e:
-        logging.warning(f"[beacon-sync] Failed to sync beacon: {e}")
-        return False
-
 def bootstrap_first_run_if_needed(log=None):
     """Host: ensure IP present and share exists. User: leave blanks."""
     o = config.setdefault('Offline', {})
@@ -5128,48 +3822,13 @@ def bootstrap_first_run_if_needed(log=None):
         o['use_ip_unc'] = 'True'
 
     if mode == 'HOST':
-        # HOST MODE: ALWAYS detect and use this PC's actual IP on startup
-        # A Host PC should NEVER use a stale saved IP from a previous session
-        # This ensures the beacon file always reflects the correct Host IP
-        #
-        # NOTE: User CAN manually override IP during a session (via Settings)
-        # for cases like switching between WiFi and Ethernet adapters.
-        # But on NEXT startup, we always re-detect the current IP.
-        
-        current_saved_ip = o.get('host_ip', '').strip()
-        detected_ip = get_primary_ipv4()
-        
-        if detected_ip:
-            if detected_ip != current_saved_ip:
-                logging.info(f"[bootstrap] HOST MODE: Detected IP change: {current_saved_ip or '(none)'} -> {detected_ip}")
-            else:
-                logging.info(f"[bootstrap] HOST MODE: IP confirmed: {detected_ip}")
-            
-            # ALWAYS use detected IP for Host mode on startup
-            o['host_ip'] = detected_ip
-            
-            # Reset manual flag on startup - Host always starts with detected IP
-            # User can still manually change during session if needed
-            o['manual_host_ip'] = 'false'
-        else:
-            logging.error("[bootstrap] HOST MODE: CRITICAL - Could not detect this PC's IP address!")
-            if current_saved_ip:
-                logging.warning(f"[bootstrap] HOST MODE: Falling back to saved IP: {current_saved_ip}")
-            else:
-                logging.error("[bootstrap] HOST MODE: No IP available - network may be disconnected")
-        
+        if not o.get('host_ip'):
+            ip = get_primary_ipv4()
+            if ip:
+                o['host_ip'] = ip
         o['use_ip_unc'] = 'True'
         ensure_offline_share_exists(log=log or (lambda m: None))
         save_config()
-        
-        # CRITICAL: Always sync beacon file with detected IP
-        # This ensures User PCs discover the CORRECT current Host IP
-        try:
-            sync_beacon_with_config()
-            logging.info(f"[bootstrap] HOST MODE: Beacon synced with IP: {o.get('host_ip', 'unknown')}")
-        except Exception as e:
-            logging.warning(f"[bootstrap] Failed to sync beacon: {e}")
-        
         # Start host beacon to advertise IP on LAN
         try:
             start_host_beacon()
@@ -5201,108 +3860,25 @@ def bootstrap_first_run_if_needed(log=None):
             start_host_beacon()
         except Exception:
             pass
-    elif mode == 'UPDATE':
-        # UPDATE mode: PRESERVE existing beacon data, don't overwrite
-        # This handles the case where:
-        # - User installs an update to the toolkit on a pre-used kit computer
-        # - We want to preserve the old beacon/config data for continuity
-        # - Only update beacon IP if config IP has changed AND is valid
-        #
-        # KEY REQUIREMENT: "When reinstalling a host on a pre-used kit computer,
-        # we don't want the shared drive to get removed - use the beacon file
-        # that already has been created from the old version so we can use
-        # the old information for the new installation (software update, not data update)"
-        try:
-            o = get_offline_cfg()
-            local_root = o.get("local_data_root", "").strip()
-            
-            if local_root and os.path.isdir(local_root):
-                beacon_path = os.path.join(local_root, "HostInfo.ini")
-                
-                # If beacon exists, READ it and use its data if config is blank
-                if os.path.exists(beacon_path):
-                    try:
-                        import configparser
-                        beacon_cfg = configparser.ConfigParser(interpolation=None)
-                        beacon_cfg.read(beacon_path)
-                        beacon_ip = beacon_cfg.get("Host", "ip", fallback="").strip()
-                        beacon_share = beacon_cfg.get("Host", "share", fallback="").strip()
-                        
-                        # If our config has no IP but beacon does, adopt beacon's IP
-                        config_ip = o.get("host_ip", "").strip()
-                        if not config_ip and beacon_ip:
-                            logging.info(f"[bootstrap] UPDATE mode: Adopting beacon IP: {beacon_ip}")
-                            o["host_ip"] = beacon_ip
-                            if beacon_share:
-                                o["share_name"] = beacon_share
-                            save_config()
-                        elif config_ip and config_ip != beacon_ip:
-                            # Config has different IP than beacon - sync beacon to config
-                            # (config takes precedence on update)
-                            logging.info(f"[bootstrap] UPDATE mode: Syncing beacon to config IP: {config_ip}")
-                            sync_beacon_with_config()
-                        else:
-                            logging.info(f"[bootstrap] UPDATE mode: Config and beacon IPs match: {config_ip}")
-                    except Exception as e:
-                        logging.warning(f"[bootstrap] UPDATE mode: Could not read beacon: {e}")
-                else:
-                    # No beacon exists, just sync from config
-                    logging.info("[bootstrap] UPDATE mode: No beacon found, creating from config")
-                    sync_beacon_with_config()
-            else:
-                # No local_data_root, just sync beacon if possible
-                sync_beacon_with_config()
-        except Exception as e:
-            logging.debug(f"[bootstrap] UPDATE mode beacon handling: {e}")
-        
-        # Start beacons for both host and user discovery
-        try:
-            start_host_beacon()
-        except Exception:
-            pass
-        try:
-            start_user_listener()
-        except Exception:
-            pass
-    # For other modes (SINGLE_USE, etc.), no special bootstrap needed
+    # UPDATE mode: no changes so far
 
 def refresh_settings_panel_from_config() -> None:
-    """Update the Settings panel UI to reflect the latest config.ini values.
-    Also updates OneClick panel status if it has a host status box."""
+    """Update the Settings panel UI to reflect the latest config.ini values."""
 
     app = APP_INSTANCE
-    if not app:
-        logging.debug("[refresh_settings] APP_INSTANCE is None, cannot refresh UI")
-        return
-    if not hasattr(app, "panels"):
-        logging.debug("[refresh_settings] APP_INSTANCE has no 'panels' attribute yet (UI not initialized)")
+    if not app or not hasattr(app, "panels"):
         return
 
     def _apply():
-        # Update Settings panel
         try:
             panel = app.panels.get("Settings")
-            if panel and hasattr(panel, "reload_from_config"):
-                current_ip = config.get("Offline", "host_ip", fallback="")
-                logging.warning(f"[refresh_settings] Updating Settings panel with host_ip='{current_ip}'")
-                panel.reload_from_config()
-                logging.warning("[refresh_settings] Settings panel reload_from_config() completed")
-            else:
-                logging.debug("[refresh_settings] Settings panel not found or no reload_from_config method")
-        except Exception as e:
-            logging.error(f"[refresh_settings] Error updating Settings panel: {e}")
-        
-        # Also update OneClick panel host status box if it exists
-        try:
-            oneclick = app.panels.get("OneClick")
-            if oneclick and hasattr(oneclick, "force_update_host_status"):
-                oneclick.force_update_host_status()
-        except Exception as e:
-            logging.debug(f"[refresh_settings] Error updating OneClick panel: {e}")
+        except Exception:
+            return
+        if panel and hasattr(panel, "reload_from_config"):
+            panel.reload_from_config()
 
     try:
         post_ui(_apply)
-        logging.debug("[refresh_settings] UI update queued via post_ui()")
     except Exception:
         try:
             _apply()
@@ -5311,29 +3887,11 @@ def refresh_settings_panel_from_config() -> None:
                 "[settings-sync] Failed to refresh settings panel: %s", exc
             )
 
-def resolve_ip_placeholder(value: str) -> str:
-    """Replace [Offline.host_ip] and {host} placeholders with the actual host IP.
-    
-    This is the SINGLE function for resolving IP placeholders throughout the app.
-    The only source of truth for the IP is [Offline] host_ip in config.ini.
-    """
-    if not value:
-        return value
-    
-    host_ip = get_host_ip()  # Gets from [Offline] host_ip
-    if not host_ip:
-        # If no IP set, return the value with placeholders intact
-        # This allows the UI to show the template until an IP is configured
-        return value
-    
-    # Replace both placeholder formats
-    result = value.replace("[Offline.host_ip]", host_ip)
-    result = result.replace("{host}", host_ip)
-    return result
-
 def resolve_unc(template: str) -> str:
-    """Replace {host} and [Offline.host_ip] tokens with host IP and normalize."""
-    path = resolve_ip_placeholder(template)
+    """Replace {host} token with host IP (fallback to host name) and normalize."""
+
+    host = get_host_ip() or get_host()
+    path = template.replace("{host}", host)
     return os.path.normpath(path)
 
 def apply_app_icon(widget):
@@ -5375,17 +3933,8 @@ def load_image(path, size=None):
         img = img.resize(size, Image.Resampling.LANCZOS)
     return ImageTk.PhotoImage(img)
 if 'fullscreen' not in config['General']:
-    config['General']['fullscreen'] = 'off'  # Options: off, standard, widescreen
+    config['General']['fullscreen'] = 'False' 
     save_config()
-# Migrate old boolean fullscreen values to new format
-else:
-    fs_val = config['General'].get('fullscreen', 'off').lower()
-    if fs_val in ('true', '1', 'yes'):
-        config['General']['fullscreen'] = 'standard'
-        save_config()
-    elif fs_val in ('false', '0', 'no'):
-        config['General']['fullscreen'] = 'off'
-        save_config()
 
 # Set fast startup config defaults (only if not already present)
 config_changed = False
@@ -5688,11 +4237,7 @@ def get_machine_name() -> str:
     return socket.gethostname().split('.')[0].upper()
 
 def get_working_folder_host() -> str:
-    """Get the working folder host, resolving [Offline.host_ip] placeholder if present."""
-    raw = config['Fusers'].get('working_folder_host', '')
-    # Resolve placeholder to actual IP
-    resolved = resolve_ip_placeholder(raw)
-    return resolved.split('.')[0].upper() if resolved else ''
+    return config['Fusers'].get('working_folder_host', '').split('.')[0].upper()
 
 def is_host_machine() -> bool:
     """
@@ -5703,7 +4248,7 @@ def is_host_machine() -> bool:
     3. If this PC's IP matches the configured host_ip
     """
     # Method 1: Check if local_data_root is configured (strongest indicator)
-    local_root = safe_config_get('Offline', 'local_data_root', '')
+    local_root = config.get('Offline', 'local_data_root', fallback='').strip()
     if local_root and os.path.isdir(local_root):
         return True
     
@@ -5713,7 +4258,7 @@ def is_host_machine() -> bool:
     
     # Method 3: Check if this PC's IP matches the configured host_ip
     try:
-        host_ip = safe_config_get('Offline', 'host_ip', '')
+        host_ip = config.get('Offline', 'host_ip', fallback='').strip()
         if host_ip:
             # Get this PC's primary IP
             my_ip = get_primary_ipv4()
@@ -5881,14 +4426,11 @@ def count_local_fusers() -> int:
     """
     global _LAST_FUSER_CHECK
     
-    # Aggressive cache: if checked within threshold, return cached value immediately
-    # In single-use mode: 2000ms cache for better UI responsiveness
-    # In normal mode: 200ms cache for accurate fuser counts
+    # Aggressive cache: if checked within last 200ms, return cached value immediately
     now = time.time()
     if hasattr(count_local_fusers, '_last_check_time'):
         elapsed = now - count_local_fusers._last_check_time
-        cache_threshold = 2.0 if is_single_use_mode() else 0.2
-        if elapsed < cache_threshold:
+        if elapsed < 0.2:  # 200ms cache
             return getattr(count_local_fusers, '_cached_count', 0)
     
     # Quick non-blocking check: skip if another check is in progress
@@ -5932,8 +4474,8 @@ def count_all_fusers_from_shared() -> int:
             wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip()
             shared_path = os.path.join(local_root, wf_sub) if local_root else None
         else:
-            # User PC using UNC path - resolve any placeholders
-            shared_path = resolve_ip_placeholder(config.get('Fusers', 'shared_working_unc', fallback='').strip())
+            # User PC using UNC path
+            shared_path = config.get('Fusers', 'shared_working_unc', fallback='').strip()
         
         if not shared_path or not os.path.isdir(shared_path):
             return 0
@@ -5984,12 +4526,6 @@ _FUSER_PROCESSES: list = []
 
 # Gate enforcement until UNC is confirmed ready (prevents startup race condition)
 _allow_fuser_enforcement: bool = False
-
-# Per-instance launch failure tracking to prevent endless spawn storms
-_FUSER_SPAWN_ATTEMPTS: dict = {}  # {idx: (attempt_count, last_attempt_ts, last_success_ts)}
-_MAX_SPAWN_ATTEMPTS_PER_CYCLE = 2  # Max retries per enforcement cycle
-_MIN_SPAWN_RETRY_INTERVAL = 30.0  # Minimum seconds between retry attempts for same fuser
-_ENFORCE_COOLDOWN_SECONDS = 15.0  # Minimum seconds between enforcement calls with same target
 
 # -----------------------------------------------------------------------------
 # First-run readiness gating and diagnostics
@@ -6063,8 +4599,8 @@ def _resolve_working_root_for_checks() -> tuple[str | None, str]:
             wf_sub = (o.get("working_fuser_subdir") or "WorkingFuser").strip()
             if local_root:
                 return os.path.join(local_root, wf_sub), 'host'
-        # User mode fallback: UNC - resolve any placeholders
-        path = resolve_ip_placeholder(config.get('Fusers', 'shared_working_unc', fallback='').strip()) or working_fuser_unc()
+        # User mode fallback: UNC
+        path = config.get('Fusers', 'shared_working_unc', fallback='').strip() or working_fuser_unc()
         return (path if path else None), 'user'
     except Exception:
         return None, 'user'
@@ -6287,28 +4823,12 @@ def _resolve_fuser_workdir(idx: int) -> str:
         local_root = o.get("local_data_root", r"D:\\SharedMeshDrive").strip()
         wf_sub = o.get("working_fuser_subdir", "WorkingFuser").strip()
         base_path = os.path.join(local_root, wf_sub)
-        logging.debug(f"[_resolve_fuser_workdir] HOST: local_root={local_root}, wf_sub={wf_sub}")
     else:
         # User: Use UNC path
         base_path = working_fuser_unc()
-        logging.debug(f"[_resolve_fuser_workdir] USER: calling working_fuser_unc() -> '{base_path}'")
-        
-        # CRITICAL: Validate that UNC path is properly formed
-        if not base_path:
-            logging.error("[_resolve_fuser_workdir] USER: working_fuser_unc() returned EMPTY! Cannot continue")
-            raise ValueError("working_fuser_unc() returned empty string - Offline config not properly set")
-        
-        if not base_path.startswith("\\\\"):
-            logging.error(f"[_resolve_fuser_workdir] USER: working_fuser_unc() returned NON-UNC path: {base_path}")
-            raise ValueError(f"working_fuser_unc() returned non-UNC path: {base_path}")
 
     # Simply return the WorkingFuser root - PhotoMesh creates numbered folders
-    try:
-        os.makedirs(base_path, exist_ok=True)
-    except Exception as e:
-        logging.error(f"[_resolve_fuser_workdir] Failed to create directory {base_path}: {e}")
-        raise
-    
+    os.makedirs(base_path, exist_ok=True)
     normalized = os.path.normpath(base_path).replace("/", "\\")
     logging.info(f"[_resolve_fuser_workdir] idx={idx} -> {normalized} (PhotoMesh will create {idx}\\ subdirectory)")
     return normalized
@@ -6379,7 +4899,7 @@ def _detect_running_fusers() -> dict:
     total_detected = len(result) + foreign_count
     
     # DEBUG: Print detection results to console
-    print(f"[DEBUG] _detect_running_fusers() -> Found {len(result)} OUR fusers, {foreign_count} foreign -> TOTAL={total_detected}")
+    print(f"🔍 _detect_running_fusers() → Found {len(result)} OUR fusers, {foreign_count} foreign → TOTAL={total_detected}")
     if result:
         print(f"   Our fuser IDs: {sorted(result.keys())}")
     
@@ -6404,17 +4924,6 @@ def start_fuser_instance(idx: int) -> bool:
     - Waits up to 7s for stabilization
     - Retries once on early exit with 2s backoff
     """
-    global _FUSER_SPAWN_ATTEMPTS
-    
-    # Track spawn attempt for this ID
-    now = time.time()
-    if idx not in _FUSER_SPAWN_ATTEMPTS:
-        _FUSER_SPAWN_ATTEMPTS[idx] = (0, 0.0, 0.0)  # (attempt_count, last_attempt_ts, last_success_ts)
-    
-    attempt_count, _, last_success_ts = _FUSER_SPAWN_ATTEMPTS[idx]
-    _FUSER_SPAWN_ATTEMPTS[idx] = (attempt_count + 1, now, last_success_ts)
-    logging.info(f"[start_fuser_instance] ID {idx}: spawn attempt #{attempt_count + 1} at {now:.1f}")
-    
     # Single Use Mode: completely bypass launching any fuser processes
     if is_single_use_mode():
         try:
@@ -6438,58 +4947,13 @@ def start_fuser_instance(idx: int) -> bool:
         logging.info(f"[start_fuser_instance] exe_stat: exists={exe_stat['exists']} size={exe_stat['size']} mtime={exe_stat['mtime']} len={exe_stat['len']}")
         
         # Resolve the per-instance working directory
-        try:
-            workdir = _resolve_fuser_workdir(idx)
-        except Exception as e:
-            logging.error(f"[start_fuser_instance] Failed to resolve fuser workdir: {e}")
-            print(f"\n{'='*80}")
-            print(f"[FAIL] FUSER {idx} - Cannot resolve working directory")
-            print(f"       Error: {e}")
-            print(f"       Check: Offline config and UNC connectivity")
-            print(f"{'='*80}\n")
-            return False
-        
+        workdir = _resolve_fuser_workdir(idx)
         if not isinstance(workdir, str):
             logging.warning(f"[start_fuser_instance] workdir came back non-str ({type(workdir)}), coercing")
             workdir = str(workdir)
-        
-        # CRITICAL: Validate workdir format before passing to PhotoMesh
-        if not workdir or workdir.lower() in ["workingfuser", "localfuser", ""]:
-            logging.error(f"[start_fuser_instance] INVALID WORKDIR: {repr(workdir)} - looks like fallback/incomplete path!")
-            print(f"\n{'='*80}")
-            print(f"[FAIL] FUSER {idx} - Invalid working directory detected!")
-            print(f"       Path: {repr(workdir)}")
-            print(f"       This path should be either:")
-            print(f"         - Full UNC: \\\\\\\\host\\\\share\\\\WorkingFuser")
-            print(f"         - Full local: D:\\\\SharedMeshDrive\\\\WorkingFuser")
-            print(f"       Check Offline config and connectivity")
-            print(f"{'='*80}\n")
-            return False
-        
         logging.info(f"[start_fuser_instance] Working directory: {workdir}")
         wd_stat = _safe_stat(workdir)
         logging.info(f"[start_fuser_instance] workdir_stat: exists={wd_stat['exists']} size={wd_stat['size']} mtime={wd_stat['mtime']} len={wd_stat['len']}")
-        
-        # CRITICAL: For UNC paths, verify accessibility BEFORE launching fuser
-        if workdir.startswith("\\\\"):
-            logging.info(f"[start_fuser_instance] UNC path detected, verifying accessibility: {workdir}")
-            try:
-                # Try to create a test file to verify write access
-                test_file = os.path.join(workdir, f".ste_toolkit_test_{idx}.tmp")
-                with open(test_file, 'w') as f:
-                    f.write("test")
-                os.remove(test_file)
-                logging.info(f"[start_fuser_instance] UNC path verified as accessible and writable: {workdir}")
-            except Exception as e:
-                logging.error(f"[start_fuser_instance] UNC path is NOT accessible/writable: {workdir} - Error: {e}")
-                print(f"\n{'='*80}")
-                print(f"[FAIL] FUSER {idx} - UNC path not accessible")
-                print(f"       Path: {workdir}")
-                print(f"       Error: {e}")
-                print(f"       Action: Check network connectivity to host")
-                print(f"{'='*80}\n")
-                return False
-        
         # Probe write permission in workdir
         try:
             probe_name = os.path.join(workdir, f".probe_{idx}.tmp")
@@ -6635,10 +5099,6 @@ def start_fuser_instance(idx: int) -> bool:
                     global _FUSER_PROCESSES
                     _FUSER_PROCESSES.append(proc)
                     
-                    # Track successful launch - reset attempt counter for this ID
-                    _FUSER_SPAWN_ATTEMPTS[idx] = (0, now, now)  # Reset counter, record success
-                    logging.info(f"[start_fuser_instance] ID {idx}: success tracked, attempt counter reset")
-                    
                     return True
             
             except Exception as e:
@@ -6702,244 +5162,10 @@ def start_fuser_instance(idx: int) -> bool:
             pass
         return False
 
-
-def _get_our_fuser_folder_prefix() -> str:
-    """
-    Get the folder prefix used by this PC for fuser working directories.
-    PhotoMesh creates folders like: PCNAME(IP)_LocalFuser1, PCNAME(IP)_SeedFuser, etc.
-    Returns: prefix like 'RYANSWORKPC2(192.168.10.16)' or empty string if unavailable.
-    """
-    try:
-        pc_name = os.environ.get('COMPUTERNAME') or platform.node() or ''
-        if not pc_name:
-            return ''
-        
-        ip = get_primary_ipv4() or ''
-        if ip:
-            return f"{pc_name}({ip})"
-        else:
-            return pc_name
-    except Exception as e:
-        logging.warning(f"[fuser-cleanup] Failed to get folder prefix: {e}")
-        return ''
-
-
-def cleanup_our_fuser_folders() -> int:
-    """
-    Remove fuser working directories created by THIS PC.
-    
-    PhotoMesh Fuser creates folders in WorkingFuser with patterns like:
-    - PCNAME(IP)_LocalFuser1, PCNAME(IP)_LocalFuser2, PCNAME(IP)_LocalFuser3
-    - PCNAME(IP)_SeedFuser
-    - PCNAME(IP)_1, PCNAME(IP)_2, PCNAME(IP)_3
-    
-    This function finds and removes folders matching our PC's prefix.
-    
-    Returns:
-        Number of folders removed.
-    """
-    removed_count = 0
-    
-    try:
-        # Get the WorkingFuser root directory
-        work_mode = config.get("Fusers", "work_mode", fallback="local").strip().lower()
-        
-        if work_mode == "local":
-            # Local mode: use local path
-            o = get_offline_cfg()
-            local_root = o.get("local_data_root", r"D:\\SharedMeshDrive").strip()
-            wf_sub = o.get("working_fuser_subdir", "WorkingFuser").strip()
-            wf_root = os.path.join(local_root, wf_sub)
-        else:
-            # Shared mode: use UNC path
-            wf_root = working_fuser_unc()
-        
-        if not wf_root or not os.path.isdir(wf_root):
-            logging.debug(f"[fuser-cleanup] WorkingFuser root not accessible: {wf_root}")
-            return 0
-        
-        # Get our folder prefix (e.g., "RYANSWORKPC2(192.168.10.16)")
-        our_prefix = _get_our_fuser_folder_prefix()
-        if not our_prefix:
-            logging.warning("[fuser-cleanup] Could not determine our folder prefix, skipping cleanup")
-            return 0
-        
-        logging.info(f"[fuser-cleanup] Cleaning folders with prefix: {our_prefix}")
-        
-        # Also get just the PC name for legacy folder patterns
-        pc_name = os.environ.get('COMPUTERNAME') or platform.node() or ''
-        
-        # List all directories in WorkingFuser root
-        try:
-            items = os.listdir(wf_root)
-        except OSError as e:
-            logging.warning(f"[fuser-cleanup] Failed to list {wf_root}: {e}")
-            return 0
-        
-        for item in items:
-            item_path = os.path.join(wf_root, item)
-            
-            # Skip non-directories and system folders
-            if not os.path.isdir(item_path):
-                continue
-            if item.startswith('_') or item.startswith('.'):
-                continue
-            
-            # Check if this folder belongs to us
-            is_ours = False
-            
-            # Pattern 1: PCNAME(IP)_* (e.g., RYANSWORKPC2(192.168.10.16)_LocalFuser1)
-            if item.startswith(our_prefix + "_"):
-                is_ours = True
-            # Pattern 2: PCNAME(IP)_N where N is a number (e.g., RYANSWORKPC2(192.168.10.16)_1)
-            elif item.startswith(our_prefix):
-                suffix = item[len(our_prefix):]
-                if suffix.startswith("_") and suffix[1:].isdigit():
-                    is_ours = True
-            
-            if is_ours:
-                try:
-                    shutil.rmtree(item_path)
-                    removed_count += 1
-                    logging.info(f"[fuser-cleanup] Removed: {item}")
-                except OSError as e:
-                    logging.warning(f"[fuser-cleanup] Failed to remove {item}: {e}")
-        
-        if removed_count > 0:
-            logging.info(f"[fuser-cleanup] Cleaned up {removed_count} fuser folder(s)")
-        else:
-            logging.debug("[fuser-cleanup] No folders to clean up")
-            
-    except Exception as e:
-        logging.error(f"[fuser-cleanup] Error during cleanup: {e}")
-    
-    return removed_count
-
-
-def cleanup_stale_fuser_folders(max_age_hours: float = 24.0) -> int:
-    """
-    Remove fuser working directories from PCs that haven't been active.
-    
-    Checks for folders from other PCs and removes them if:
-    1. No corresponding KeepAlive heartbeat file exists, OR
-    2. The heartbeat is older than max_age_hours
-    
-    Args:
-        max_age_hours: Maximum age in hours before a folder is considered stale.
-        
-    Returns:
-        Number of folders removed.
-    """
-    removed_count = 0
-    
-    try:
-        # Get the WorkingFuser root directory
-        work_mode = config.get("Fusers", "work_mode", fallback="local").strip().lower()
-        
-        if work_mode == "local":
-            # Local mode: skip stale cleanup (only local folders)
-            logging.debug("[stale-cleanup] Skipping stale folder cleanup in local mode")
-            return 0
-        
-        # Shared mode: use UNC path
-        wf_root = working_fuser_unc()
-        
-        if not wf_root or not os.path.isdir(wf_root):
-            logging.debug(f"[stale-cleanup] WorkingFuser root not accessible: {wf_root}")
-            return 0
-        
-        # Get active PCs from KeepAlive files
-        active_pcs = set()
-        clients_dir = _working_clients_dir()
-        if clients_dir and os.path.isdir(clients_dir):
-            now = time.time()
-            max_age_seconds = max_age_hours * 3600
-            
-            for filename in os.listdir(clients_dir):
-                if filename.startswith("KeepAlive_") and filename.endswith(".json"):
-                    filepath = os.path.join(clients_dir, filename)
-                    try:
-                        with open(filepath, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        ts = float(data.get("ts", 0))
-                        if now - ts < max_age_seconds:
-                            # Extract PC name from KeepAlive filename
-                            # Pattern: KeepAlive_PCNAME(IP)_N.json
-                            parts = filename[len("KeepAlive_"):-len(".json")]
-                            # Get the prefix (PCNAME(IP))
-                            if "_" in parts:
-                                prefix = parts.rsplit("_", 1)[0]
-                                active_pcs.add(prefix.upper())
-                    except Exception:
-                        pass
-        
-        logging.debug(f"[stale-cleanup] Active PCs: {active_pcs}")
-        
-        # Get our prefix to skip our own folders
-        our_prefix = _get_our_fuser_folder_prefix().upper()
-        
-        # List all directories in WorkingFuser root
-        try:
-            items = os.listdir(wf_root)
-        except OSError as e:
-            logging.warning(f"[stale-cleanup] Failed to list {wf_root}: {e}")
-            return 0
-        
-        for item in items:
-            item_path = os.path.join(wf_root, item)
-            
-            # Skip non-directories and system folders
-            if not os.path.isdir(item_path):
-                continue
-            if item.startswith('_') or item.startswith('.'):
-                continue
-            
-            # Extract the PC prefix from folder name (PCNAME(IP))
-            # Pattern: PCNAME(IP)_suffix
-            if "(" in item and ")" in item:
-                try:
-                    paren_end = item.rindex(")")
-                    if "_" in item[paren_end:]:
-                        prefix = item[:paren_end + 1].upper()
-                    else:
-                        continue  # Not a fuser folder pattern
-                except ValueError:
-                    continue
-            else:
-                continue  # Not a fuser folder pattern
-            
-            # Skip our own folders
-            if prefix == our_prefix:
-                continue
-            
-            # Check if this PC is active
-            if prefix not in active_pcs:
-                try:
-                    # Double-check: is the folder old enough?
-                    folder_mtime = os.path.getmtime(item_path)
-                    age_hours = (time.time() - folder_mtime) / 3600
-                    
-                    if age_hours > max_age_hours:
-                        shutil.rmtree(item_path)
-                        removed_count += 1
-                        logging.info(f"[stale-cleanup] Removed stale folder: {item} (age: {age_hours:.1f}h)")
-                except OSError as e:
-                    logging.warning(f"[stale-cleanup] Failed to remove {item}: {e}")
-        
-        if removed_count > 0:
-            logging.info(f"[stale-cleanup] Cleaned up {removed_count} stale folder(s)")
-            
-    except Exception as e:
-        logging.error(f"[stale-cleanup] Error during cleanup: {e}")
-    
-    return removed_count
-
-
 def kill_fusers() -> None:
     """
     Kill ALL local PhotoMeshFuser.exe instances using psutil (no CMD windows).
     Attempts graceful termination first, then force kill if needed.
-    Also cleans up the working directories created by our fusers.
     """
     global _FUSER_PROCESSES
     
@@ -6947,10 +5173,10 @@ def kill_fusers() -> None:
     import traceback
     stack_trace = ''.join(traceback.format_stack())
     print("\n" + "="*80)
-    print("[KILL] kill_fusers() CALLED - Full stack trace:")
+    print("🔴 kill_fusers() CALLED - Full stack trace:")
     print(stack_trace)
     print("="*80 + "\n")
-    logging.error(f"[kill_fusers] KILL REQUEST - Full stack trace:\n{stack_trace}")
+    logging.error(f"[kill_fusers] 🔴 KILL REQUEST - Full stack trace:\n{stack_trace}")
     
     if not psutil:
         logging.warning("[kill_fusers] psutil not available, cannot kill fusers")
@@ -6985,17 +5211,10 @@ def kill_fusers() -> None:
     except Exception as e:
         logging.error(f"[kill_fusers] Error during kill: {e}")
     
-    print("\n" + "="*80)
-    print(f"FUSER KILL SUMMARY: {killed_count} process(es) terminated")
-    print("="*80 + "\n")
     logging.info(f"[kill_fusers] Killed {killed_count} fuser process(es)")
     
     # Clear the process reference list after killing
     _FUSER_PROCESSES.clear()
-    
-    # Clean up our fuser working directories after killing processes
-    if killed_count > 0:
-        run_in_thread(cleanup_our_fuser_folders)
     
     # Trigger immediate status update on OneClick panel if it exists
     try:
@@ -7051,7 +5270,7 @@ def ensure_fuser_instances(desired: int):
         return
     
     try:
-        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         logging.info(f"[fuser-scale] is_fuser_computer: {is_fuser}")
     
         desired = _clamp_fusers(desired, is_fuser)
@@ -7074,12 +5293,6 @@ def ensure_fuser_instances(desired: int):
                 logging.info(f"[fuser-scale] ✓ Already at target (ours={our_count}), no action needed")
                 if foreign_count > 0:
                     logging.info(f"[fuser-scale] Note: {foreign_count} foreign fuser(s) also running (ignored)")
-                
-                print("\n" + "="*80)
-                print(f"✓ FUSER COUNT STABLE: {our_count} running / {desired} desired")
-                print("  No action needed")
-                print("="*80 + "\n")
-                logging.info(f"[FUSER-STABLE] target={desired} current={our_count} status=already_met")
             else:
                 # More of ours than desired - need to trim OUR extras only
                 to_kill = our_count - desired
@@ -7088,12 +5301,12 @@ def ensure_fuser_instances(desired: int):
                 import traceback
                 trim_trace = ''.join(traceback.format_stack())
                 print("\n" + "="*80)
-                print(f"[TRIM] ensure_fuser_instances() TRIM: total={total_count} > desired={desired}, will trim {to_kill}")
+                print(f"🔴 ensure_fuser_instances() TRIM: total={total_count} > desired={desired}, will trim {to_kill}")
                 print("Called from:")
                 print(trim_trace)
                 print("="*80 + "\n")
                 
-                logging.warning(f"[fuser-scale] TRIM NEEDED: total={total_count} > desired={desired}, will trim {to_kill} fuser(s)")
+                logging.warning(f"[fuser-scale] ⚠️ TRIM NEEDED: total={total_count} > desired={desired}, will trim {to_kill} fuser(s)")
                 logging.error(f"[fuser-scale] TRIM stack trace:\n{trim_trace}")
                 
                 # Kill only OUR extra fusers, starting from highest ID
@@ -7126,35 +5339,6 @@ def ensure_fuser_instances(desired: int):
         
         # Find which IDs are missing (1, 2, 3)
         available_ids = [i for i in range(1, 4) if i not in our_fusers]
-        
-        # CRITICAL: Filter out IDs that failed recently to prevent spawn storms
-        # Check each ID's retry eligibility based on last attempt timestamp
-        global _FUSER_SPAWN_ATTEMPTS
-        now = time.time()
-        retry_eligible_ids = []
-        for idx in available_ids:
-            if idx not in _FUSER_SPAWN_ATTEMPTS:
-                # First attempt for this ID
-                retry_eligible_ids.append(idx)
-                logging.info(f"[fuser-scale] ID {idx}: first attempt eligible")
-            else:
-                attempt_count, last_attempt_ts, last_success_ts = _FUSER_SPAWN_ATTEMPTS[idx]
-                time_since_last_attempt = now - last_attempt_ts
-                
-                # Don't retry if last attempt was too recent
-                if time_since_last_attempt < _MIN_SPAWN_RETRY_INTERVAL:
-                    logging.warning(f"[fuser-scale] ID {idx}: SKIP RETRY (recent attempt {time_since_last_attempt:.1f}s ago, need {_MIN_SPAWN_RETRY_INTERVAL}s)")
-                    continue
-                
-                # Check attempt count in current cycle
-                if attempt_count >= _MAX_SPAWN_ATTEMPTS_PER_CYCLE:
-                    logging.warning(f"[fuser-scale] ID {idx}: SKIP RETRY (exceeded max attempts={attempt_count} in current cycle)")
-                    continue
-                
-                retry_eligible_ids.append(idx)
-                logging.info(f"[fuser-scale] ID {idx}: retry eligible (attempt {attempt_count}, last {time_since_last_attempt:.1f}s ago)")
-        
-        available_ids = retry_eligible_ids
         
         # Launch in parallel so multiple fusers start at about the same time
         launched = 0
@@ -7247,7 +5431,7 @@ def ensure_fuser_instances(desired: int):
         # Final summary: Overall result
         final_running = count_local_fusers()
         print("\n" + "="*80)
-        print(f"[INFO] FUSER ENFORCEMENT COMPLETE")
+        print(f"📊 FUSER ENFORCEMENT COMPLETE")
         print(f"   Target: {desired}")
         print(f"   Running: {final_running}")
         print(f"   Started this session: {launched}")
@@ -7289,36 +5473,21 @@ def get_last_launched_fuser_count() -> int:
 def kill_all_fusers_on_exit():
     """Kill all fusers when the toolkit exits (only if this is a fuser computer)."""
     try:
-        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
-        kill_on_exit = config.getboolean("Fusers", "kill_on_exit", fallback=True)
-        
-        print("\n" + "="*80)
-        print("APP CLOSING - Exit Handler Called")
-        print(f"  fuser_computer: {is_fuser}")
-        print(f"  kill_on_exit: {kill_on_exit}")
-        print("="*80 + "\n")
-        logging.info(f"[on_exit] APP CLOSING: fuser_computer={is_fuser}, kill_on_exit={kill_on_exit}")
-        
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        kill_on_exit = config["Fusers"].getboolean("kill_on_exit", fallback=True)
         if is_fuser and kill_on_exit:
-            logging.info("[on_exit] Terminating all local fusers...")
-            print("Killing all running fusers...\n")
+            logging.info("[on_exit] kill_on_exit=True -> terminating local fusers")
             kill_fusers()
-            
             # Reset the launched count since we killed everything
             config["Fusers"]["last_launched_count"] = "0"
             _save_config()
-            logging.info("[on_exit] All fusers killed and count reset to 0")
-            print("[OK] Fusers killed and count reset\n")
         else:
             if is_fuser and not kill_on_exit:
                 logging.info("[on_exit] kill_on_exit=False -> leaving local fusers running")
-                print("[WARN] kill_on_exit is False - fusers left running\n")
             else:
                 logging.info("[on_exit] Not a fuser computer -> no fusers to terminate")
-                print("[OK] Not a fuser computer - no action needed\n")
     except Exception as e:
-        logging.error(f"[on_exit] Exception in kill_all_fusers_on_exit: {e}", exc_info=True)
-        print(f"[ERROR] Error during exit: {e}\n")
+        pass
 
 def kill_fusers_on_disable():
     """Kill all fusers and reset count when fuser computer setting is disabled."""
@@ -7347,7 +5516,7 @@ def restore_fusers_on_startup():
             pass
         return
     try:
-        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         is_host = is_host_machine()
         
         if not is_fuser and not is_host:
@@ -7441,7 +5610,7 @@ def enforce_local_fuser_policy():
             logging.info("[fuser-policy] GATED: enforcement disabled until UNC ready (shared mode)")
             return
         
-        is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
         logging.info(f"[fuser-policy] is_fuser_computer: {is_fuser}")
         
         host_ct, desired_ct = get_fuser_counts()
@@ -7496,20 +5665,11 @@ def enforce_local_fuser_policy():
                 target = 0
                 logging.info(f"[fuser-policy] policy: mode={work_mode} is_fuser={is_fuser} -> target={target} (not a fuser PC)")
 
-        # Throttle duplicate enforcements with the same target within a cooldown window
-        global _last_enforce_target, _last_enforce_ts
+        # Throttle duplicate enforcements with the same target within a short window
         now = time.time()
-        
-        # If same target was just enforced, skip to prevent spawn storms
-        if _last_enforce_target == target and (now - _last_enforce_ts) < _ENFORCE_COOLDOWN_SECONDS:
-            logging.info(f"[fuser-policy] THROTTLE: recent identical target={target} within {_ENFORCE_COOLDOWN_SECONDS}s window (age={(now - _last_enforce_ts):.1f}s)")
+        if _last_enforce_target == target and (now - _last_enforce_ts) < 8.0:
+            logging.info(f"[fuser-policy] SKIP: recent identical target={target} within 8s window")
             return
-        
-        # Log decision to enforce
-        if _last_enforce_target != target:
-            logging.info(f"[fuser-policy] TARGET CHANGE: {_last_enforce_target} -> {target}")
-        else:
-            logging.info(f"[fuser-policy] COOLDOWN EXPIRED: retrying target={target} after {(now - _last_enforce_ts):.1f}s")
 
         logging.info(f"[fuser-policy] EXECUTE: ensure_fuser_instances({target})")
         ensure_fuser_instances(target)
@@ -7547,8 +5707,8 @@ def _assert_shared_path_is_unc():
         logging.warning(f"[self-heal] ✗ Working folder is NOT a UNC path: {shared}")
         
         # Get host IP and share name from config
-        host_ip = safe_config_get("Offline", "host_ip", "")
-        share_name = safe_config_get("Offline", "share_name", "SharedMeshDrive")
+        host_ip = config.get("Offline", "host_ip", fallback="").strip()
+        share_name = config.get("Offline", "share_name", fallback="SharedMeshDrive").strip()
         
         if not host_ip:
             logging.error("[self-heal] Cannot fix: host_ip not configured")
@@ -7644,8 +5804,6 @@ def update_fuser_shared_path(project_path: str | None = None) -> None:
     data["shared_path"] = unc_path
 
     try:
-        # Ensure config directory exists
-        os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         logging.info(f"[fuser] shared_path -> {unc_path}")
@@ -7659,12 +5817,12 @@ def apply_offline_settings() -> None:
         return
     # Ensure Network.host is set from Offline.host_ip for proper initialization
     try:
-        host_ip = safe_config_get("Offline", "host_ip", "")
+        host_ip = config.get("Offline", "host_ip", fallback="").strip()
         if host_ip:
             if "Network" not in config:
                 config["Network"] = {}
             # Ensure Network.host matches Offline.host_ip for proper initialization
-            if safe_config_get("Network", "host", "") != host_ip:
+            if config.get("Network", "host", fallback="").strip() != host_ip:
                 config["Network"]["host"] = host_ip
                 save_config()
     except Exception as e:
@@ -8419,75 +6577,34 @@ logo_us_army_path     = os.path.join(_BUNDLE_DIR, "logos", "New_US_Army_Logo.png
 prompt_box_image_path = os.path.join(_BUNDLE_DIR, "assets", "promptbox.jpg")
 _cached_bg_photo = None
 _cached_bg_size = (0, 0)
-# Background dimensions - will be updated dynamically based on screen size
-_PANEL_BG_WIDTH = 1920  # Default, updated at runtime
-_PANEL_BG_HEIGHT = 1080  # Default, updated at runtime
-
-# Cache for background labels - keyed by widget id to allow label reuse
-_bg_label_cache: dict = {}
-
+_PANEL_BG_WIDTH = 1920  # Background canvas width for panel images
+_PANEL_BG_HEIGHT = 1080  # Background canvas height for panel images
 
 def set_background(window, widget=None):
-    """Apply a dynamically-sized background to a widget based on screen dimensions.
+    """Apply a consistent-sized cached background to a widget."""
+    global _cached_bg_photo, _cached_bg_size
     
-    Reuses existing background labels to avoid widget accumulation.
-    """
-    global _cached_bg_photo, _cached_bg_size, _PANEL_BG_WIDTH, _PANEL_BG_HEIGHT
-    
-    target = widget or window
-    target_id = id(target)
-    
-    # Get actual screen dimensions for fullscreen support
-    try:
-        screen_w = window.winfo_screenwidth()
-        screen_h = window.winfo_screenheight()
-        # Use screen size for background to support ultrawide monitors
-        bg_width = max(screen_w, 1920)
-        bg_height = max(screen_h, 1080)
-        # Update globals for consistency
-        _PANEL_BG_WIDTH = bg_width
-        _PANEL_BG_HEIGHT = bg_height
-    except Exception:
-        bg_width = _PANEL_BG_WIDTH
-        bg_height = _PANEL_BG_HEIGHT
+    # Use fixed size so all panels have same background dimensions
+    bg_width = _PANEL_BG_WIDTH
+    bg_height = _PANEL_BG_HEIGHT
 
-    # Skip if no background image
-    if not os.path.exists(background_image_path):
-        return
-    
-    # Create/update cached photo if size changed
-    if _cached_bg_photo is None or _cached_bg_size != (bg_width, bg_height):
-        img = Image.open(background_image_path)
-        img = img.resize((bg_width, bg_height), Image.Resampling.LANCZOS)
-        _cached_bg_photo = ImageTk.PhotoImage(img)
-        _cached_bg_size = (bg_width, bg_height)
-    
-    # Reuse existing label if we have one for this widget
-    if target_id in _bg_label_cache:
-        lbl = _bg_label_cache[target_id]
+    # wallpaper - use cached version if already created
+    if os.path.exists(background_image_path):
+        if _cached_bg_photo is None or _cached_bg_size != (bg_width, bg_height):
+            img = Image.open(background_image_path)
+            img = img.resize((bg_width, bg_height), Image.Resampling.LANCZOS)
+            _cached_bg_photo = ImageTk.PhotoImage(img)
+            _cached_bg_size = (bg_width, bg_height)
+        
+        lbl = tk.Label(widget or window, image=_cached_bg_photo)
+        lbl.image = _cached_bg_photo
+        lbl.place(x=0, y=0, relwidth=1, relheight=1)
         try:
-            if lbl.winfo_exists():
-                lbl.configure(image=_cached_bg_photo)
-                lbl.image = _cached_bg_photo
-                return
+            lbl.lower()
         except Exception:
             pass
-        # Label was destroyed, remove from cache
-        del _bg_label_cache[target_id]
-    
-    # Create new label and cache it
-    lbl = tk.Label(target, image=_cached_bg_photo)
-    lbl.image = _cached_bg_photo
-    lbl.place(x=0, y=0, relwidth=1, relheight=1)
-    try:
-        lbl.lower()
-    except Exception:
-        pass
-    _bg_label_cache[target_id] = lbl
-
 
 def set_wallpaper(window):
-    """Legacy wallpaper function - prefer set_background() for new code."""
     if not os.path.exists(background_image_path):
         return
 
@@ -8504,165 +6621,6 @@ def set_wallpaper(window):
         pass
 
 # ─── UI Performance Helpers ──────────────────────────────────────────────────
-
-# Frame-time monitor to detect main-thread stalls (independent of event delivery)
-FRAME_MONITOR_ENABLED = False  # Disabled - issue resolved (psutil blocking)
-FRAME_MONITOR_INTERVAL_MS = 16  # ~60fps scheduling target
-FRAME_MONITOR_STALL_THRESHOLD_MS = 120.0  # Log when frame delta exceeds this
-FRAME_MONITOR_CAPTURE_STACK = True  # Capture stack traces during stalls
-FRAME_MONITOR_PROFILE_MODE = False  # Disabled - issue resolved
-_FRAME_MONITOR_LAST_TICK = None
-_FRAME_MONITOR_STATS = {
-    'ticks': 0,
-    'stalls': 0,
-    'max_delta_ms': 0.0,
-    'total_stall_time_ms': 0.0,
-}
-_FRAME_MONITOR_PROFILE_DATA = {}  # Stack samples collected during execution
-
-def _frame_tick(root):
-    """Scheduled callback to detect main-thread stalls.
-    
-    Measures time between scheduled callbacks. If delta significantly exceeds
-    the scheduling interval, the main thread was blocked (e.g., by slow event
-    handlers, heavy computation, blocking I/O).
-    
-    This captures freezes that prevent hover events from firing at all.
-    """
-    global _FRAME_MONITOR_LAST_TICK, _FRAME_MONITOR_STATS
-    
-    try:
-        now = _time_mod_for_perf.perf_counter()
-        
-        if _FRAME_MONITOR_LAST_TICK is not None:
-            delta_ms = (now - _FRAME_MONITOR_LAST_TICK) * 1000.0
-            _FRAME_MONITOR_STATS['ticks'] += 1
-            _FRAME_MONITOR_STATS['max_delta_ms'] = max(_FRAME_MONITOR_STATS['max_delta_ms'], delta_ms)
-            
-            if delta_ms > FRAME_MONITOR_STALL_THRESHOLD_MS:
-                _FRAME_MONITOR_STATS['stalls'] += 1
-                stall_time = delta_ms - FRAME_MONITOR_INTERVAL_MS
-                _FRAME_MONITOR_STATS['total_stall_time_ms'] += stall_time
-                print(
-                    f"[FRAME-STALL] delta_ms={delta_ms:.1f} (expected ~{FRAME_MONITOR_INTERVAL_MS}ms) "
-                    f"stall_time_ms={stall_time:.1f} total_stalls={_FRAME_MONITOR_STATS['stalls']}"
-                )
-                
-                # Show what the main thread was doing during the stall (from profiler samples)
-                if FRAME_MONITOR_PROFILE_MODE and _FRAME_MONITOR_PROFILE_DATA:
-                    stall_start = _FRAME_MONITOR_LAST_TICK
-                    stall_end = now
-                    print(f"[FRAME-STALL-PROFILE] Stack samples during stall (last {len(_FRAME_MONITOR_PROFILE_DATA)} samples):")
-                    print("=" * 80)
-                    
-                    # Find samples that occurred during the stall window
-                    stall_samples = []
-                    for sample_time, stack in sorted(_FRAME_MONITOR_PROFILE_DATA.items()):
-                        if stall_start <= sample_time <= stall_end:
-                            stall_samples.append((sample_time, stack))
-                    
-                    if stall_samples:
-                        print(f"Found {len(stall_samples)} samples during the {stall_time:.0f}ms stall:")
-                        # Show unique stacks with counts
-                        from collections import Counter
-                        stack_counts = Counter([s[1] for s in stall_samples])
-                        for stack, count in stack_counts.most_common(5):
-                            pct = (count / len(stall_samples)) * 100
-                            print(f"\n[{count}/{len(stall_samples)} samples = {pct:.1f}%]")
-                            print(f"  {stack}")
-                    else:
-                        print("(No samples captured during stall window - stall may be in native code)")
-                        print("\nMost recent samples before stall:")
-                        for sample_time, stack in sorted(_FRAME_MONITOR_PROFILE_DATA.items())[-3:]:
-                            print(f"\n  t={sample_time:.3f}:")
-                            print(f"  {stack}")
-                    print("=" * 80)
-                
-                # Also log all threads to see if background work is interfering
-                try:
-                    import threading
-                    print(f"[FRAME-STALL-THREADS] Active threads: {threading.active_count()}")
-                    for thread in threading.enumerate():
-                        print(f"  - {thread.name} (daemon={thread.daemon}, alive={thread.is_alive()})")
-                except Exception:
-                    pass
-            
-            # Summary every 1000 ticks (~16 seconds at 60fps)
-            if _FRAME_MONITOR_STATS['ticks'] % 1000 == 0:
-                avg_delta = (now - _FRAME_MONITOR_LAST_TICK) * 1000.0  # approximation
-                print(
-                    f"[FRAME-SUMMARY] ticks={_FRAME_MONITOR_STATS['ticks']} stalls={_FRAME_MONITOR_STATS['stalls']} "
-                    f"max_delta_ms={_FRAME_MONITOR_STATS['max_delta_ms']:.1f} total_stall_time_ms={_FRAME_MONITOR_STATS['total_stall_time_ms']:.1f}"
-                )
-        
-        _FRAME_MONITOR_LAST_TICK = now
-        
-        # Reschedule next tick
-        if FRAME_MONITOR_ENABLED:
-            root.after(FRAME_MONITOR_INTERVAL_MS, lambda: _frame_tick(root))
-    except Exception as e:
-        logging.error(f"[frame-monitor] error in _frame_tick: {e}")
-
-def _profile_sampler():
-    """Background profiler that samples the main thread stack periodically.
-    
-    This runs in a separate thread and captures stack traces every 50ms.
-    When a frame stall is detected, we can analyze these samples to see
-    what the main thread was doing during the freeze.
-    """
-    global _FRAME_MONITOR_PROFILE_DATA
-    import sys
-    import traceback
-    import threading
-    
-    main_thread_id = threading.main_thread().ident
-    
-    while FRAME_MONITOR_PROFILE_MODE:
-        try:
-            # Sample the main thread stack
-            for thread_id, frame in sys._current_frames().items():
-                if thread_id == main_thread_id:
-                    # Extract just the function names and line numbers
-                    stack = []
-                    current_frame = frame
-                    while current_frame is not None:
-                        code = current_frame.f_code
-                        # Skip internal tkinter/monitoring frames
-                        if 'tkinter' not in code.co_filename and '_frame_tick' not in code.co_name:
-                            stack.append(f"{code.co_filename}:{current_frame.f_lineno} in {code.co_name}")
-                        current_frame = current_frame.f_back
-                    
-                    # Store with timestamp
-                    if stack:
-                        timestamp = _time_mod_for_perf.perf_counter()
-                        stack_key = '\n  '.join(stack[:5])  # Top 5 frames
-                        _FRAME_MONITOR_PROFILE_DATA[timestamp] = stack_key
-                    
-                    # Keep only last 100 samples (last ~5 seconds)
-                    if len(_FRAME_MONITOR_PROFILE_DATA) > 100:
-                        oldest = min(_FRAME_MONITOR_PROFILE_DATA.keys())
-                        del _FRAME_MONITOR_PROFILE_DATA[oldest]
-                    break
-        except Exception:
-            pass
-        
-        # Sample every 50ms
-        _time_mod_for_perf.sleep(0.05)
-
-def start_frame_monitor(root):
-    """Initialize the frame-time monitor for detecting UI freezes."""
-    global _FRAME_MONITOR_LAST_TICK
-    if FRAME_MONITOR_ENABLED:
-        _FRAME_MONITOR_LAST_TICK = _time_mod_for_perf.perf_counter()
-        root.after(FRAME_MONITOR_INTERVAL_MS, lambda: _frame_tick(root))
-        logging.info(f"[frame-monitor] Started (interval={FRAME_MONITOR_INTERVAL_MS}ms, threshold={FRAME_MONITOR_STALL_THRESHOLD_MS}ms)")
-        
-        # Start background profiler if enabled
-        if FRAME_MONITOR_PROFILE_MODE:
-            import threading
-            profiler_thread = threading.Thread(target=_profile_sampler, name="FrameProfiler", daemon=True)
-            profiler_thread.start()
-            logging.info("[frame-monitor] Background stack profiler started")
 
 def load_cached_image(path: str, size: tuple[int, int]) -> ImageTk.PhotoImage:
     """Load and cache resized images for better UI performance.
@@ -8695,154 +6653,26 @@ def load_cached_image(path: str, size: tuple[int, int]) -> ImageTk.PhotoImage:
     return _IMAGE_CACHE[cache_key]
 
 def add_button_hover_effect(button: tk.Button, normal_bg: str = "#444444", hover_bg: str = "#555555"):
-    """Add fast, lightweight hover effect to a button with performance instrumentation.
-
-    Optimizations:
-    - Avoid redundant .configure calls
-    - Prime activebackground for snappier feel
-    - Optional deferred render flush to reduce synchronous latency
-    - Aggregates timing stats (avg/max, spike counts) for diagnostics
+    """Add smooth hover effect to a button for better visual feedback.
+    
+    Args:
+        button: tkinter Button widget
+        normal_bg: Normal background color (default: #444444)
+        hover_bg: Hover background color (default: #555555)
+    
+    Makes the UI feel more responsive by providing immediate visual feedback.
+    Only applies effect if button is not disabled.
     """
-    try:
-        # ------------------------------------------------------------------
-        # Global instrumentation / configuration defaults (create once)
-        # ------------------------------------------------------------------
-        global PERF_HOVER_LOG, PERF_HOVER_DEFER_FLUSH, HOVER_STATS
-        global PERF_HOVER_EVENT_SUMMARY_INTERVAL, PERF_HOVER_RENDER_WARN_MS, PERF_HOVER_CFG_WARN_MS
-
-        if 'PERF_HOVER_LOG' not in globals():
-            PERF_HOVER_LOG = False  # master enable - disabled, issue fixed (was tooltip calling network I/O)
-        if 'PERF_HOVER_DEFER_FLUSH' not in globals():
-            # When True: measure config time immediately, schedule render flush measurement via after_idle
-            PERF_HOVER_DEFER_FLUSH = True  # Enable deferred flush for better perf
-        if 'PERF_HOVER_EVENT_SUMMARY_INTERVAL' not in globals():
-            PERF_HOVER_EVENT_SUMMARY_INTERVAL = 50  # print aggregate every N events
-        if 'PERF_HOVER_RENDER_WARN_MS' not in globals():
-            PERF_HOVER_RENDER_WARN_MS = 500.0  # warn threshold (ms) for render phase
-        if 'PERF_HOVER_CFG_WARN_MS' not in globals():
-            PERF_HOVER_CFG_WARN_MS = 5.0  # cfg almost always <1ms; >5ms suspicious
-        if 'HOVER_STATS' not in globals():
-            HOVER_STATS = {
-                'events': 0,
-                'cfg_total': 0.0,
-                'render_total': 0.0,
-                'cfg_max': 0.0,
-                'render_max': 0.0,
-                'cfg_spikes': 0,
-                'render_spikes': 0,
-            }
-
-        # Use current bg as the default normal color if not provided
-        if not normal_bg:
-            normal_bg = button.cget("bg")
-
-        # Prime active colors
-        try:
-            button.configure(activebackground=hover_bg, activeforeground=button.cget("fg"))
-        except Exception:
-            pass
-
-        def _aggregate(cfg_ms: float, render_ms: float | None):
-            try:
-                HOVER_STATS['events'] += 1
-                HOVER_STATS['cfg_total'] += cfg_ms
-                HOVER_STATS['cfg_max'] = max(HOVER_STATS['cfg_max'], cfg_ms)
-                if cfg_ms >= PERF_HOVER_CFG_WARN_MS:
-                    HOVER_STATS['cfg_spikes'] += 1
-                if render_ms is not None:
-                    HOVER_STATS['render_total'] += render_ms
-                    HOVER_STATS['render_max'] = max(HOVER_STATS['render_max'], render_ms)
-                    if render_ms >= PERF_HOVER_RENDER_WARN_MS:
-                        HOVER_STATS['render_spikes'] += 1
-                if HOVER_STATS['events'] % PERF_HOVER_EVENT_SUMMARY_INTERVAL == 0:
-                    avg_cfg = HOVER_STATS['cfg_total'] / max(1, HOVER_STATS['events'])
-                    avg_render = (HOVER_STATS['render_total'] / max(1, HOVER_STATS['events'])) if HOVER_STATS['render_total'] else 0.0
-                    print(
-                        f"[HOVERPERF-SUMMARY] events={HOVER_STATS['events']} avg_cfg_ms={avg_cfg:.3f} avg_render_ms={avg_render:.3f} "
-                        f"cfg_max={HOVER_STATS['cfg_max']:.3f} render_max={HOVER_STATS['render_max']:.3f} "
-                        f"cfg_spikes>={PERF_HOVER_CFG_WARN_MS}ms={HOVER_STATS['cfg_spikes']} render_spikes>={PERF_HOVER_RENDER_WARN_MS}ms={HOVER_STATS['render_spikes']}"
-                    )
-            except Exception:
-                pass
-
-        def _log_hover_perf(button_obj, phase, start, end, render_end=None):
-            try:
-                btn_id = getattr(button_obj, 'perf_id', None)
-                if not btn_id:
-                    button_obj.perf_id = f"{button_obj.winfo_class()}@{hex(id(button_obj))}"
-                    btn_id = button_obj.perf_id
-                cfg_ms = (end - start) * 1000.0
-                if render_end is not None:
-                    render_ms = (render_end - end) * 1000.0
-                    print(
-                        f"[HOVERPERF] phase={phase} button={btn_id} text='{button_obj.cget('text')}' "
-                        f"t_start={start:.6f} t_cfg_end={end:.6f} cfg_ms={cfg_ms:.3f} t_render_end={render_end:.6f} render_ms={render_ms:.3f}"
-                    )
-                    _aggregate(cfg_ms, render_ms)
-                else:
-                    print(
-                        f"[HOVERPERF] phase={phase} button={btn_id} text='{button_obj.cget('text')}' "
-                        f"t_start={start:.6f} t_cfg_end={end:.6f} cfg_ms={cfg_ms:.3f}" 
-                    )
-                    _aggregate(cfg_ms, None)
-            except Exception:
-                pass
-
-        def _flush_and_measure(button_obj, phase, start, cfg_end):
-            """Deferred flush measurement executed on idle (only if enabled)."""
-            try:
-                # After idle we assume Tk has processed pending draws
-                render_end = _time_mod_for_perf.perf_counter()
-                _log_hover_perf(button_obj, phase, start, cfg_end, render_end)
-            except Exception:
-                pass
-
-        def on_enter(_event=None):
-            if str(button.cget("state")) == 'disabled':
-                return
-            # Always apply UI effect
-            if button.cget("bg") != hover_bg:
-                button.configure(bg=hover_bg)
-            # Optionally record and log perf if enabled
-            if PERF_HOVER_LOG:
-                t0 = _time_mod_for_perf.perf_counter()
-                t1 = _time_mod_for_perf.perf_counter()
-                if PERF_HOVER_DEFER_FLUSH:
-                    # Schedule async render measurement
-                    button.after_idle(lambda: _flush_and_measure(button, 'enter', t0, t1))
-                else:
-                    # Immediate flush path (original behavior)
-                    try:
-                        button.update_idletasks()
-                    except Exception:
-                        pass
-                    t2 = _time_mod_for_perf.perf_counter()
-                    _log_hover_perf(button, 'enter', t0, t1, t2)
-
-        def on_leave(_event=None):
-            if str(button.cget("state")) == 'disabled':
-                return
-            # Always apply UI effect
-            if button.cget("bg") != normal_bg:
-                button.configure(bg=normal_bg)
-            # Optionally record and log perf if enabled
-            if PERF_HOVER_LOG:
-                t0 = _time_mod_for_perf.perf_counter()
-                t1 = _time_mod_for_perf.perf_counter()
-                if PERF_HOVER_DEFER_FLUSH:
-                    button.after_idle(lambda: _flush_and_measure(button, 'leave', t0, t1))
-                else:
-                    try:
-                        button.update_idletasks()
-                    except Exception:
-                        pass
-                    t2 = _time_mod_for_perf.perf_counter()
-                    _log_hover_perf(button, 'leave', t0, t1, t2)
-
-        button.bind("<Enter>", on_enter, add=True)
-        button.bind("<Leave>", on_leave, add=True)
-    except Exception:
-        pass
+    def on_enter(event):
+        if button['state'] != 'disabled':
+            button.config(bg=hover_bg)
+    
+    def on_leave(event):
+        if button['state'] != 'disabled':
+            button.config(bg=normal_bg)
+    
+    button.bind("<Enter>", on_enter)
+    button.bind("<Leave>", on_leave)
 
 def set_busy_cursor(widget, busy: bool = True):
     """Set or clear busy cursor to indicate processing.
@@ -8880,86 +6710,9 @@ blueig_help_items = {
 # ─── help MENUS ────────────────────────────
 VBS4_HTML = r"C:\Builds\VBS4\VBS4 25.1 YYMEA_General\docs\VBS4_Manuals_EN.htm"
 BlueIG_HTML = r"C:\Builds\BlueIG\Blue IG 24.2 YYMEA_General\docs\Blue_IG_EN.htm"
+SCRIPT_WIKI  = r"C:\Users\tifte\Documents\GitHub\VBS4Project\PythonPorjects\Help_Tutorials\Wiki\SQF_Reference.html"
 SUPPORT_SITE = "https://bisimulations.com/support/"
 STE_SMTP_KIT_GUIDE = os.path.join(_BUNDLE_DIR, "Help_Tutorials", "STE_SMTP_KIT_GUIDE.pdf")
-
-# Wiki extraction cache - store extracted wiki path to avoid re-extracting
-_WIKI_EXTRACTED_PATH = None
-
-def _get_wiki_extract_dir() -> str:
-    """Get the directory where Wiki.zip should be extracted."""
-    # Use a persistent location in user's AppData to avoid re-extracting every launch
-    app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-    return os.path.join(app_data, 'STE_Toolkit', 'WikiCache')
-
-def _extract_wiki_zip(zip_path: str) -> str:
-    """Extract Wiki.zip and return path to SQF_Reference.html.
-    
-    Extracts to a cache directory and only re-extracts if zip is newer than cache.
-    Returns empty string if extraction fails.
-    """
-    global _WIKI_EXTRACTED_PATH
-    
-    if not os.path.exists(zip_path):
-        return ""
-    
-    extract_dir = _get_wiki_extract_dir()
-    wiki_html = os.path.join(extract_dir, "SQF_Reference.html")
-    marker_file = os.path.join(extract_dir, ".wiki_extracted")
-    
-    # Check if we need to extract (zip newer than marker, or marker doesn't exist)
-    need_extract = True
-    if os.path.exists(marker_file) and os.path.exists(wiki_html):
-        try:
-            zip_mtime = os.path.getmtime(zip_path)
-            marker_mtime = os.path.getmtime(marker_file)
-            if marker_mtime >= zip_mtime:
-                need_extract = False
-                logging.info(f"[wiki] Using cached Wiki from {extract_dir}")
-        except Exception:
-            pass
-    
-    if need_extract:
-        try:
-            import zipfile
-            import shutil
-            
-            logging.info(f"[wiki] Extracting Wiki.zip from {zip_path}")
-            
-            # Clear old extraction
-            if os.path.exists(extract_dir):
-                shutil.rmtree(extract_dir, ignore_errors=True)
-            
-            os.makedirs(extract_dir, exist_ok=True)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(extract_dir)
-            
-            # Create marker file with current timestamp
-            with open(marker_file, 'w') as f:
-                f.write(f"Extracted from: {zip_path}\n")
-                f.write(f"Extracted at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            
-            logging.info(f"[wiki] Wiki extracted to {extract_dir}")
-            
-        except Exception as e:
-            logging.error(f"[wiki] Failed to extract Wiki.zip: {e}")
-            return ""
-    
-    # Find SQF_Reference.html - might be in root or a subfolder
-    if os.path.exists(wiki_html):
-        _WIKI_EXTRACTED_PATH = wiki_html
-        return wiki_html
-    
-    # Search for it in subdirectories
-    for root, dirs, files in os.walk(extract_dir):
-        if "SQF_Reference.html" in files:
-            found_path = os.path.join(root, "SQF_Reference.html")
-            _WIKI_EXTRACTED_PATH = found_path
-            return found_path
-    
-    logging.warning(f"[wiki] SQF_Reference.html not found in extracted Wiki")
-    return ""
 
 # ─── Dynamic VBS4 Documentation Path Helpers ───────────────────────────────
 def find_vbs4_documentation_path() -> str:
@@ -8983,54 +6736,18 @@ def find_vbs4_admin_manual_path() -> str:
     return manual_path if os.path.exists(manual_path) else ""
 
 def find_vbs4_script_wiki_path() -> str:
-    """Find the SQF Reference wiki dynamically based on VBS4 installation.
-    
-    Priority:
-    1. Check for Wiki.zip in VBS4 docs folder and extract if needed
-    2. Check for already-extracted Wiki folder in VBS4 docs
-    3. Use cached extraction from previous run
-    
-    This ensures the wiki always matches the installed VBS4 version.
-    """
-    global _WIKI_EXTRACTED_PATH
-    
-    # If we already found and extracted it this session, return cached path
-    if _WIKI_EXTRACTED_PATH and os.path.exists(_WIKI_EXTRACTED_PATH):
-        return _WIKI_EXTRACTED_PATH
-    
+    """Find the SQF Reference wiki dynamically based on VBS4 installation."""
     vbs4_exe = get_vbs4_install_path()
-    if vbs4_exe and os.path.exists(vbs4_exe):
-        vbs4_dir = os.path.dirname(vbs4_exe)
-        
-        # Priority 1: Check for Wiki.zip and extract it
-        wiki_zip = os.path.join(vbs4_dir, "docs", "Wiki.zip")
-        if os.path.exists(wiki_zip):
-            extracted_path = _extract_wiki_zip(wiki_zip)
-            if extracted_path:
-                return extracted_path
-        
-        # Priority 2: Check for pre-extracted Wiki folder in VBS4 docs
-        wiki_path = os.path.join(vbs4_dir, "docs", "Wiki", "SQF_Reference.html")
-        if os.path.exists(wiki_path):
-            _WIKI_EXTRACTED_PATH = wiki_path
-            return wiki_path
+    if not vbs4_exe or not os.path.exists(vbs4_exe):
+        # Fallback to local copy if VBS4 not found
+        return SCRIPT_WIKI if os.path.exists(SCRIPT_WIKI) else ""
     
-    # Priority 3: Check if we have a previous extraction in cache
-    cache_dir = _get_wiki_extract_dir()
-    cached_wiki = os.path.join(cache_dir, "SQF_Reference.html")
-    if os.path.exists(cached_wiki):
-        _WIKI_EXTRACTED_PATH = cached_wiki
-        return cached_wiki
-    
-    # Search cache subdirectories
-    if os.path.exists(cache_dir):
-        for root, dirs, files in os.walk(cache_dir):
-            if "SQF_Reference.html" in files:
-                found_path = os.path.join(root, "SQF_Reference.html")
-                _WIKI_EXTRACTED_PATH = found_path
-                return found_path
-    
-    return ""
+    vbs4_dir = os.path.dirname(vbs4_exe)
+    wiki_path = os.path.join(vbs4_dir, "docs", "Wiki", "SQF_Reference.html")
+    if os.path.exists(wiki_path):
+        return wiki_path
+    # Fallback to local copy
+    return SCRIPT_WIKI if os.path.exists(SCRIPT_WIKI) else ""
 
 def find_blueig_documentation_path() -> str:
     """Find the Blue_IG_EN.htm file dynamically based on BlueIG installation."""
@@ -9092,10 +6809,10 @@ def launch_vbs4_script_wiki():
     else:
         messagebox.showerror("Error",
             f"VBS4 Script Wiki not found.\n\n"
-            f"Searched for: Wiki.zip or Wiki folder\n"
+            f"Searched for: SQF_Reference.html\n"
             f"Expected locations:\n"
-            f"  • <VBS4_Install>/docs/Wiki.zip\n"
-            f"  • <VBS4_Install>/docs/Wiki/SQF_Reference.html\n\n"
+            f"  • <VBS4_Install>/docs/Wiki/SQF_Reference.html\n"
+            f"  • {SCRIPT_WIKI}\n\n"
             f"Please ensure VBS4 is properly installed and the path is set in Settings.")
 
 def launch_blueig_documentation():
@@ -9143,59 +6860,22 @@ pdf_docs = {
 
 # ─── VBS4 PDF Docs Helper ────────────────────────────────────────────────────
 
+VBS4_PDF_DIR = os.path.join(BASE_DIR, "PDF_EN")
+
 def find_vbs4_pdf_directories() -> list[str]:
-    """Find VBS4 PDF directories by searching VBS4 installation paths.
-    
-    Uses the same dynamic VBS4 detection logic as get_vbs4_install_path() to find
-    docs/PDF_EN folders in all possible VBS4 installation structures:
-    - C:\\Builds\\VBS4\\VBS4_25.2\\docs\\PDF_EN
-    - C:\\Builds\\VBS4\\VBS4 25.2\\docs\\PDF_EN  
-    - C:\\Builds\\VBS4\\25.2\\docs\\PDF_EN
-    - Any other VBS4 installation detected by get_vbs4_install_path()
-    """
+    """Find potential VBS4 PDF directories, checking both local and VBS4 installation paths."""
     directories = []
     
-    # Method 1: Use detected VBS4 installation path (most reliable)
+    # Add local PDF_EN directory if it exists
+    if os.path.exists(VBS4_PDF_DIR):
+        directories.append(VBS4_PDF_DIR)
+    
+    # Add VBS4 installation PDF_EN directory if VBS4 is found
     vbs4_exe = get_vbs4_install_path()
     if vbs4_exe and os.path.exists(vbs4_exe):
         vbs4_pdf_dir = os.path.join(os.path.dirname(vbs4_exe), "docs", "PDF_EN")
-        if os.path.exists(vbs4_pdf_dir):
+        if os.path.exists(vbs4_pdf_dir) and vbs4_pdf_dir not in directories:
             directories.append(vbs4_pdf_dir)
-    
-    # Method 2: Search common VBS4 installation roots for PDF_EN folders
-    # This catches cases where VBS4.exe might not be found but docs exist
-    search_roots = [
-        r"C:\Builds\VBS4", 
-        r"C:\Builds",
-        r"C:\Bohemia Interactive Simulations"
-    ]
-    
-    for root in search_roots:
-        if not os.path.isdir(root):
-            continue
-        
-        try:
-            # Search for versioned folders (VBS4_25.2, VBS4 25.2, 25.2, etc.)
-            for entry in os.listdir(root):
-                entry_path = os.path.join(root, entry)
-                if not os.path.isdir(entry_path):
-                    continue
-                
-                # Check if this looks like a VBS4 version folder
-                entry_upper = entry.upper()
-                is_vbs4_folder = (
-                    "VBS4" in entry_upper or
-                    re.search(r'VBS4[_\s.]?\d+', entry, re.IGNORECASE) or
-                    re.search(r'^\d+\.\d+$', entry)  # Just version numbers like "25.2"
-                )
-                
-                if is_vbs4_folder:
-                    pdf_dir = os.path.join(entry_path, "docs", "PDF_EN")
-                    if os.path.exists(pdf_dir) and pdf_dir not in directories:
-                        directories.append(pdf_dir)
-        except Exception as e:
-            logging.debug(f"Error searching {root} for PDF directories: {e}")
-            continue
     
     return directories
 
@@ -9206,12 +6886,10 @@ def open_vbs4_pdfs():
     if not pdf_dirs:
         messagebox.showerror("Error", 
             f"VBS4 PDF folders not found.\n\n"
-            f"Searched for docs/PDF_EN in:\n"
-            f"  • Detected VBS4 installation directory\n"
-            f"  • C:\\Builds\\VBS4\\[version]\\docs\\PDF_EN\n"
-            f"  • C:\\Builds\\[version]\\docs\\PDF_EN\n"
-            f"  • C:\\Bohemia Interactive Simulations\\[version]\\docs\\PDF_EN\n\n"
-            f"Please ensure VBS4 is properly installed.")
+            f"Searched locations:\n"
+            f"  • {VBS4_PDF_DIR}\n"
+            f"  • <VBS4_Install>/docs/PDF_EN\n\n"
+            f"Please ensure VBS4 is properly installed and the path is set in Settings.")
         return
 
     # Collect all PDFs from all directories
@@ -9421,29 +7099,7 @@ def open_photomesh_help():
     else:
         messagebox.showerror("Error", "PhotoMesh help not found.")
 
-def open_oneclick_terrain_guide():
-    """Open the One-Click Terrain User Guide PDF."""
-    roots = [
-        os.path.join(BASE_DIR, "Help_Tutorials"),
-        r"C:\\Program Files (x86)\\STE Toolkit\\_internal\\Help_Tutorials",
-    ]
-    path = _find_file("One-Click_Terrain_User_Guide_v2.pdf", roots)
-    if path:
-        try:
-            if APP_INSTANCE:
-                APP_INSTANCE.launch_app_foreground(path)
-            else:
-                subprocess.Popen([path], shell=True)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open One-Click Terrain User Guide:\n{e}")
-    else:
-        messagebox.showerror("Error", 
-            "One-Click Terrain User Guide not found.\n\n"
-            "Expected file: One-Click_Terrain_User_Guide_v2.pdf\n"
-            f"Searched in: {roots}")
-
 oct_help_items = {
-    "One-Click Terrain User Guide": open_oneclick_terrain_guide,
     "Reality Mesh Help": open_reality_mesh_docs,
     "PhotoMesh Help": open_photomesh_help,
 }
@@ -9722,10 +7378,7 @@ class MainApp(tk.Tk):
         # Track focusable UI elements for keyboard navigation
         self.focusable_buttons = []
 
-        # Fullscreen mode: 'off', 'standard' (16:9), or 'widescreen'
-        fs_mode = config.get('General', 'fullscreen', fallback='off').lower()
-        self.fullscreen_mode = fs_mode if fs_mode in ('off', 'standard', 'widescreen') else 'off'
-        self.fullscreen = self.fullscreen_mode != 'off'
+        self.fullscreen = config.getboolean('General', 'fullscreen', fallback=False)
         
         # UI initialization state flag
         self._ui_initialized = False
@@ -9981,25 +7634,27 @@ class MainApp(tk.Tk):
             btn.pack(pady=5, padx=5)
             self._nav_buttons[key] = btn
             
-            # Apply hover effect with performance instrumentation
-            add_button_hover_effect(btn, normal_bg="#555", hover_bg="#777")
-            
-            # Tooltip handling for navigation buttons
-            def on_enter(e, l=label):
+            # Enhanced hover effects for better feedback
+            def on_enter(e, btn=btn, l=label):
+                if not hasattr(self, 'current') or self.current != key:
+                    btn.config(bg="#777")
                 nav_tip.show(f"Go to {l}", e.x_root+10, e.y_root+10)
             
-            def on_leave(e):
+            def on_leave(e, btn=btn, k=key):
+                if hasattr(self, 'current') and self.current == k:
+                    btn.config(bg="#888") 
+                else:
+                    btn.config(bg="#555")  # Normal color
                 nav_tip.hide()
             
-            def on_click(e, btn=btn):
+            def on_click(e, btn=btn, k=key):
                 # Immediate visual feedback on click
                 btn.config(bg="#999")
                 # Update all button states after a brief moment
                 btn.after(50, self.update_nav_button_appearance)
             
-            # Overlay tooltip and click handlers (hover color already handled by add_button_hover_effect)
-            btn.bind("<Enter>", on_enter, add="+")
-            btn.bind("<Leave>", on_leave, add="+")
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
             btn.bind("<Button-1>", on_click)
             self.focusable_buttons.append(btn)
 
@@ -10011,14 +7666,12 @@ class MainApp(tk.Tk):
                  font=("Helvetica", 10)).pack(pady=(0, 10))
 
         # Skip offline settings in Single Use Mode (no network/fusers)
-        # CRITICAL: Run apply_offline_settings in BACKGROUND THREAD to avoid UI freeze
         if not is_single_use_mode():
-            def _apply_offline_bg():
-                try:
-                    apply_offline_settings()
-                except Exception as exc:
-                    logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
-            run_in_thread(_apply_offline_bg)
+            try:
+                apply_offline_settings()
+            except Exception as exc:
+                logging.warning(f"[ui-diag] apply_offline_settings() failed: {exc}")
+                pass
 
         # Start by showing "Main"
         self.current = None
@@ -10032,9 +7685,6 @@ class MainApp(tk.Tk):
             self.bind(key, self.focus_prev)
         self.bind("<Return>", self.activate_current)
         self.update_navigation()
-        
-        # Start frame-time monitor to detect main-thread stalls
-        start_frame_monitor(self)
         
         # Mark UI as initialized
         self._ui_initialized = True
@@ -10249,36 +7899,6 @@ class MainApp(tk.Tk):
         # Update panel button states now that warmup has discovered paths
         self._refresh_panel_button_states()
         
-        # CRITICAL FIX: Schedule delayed refresh to catch late-arriving beacon IP updates
-        # For USER mode on install/update, the beacon listener may receive the host IP
-        # AFTER the SettingsPanel is created with a blank IP. This ensures the IP is updated.
-        def _delayed_ip_refresh():
-            try:
-                current_ip = config.get("Offline", "host_ip", fallback="")
-                logging.warning(f"[startup] Delayed IP refresh triggered - current host_ip in config: '{current_ip}'")
-                
-                # Re-read config and update Settings panel if IP was discovered via beacon
-                if hasattr(self, "panels") and "Settings" in self.panels:
-                    panel = self.panels["Settings"]
-                    if hasattr(panel, "reload_from_config"):
-                        panel.reload_from_config()
-                        # Log what the UI now shows
-                        if hasattr(panel, "host_ip_var"):
-                            ui_ip = panel.host_ip_var.get()
-                            logging.warning(f"[startup] Delayed IP refresh completed - UI now shows: '{ui_ip}'")
-                        else:
-                            logging.warning("[startup] Delayed IP refresh completed")
-                else:
-                    logging.warning("[startup] Delayed IP refresh - panels not ready yet")
-            except Exception as e:
-                logging.error(f"[startup] Delayed IP refresh failed: {e}")
-        
-        # Schedule multiple refresh attempts to catch late beacon arrivals
-        # Beacons are sent every 2 seconds, so check at 1s, 3s, and 5s after UI init
-        self.after(1000, _delayed_ip_refresh)
-        self.after(3000, _delayed_ip_refresh)
-        self.after(5000, _delayed_ip_refresh)
-        
         # Check if we're in offline mode and show appropriate warning
         if hasattr(self, 'network_status') and self.network_status == "offline":
             self.show_warning_banner("Host not reachable — running in offline mode")
@@ -10371,53 +7991,23 @@ class MainApp(tk.Tk):
         # track live scale & throttle id
         self._live_scale = None
         self._cfg_job = None
-        self._last_size = (0, 0)  # Track last window size to detect resize vs move
-        self._configure_throttle_ms = 100  # Throttle Configure events
-        self._debug_lag = True  # Enable debug logging for lag investigation
-        self._configure_count = 0  # Count Configure events
-        import time as _time_module
-        self._time = _time_module
-        
         def log_message(msg):
             pass
         self.log_message = log_message
 
         def _on_configure(event=None):
-            # Debug: count and time Configure events
-            self._configure_count += 1
-            if self._debug_lag:
-                start = self._time.perf_counter()
-            
-            # Only recompute scale if the window SIZE changed (not just position)
-            # This prevents lag during window drag
-            try:
-                current_size = (self.winfo_width(), self.winfo_height())
-                if current_size == self._last_size:
-                    # Size unchanged - just a window move, skip expensive recomputation
-                    if self._debug_lag and self._configure_count % 50 == 0:
-                        print(f"[DEBUG] Configure #{self._configure_count}: SKIPPED (position only) in {(self._time.perf_counter()-start)*1000:.2f}ms")
-                    return
-                self._last_size = current_size
-                if self._debug_lag:
-                    print(f"[DEBUG] Configure #{self._configure_count}: SIZE CHANGED to {current_size}")
-            except Exception as e:
-                if self._debug_lag:
-                    print(f"[DEBUG] Configure error: {e}")
-            
             if self._cfg_job is not None:
                 self.after_cancel(self._cfg_job)
-            # Use longer delay to prevent rapid recomputation during resize
-            self._cfg_job = self.after(self._configure_throttle_ms, self._recompute_scale)
+            self._cfg_job = self.after(10, self._recompute_scale)  
 
         bootstrap_first_run_if_needed(log=self.log_message)
 
         def _recompute_scale():
             self._cfg_job = None
-            # Use cached values where possible to avoid expensive update_idletasks
+            self.update_idletasks()
             w = max(1, self.winfo_width())
             h = max(1, self.winfo_height())
             current_scale = self._live_scale if self._live_scale is not None else self.window_scale
-            # Use winfo_reqheight without forcing update - may be slightly stale but acceptable
             base_h = self.content.winfo_reqheight() / max(current_scale, 1e-6)
             # compute scale vs. design width and dynamic content height
             s = min(w / self.base_width, h / base_h)
@@ -10425,9 +8015,10 @@ class MainApp(tk.Tk):
             if self._live_scale is None or abs(self._live_scale - s) > 0.02:
                 self._live_scale = s
                 self.apply_scale(s)
-                # Re-evaluate scrollability after scaling changes (debounced)
+                self.update_idletasks()
+                # Re-evaluate scrollability after scaling changes
                 if hasattr(self, '_update_scrollability'):
-                    self.after(50, self._update_scrollability)
+                    self.after(10, self._update_scrollability)
 
         self._recompute_scale = _recompute_scale
         # bind after initial geometry is set
@@ -10443,12 +8034,9 @@ class MainApp(tk.Tk):
         snapped = round(scale * 4) / 4.0
         self.tk.call('tk', 'scaling', self.base_scaling * snapped)
 
-    def toggle_fullscreen(self, mode=None):
-        """Toggle or set fullscreen mode.
-        
-        Args:
-            mode: 'off', 'standard' (16:9), or 'widescreen'. If None, cycles off->standard->off.
-        """
+    def toggle_fullscreen(self):
+        """Toggle fullscreen while maintaining aspect ratio, and make sure
+        the splash can never resurface during WM state changes."""
         # Close PyInstaller's native splash immediately if present
         if pyi_splash:
             try:
@@ -10462,32 +8050,16 @@ class MainApp(tk.Tk):
             if getattr(self._splash, "_ready_to_close", False) or getattr(self._splash, "_closing", False):
                 self._ensure_splash_gone()
 
-        # Determine new mode
-        if mode is not None:
-            self.fullscreen_mode = mode
-        else:
-            # Cycle: off -> standard -> off (for keyboard toggle)
-            self.fullscreen_mode = 'standard' if self.fullscreen_mode == 'off' else 'off'
-        
-        self.fullscreen = self.fullscreen_mode != 'off'
-        config.setdefault('General', {})['fullscreen'] = self.fullscreen_mode
+        self.fullscreen = not self.fullscreen
+        config.setdefault('General', {})['fullscreen'] = 'True' if self.fullscreen else 'False'
         _save_config()
 
-        # Compute/restore geometry based on mode
+        # Compute/restore geometry exactly as you already do
         if self.fullscreen:
             sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            
-            if self.fullscreen_mode == 'widescreen':
-                # Widescreen: fill entire screen, scale to fit
-                scale = min(sw / self.base_width, sh / self.base_height)
-                self.apply_scale(scale)
-                self.geometry(f"{sw}x{sh}+0+0")
-            else:
-                # Standard (16:9): maintain aspect ratio, centered black bars if needed
-                scale = min(sw / self.base_width, sh / self.base_height)
-                self.apply_scale(scale)
-                self.geometry(f"{sw}x{sh}+0+0")
-            
+            scale = min(sw / self.base_width, sh / self.base_height)
+            self.apply_scale(scale)
+            self.geometry(f"{sw}x{sh}+0+0")
             self.attributes('-fullscreen', True)   # enter fullscreen
         else:
             self.attributes('-fullscreen', False)  # leave fullscreen first
@@ -10506,64 +8078,6 @@ class MainApp(tk.Tk):
 
         self.after(10, self._update_scrollability)
         self.after(10, lambda: self.event_generate("<Configure>"))
-        
-        # Force viewport to sync to new canvas size (fixes button spread after leaving fullscreen)
-        self.after(25, self._sync_viewport_to_canvas)
-        
-        # Force panel layout refresh after mode change
-        self.after(50, self._refresh_panel_layouts)
-
-    def _sync_viewport_to_canvas(self):
-        """Force the canvas window item (panels_container) to match the visible viewport size."""
-        try:
-            self.update_idletasks()
-
-            if not hasattr(self, "viewport_canvas") or not hasattr(self, "canvas_frame_id"):
-                return
-
-            cw = max(1, self.viewport_canvas.winfo_width())
-            ch = max(1, self.viewport_canvas.winfo_height())
-
-            # Hard reset the embedded frame to the *current* viewport size (this is the key part)
-            self.viewport_canvas.itemconfig(self.canvas_frame_id, width=cw, height=ch)
-
-            # Reset cached sizes so configure handlers don't skip the next real resize
-            self._last_canvas_size = (0, 0)
-            self._last_frame_size = (0, 0)
-
-            # Update scrollregion to reflect the new reality
-            bbox = self.viewport_canvas.bbox("all")
-            if bbox:
-                self.viewport_canvas.configure(scrollregion=bbox)
-
-        except Exception as e:
-            logging.debug(f"[layout] Viewport sync error: {e}")
-
-    def _refresh_panel_layouts(self):
-        """Force all panels with buttons_container to recalculate their layout."""
-        try:
-            for panel_name, panel in self.panels.items():
-                if hasattr(panel, 'buttons_container'):
-                    container = panel.buttons_container
-                    # Force geometry update
-                    container.update_idletasks()
-                    # Get current container dimensions
-                    w = container.winfo_width()
-                    h = container.winfo_height()
-                    # Re-place all children to force geometry recalculation
-                    for child in container.winfo_children():
-                        info = child.place_info()
-                        if info:
-                            # Re-apply place with same options to force recalculation
-                            opts = {}
-                            for key in ['relx', 'rely', 'anchor', 'x', 'y', 'relwidth', 'relheight', 'width', 'height']:
-                                if key in info and info[key]:
-                                    opts[key] = info[key]
-                            if opts:
-                                child.place_forget()
-                                child.place(**opts)
-        except Exception as e:
-            logging.debug(f"[layout] Panel refresh error: {e}")
 
     def _init_scrollable_viewport(self):
         """Initialize the canvas-based scrollable viewport for panels."""
@@ -10610,43 +8124,8 @@ class MainApp(tk.Tk):
 
     def _on_canvas_configure(self, event):
         """Handle canvas resize - update inner frame width and scrollability."""
-        # Debug timing
-        if getattr(self, '_debug_lag', False):
-            start = self._time.perf_counter()
-            
-        # Skip if only position changed (not size) to prevent lag during window drag
-        current_size = (event.width, event.height)
-        last_canvas_size = getattr(self, '_last_canvas_size', (0, 0))
-        if current_size == last_canvas_size:
-            if getattr(self, '_debug_lag', False):
-                self._canvas_cfg_skip = getattr(self, '_canvas_cfg_skip', 0) + 1
-                if self._canvas_cfg_skip % 50 == 0:
-                    print(f"[DEBUG] Canvas Configure SKIPPED #{self._canvas_cfg_skip}")
-            return  # Size unchanged, skip expensive operations
-        self._last_canvas_size = current_size
-        
         canvas_width = event.width
-        canvas_height = event.height
-
-        # Always match the width
         self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_width)
-
-        # Shrink-first approach: always shrink to visible canvas height first
-        # This prevents the "stuck large height" issue when leaving fullscreen
-        self.viewport_canvas.itemconfig(self.canvas_frame_id, height=canvas_height)
-
-        # After idle, expand only if content genuinely needs more space
-        def _expand_if_needed():
-            try:
-                required_h = self.panels_container.winfo_reqheight()
-                # Only expand if content actually needs more space
-                if required_h > canvas_height:
-                    target_h = required_h + 20  # Add buffer for scrollability
-                    self.viewport_canvas.itemconfig(self.canvas_frame_id, height=target_h)
-            except Exception:
-                pass
-
-        self.after_idle(_expand_if_needed)
 
         current_bg_size = getattr(self, '_last_bg_size', (0, 0))
         new_size = (event.width, event.height)
@@ -10656,59 +8135,47 @@ class MainApp(tk.Tk):
         if size_changed and not getattr(self, '_scroll_active', False):
             self._last_bg_size = new_size
             self.after_idle(lambda: self._update_canvas_background(event.width, event.height))
-        
-        # Throttle scrollability updates
-        if not hasattr(self, '_scrollability_job') or self._scrollability_job is None:
-            self._scrollability_job = self.after(150, self._deferred_update_scrollability)
-            
-        if getattr(self, '_debug_lag', False):
-            elapsed = (self._time.perf_counter() - start) * 1000
-            if elapsed > 5:  # Only log if > 5ms
-                print(f"[DEBUG] Canvas Configure: {elapsed:.2f}ms (size={current_size})")
-
-    def _deferred_update_scrollability(self):
-        """Deferred scrollability update to prevent UI lag."""
-        self._scrollability_job = None
-        if getattr(self, '_debug_lag', False):
-            start = self._time.perf_counter()
         self._update_scrollability()
-        if getattr(self, '_debug_lag', False):
-            elapsed = (self._time.perf_counter() - start) * 1000
-            if elapsed > 5:
-                print(f"[DEBUG] _update_scrollability: {elapsed:.2f}ms")
 
     def _on_frame_configure(self, event):
         """Handle inner frame resize - update scroll region (frame-only)."""
-        # Debug timing
-        if getattr(self, '_debug_lag', False):
-            start = self._time.perf_counter()
-            
-        # Skip redundant updates during window drag
-        current_frame_size = (event.width, event.height)
-        last_frame_size = getattr(self, '_last_frame_size', (0, 0))
-        if current_frame_size == last_frame_size:
-            if getattr(self, '_debug_lag', False):
-                self._frame_cfg_skip = getattr(self, '_frame_cfg_skip', 0) + 1
-                if self._frame_cfg_skip % 50 == 0:
-                    print(f"[DEBUG] Frame Configure SKIPPED #{self._frame_cfg_skip}")
-            return
-        self._last_frame_size = current_frame_size
-        
         bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
         if bbox:
             self.viewport_canvas.configure(scrollregion=bbox)
-            
-        if getattr(self, '_debug_lag', False):
-            elapsed = (self._time.perf_counter() - start) * 1000
-            if elapsed > 5:
-                print(f"[DEBUG] Frame Configure: {elapsed:.2f}ms")
-        
-        # Throttle scrollability updates (reuse same job from canvas configure)
-        if not hasattr(self, '_scrollability_job') or self._scrollability_job is None:
-            self._scrollability_job = self.after(150, self._deferred_update_scrollability)
+        self._update_scrollability()
 
     def _on_mousewheel(self, event):
         """Handle mouse wheel scrolling on the viewport canvas with batching."""
+        # If we're in the Settings panel, check if the event is over the inner settings canvas
+        try:
+            if self.current == 'Settings':
+                settings = self.panels.get('Settings')
+                if settings is not None:
+                    # Find if the event originated from the inner settings canvas
+                    w = event.widget
+                    while w is not None:
+                        if w is getattr(settings, '_settings_canvas', None):
+                            # If we're directly over the settings canvas or its scrollbar,
+                            # let it handle the event (but don't break yet)
+                            is_settings_scroll = True
+                            break
+                        w = getattr(w, 'master', None)
+                    else:
+                        # We're in Settings panel but not over the inner canvas,
+                        # so use the outer scrollbar
+                        is_settings_scroll = False
+                else:
+                    is_settings_scroll = False
+            else:
+                is_settings_scroll = False
+        except Exception:
+            is_settings_scroll = False
+
+        # For Settings panel, prioritize the inner scroller when the event is over it
+        if is_settings_scroll:
+            # Let the event propagate to the inner settings scroller
+            return
+
         focused = self.focus_get()
         if focused and hasattr(focused, 'master'):
             parent = focused.master
@@ -10758,8 +8225,10 @@ class MainApp(tk.Tk):
             # Guard against early calls before GUI is fully initialized
             if not hasattr(self, 'panels') or not hasattr(self, 'current'):
                 return
+                
+            self.viewport_canvas.update_idletasks()
             
-            # Get the visible canvas height (use cached value to avoid update_idletasks)
+            # Get the visible canvas height
             canvas_h = max(1, self.viewport_canvas.winfo_height())
             
             # Get the current visible panel
@@ -10767,31 +8236,43 @@ class MainApp(tk.Tk):
             if not panel:
                 return
             
-            # Get the actual panel height (use winfo_reqheight without forcing update)
+            # Get the actual panel height
+            panel.update_idletasks()
             panel_h = panel.winfo_reqheight()
             
-            # Calculate content height normally for all panels
-            # Fallback approach: use the canvas_frame_id
-            bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
-            if not bbox:
-                # Try with 'all' as a last resort
-                bbox = self.viewport_canvas.bbox('all')
-            
-            # Make sure we have a valid bounding box
-            if bbox:
-                frame_h = bbox[3] - bbox[1]
-                # Use the larger of panel requested height or frame bbox
-                content_h = max(panel_h, frame_h)
+            # Special handling for Settings panel
+            if self.current == 'Settings':
+                # For Settings, always enable the outer scrollbar
+                # Force a large enough content_h to ensure the scrollbar appears
+                content_h = max(panel_h, canvas_h + 100)  # Make it always need scrolling
+                needs_scroll = True
             else:
-                content_h = panel_h
-            
-            # Determine if scrolling is needed - content must be noticeably larger than canvas
-            needs_scroll = content_h > (canvas_h + 10)
+                # For other panels, calculate normally
+                # Fallback approach: use the canvas_frame_id
+                bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
+                if not bbox:
+                    # Try with 'all' as a last resort
+                    bbox = self.viewport_canvas.bbox('all')
+                
+                # Make sure we have a valid bounding box
+                if bbox:
+                    frame_h = bbox[3] - bbox[1]
+                    # Use the larger of panel requested height or frame bbox
+                    content_h = max(panel_h, frame_h)
+                else:
+                    content_h = panel_h
+                
+                # Determine if scrolling is needed - content must be noticeably larger than canvas
+                needs_scroll = content_h > (canvas_h + 10)
             
             # Allow scrolling for all panels now
             use_outer_scroll = True
             
-            # Show scrollbar for all panels that need it
+            # Debug logging
+            if hasattr(self, 'debug_log'):
+                self.debug_log(f"Panel '{self.current}': canvas_h={canvas_h}, content_h={content_h}, panel_h={panel_h}, needs_scroll={needs_scroll}")
+            
+            # Show scrollbar for all panels that need it, including Settings
             show_scrollbar = needs_scroll and use_outer_scroll
             
             # Apply scrollbar visibility change
@@ -10827,29 +8308,11 @@ class MainApp(tk.Tk):
 
     def show(self, name):
         """Display the named panel, repacking it inside the scroll viewport."""
-        # Guard: Don't try to show panels before UI is initialized
-        if not hasattr(self, 'panels') or not self.panels:
-            logging.warning(f"[show] Ignoring request to show '{name}' - UI not yet initialized")
-            return
-        
-        if name not in self.panels:
-            logging.warning(f"[show] Unknown panel '{name}'")
-            return
-        
         # Stop OneClick status updates if we're leaving that panel
         if hasattr(self, 'current') and self.current == 'OneClick':
             oneclick = self.panels.get('OneClick')
             if oneclick and hasattr(oneclick, 'stop_host_status_updates'):
                 oneclick.stop_host_status_updates()
-
-        # If we're leaving SUAS Training, reset it back to its root view
-        if hasattr(self, 'current') and self.current == 'SUAS Training' and name != 'SUAS Training':
-            suasp = self.panels.get('SUAS Training')
-            try:
-                if suasp and hasattr(suasp, 'reset_to_root'):
-                    suasp.reset_to_root()
-            except Exception:
-                pass
         
         panel = self.panels[name]
         try:
@@ -10881,9 +8344,7 @@ class MainApp(tk.Tk):
         # Hide all panels then show the requested one
         for p in self.panels.values():
             p.pack_forget()
-        # Settings needs to propagate its full height for scrolling to work
-        # Other panels with fixed layouts can suppress propagation
-        force_full_height = name not in ("Credits", "Contact Us", "Settings")
+        force_full_height = name not in ("Credits", "Contact Us")
         try:
             panel.pack_propagate(False if force_full_height else True)
         except Exception:
@@ -10924,31 +8385,19 @@ class MainApp(tk.Tk):
     def _resize_canvas_to_panel(self, panel):
         """Force scrollregion to the visible panel's requested size (frame-only)."""
         try:
-            # Get canvas dimensions
-            canvas_w = self.viewport_canvas.winfo_width()
-            canvas_h = self.viewport_canvas.winfo_height()
+            # Try to get bbox from the frame window (no redundant update_idletasks)
+            bbox = self.viewport_canvas.bbox(self.canvas_frame_id)
             
-            # For Settings panel (which uses pack layout and needs to scroll), expand to fit content
-            # For other panels with buttons_container (which use relative placement), keep viewport size
-            if self.current == "Settings":
-                panel.update_idletasks()  # Ensure geometry is calculated
+            # If we can't get a bbox, fall back to panel's requested dimensions
+            if not bbox:
                 req_w = panel.winfo_reqwidth()
                 req_h = panel.winfo_reqheight()
-                
-                # Use the larger of canvas size or panel requested size
-                scroll_w = max(canvas_w, req_w)
-                scroll_h = max(canvas_h, req_h)
-                
-                # If panel content is taller than canvas, expand the frame to fit
-                if req_h > canvas_h:
-                    self.viewport_canvas.itemconfig(self.canvas_frame_id, height=req_h + 50)
-                
-                # Set the scrollregion to cover all content
-                self.viewport_canvas.configure(scrollregion=(0, 0, scroll_w, scroll_h + 50))
-            else:
-                # For other panels, keep frame at viewport size for proper button layout
-                self.viewport_canvas.itemconfig(self.canvas_frame_id, width=canvas_w, height=canvas_h)
-                self.viewport_canvas.configure(scrollregion=(0, 0, canvas_w, canvas_h))
+                bbox = (0, 0, req_w, req_h)
+            
+            # Set the scrollregion generously to ensure scrollability when needed
+            # Add a small buffer to height to ensure the last elements are fully visible
+            x1, y1, x2, y2 = bbox
+            self.viewport_canvas.configure(scrollregion=(x1, y1, x2, y2 + 20))
         except Exception as e:
             pass
 
@@ -11007,50 +8456,29 @@ class MainApp(tk.Tk):
 
     def _update_canvas_background(self, width=None, height=None):
         """Update / resize the shared background image for the viewport."""
-        # Debug timing
-        if getattr(self, '_debug_lag', False):
-            import time as _t
-            start = _t.perf_counter()
-            
         if not self._bg_image_src:
             return
-        
-        # Get screen dimensions for ultrawide support
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        
         if width is None:
-            width = max(2, self.viewport_canvas.winfo_width(), screen_w)
+            width = max(2, self.viewport_canvas.winfo_width())
         if height is None:
-            height = max(2, self.viewport_canvas.winfo_height(), screen_h)
-        
-        # Ensure minimum screen dimensions for fullscreen
-        width = max(width, screen_w)
-        height = max(height, screen_h)
+            height = max(2, self.viewport_canvas.winfo_height())
         
         if width < 10 or height < 10:
             return
         
         current_bg_img_size = getattr(self, '_bg_current_size', (0, 0))
         if abs(width - current_bg_img_size[0]) < 5 and abs(height - current_bg_img_size[1]) < 5:
-            if getattr(self, '_debug_lag', False):
-                print(f"[DEBUG] _update_canvas_background SKIPPED (size unchanged)")
             return  # Skip if size change is minimal
 
         try:
-            # Removed update_idletasks to prevent lag
+            self.panels_container.update_idletasks()
             content_h = max(height, self.panels_container.winfo_reqheight())
             height = max(height, content_h)
         except Exception:
             pass
             
         try:
-            if getattr(self, '_debug_lag', False):
-                resize_start = _t.perf_counter()
-            # Use BILINEAR instead of LANCZOS for faster resizing
-            resized = self._bg_image_src.resize((width, height), Image.Resampling.BILINEAR)
-            if getattr(self, '_debug_lag', False):
-                print(f"[DEBUG] Image resize ({width}x{height}): {(_t.perf_counter()-resize_start)*1000:.2f}ms")
+            resized = self._bg_image_src.resize((width, height), Image.Resampling.LANCZOS)
             self._bg_photo = ImageTk.PhotoImage(resized)
             self._bg_current_size = (width, height)
             
@@ -11060,9 +8488,6 @@ class MainApp(tk.Tk):
                 self.viewport_canvas.itemconfig(self._bg_image_id, image=self._bg_photo)
             if self._bg_image_id is not None:
                 self.viewport_canvas.tag_lower(self._bg_image_id)
-                
-            if getattr(self, '_debug_lag', False):
-                print(f"[DEBUG] _update_canvas_background TOTAL: {(_t.perf_counter()-start)*1000:.2f}ms")
         except Exception:
             pass
 
@@ -11072,15 +8497,12 @@ class MainApp(tk.Tk):
             return
         try:
             panel.update_idletasks()
-            # Use screen dimensions for ultrawide support
-            screen_w = self.winfo_screenwidth()
-            screen_h = self.winfo_screenheight()
-            vw = max(1, self.viewport_canvas.winfo_width(), screen_w)
-            vh = max(1, self.viewport_canvas.winfo_height(), screen_h)
+            vw = max(1, self.viewport_canvas.winfo_width())
+            vh = max(1, self.viewport_canvas.winfo_height())
             pw = max(vw, panel.winfo_reqwidth())
             ph = max(vh, panel.winfo_reqheight())
             # Put an upper bound to avoid creating gigantic images.
-            pw = min(pw, 7680)  # Support up to 8K
+            pw = min(pw, 3840)
             ph = min(ph, 4320)
             # Skip tiny initial calls until geometry stabilizes
             if pw < 100 or ph < 100:
@@ -11259,18 +8681,13 @@ class MainApp(tk.Tk):
                 messagebox.showerror("Memory Error", error_msg)
 
     def on_closing(self):
-        """Handle window close event - kill fusers and cleanup.
-        
-        NOTE: We no longer clear offline IP configuration on exit.
-        The user's manually configured IP should persist across sessions.
-        """
-        logging.info("[on_closing] Closing application - preserving user configuration")
-        
-        # Force immediate save of any pending config changes
+        """Handle window close event - kill fusers if this is a fuser computer."""
         try:
-            save_config_now()
+            # Clear offline IP configuration to prevent repeated connection attempts
+            clear_offline_ip_configuration()
+            logging.info("[on_closing] Cleared offline configuration on exit")
         except Exception as e:
-            logging.warning(f"[on_closing] Failed to save config: {e}")
+            logging.error(f"[on_closing] Failed to clear offline configuration: {e}")
         
         try:
             kill_all_fusers_on_exit()
@@ -11297,81 +8714,76 @@ class MainMenu(tk.Frame):
         controller.create_tutorial_button(self) 
         self.controller = controller
 
-        # Store all buttons for consistent styling
-        self.menu_buttons = []
-        
-        # Button configurations
-        button_configs = [
-            ("Launch BlueIG", None, "blueig", True),  # BlueIG - disabled by default
-            ("Launch VBS4 Launcher", launch_vbs4_setup, "vbs4_setup_path", False),
-            ("Launch BVI", launch_bvi, "bvi_path_check", False),
-            ("Settings", lambda: controller.show("Settings"), None, False),
-            ("Help & Tutorials", lambda: controller.show("Help & Tutorials"), None, False),
-            ("Credits", lambda: controller.show("Credits"), None, False),
-            ("Exit", controller.destroy, None, False),
-        ]
-        
-        # Place buttons using relative vertical positions (evenly distributed)
-        num_buttons = len(button_configs)
-        for i, (txt, cmd, path_check, is_blueig) in enumerate(button_configs):
-            disabled = is_blueig  # BlueIG starts disabled
-            if path_check == "vbs4_setup_path":
-                path = config['General'].get('vbs4_setup_path', '')
-                disabled = not path or not os.path.isfile(path)
-            elif path_check == "bvi_path_check":
-                path = get_ares_manager_path()
-                disabled = not path or not os.path.isfile(path)
-            
-            btn = self._create_menu_button(txt, cmd, disabled=disabled)
-            # Calculate vertical position: distribute buttons from 0.2 to 0.85 of screen height
-            rely = 0.2 + (i * 0.65 / (num_buttons - 1)) if num_buttons > 1 else 0.5
-            btn.place(relx=0.5, rely=rely, anchor="center")
-            self.menu_buttons.append(btn)
-            
-            if is_blueig:
-                self.blueig_btn = btn
-        
-        # Setup BlueIG async detection
-        self._setup_blueig_async()
+        self.blueig_frame = tk.Frame(
+            self,
+            bg="black",
+            bd=0,
+            highlightthickness=0,
+        )
+        self.blueig_frame.pack(pady=10)
+        self.create_blueig_button()
 
-    def _create_menu_button(self, text, command, disabled=False):
-        """Create a styled menu button with semi-transparent appearance."""
-        bg_color = "#666666" if disabled else "#444444"
-        fg_color = "#999999" if disabled else "white"
-        
+        # Other buttons
+        for txt, cmd in [
+            ("Launch VBS4 Launcher", launch_vbs4_setup),
+            ("Launch BVI", launch_bvi),
+            ("Settings", lambda: controller.show("Settings")),
+            ("Help & Tutorials", lambda: controller.show("Help & Tutorials")),
+            ("Credits", lambda: controller.show("Credits")),
+            ("Exit", controller.destroy),
+        ]:
+            state = "normal"
+            bg    = "#444444"
+            if txt == "Launch BVI":
+                path = get_ares_manager_path()
+                if not path or not os.path.isfile(path):
+                    state = "disabled"
+                    bg    = "#888888"
+            elif txt == "Launch VBS4 Launcher":
+                path = config['General'].get('vbs4_setup_path', '')
+                if not path or not os.path.isfile(path):
+                    state = "disabled"
+                    bg = "#888888"
+
+            button = tk.Button(
+                self,
+                text=txt,
+                font=("Helvetica", 24),
+                bg=bg, fg="white",
+                width=25, height=2,
+                command=cmd,
+                state=state,
+                bd=0,
+                highlightthickness=0,
+                relief="flat",
+                overrelief="flat",
+                takefocus=False,
+            )
+            button.pack(pady=10)
+            # Add hover effect for better UI responsiveness
+            add_button_hover_effect(button, normal_bg="#444444", hover_bg="#555555")
+
+    def create_blueig_button(self):
+        for widget in self.blueig_frame.winfo_children():
+            widget.destroy()
+
         btn = tk.Button(
-            self,  # Place directly on panel
-            text=text,
-            font=("Helvetica", 22, "bold"),
-            bg=bg_color,
-            fg=fg_color,
-            activebackground="#555555",
-            activeforeground="white",
-            width=32,
-            height=1,
-            padx=30,
-            pady=14,
-            command=command if not disabled else None,
-            state="disabled" if disabled else "normal",
+            self.blueig_frame,
+            text="Launch BlueIG",
+            font=("Helvetica", 24),
+            bg="#888888", fg="white",
+            width=25, height=2,
+            state="disabled",
             bd=0,
             highlightthickness=0,
             relief="flat",
-            cursor="hand2" if not disabled else "arrow",
+            overrelief="flat",
+            takefocus=False,
         )
-        
-        if not disabled:
-            # Add hover effect
-            def on_enter(e, b=btn):
-                b.configure(bg="#555555")
-            def on_leave(e, b=btn):
-                b.configure(bg="#444444")
-            btn.bind("<Enter>", on_enter)
-            btn.bind("<Leave>", on_leave)
-        
-        return btn
+        btn.pack()
+        # Add hover effect for better UI responsiveness
+        add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
 
-    def _setup_blueig_async(self):
-        """Asynchronously check BlueIG availability and enable button if found."""
         is_srv = config["General"].getboolean("is_server", fallback=False)
         if is_srv:
             return
@@ -11379,45 +8791,29 @@ class MainMenu(tk.Frame):
         # Fast path: if BlueIG path is already cached/known, enable immediately
         cached_path = config['General'].get('blueig_path', '')
         if cached_path and os.path.isfile(cached_path):
-            self.blueig_btn.config(
-                state="normal", 
-                bg="#444444", 
-                fg="white",
-                cursor="hand2",
-                command=self.launch_blueig_with_exercise_id
-            )
-            # Add hover effect
-            def on_enter(e):
-                self.blueig_btn.configure(bg="#555555")
-            def on_leave(e):
-                self.blueig_btn.configure(bg="#444444")
-            self.blueig_btn.bind("<Enter>", on_enter)
-            self.blueig_btn.bind("<Leave>", on_leave)
+            btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
             return
+
+        # Otherwise, show "Checking..." and resolve asynchronously
+        checking = tk.Label(
+            self.blueig_frame,
+            text="Checking...",
+            bg=self.blueig_frame.cget("bg"),
+            fg="white",
+        )
+        checking.pack()
 
         def _resolve():
             path_ok = bool(get_blueig_install_path())
+
             def _apply():
                 if path_ok:
-                    self.blueig_btn.config(
-                        state="normal", 
-                        bg="#444444",
-                        fg="white", 
-                        cursor="hand2",
-                        command=self.launch_blueig_with_exercise_id
-                    )
-                    def on_enter(e):
-                        self.blueig_btn.configure(bg="#555555")
-                    def on_leave(e):
-                        self.blueig_btn.configure(bg="#444444")
-                    self.blueig_btn.bind("<Enter>", on_enter)
-                    self.blueig_btn.bind("<Leave>", on_leave)
-            post_ui(_apply)
-        run_in_thread(_resolve)
+                    btn.config(state="normal", bg="#444444", command=self.launch_blueig_with_exercise_id)
+                checking.destroy()
 
-    def create_blueig_button(self):
-        """Legacy method - now handled by _setup_blueig_async."""
-        pass
+            post_ui(_apply)
+
+        run_in_thread(_resolve)
 
     def launch_blueig_with_exercise_id(self):
         panel = self.controller.panels.get("VBS4") if hasattr(self.controller, "panels") else None
@@ -11429,7 +8825,7 @@ class MainMenu(tk.Frame):
         webbrowser.open(url, new=2)
 
     def update_blueig_state(self):
-        self._setup_blueig_async()
+        self.create_blueig_button()
   
 class VBS4Panel(tk.Frame):
     def __init__(self, parent, controller):
@@ -11439,48 +8835,46 @@ class VBS4Panel(tk.Frame):
         controller.create_tutorial_button(self)
         self.configure(bg="black") 
 
-        # --- Log area (pack first at bottom so buttons container gets remaining space) ---
-        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
+        # --- Main actions ----------------------------------------------------
+        self.vbs4_launcher_button = self.make_button(
+            "Launch VBS4 Launcher", launch_vbs4_setup
+        )
+        self.vbs4_launcher_button.pack(pady=15)
 
-        # --- Buttons container (fills remaining space above log) ---
-        self.buttons_container = tk.Frame(self, bg="black")
-        self.buttons_container.pack(side="top", fill="both", expand=True)
-        set_background(controller, self.buttons_container)
-
-        # Place buttons in container using relative positions (evenly distributed)
-        self.vbs4_launcher_button = self.make_button("Launch VBS4 Launcher", launch_vbs4_setup, self.buttons_container)
-        self.vbs4_launcher_button.place(relx=0.5, rely=0.12, anchor="center")
-        
-        # Version label after first button
         self.vbs4_launcher_version_label = tk.Label(
-            self.buttons_container,
+            self,
             text="Version: Unknown",
-            font=("Helvetica", 14),
-            bg="#333333",
+            font=("Helvetica", 16),
+            bg="black",
             fg="white",
             bd=0,
             highlightthickness=0,
-            padx=10,
-            pady=2,
         )
-        self.vbs4_launcher_version_label.place(relx=0.5, rely=0.22, anchor="center")
-        
-        # BlueIG button
-        self.blueig_button = self.make_button("Launch BlueIG", self.launch_blueig_with_exercise_id, self.buttons_container)
-        self.blueig_button.place(relx=0.5, rely=0.36, anchor="center")
-        
-        # License Manager button
-        self.vbs_license_button = self.make_button("Launch VBS License Manager", self.launch_vbs_license_manager, self.buttons_container)
-        self.vbs_license_button.place(relx=0.5, rely=0.52, anchor="center")
-        
-        # External Map button
-        self.external_map_button = self.make_button("External Map", open_external_map, self.buttons_container)
-        self.external_map_button.place(relx=0.5, rely=0.68, anchor="center")
-        
-        # Back button
-        self.back_button = self.make_button("Back", lambda: controller.show("Main"), self.buttons_container)
-        self.back_button.place(relx=0.5, rely=0.84, anchor="center")
+        self.vbs4_launcher_version_label.pack(pady=(0, 15))
+
+        self.blueig_button = self.make_button(
+            "Launch BlueIG", self.launch_blueig_with_exercise_id
+        )
+        self.blueig_button.pack(pady=15)
+
+        self.vbs_license_button = self.make_button(
+            "Launch VBS License Manager", self.launch_vbs_license_manager
+        )
+        self.vbs_license_button.pack(pady=15)
+
+        self.external_map_button = self.make_button(
+            "External Map", open_external_map
+        )
+        self.external_map_button.pack(pady=15)
+
+        self.back_button = self.make_button(
+            "Back", lambda: controller.show("Main")
+        )
+        self.back_button.pack(pady=(15, 0))
+
+        # --- Log area --------------------------------------------------------
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
         tk.Label(
             self.log_frame,
@@ -11571,25 +8965,23 @@ class VBS4Panel(tk.Frame):
         self.update_vbs4_version()
         self.update_button_states()
 
-    def make_button(self, text, command, parent=None):
-        # Place on specified parent or self
+    def make_button(self, text, command):
         btn = tk.Button(
-            parent or self,
+            self,
             text=text,
-            font=("Helvetica", 22, "bold"),
+            font=("Helvetica", 24),
             bg="#444444",
             fg="white",
-            activebackground="#555555",
+            activebackground="#666666",
             activeforeground="white",
-            width=32,
+            width=30,
             height=1,
-            padx=30,
-            pady=14,
             command=command,
             bd=0,
             highlightthickness=0,
             relief="flat",
-            cursor="hand2",
+            overrelief="flat",
+            takefocus=False,
         )
         # Add hover effect for better UI responsiveness
         add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
@@ -12407,25 +9799,10 @@ def find_terra_explorer() -> str:
         run_in_thread(_pipeline)
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
-        """Launch the external Reality Mesh to VBS4 application (Host PC only)."""
+        """Launch the external Reality Mesh to VBS4 application."""
         sys_settings_path = os.path.join(_BUNDLE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
-        
-        # Copy settings file if it exists
-        if os.path.isfile(sys_settings_path):
-            try:
-                shutil.copy2(sys_settings_path, os.path.join(BASE_DIR, 'RealityMeshSystemSettings.txt'))
-            except Exception:
-                pass
-        
-        # Only auto-launch Reality Mesh on the Host PC
-        # User PCs can't access the local shortcut via network share
-        if is_this_pc_the_real_host():
-            self.log_message("Host PC detected - auto-launching Reality Mesh to VBS4...")
-            self.launch_reality_mesh_to_vbs4()
-        else:
-            self.log_message("User PC detected - skipping auto-launch of Reality Mesh (use manual launch button)")
         
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
@@ -12571,8 +9948,14 @@ def find_terra_explorer() -> str:
         latest = max(paths, key=os.path.getmtime) if paths else None
         percent = None
         if latest:
-            # Use efficient tail-read instead of reading entire file
-            percent = tail_read_progress(latest)
+            try:
+                with open(latest, "r", errors="ignore") as f:
+                    for line in reversed(f.readlines()):
+                        percent = extract_progress(line)
+                        if percent is not None:
+                            break
+            except Exception:
+                pass
 
         if percent is not None:
             self.progress_var.set(percent)
@@ -12593,46 +9976,49 @@ class OneClickPanel(tk.Frame):
 
         parent_bg = self.cget("bg")
 
-        # --- Status line (RM link source/path) - at bottom -------------------
+        # --- Main actions ----------------------------------------------------
+        self.oneclick_button = self.make_button(
+            "Run One-Click Conversion", self.on_run_oneclick
+        )
+        self.oneclick_button.pack(pady=15)
+
+        self.rm_button = self.make_button(
+            "Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4
+        )
+        self.rm_button.pack(pady=15)
+
+        self.relaunch_fusers_button = self.make_button(
+            "Relaunch Fusers", self.relaunch_fusers
+        )
+        self.relaunch_fusers_button.pack(pady=15)
+
+        self.tutorial_button = self.make_button(
+            "One-Click Terrain Tutorial", self.show_terrain_tutorial
+        )
+        self.tutorial_button.pack(pady=15)
+
+        self.back_button = self.make_button(
+            "Back", lambda: controller.show("Main")
+        )
+        self.back_button.pack(pady=(15, 0))
+
+        # --- Status line (RM link source/path) -------------------------------
+        status_frame = tk.Frame(self, bg=parent_bg, bd=0, highlightthickness=0)
+        status_frame.pack(fill="x", padx=20, pady=(10, 0))
         self.rm_path_label = tk.Label(
-            self,
+            status_frame,
             text="",
             font=("Helvetica", 12),
-            bg="#333333",
+            bg=parent_bg,
             fg="white",
             justify="left",
             wraplength=900,
-            padx=10,
-            pady=5,
         )
+        self.rm_path_label.pack(anchor="w")
 
-        # --- Log area (pack first at bottom so buttons container gets remaining space) ---
+        # --- Log area --------------------------------------------------------
         self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
-
-        # --- Buttons container (fills remaining space above log) ---
-        self.buttons_container = tk.Frame(self, bg="black")
-        self.buttons_container.pack(side="top", fill="both", expand=True)
-        set_background(controller, self.buttons_container)
-
-        # Place buttons in container using relative positions (evenly distributed)
-        self.oneclick_button = self.make_button("Run One-Click Conversion", self.on_run_oneclick, self.buttons_container)
-        self.oneclick_button.place(relx=0.5, rely=0.10, anchor="center")
-
-        self.rm_button = self.make_button("Launch Reality Mesh to VBS4", self.launch_reality_mesh_to_vbs4, self.buttons_container)
-        self.rm_button.place(relx=0.5, rely=0.26, anchor="center")
-
-        self.relaunch_fusers_button = self.make_button("Relaunch Fusers", self.relaunch_fusers, self.buttons_container)
-        self.relaunch_fusers_button.place(relx=0.5, rely=0.42, anchor="center")
-
-        self.tutorial_button = self.make_button("One-Click Terrain Tutorial", self.show_terrain_tutorial, self.buttons_container)
-        self.tutorial_button.place(relx=0.5, rely=0.58, anchor="center")
-
-        self.help_button = self.make_button("Help Guide", open_oneclick_terrain_guide, self.buttons_container)
-        self.help_button.place(relx=0.5, rely=0.74, anchor="center")
-
-        self.back_button = self.make_button("Back", lambda: controller.show("Main"), self.buttons_container)
-        self.back_button.place(relx=0.5, rely=0.90, anchor="center")
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
         tk.Label(
             self.log_frame,
@@ -12814,26 +10200,24 @@ class OneClickPanel(tk.Frame):
             except:
                 pass
 
-    def make_button(self, text, command, parent=None):
+    def make_button(self, text, command):
         """Return a main-action button styled like the other panels with hover effect."""
-        # Place on specified parent or self
         btn = tk.Button(
-            parent or self,
+            self,
             text=text,
-            font=("Helvetica", 22, "bold"),
+            font=("Helvetica", 24),
             bg="#444444",
             fg="white",
-            activebackground="#555555",
+            activebackground="#666666",
             activeforeground="white",
-            width=32,
+            width=30,
             height=1,
-            padx=30,
-            pady=14,
             command=command,
             bd=0,
             highlightthickness=0,
             relief="flat",
-            cursor="hand2",
+            overrelief="flat",
+            takefocus=False,
         )
         # Add hover effect for better UI responsiveness
         add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
@@ -12868,17 +10252,8 @@ class OneClickPanel(tk.Frame):
                 "Reduce Fusers/desired_count to 1 or 0 to enable One-Click."
             )
             self.log_message(tip)
-        
-        # Only call enforcement if the desired count actually changed
-        # This prevents redundant enforcement calls from the periodic refresh
-        current_desired = getattr(self, '_last_update_fuser_state_desired', None)
-        if current_desired != desired_ct:
-            self._last_update_fuser_state_desired = desired_ct
-            # Defer fuser policy enforcement to avoid blocking UI
-            self.after(100, lambda: run_in_thread(enforce_local_fuser_policy))
-        else:
-            # Desired count unchanged, no need to enforce
-            logging.debug(f"[update_fuser_state] Desired count unchanged ({desired_ct}), skipping enforcement")
+        # Defer fuser policy enforcement to avoid blocking UI
+        self.after(100, lambda: run_in_thread(enforce_local_fuser_policy))
 
     def force_update_host_status(self):
         """Force an immediate update of the Host status box (called when fusers change)."""
@@ -13064,31 +10439,8 @@ class OneClickPanel(tk.Frame):
                     
                 finally:
                     self._host_status_check_busy = False
-                    # Adaptive polling interval:
-                    # - Fast (1s) during first 15 seconds after launch/relaunch
-                    # - Medium (3s) during steady-state connected
-                    # - Slow (10s) if disconnected/offline
-                    startup_window = 15.0  # seconds
-                    startup_time = getattr(self, '_host_status_startup_time', None)
-                    if startup_time is None:
-                        self._host_status_startup_time = time.time()
-                        startup_time = self._host_status_startup_time
-                    
-                    elapsed = time.time() - startup_time
-                    is_connected = share_result and 'Connected' in share_result[0]
-                    is_disconnected = share_result and ('Disconnected' in share_result[0] or 'Error' in share_result[0])
-                    
-                    if elapsed < startup_window:
-                        # Fast polling during startup
-                        poll_interval = 1000  # 1 second
-                    elif is_disconnected:
-                        # Slow polling when disconnected
-                        poll_interval = 10000  # 10 seconds
-                    else:
-                        # Medium polling during steady-state
-                        poll_interval = 3000  # 3 seconds
-                    
-                    self._pending_host_status_update = self.after(poll_interval, self._update_host_status_box)
+                    # Schedule next update in 500ms for faster fuser detection
+                    self._pending_host_status_update = self.after(500, self._update_host_status_box)
             
             # Apply result on UI thread
             try:
@@ -13101,91 +10453,19 @@ class OneClickPanel(tk.Frame):
         run_in_thread(_work)
 
     def relaunch_fusers(self):
-        """Relaunch fusers with animated loading indicator."""
-        # Disable button and start loading animation
         try:
-            self.relaunch_fusers_button.config(state="disabled")
-        except Exception:
-            pass
-        
-        self._fuser_loading_active = True
-        self._start_fuser_loading_animation()
-        
-        # Also show animated toast notification
-        try:
-            self._fuser_loading_toast = show_loading_toast(
-                self.winfo_toplevel(), 
-                "Relaunching Fusers", 
-                duration_ms=10000
-            )
-        except Exception:
-            self._fuser_loading_toast = None
-        
-        def _do_relaunch():
-            try:
-                self.log_message("Relaunching fusers …")
-                relaunch = globals().get("relaunch_fusers")
-                if callable(relaunch):
-                    relaunch()
-                
-                # Brief delay to let fusers initialize
-                time.sleep(2.0)
-                
-                running = count_local_fusers()
-                self.log_message(f"✓ Fusers relaunched. Running: {running}")
-                
-                # Dismiss loading toast and show completion
-                try:
-                    post_ui(dismiss_loading_toast, getattr(self, '_fuser_loading_toast', None))
-                    post_ui(show_info_toast, self.winfo_toplevel(), f"✓ Fusers {running} ready", 3000)
-                except Exception:
-                    pass
-                
-                # Force immediate status update
-                if hasattr(self, 'force_update_host_status'):
-                    post_ui(self.force_update_host_status)
-            except Exception as e:
-                self.log_message(f"Failed to relaunch fusers: {e}")
-                try:
-                    post_ui(dismiss_loading_toast, getattr(self, '_fuser_loading_toast', None))
-                except Exception:
-                    pass
-            finally:
-                # Stop loading animation and re-enable button
-                self._fuser_loading_active = False
-                post_ui(self._stop_fuser_loading_animation)
-        
-        # Run in background thread to not block UI
-        run_in_thread(_do_relaunch)
-    
-    def _start_fuser_loading_animation(self):
-        """Start the animated 'Fuser Loading...' text on the button."""
-        self._loading_dot_count = 0
-        self._animate_fuser_loading()
-    
-    def _animate_fuser_loading(self):
-        """Cycle through 'Fuser Loading.', 'Fuser Loading..', 'Fuser Loading...'"""
-        if not getattr(self, '_fuser_loading_active', False):
-            return
-        
-        try:
-            dots = "." * (self._loading_dot_count % 4)
-            if self._loading_dot_count % 4 == 0:
-                dots = ""
-            self.relaunch_fusers_button.config(text=f"Fuser Loading{dots}")
-            self._loading_dot_count += 1
-            # Schedule next animation frame (400ms interval for smooth animation)
-            self.after(400, self._animate_fuser_loading)
-        except Exception:
-            pass
-    
-    def _stop_fuser_loading_animation(self):
-        """Stop the loading animation and restore button text."""
-        self._fuser_loading_active = False
-        try:
-            self.relaunch_fusers_button.config(text="Relaunch Fusers", state="normal")
-        except Exception:
-            pass
+            self.log_message("Relaunching fusers …")
+            relaunch = globals().get("relaunch_fusers")
+            if callable(relaunch):
+                relaunch()
+            running = count_local_fusers()
+            self.log_message(f"Fusers relaunched. Running: {running}")
+            
+            # Force immediate status update
+            if hasattr(self, 'force_update_host_status'):
+                self.force_update_host_status()
+        except Exception as e:
+            self.log_message(f"Failed to relaunch fusers: {e}")
 
     def log_message(self, message):
         post_ui(log_to_console, f"> {message}")
@@ -13236,8 +10516,14 @@ class OneClickPanel(tk.Frame):
         latest = max(paths, key=os.path.getmtime) if paths else None
         percent = None
         if latest:
-            # Use efficient tail-read instead of reading entire file
-            percent = tail_read_progress(latest)
+            try:
+                with open(latest, "r", errors="ignore") as f:
+                    for line in reversed(f.readlines()):
+                        percent = extract_progress(line)
+                        if percent is not None:
+                            break
+            except Exception:
+                pass
 
         if percent is not None:
             self.progress_var.set(percent)
@@ -13497,7 +10783,6 @@ class OneClickPanel(tk.Frame):
         self.one_click_conversion()
 
     def post_process_last_build(self, build_root: str | None = None) -> None:
-        """Launch the external Reality Mesh to VBS4 application (Host PC only)."""
         sys_settings_path = os.path.join(_BUNDLE_DIR, 'photomesh', 'RealityMeshSystemSettings.txt')
         if build_root:
             self.last_build_dir = build_root
@@ -13506,14 +10791,7 @@ class OneClickPanel(tk.Frame):
                 shutil.copy2(sys_settings_path, os.path.join(BASE_DIR, 'RealityMeshSystemSettings.txt'))
             except Exception:
                 pass
-        
-        # Only auto-launch Reality Mesh on the Host PC
-        # User PCs can't access the local shortcut via network share
-        if is_this_pc_the_real_host():
-            self.log_message("Host PC detected - auto-launching Reality Mesh to VBS4...")
-            self.launch_reality_mesh_to_vbs4()
-        else:
-            self.log_message("User PC detected - skipping auto-launch of Reality Mesh (use manual launch button)")
+        self.launch_reality_mesh_to_vbs4()
 
     def launch_reality_mesh_to_vbs4(self):
         local_root = get_rm_local_root().strip()
@@ -13618,40 +10896,36 @@ class BVIPanel(tk.Frame):
         controller.create_tutorial_button(self)
         self.configure(bg="black")
 
-        # --- Log area (pack first at bottom so buttons container gets remaining space) ---
-        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
-        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
+        # --- Main actions ----------------------------------------------------
+        self.bvi_button = self.make_button(
+            "Launch BVI", launch_bvi
+        )
+        self.bvi_button.pack(pady=15)
 
-        # --- Buttons container (fills remaining space above log) ---
-        self.buttons_container = tk.Frame(self, bg="black")
-        self.buttons_container.pack(side="top", fill="both", expand=True)
-        set_background(controller, self.buttons_container)
-
-        # Place buttons in container using relative positions (evenly distributed)
-        self.bvi_button = self.make_button("Launch BVI", launch_bvi, self.buttons_container)
-        self.bvi_button.place(relx=0.5, rely=0.15, anchor="center")
-
-        # Version label after first button
         self.version_label = tk.Label(
-            self.buttons_container,
+            self,
             text=f"Version: {get_bvi_version(get_ares_manager_path())}",
-            font=("Helvetica", 14),
-            bg="#333333",
+            font=("Helvetica", 16),
+            bg="black",
             fg="white",
             bd=0,
             highlightthickness=0,
-            padx=10,
-            pady=2,
         )
-        self.version_label.place(relx=0.5, rely=0.30, anchor="center")
+        self.version_label.pack(pady=(0, 15))
 
-        # Open Terrain button
-        self.open_terrain_button = self.make_button("Open Terrain", open_bvi_terrain, self.buttons_container)
-        self.open_terrain_button.place(relx=0.5, rely=0.50, anchor="center")
+        self.open_terrain_button = self.make_button(
+            "Open Terrain", open_bvi_terrain
+        )
+        self.open_terrain_button.pack(pady=15)
 
-        # Back button
-        self.back_button = self.make_button("Back", lambda: controller.show("Main"), self.buttons_container)
-        self.back_button.place(relx=0.5, rely=0.70, anchor="center")
+        self.back_button = self.make_button(
+            "Back", lambda: controller.show("Main")
+        )
+        self.back_button.pack(pady=(15, 0))
+
+        # --- Log area --------------------------------------------------------
+        self.log_frame = tk.Frame(self, bg=self.cget("bg"), bd=0, highlightthickness=0)
+        self.log_frame.pack(side="bottom", fill="x", padx=10, pady=(5, 0))
 
         tk.Label(
             self.log_frame,
@@ -13706,25 +10980,23 @@ class BVIPanel(tk.Frame):
 
         self.update_bvi_version()
 
-    def make_button(self, text, command, parent=None):
-        # Place on specified parent or self
+    def make_button(self, text, command):
         btn = tk.Button(
-            parent or self,
+            self,
             text=text,
-            font=("Helvetica", 22, "bold"),
+            font=("Helvetica", 24),
             bg="#444444",
             fg="white",
-            activebackground="#555555",
+            activebackground="#666666",
             activeforeground="white",
-            width=32,
-            height=1,
-            padx=30,
-            pady=14,
+            width=27,
+            height=2,
             command=command,
             bd=0,
             highlightthickness=0,
             relief="flat",
-            cursor="hand2",
+            overrelief="flat",
+            takefocus=False,
         )
         # Add hover effect for better UI responsiveness
         add_button_hover_effect(btn, normal_bg="#444444", hover_bg="#555555")
@@ -13762,29 +11034,22 @@ class SettingsPanel(tk.Frame):
 
         self.configure(bg="black")  # header removed; fixed header used
         logging.info("[ui-diag] SettingsPanel: configure complete")
-        
-        # Simple layout - no internal scrolling, let the outer viewport handle it
-        # Use pack layout with all content stacking vertically
+        self.grid_rowconfigure(7, weight=1, minsize=400)
         self.grid_columnconfigure(0, weight=1)
         logging.info("[ui-diag] SettingsPanel: grid configuration complete")
 
         # --- Top toggles -------------------------------------------------
         logging.info("[ui-diag] SettingsPanel: creating toggles frame")
         toggles = tk.LabelFrame(self, text="", bg="black", fg="white", bd=0, highlightthickness=0)
-        logging.info("[ui-diag] SettingsPanel: toggles frame created, about to pack")
-        toggles.pack(fill="x", padx=10, pady=(0, 6))
-        logging.info("[ui-diag] SettingsPanel: toggles packed")
+        logging.info("[ui-diag] SettingsPanel: toggles frame created, about to grid")
+        toggles.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: toggles gridded")
         toggles.grid_columnconfigure(0, weight=1)
         toggles.grid_columnconfigure(1, weight=1)
         logging.info("[ui-diag] SettingsPanel: toggles grid columns configured")
 
         logging.info("[ui-diag] SettingsPanel: about to create BooleanVars")
-        # Fullscreen dropdown options
-        self.fullscreen_options = ["Off", "Standard (16:9)", "Widescreen"]
-        self.fullscreen_mode_map = {"Off": "off", "Standard (16:9)": "standard", "Widescreen": "widescreen"}
-        self.fullscreen_mode_reverse = {v: k for k, v in self.fullscreen_mode_map.items()}
-        current_mode = getattr(controller, 'fullscreen_mode', 'off')
-        self.fullscreen_var = tk.StringVar(value=self.fullscreen_mode_reverse.get(current_mode, "Off"))
+        self.fullscreen_var = tk.BooleanVar(value=controller.fullscreen)
         logging.info("[ui-diag] SettingsPanel: fullscreen_var created")
         self.startup_var = tk.BooleanVar(value=is_startup_enabled())
         logging.info("[ui-diag] SettingsPanel: startup_var created")
@@ -13797,13 +11062,6 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: fuser_var created")
 
         def _on_fuser_toggle():
-            # Debug: Log who called this and current state
-            import traceback
-            stack_summary = ''.join(traceback.format_stack()[-5:])
-            logging.info(f"[fuser-toggle] _on_fuser_toggle CALLED! fuser_var={self.fuser_var.get()}")
-            logging.debug(f"[fuser-toggle] Stack trace:\n{stack_summary}")
-            print(f"\n[TOGGLE DEBUG] _on_fuser_toggle called, fuser_var={self.fuser_var.get()}")
-            
             config["Fusers"]["fuser_computer"] = str(self.fuser_var.get())
             save_config()
 
@@ -13848,15 +11106,6 @@ class SettingsPanel(tk.Frame):
                 run_in_thread(_enforce)
             else:
                 # When turning off, kill all fusers and reset count
-                # BUT: if we're on the host PC, don't allow disabling - force back to True
-                if is_host_by_ip:
-                    logging.warning("[fuser-toggle] Attempted to disable fuser on Host PC - reverting to True")
-                    print("[WARN] Cannot disable Fuser Computer on Host PC - reverting")
-                    self.fuser_var.set(True)
-                    config["Fusers"]["fuser_computer"] = "True"
-                    save_config()
-                    return  # Don't kill fusers on host
-                    
                 def _disable():
                     try:
                         kill_fusers_on_disable()
@@ -13875,48 +11124,8 @@ class SettingsPanel(tk.Frame):
                 oc_panel.update_fuser_state()
                 oc_panel.refresh_rm_status()
 
-        # --- Fullscreen buttons (row 0, spans both columns) ---
-        fs_frame = tk.Frame(toggles, bg="#444444")
-        fs_frame.grid(row=0, column=0, columnspan=2, padx=6, pady=6, sticky="ew")
-        
-        tk.Label(
-            fs_frame,
-            text="Fullscreen Mode:",
-            font=("Helvetica", 20),
-            bg="#444444",
-            fg="white",
-        ).pack(side="left", padx=(10, 20))
-        
-        # Create fullscreen mode buttons
-        self._fs_buttons = {}
-        
-        def _make_fs_button(text, mode):
-            btn = tk.Button(
-                fs_frame,
-                text=text,
-                font=("Helvetica", 14),
-                width=14,
-                bg="#666666",
-                fg="white",
-                activebackground="#888888",
-                activeforeground="white",
-                bd=0,
-                highlightthickness=0,
-                command=lambda m=mode: self._on_fullscreen_button(m),
-            )
-            btn.pack(side="left", padx=4)
-            self._fs_buttons[mode] = btn
-            return btn
-        
-        _make_fs_button("Off", "off")
-        _make_fs_button("Standard (16:9)", "standard")
-        _make_fs_button("Widescreen", "widescreen")
-        
-        # Highlight the current mode
-        self._update_fullscreen_buttons()
-
-        # Checkbox toggles (start at row 1)
         toggle_specs = [
+            ("Fullscreen Mode", self.fullscreen_var, self._on_fullscreen_toggle),
             ("Launch on Startup", self.startup_var, self._on_launch_on_startup),
             (
                 "Close on Software Launch?",
@@ -13924,7 +11133,6 @@ class SettingsPanel(tk.Frame):
                 self._on_close_on_launch,
             ),
             ("Fuser Computer", self.fuser_var, _on_fuser_toggle),
-            ("", None, None),  # Placeholder for 4th slot
         ]
 
         # Check if we're on the Host PC (by verifying share exists locally)
@@ -13935,16 +11143,7 @@ class SettingsPanel(tk.Frame):
         logging.info("[ui-diag] SettingsPanel: about to create checkbuttons")
         for i, (text, var, cmd) in enumerate(toggle_specs):
             logging.info(f"[ui-diag] SettingsPanel: creating checkbutton {i}: {text}")
-            # Start at row 1, 2 columns
             r, c = divmod(i, 2)
-            r += 1  # Offset by 1 since row 0 is fullscreen dropdown
-            
-            # Handle placeholder (empty text/None var) - create invisible spacer
-            if var is None:
-                spacer = tk.Frame(toggles, bg="#444444", height=50)
-                spacer.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
-                continue
-            
             chk = tk.Checkbutton(
                 toggles,
                 text=text,
@@ -13966,12 +11165,9 @@ class SettingsPanel(tk.Frame):
                 chk.config(state="disabled", fg="#888888")  # Gray out the text
                 # Automatically check it since we're the host
                 self.fuser_var.set(True)
-                # Ensure Fusers section exists before setting value
-                if "Fusers" not in config:
-                    config["Fusers"] = {}
                 config["Fusers"]["fuser_computer"] = "True"
                 save_config()
-                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer auto-enabled for Host PC (share exists locally)")
+                logging.info(f"[ui-diag] SettingsPanel: Fuser Computer checkbox disabled (Host PC detected - share exists locally)")
                 # Store reference for potential future updates
                 self.fuser_computer_checkbox = chk
             
@@ -13981,27 +11177,23 @@ class SettingsPanel(tk.Frame):
 
         # Add info label if we're on Host PC
         if is_host_by_ip:
-            # Show configured host IP (not just detected IP) for clarity
-            configured_ip = get_offline_cfg().get("host_ip", "") or our_ip
-            self.host_info_label = tk.Label(
+            host_info_label = tk.Label(
                 toggles,
-                text=f"ℹ Host PC detected (IP: {configured_ip}) - Fuser Computer is auto-enabled",
+                text=f"ℹ Host PC detected (IP: {our_ip}) - Fuser Computer is auto-enabled",
                 font=("Helvetica", 11),
                 bg="#444444",
                 fg="#aaaaaa",
                 anchor="w"
             )
-            self.host_info_label.grid(row=3, column=0, columnspan=2, padx=6, pady=(0, 6), sticky="w")
+            host_info_label.grid(row=2, column=0, columnspan=2, padx=6, pady=(0, 6), sticky="w")
             logging.info("[ui-diag] SettingsPanel: Host PC info label added")
-        else:
-            self.host_info_label = None  # Not on host PC
 
         logging.info("[ui-diag] SettingsPanel: all checkbuttons complete, creating fuser controls")
         # --- Local fuser controls -----------------------------------------
         frow = tk.Frame(self, bg="black")
         logging.info("[ui-diag] SettingsPanel: frow frame created")
-        frow.pack(fill="x", padx=10, pady=(0, 6))
-        logging.info("[ui-diag] SettingsPanel: frow packed")
+        frow.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: frow gridded")
 
         self.fuser_count_label = tk.Label(
             frow,
@@ -14097,10 +11289,10 @@ class SettingsPanel(tk.Frame):
         # --- Connected Fuser PCs (Host-visible indicator) ----------------
         logging.info("[ui-diag] SettingsPanel: creating conn_row frame")
         conn_row = tk.Frame(self, bg="black")
-        logging.info("[ui-diag] SettingsPanel: conn_row created, about to pack")
-        # Position remote fuser UI widgets below local fusers
-        conn_row.pack(fill="x", padx=10, pady=(0, 6))
-        logging.info("[ui-diag] SettingsPanel: conn_row packed")
+        logging.info("[ui-diag] SettingsPanel: conn_row created, about to grid (removed 'after' param to fix hang)")
+        # Position remote fuser UI widgets in row=3 (below local fusers in row=2)
+        conn_row.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
+        logging.info("[ui-diag] SettingsPanel: conn_row gridded")
 
         self.connected_pcs_label = tk.Label(
             conn_row,
@@ -14135,7 +11327,7 @@ class SettingsPanel(tk.Frame):
 
         # --- Network Host -----------------------------------------------
         net_frame = tk.Frame(self, bg="black")
-        net_frame.pack(fill="x", padx=10, pady=(0, 6))
+        net_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 6))
         net_frame.grid_columnconfigure(1, weight=1)
 
         # Host IP management - now auto-discovered via beacons
@@ -14146,24 +11338,6 @@ class SettingsPanel(tk.Frame):
         self.host_ip_var = tk.StringVar(
             value=config.get("Offline", "host_ip", fallback="")
         )
-        
-        # CRITICAL FIX: If host_ip is blank on init, schedule periodic checks
-        # for beacon-discovered IP. This handles the race condition where beacons
-        # arrive after SettingsPanel is created but before UI is fully visible.
-        if not self.host_ip_var.get().strip():
-            def _check_for_beacon_ip():
-                current = self.host_ip_var.get().strip()
-                if not current:
-                    # Re-read from config in case beacon listener updated it
-                    new_ip = safe_config_get("Offline", "host_ip", "")
-                    if new_ip:
-                        self.host_ip_var.set(new_ip)
-                        logging.info(f"[SettingsPanel] Updated host_ip from beacon: {new_ip}")
-                    else:
-                        # Schedule another check if still blank
-                        self.after(2000, _check_for_beacon_ip)
-            # Initial check after 1 second
-            self.after(1000, _check_for_beacon_ip)
 
         tk.Label(
             host_row,
@@ -14257,43 +11431,29 @@ class SettingsPanel(tk.Frame):
         self.share_status_label.pack(side="left", fill="x", expand=True)
 
         def _test_connection():
-            """Test network connectivity and show detailed results.
-            Runs in background thread to avoid UI freeze during network checks."""
-            # Show immediate feedback
-            try:
-                self.share_status_label.config(text="◐ Testing connection...", fg="#FFFF00")
-            except:
-                pass
-            
-            def _do_test():
-                o = get_offline_cfg()
-                unc_root = build_unc_from_cfg(o)
-                working_fuser = working_fuser_unc()
-                host = o.get("host_ip", "")
-                result_lines = []
-                # 1. Ping host
-                if host:
-                    ping_ok = _test_network_connectivity(host)
-                    result_lines.append(f"Ping {host}: {'✓' if ping_ok else '✗'}")
-                else:
-                    result_lines.append("Ping: No host IP configured ✗")
-                # 2. UNC root
-                unc_ok = _unc_usable(unc_root)
-                result_lines.append(f"Share {unc_root}: {'✓' if unc_ok else '✗'}")
-                # 3. WorkingFuser subfolder
-                fuser_ok = _unc_usable(working_fuser)
-                result_lines.append(f"WorkingFuser {working_fuser}: {'✓' if fuser_ok else '✗'}")
-                # Show results on UI thread
-                msg = "\n".join(result_lines)
-                
-                def _show_result():
-                    messagebox.showinfo("Connection Test", msg)
-                    # Trigger immediate status refresh after test
-                    self._force_share_status_update()
-                
-                self.after(0, _show_result)
-            
-            run_in_thread(_do_test)
+            """Test network connectivity and show detailed results."""
+            o = get_offline_cfg()
+            unc_root = build_unc_from_cfg(o)
+            working_fuser = working_fuser_unc()
+            host = o.get("host_ip", "")
+            result_lines = []
+            # 1. Ping host
+            if host:
+                ping_ok = _test_network_connectivity(host)
+                result_lines.append(f"Ping {host}: {'✓' if ping_ok else '✗'}")
+            else:
+                result_lines.append("Ping: No host IP configured ✗")
+            # 2. UNC root
+            unc_ok = _unc_usable(unc_root)
+            result_lines.append(f"Share {unc_root}: {'✓' if unc_ok else '✗'}")
+            # 3. WorkingFuser subfolder
+            fuser_ok = _unc_usable(working_fuser)
+            result_lines.append(f"WorkingFuser {working_fuser}: {'✓' if fuser_ok else '✗'}")
+            # Show results
+            msg = "\n".join(result_lines)
+            messagebox.showinfo("Connection Test", msg)
+            # Trigger immediate status refresh after test
+            self._force_share_status_update()
 
         def _refresh_status():
             """Force an immediate share status check."""
@@ -14325,7 +11485,6 @@ class SettingsPanel(tk.Frame):
         def create_tooltip(widget, text_func):
             def on_enter(event):
                 try:
-                    # Use cached status to avoid blocking network I/O on hover
                     tooltip_text = text_func()
                     # Create a simple tooltip window
                     tooltip = tk.Toplevel()
@@ -14350,21 +11509,10 @@ class SettingsPanel(tk.Frame):
             widget.bind("<Enter>", on_enter)
             widget.bind("<Leave>", on_leave)
         
-        # Tooltip that shows detailed share status - uses CACHED status to avoid UI lag
-        # The status is already being updated periodically by _update_share_status()
+        # Tooltip that shows detailed share status
         def get_tooltip_text():
             try:
-                # Use the cached status from the label itself - NO network call!
-                cached_status = getattr(self, '_last_share_status', None)
-                if cached_status:
-                    # Parse the cached status key format: "status_code:status_msg"
-                    parts = cached_status.split(':', 1)
-                    status_code = parts[0] if len(parts) > 0 else 'unknown'
-                    status_msg = parts[1] if len(parts) > 1 else cached_status
-                else:
-                    status_code = 'checking'
-                    status_msg = 'Status not yet checked'
-                
+                status_code, status_msg, _ = check_network_share_status()
                 status_name = {
                     'connected': 'Connected',
                     'local': 'Local (Host PC)',
@@ -14374,17 +11522,15 @@ class SettingsPanel(tk.Frame):
                     'error': 'Error'
                 }.get(status_code, 'Unknown')
                 
-                # Clean up the message for display
-                clean_msg = status_msg.replace('●', '').replace('○', '').replace('◐', '').strip()
-                return f"Network Share Status: {status_name}\n{clean_msg}"
+                return f"Network Share Status: {status_name}\n{status_msg.replace('●', '').replace('○', '').replace('◐', '').strip()}"
             except Exception as e:
-                return f"Network Share Status: Unknown\n(hover to refresh)"
+                return f"Network Share Status: Error\n{str(e)}"
         
         create_tooltip(self.share_status_label, get_tooltip_text)
 
         # --- Container for Offline and Troubleshoot sections (side-by-side) ---
         sections_container = tk.Frame(self, bg="black")
-        sections_container.pack(fill="x", padx=10, pady=10)
+        sections_container.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
         sections_container.grid_columnconfigure(0, weight=1)
         sections_container.grid_columnconfigure(1, weight=1)
 
@@ -14554,8 +11700,8 @@ class SettingsPanel(tk.Frame):
                 command=self._disable_single_use_mode_from_troubleshoot,
                 cursor="hand2"
             )
-            # Only show if currently in single-use mode AND not overridden by env var
-            if is_single_use_mode() and not os.environ.get('STE_DISABLE_SINGLE_USE', '').lower() in ('1', 'true', 'yes'):
+            # Only show if currently in single-use mode
+            if is_single_use_mode():
                 self.disable_single_use_button.pack(fill="x", pady=(10, 5))
             
         except Exception as e:
@@ -14564,7 +11710,7 @@ class SettingsPanel(tk.Frame):
 
         # Reality Mesh Install Folder
         rm_row = tk.Frame(self, bg="black")
-        rm_row.pack(fill="x", padx=10, pady=5)
+        rm_row.grid(row=6, column=0, sticky="ew", padx=10, pady=5)
         tk.Label(
             rm_row,
             text="Reality Mesh Install Folder",
@@ -14601,7 +11747,7 @@ class SettingsPanel(tk.Frame):
             bd=0,
         ).pack(side="left", padx=8)
 
-        # --- Application Locations (no internal scroll - uses main viewport) --
+        # --- Scrollable Application Locations ---------------------------
         locs_box = tk.LabelFrame(
             self,
             text="Application Locations",
@@ -14611,14 +11757,119 @@ class SettingsPanel(tk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        locs_box.pack(fill="x", padx=10, pady=(0, 10))
+        # Row 7 expands for the scroller; keep Back button at row 8 non‑scrolling
+        self.grid_rowconfigure(7, weight=1, minsize=600)
+        locs_box.grid(row=7, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
-        # ---- Add the path rows directly into locs_box ----
+        # Canvas + vertical scrollbar
+        self._settings_canvas = tk.Canvas(
+            locs_box, bg="black", highlightthickness=0, bd=0
+        )
+        self._settings_scrollbar = tk.Scrollbar(locs_box, orient="vertical",
+                            command=self._settings_canvas.yview)
+        self._settings_canvas.configure(yscrollcommand=self._settings_scrollbar.set)
+        
+        # Configure pixel-based scrolling to prevent sub-pixel artifacts
+        self._settings_canvas.configure(yscrollincrement=1)
+        
+        self._settings_canvas.pack(side="left", fill="both", expand=True)
+        
+        # Only show the Settings panel scrollbar when in windowed mode
+        if not controller.fullscreen:
+            self._settings_scrollbar.pack(side="right", fill="y")
+
+        # Inner frame to hold the path rows
+        self._settings_inner = tk.Frame(self._settings_canvas, bg="black")
+        win_id = self._settings_canvas.create_window(
+            (0, 0), window=self._settings_inner, anchor="nw"
+        )
+        
+        # Wheel event batching for smooth settings scrolling
+        self._set_wheel_accum = 0
+        self._set_wheel_job = None
+
+        # Keep inner frame width equal to visible canvas width
+        def _on_canvas_resize(evt):
+            self._settings_canvas.itemconfig(win_id, width=evt.width)
+        self._settings_canvas.bind("<Configure>", _on_canvas_resize)
+
+        # Maintain scrollregion with a bit of bottom pad so last row is fully visible
+        _SCROLLER_BOTTOM_PAD = 50
+        def _update_scrollregion(_evt=None):
+            bbox = self._settings_canvas.bbox("all")
+            if bbox:
+                x0, y0, x1, y1 = bbox
+                self._settings_canvas.configure(
+                    scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD)
+                )
+        self._settings_inner.bind("<Configure>", _update_scrollregion)
+
+        # Smooth wheel behavior with batching (Windows/macOS: <MouseWheel>, X11: Button-4/5)
+        def _on_mousewheel(evt):
+            delta = 0
+            if hasattr(evt, 'delta') and evt.delta:
+                delta = evt.delta
+            elif hasattr(evt, 'num'):
+                delta = -120 if evt.num == 4 else 120 if evt.num == 5 else 0
+
+            self._set_wheel_accum += delta
+            if self._set_wheel_job is not None:
+                return "break"
+
+            def _flush():
+                steps = int(self._set_wheel_accum / 120)
+                if steps:
+                    # Pause background resizes in the outer viewport while we scroll the inner canvas
+                    try:
+                        self.controller._scroll_active = True
+                        if self.controller._scroll_timer:
+                            self.controller.after_cancel(self.controller._scroll_timer)
+                        self.controller._scroll_timer = self.controller.after(100, self.controller._reset_scroll_state)
+                    except Exception:
+                        pass
+
+                    self._settings_canvas.yview_scroll(-steps, "units")
+
+                self._set_wheel_accum = 0
+                self._set_wheel_job = None
+                return "break"
+
+            self._set_wheel_job = self.after(8, _flush)
+            return "break"
+
+        def _bind_wheel(evt):
+            # Bind specifically to the settings canvas and inner frame, not globally
+            self._settings_canvas.bind("<MouseWheel>", _on_mousewheel, add=True)
+            self._settings_canvas.bind("<Button-4>", _on_mousewheel, add=True)
+            self._settings_canvas.bind("<Button-5>", _on_mousewheel, add=True)
+            self._settings_inner.bind("<MouseWheel>", _on_mousewheel, add=True)
+            self._settings_inner.bind("<Button-4>", _on_mousewheel, add=True)
+            self._settings_inner.bind("<Button-5>", _on_mousewheel, add=True)
+
+        def _unbind_wheel(evt):
+            # Unbind from settings canvas and inner frame
+            try:
+                self._settings_canvas.unbind("<MouseWheel>")
+                self._settings_canvas.unbind("<Button-4>")
+                self._settings_canvas.unbind("<Button-5>")
+                self._settings_inner.unbind("<MouseWheel>")
+                self._settings_inner.unbind("<Button-4>")
+                self._settings_inner.unbind("<Button-5>")
+            except Exception:
+                pass
+
+        # Bind to both canvas and inner frame for better coverage
+        self._settings_canvas.bind("<Enter>", _bind_wheel)
+        self._settings_canvas.bind("<Leave>", _unbind_wheel)
+        self._settings_inner.bind("<Enter>", _bind_wheel)
+        self._settings_inner.bind("<Leave>", _unbind_wheel)
+
+        # ---- Add the existing path rows into `self._settings_inner` exactly as before ----
         self.lbl_projects_root = self._create_path_row(
             "Change Projects Root",
             self._on_change_projects_root,
             get_projects_root(),
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         # Use cached paths from config for instant display (no scanning during startup)
         # The paths are already cached by get_vbs4_install_path() etc. during warmup
@@ -14630,44 +11881,58 @@ class SettingsPanel(tk.Frame):
             "Set VBS4 Install Location",
             self._on_set_vbs4,
             cached_vbs4,
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         self.lbl_vbs4_setup = self._create_path_row(
             "Set VBS4 Setup Launcher Location",
             self._on_set_vbs4_setup,
             config["General"].get("vbs4_setup_path", ""),
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         self.lbl_blueig = self._create_path_row(
             "Set BlueIG Install Location",
             self._on_set_blueig,
             cached_blueig,
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         self.lbl_ares = self._create_path_row(
             "Set ARES Manager Location",
             self._on_set_ares,
             cached_ares,
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         self.lbl_browser = self._create_path_row(
             "Pick Default Browser",
             self._on_set_browser,
             get_default_browser(),
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         self.lbl_vbs_license = self._create_path_row(
             "Set VBS License Manager Location",
             self._on_set_vbs_license_manager,
             config["General"].get("vbs_license_manager_path", ""),
-            parent=locs_box,
+            parent=self._settings_inner,
         )
         self.lbl_oneclick = self._create_path_row(
             "Set One-Click Output Folder",
             self._on_set_oneclick,
             get_oneclick_output_path(),
-            parent=locs_box,
+            parent=self._settings_inner,
         )
+
+        # Spacer so the last row can scroll above the bottom edge
+        tk.Frame(self._settings_inner, height=_SCROLLER_BOTTOM_PAD, bg="black").pack(fill="x")
+
+        # Force update of layout and scroll region to ensure all items are visible
+        self._settings_inner.update_idletasks()
+        self._settings_canvas.update_idletasks()
+        self._settings_canvas.yview_moveto(0)
+        
+        # Manually update scroll region to ensure all content is accessible
+        bbox = self._settings_canvas.bbox("all")
+        if bbox:
+            x0, y0, x1, y1 = bbox
+            self._settings_canvas.configure(scrollregion=(x0, y0, x1, y1 + _SCROLLER_BOTTOM_PAD))
 
         # Back button and tutorial
         tk.Button(
@@ -14681,10 +11946,7 @@ class SettingsPanel(tk.Frame):
             command=lambda: controller.show("Main"),
             bd=0,
             highlightthickness=0,
-        ).pack(pady=10)
-        
-        # Bottom spacer to ensure content is fully scrollable by outer viewport
-        tk.Frame(self, height=50, bg="black").pack(fill="x")
+        ).grid(row=8, column=0, pady=10)
 
         logging.info("[ui-diag] SettingsPanel: about to setup auto-connect")
         # Silent auto-connect on first load (no prompts) - run in background to avoid blocking UI
@@ -14709,22 +11971,11 @@ class SettingsPanel(tk.Frame):
         self.after(300, self._update_share_status)
         logging.info("[ui-diag] SettingsPanel __init__ COMPLETE")
 
-    def _format_host_status(self, connected: bool | None, ip_override: str | None = None) -> str:
-        """Format the host status string for display.
-        
-        Args:
-            connected: True if connected, False if not, None if checking
-            ip_override: If provided, use this IP instead of reading from config
-                        (useful for immediate UI updates after IP change)
-        """
+    def _format_host_status(self, connected: bool | None) -> str:
         try:
-            # Use override IP if provided, otherwise read fresh from config
-            if ip_override is not None:
-                ip = ip_override
-            else:
-                # Read directly from config to get freshest value
-                ip = safe_config_get("Offline", "host_ip", "")
-            
+            o = get_offline_cfg()
+            ip = (o.get("host_ip") or "").strip()
+            root, working = _compute_working_unc_from_cfg()
             host_txt = ip if ip else "[no host set]"
             if connected is None:
                 # initial/unknown state
@@ -14797,7 +12048,7 @@ class SettingsPanel(tk.Frame):
         if hasattr(self, "lbl_vbs4"):
             self.lbl_vbs4.config(text=general.get("vbs4_path", "") or "[not set]")
         if hasattr(self, "lbl_vbs4_setup"):
-            self.lbl_vbs4_setup.config(text=general.get("vbs4_setup_path", "") or "[not set]")
+            self.lbl_vbs4_setup.config(general.get("vbs4_setup_path", ""))
         if hasattr(self, "lbl_blueig"):
             self.lbl_blueig.config(text=general.get("blueig_path", "") or "[not set]")
         if hasattr(self, "lbl_ares"):
@@ -14805,35 +12056,37 @@ class SettingsPanel(tk.Frame):
         if hasattr(self, "lbl_browser"):
             self.lbl_browser.config(text=general.get("browser_path", "") or get_default_browser() or "[not set]")
         if hasattr(self, "lbl_vbs_license"):
-            self.lbl_vbs_license.config(text=general.get("vbs_license_manager_path", "") or "[not set]")
+            self.lbl_vbs_license.config(general.get("vbs_license_manager_path", ""))
         if hasattr(self, "lbl_oneclick"):
             self.lbl_oneclick.config(text=general.get("oneclick_output", "") or get_oneclick_output_path() or "[not set]")
 
         self._refresh_fuser_counter_row()
-        
-        # Update host info label if it exists (shows configured IP)
-        if hasattr(self, 'host_info_label') and self.host_info_label:
-            configured_ip = off.get("host_ip", "") or get_primary_ipv4()
-            self.host_info_label.config(
-                text=f"ℹ Host PC detected (IP: {configured_ip}) - Fuser Computer is auto-enabled"
-            )
 
     def _update_share_status(self):
         """Update the share status indicator based on current network share availability.
 
-        Runs the check on a background thread to avoid blocking the UI thread.
-        Checks every 5 seconds to detect drive disconnection events.
+        Runs the check on a background thread to avoid blocking the UI thread. UI is updated via after().
+        Only shows "Checking..." if the check takes longer than 500ms to avoid flashing.
+        Only updates UI if status actually changed for smooth experience.
+        
+        Checks every 3 seconds to quickly detect drive disconnection events (e.g., USB unplugged).
         """
         # Prevent overlapping background checks
         if getattr(self, "_share_check_busy", False):
             # Try again a bit later if a previous check is still running
-            self.after(5000, self._update_share_status)
+            self.after(3000, self._update_share_status)
             return
 
         self._share_check_busy = True
+        
+        # Track the last known status to avoid unnecessary UI updates
+        last_status = getattr(self, "_last_share_status", None)
+        check_start_time = time.time()
+        checking_shown = False
 
         def _work():
-            result = None
+            nonlocal checking_shown
+            result = ('checking', '◐ Checking...', '#FFFF00')
             try:
                 # Use timeout wrapper to prevent hanging forever
                 result_queue = Queue()
@@ -14853,12 +12106,23 @@ class SettingsPanel(tk.Frame):
                 # If thread is still alive, it timed out
                 if check_thread.is_alive():
                     logging.warning("[share-status] Check timed out after 5 seconds")
-                    result = ('error', '● Timeout', '#FF4500')
+                    result = ('error', '● Timeout checking share', '#FF4500')
                 elif not result_queue.empty():
                     result = result_queue.get_nowait()
                 else:
                     logging.warning("[share-status] No result after thread completion")
                     result = ('error', '● Check failed', '#FF4500')
+                
+                # If check took longer than 500ms, show "Checking..." briefly
+                # This prevents flash for fast checks but gives feedback for slow ones
+                elapsed = time.time() - check_start_time
+                if elapsed > 0.5 and not checking_shown:
+                    checking_shown = True
+                    try:
+                        if hasattr(self, "share_status_label"):
+                            self.after(0, lambda: self.share_status_label.config(text="◐ Checking...", fg="#FFFF00"))
+                    except:
+                        pass
                         
             except Exception as e:
                 logging.warning(f"Share status check wrapper error: {e}")
@@ -14866,26 +12130,37 @@ class SettingsPanel(tk.Frame):
 
             def _apply():
                 try:
-                    if result:
-                        status_code, status_msg, status_color = result
-                        
-                        # Always update the share status label with final result
+                    status_code, status_msg, status_color = result
+                    
+                    # Only update UI if status actually changed (prevents flashing)
+                    current_status_key = f"{status_code}:{status_msg}"
+                    if last_status != current_status_key:
+                        # Update share status label
                         if hasattr(self, "share_status_label"):
                             self.share_status_label.config(text=status_msg, fg=status_color)
                         
-                        # Update compact host status line
+                        # Update compact host status line (map status to simple bool for backwards compat)
                         if hasattr(self, "host_status_label"):
                             is_ok = status_code in ('connected', 'local')
-                            self.host_status_label.config(text=self._format_host_status(is_ok))
+                            self.host_status_label.config(text=self._format_host_status(is_ok if status_code != 'checking' else None))
+                        
+                        # Remember this status
+                        self._last_share_status = current_status_key
+                        
+                        # Log status changes for troubleshooting
+                        if status_code == 'disconnected' and last_status and 'connected' in last_status.lower():
+                            logging.warning(f"[share-status] Share became disconnected - drive may have been unplugged")
+                        elif status_code in ('connected', 'local') and last_status and 'disconnect' in last_status.lower():
+                            logging.info(f"[share-status] Share reconnected")
                         
                 except Exception as e:
                     logging.error(f"[share-status] Error updating UI: {e}")
                 finally:
-                    # ALWAYS clear busy flag and schedule next update
+                    # ALWAYS clear busy flag and schedule next update - ensures loop continues
                     self._share_check_busy = False
                     try:
-                        # Schedule next update in 5 seconds
-                        self.after(5000, self._update_share_status)
+                        # Schedule next update in 3 seconds (faster detection of drive disconnection)
+                        self.after(3000, self._update_share_status)
                     except Exception:
                         # Widget destroyed, stop the loop
                         pass
@@ -14894,8 +12169,12 @@ class SettingsPanel(tk.Frame):
             try:
                 self.after(0, _apply)
             except Exception:
-                # If widget is destroyed, clean up
+                # If widget is destroyed, clean up and reschedule
                 self._share_check_busy = False
+                try:
+                    self.after(3000, self._update_share_status)
+                except:
+                    pass
 
         run_in_thread(_work)
 
@@ -15618,48 +12897,22 @@ class SettingsPanel(tk.Frame):
         if not hasattr(self, "fuser_count_label"):
             return
 
-        # Prevent overlapping background scans
-        if getattr(self, "_fuser_refresh_busy", False):
-            return
-        
-        self._fuser_refresh_busy = True
-        
-        def _background_scan():
-            """Run expensive psutil scan in background thread."""
-            try:
-                running = count_local_fusers()
-                # Safely get fuser_computer setting, handling missing section
-                try:
-                    is_fuser = config.getboolean("Fusers", "fuser_computer", fallback=False)
-                except Exception:
-                    is_fuser = False
-                try:
-                    desired_raw = int(config.get("Fusers", "desired_count", fallback="3") or 3)
-                except Exception:
-                    desired_raw = 3
-                desired = _clamp_fusers(desired_raw, is_fuser)
-                suffix = "" if is_fuser else "  (fuser computer is OFF)"
-                
-                # Update UI on main thread
-                def _update_ui():
-                    try:
-                        if hasattr(self, "fuser_count_label"):
-                            self.fuser_count_label.config(
-                                text=f"Local fusers: {running} running / {desired} desired{suffix}"
-                            )
-                        pc = os.environ.get('COMPUTERNAME') or platform.node()
-                        logging.info(f"[ui-diag] SettingsPanel: fuser counter refresh -> {pc}: running={running}, desired={desired}, is_fuser={is_fuser}")
-                    except Exception:
-                        pass
-                    finally:
-                        self._fuser_refresh_busy = False
-                
-                post_ui(_update_ui)
-            except Exception as e:
-                logging.error(f"[fuser-count] Background scan failed: {e}")
-                self._fuser_refresh_busy = False
-        
-        run_in_thread(_background_scan)
+        running = count_local_fusers()
+        is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
+        try:
+            desired_raw = int(config["Fusers"].get("desired_count", "3") or 3)
+        except Exception:
+            desired_raw = 3
+        desired = _clamp_fusers(desired_raw, is_fuser)
+        suffix = "" if is_fuser else "  (fuser computer is OFF)"
+        self.fuser_count_label.config(
+            text=f"Local fusers: {running} running / {desired} desired{suffix}"
+        )
+        try:
+            pc = os.environ.get('COMPUTERNAME') or platform.node()
+            logging.info(f"[ui-diag] SettingsPanel: fuser counter refresh -> {pc}: running={running}, desired={desired}, is_fuser={is_fuser}")
+        except Exception:
+            pass
 
     def _schedule_fuser_count_refresh(self):
         """Periodically refresh the fuser counter label to keep it in sync."""
@@ -15668,14 +12921,8 @@ class SettingsPanel(tk.Frame):
         except Exception:
             pass
         try:
-            # Performance optimization: use longer interval in single-use mode only
-            # Normal mode: 500ms for responsive updates
-            # Single-use mode: 5000ms (5s) to reduce overhead when not needed
-            if is_single_use_mode():
-                interval = 5000
-            else:
-                interval = 500
-            self.after(interval, self._schedule_fuser_count_refresh)
+            # Refresh every 500ms for faster detection when fusers spawn
+            self.after(500, self._schedule_fuser_count_refresh)
         except Exception:
             pass
 
@@ -15699,6 +12946,17 @@ class SettingsPanel(tk.Frame):
                 try:
                     # Get list of connected PCs from heartbeats
                     names = list_connected_fuser_pc_names()
+                    names_set = set(names) if names else set()
+                    
+                    # NEW: Add host baseline if we're the host (never shows 0 on host)
+                    if is_host_machine():
+                        try:
+                            host_name = socket.gethostname()
+                            names_set.add(host_name)
+                        except Exception:
+                            pass
+                    
+                    names = sorted(names_set)
                     cnt = len(names)
                 except Exception:
                     # If any scanning error occurs, keep defaults
@@ -15720,35 +12978,18 @@ class SettingsPanel(tk.Frame):
                     except Exception:
                         pass
                     finally:
-                        # Allow future scans and schedule next refresh (5 seconds for responsive detection)
+                        # Allow future scans and schedule next refresh
                         self._pcs_refresh_busy = False
-                        try:
-                            if self.winfo_exists():
-                                self.after(5000, self._refresh_connected_pcs)
-                        except Exception:
-                            pass
+                        self.after(10000, self._refresh_connected_pcs)
 
-                # Update UI on main thread (guard against destroyed widget)
-                try:
-                    if self.winfo_exists():
-                        self.after(0, _apply)
-                except Exception:
-                    self._pcs_refresh_busy = False
+                # Update UI on main thread
+                self.after(0, _apply)
             except Exception:
                 # Ensure busy flag clears and reschedule even on unexpected errors
-                self._pcs_refresh_busy = False
                 def _clear_and_resched():
                     self._pcs_refresh_busy = False
-                    try:
-                        if self.winfo_exists():
-                            self.after(5000, self._refresh_connected_pcs)
-                    except Exception:
-                        pass
-                try:
-                    if self.winfo_exists():
-                        self.after(0, _clear_and_resched)
-                except Exception:
-                    pass
+                    self.after(10000, self._refresh_connected_pcs)
+                self.after(0, _clear_and_resched)
 
         # Run scan off the UI thread
         run_in_thread(_scan_and_update)
@@ -15757,129 +12998,92 @@ class SettingsPanel(tk.Frame):
         """
         One‑click: connect if needed, then open the working folder in Explorer.
         Opens the WorkingFuser subfolder (not just the share root).
-        All network/filesystem operations run in background thread to prevent UI freeze.
         """
-        # Show loading indicator
-        self.controller.config(cursor="wait")
-        self.update_idletasks()
+        # Get the WorkingFuser UNC path (includes the WorkingFuser subfolder)
+        try:
+            path = working_fuser_unc()
+        except Exception:
+            path = ""
         
-        def _background_work():
-            """Do all network/filesystem checks in background thread."""
-            result = {"action": None, "path": None, "error": None}
-            
-            # Get the WorkingFuser UNC path (includes the WorkingFuser subfolder)
-            try:
-                path = working_fuser_unc()
-            except Exception:
-                path = ""
-            
-            # Convert to local if we're on Host PC
-            if path:
-                path = unc_to_local_if_host(path)
-            
-            logging.info(f"[open_working_folder] Resolved WorkingFuser path: '{path}'")
-            
-            # Check if path is empty
-            if not path:
-                result["action"] = "error"
-                result["error"] = "Working folder path is not configured.\n\nPlease configure Host IP and Share Name in Offline Settings."
-                return result
-            
-            result["path"] = path
-            
-            # If it's a local path (Host PC), just check if it exists
-            if not path.startswith("\\\\"):
-                logging.info(f"[open_working_folder] Checking local path: {path}")
-                if os.path.exists(path):
-                    result["action"] = "open"
-                else:
-                    result["action"] = "error"
-                    result["error"] = f"Cannot access local path:\n{path}\n\nThe folder may not exist yet. Try enabling fusers first."
-                return result
-            
-            # For UNC paths (User PCs), ensure connection to the share root first
-            share_root = resolve_shared_access_path()  # Just the share root for connection
-            logging.info(f"[open_working_folder] Connecting to share root: {share_root}")
-            
-            if not connect_working_share_interactive(parent=None, silent=True):
-                logging.warning(f"[open_working_folder] connect_working_share_interactive reported failure for {path}")
-                # Fallback 1: Quick direct UNC check – Explorer sometimes succeeds despite our session logic
-                try:
-                    if quick_unc_check(path, timeout=1):
-                        logging.info(f"[open_working_folder] Fallback quick check passed; opening anyway: {path}")
-                        result["action"] = "open"
-                        return result
-                except Exception as e:
-                    logging.debug(f"[open_working_folder] quick_unc_check fallback error: {e}")
-                # Fallback 2: Try to establish raw session then re-check
-                try:
-                    unc_root = os.path.dirname(os.path.dirname(path))  # \\host\share
-                    ensure_smb_session_cached(unc_root)
-                    if quick_unc_check(path, timeout=1.5):
-                        logging.info(f"[open_working_folder] Session fallback succeeded; opening: {path}")
-                        result["action"] = "open"
-                        return result
-                except Exception as e:
-                    logging.debug(f"[open_working_folder] session fallback error: {e}")
-                # Fallback 3: If share root accessible, attempt folder creation then open
-                try:
-                    if quick_unc_check(share_root, timeout=1.5):
-                        if not os.path.exists(path):
-                            try:
-                                os.makedirs(path, exist_ok=True)
-                                logging.info(f"[open_working_folder] Created missing WorkingFuser folder via fallback.")
-                            except Exception as e:
-                                logging.debug(f"[open_working_folder] Could not create WorkingFuser folder: {e}")
-                        if os.path.exists(path):
-                            logging.info(f"[open_working_folder] Root reachable; opening (degraded success): {path}")
-                            result["action"] = "open"
-                            return result
-                except Exception as e:
-                    logging.debug(f"[open_working_folder] root fallback error: {e}")
-                
-                result["action"] = "error"
-                result["error"] = f"Cannot access:\n{path}\n\nUse 'Test Access' button to diagnose the connection issue."
-                return result
-
-            # Once share is connected, verify the subfolder exists
-            logging.info(f"[open_working_folder] Connection successful, checking WorkingFuser: {path}")
-            
-            if not os.path.exists(path):
-                result["action"] = "error"
-                result["error"] = f"WorkingFuser folder doesn't exist:\n{path}\n\nTry enabling fusers first to create the folder."
-                return result
-            
-            result["action"] = "open"
-            return result
+        # Convert to local if we're on Host PC
+        if path:
+            path = unc_to_local_if_host(path)
         
-        def _on_complete(result):
-            """Handle result on UI thread."""
-            # Restore cursor
-            try:
-                self.controller.config(cursor="")
-            except Exception:
-                pass
-            
-            action = result.get("action")
-            path = result.get("path")
-            error = result.get("error")
-            
-            if action == "error":
-                messagebox.showerror("Open Working Folder", error)
-            elif action == "open" and path:
+        logging.info(f"[open_working_folder] Resolved WorkingFuser path: '{path}'")
+        
+        # Check if path is empty
+        if not path:
+            messagebox.showerror("Open Working Folder",
+                                 "Working folder path is not configured.\n\n"
+                                 "Please configure Host IP and Share Name in Offline Settings.")
+            return
+        
+        # If it's a local path (Host PC), just open it directly
+        if not path.startswith("\\\\"):
+            logging.info(f"[open_working_folder] Opening local path: {path}")
+            if os.path.exists(path):
                 self.controller.open_folder_foreground(path)
+            else:
+                messagebox.showerror("Open Working Folder",
+                                   f"Cannot access local path:\n{path}\n\n"
+                                   "The folder may not exist yet. Try enabling fusers first.")
+            return
         
-        def _thread_wrapper():
-            """Run background work and post result to UI thread."""
+        # For UNC paths (User PCs), ensure connection to the share root first
+        share_root = resolve_shared_access_path()  # Just the share root for connection
+        logging.info(f"[open_working_folder] Connecting to share root: {share_root}")
+        
+        if not connect_working_share_interactive(parent=self, silent=True):
+            logging.warning(f"[open_working_folder] connect_working_share_interactive reported failure for {path}")
+            # Fallback 1: Quick direct UNC check – Explorer sometimes succeeds despite our session logic
             try:
-                result = _background_work()
+                if quick_unc_check(path, timeout=1):
+                    logging.info(f"[open_working_folder] Fallback quick check passed; opening anyway: {path}")
+                    self.controller.open_folder_foreground(path)
+                    return
             except Exception as e:
-                logging.error(f"[open_working_folder] Background work error: {e}")
-                result = {"action": "error", "error": f"Unexpected error:\n{e}"}
-            post_ui(_on_complete, result)
+                logging.debug(f"[open_working_folder] quick_unc_check fallback error: {e}")
+            # Fallback 2: Try to establish raw session then re-check
+            try:
+                unc_root = os.path.dirname(os.path.dirname(path))  # \\host\share
+                ensure_smb_session_cached(unc_root)
+                if quick_unc_check(path, timeout=1.5):
+                    logging.info(f"[open_working_folder] Session fallback succeeded; opening: {path}")
+                    self.controller.open_folder_foreground(path)
+                    return
+            except Exception as e:
+                logging.debug(f"[open_working_folder] session fallback error: {e}")
+            # Fallback 3: If share root accessible, attempt folder creation then open
+            try:
+                if quick_unc_check(share_root, timeout=1.5):
+                    if not os.path.exists(path):
+                        try:
+                            os.makedirs(path, exist_ok=True)
+                            logging.info(f"[open_working_folder] Created missing WorkingFuser folder via fallback.")
+                        except Exception as e:
+                            logging.debug(f"[open_working_folder] Could not create WorkingFuser folder: {e}")
+                    if os.path.exists(path):
+                        logging.info(f"[open_working_folder] Root reachable; opening (degraded success): {path}")
+                        self.controller.open_folder_foreground(path)
+                        return
+            except Exception as e:
+                logging.debug(f"[open_working_folder] root fallback error: {e}")
+            messagebox.showerror("Open Working Folder",
+                                 f"Cannot access:\n{path}\n\n"
+                                 "Use 'Test Access' button to diagnose the connection issue.")
+            return
+
+        # Once share is connected, open the WorkingFuser subfolder
+        logging.info(f"[open_working_folder] Connection successful, opening WorkingFuser: {path}")
         
-        # Run in background thread
-        run_in_thread(_thread_wrapper)
+        # Verify the subfolder exists
+        if not os.path.exists(path):
+            messagebox.showerror("Open Working Folder",
+                                 f"WorkingFuser folder doesn't exist:\n{path}\n\n"
+                                 "Try enabling fusers first to create the folder.")
+            return
+        
+        self.controller.open_folder_foreground(path)
 
     def _auto_find_share(self):
         o = get_offline_cfg()
@@ -15936,39 +13140,19 @@ class SettingsPanel(tk.Frame):
         logging.info(f"Unmapped {letter}")
         messagebox.showinfo("Map Drive", f"Unmapped {letter}")
     def _change_host_ip(self):
-        """Manually change the Host IP address with full network transition.
-        
-        IMPLEMENTS REQUIREMENTS:
-        1. Only one active host - beacon is overwritten
-        2. IP change triggers re-share - share is removed and recreated
-        3. Configs auto-update - all fuser configs contain new IP
-        4. Working Folder Status reflects new IP - GUI shows correct status
-        5. Manual re-share not required - automatic process
-        6. LAN preference enforced - handled by get_primary_ipv4()
-        7. Kill fusers before IP change, clear working folder, relaunch after
-        """
+        """Manually change the Host IP address with validation and beacon update."""
         from tkinter import simpledialog
         
         # Get current IP
         current_ip = self.host_ip_var.get().strip()
         
-        # Show current network interfaces to help user choose correct IP
-        detected_ip = get_primary_ipv4()
-        hint_text = f"Detected LAN IP: {detected_ip}" if detected_ip else "No network detected"
-        
         # Prompt for new IP
         new_ip = simpledialog.askstring(
             "Change Host IP",
-            f"Enter the new Host IP address:\n\n"
-            f"Current IP: {current_ip or '(not set)'}\n"
-            f"{hint_text}\n\n"
-            "This will:\n"
-            "• Kill all running fusers\n"
-            "• Clear the WorkingFuser folder\n"
-            "• Update all configuration files\n"
-            "• Remove and recreate the SMB share\n"
-            "• Relaunch fusers with new IP",
-            initialvalue=detected_ip or current_ip  # Prefer detected IP
+            "Enter the new Host IP address:\n\n"
+            "(This will update the configuration and beacon file\n"
+            "so all User PCs can discover the new IP)",
+            initialvalue=current_ip
         )
         
         if new_ip is None:  # User cancelled
@@ -15981,286 +13165,81 @@ class SettingsPanel(tk.Frame):
             messagebox.showerror(
                 "Invalid IP",
                 f"'{new_ip}' is not a valid IP address.\n\n"
-                "Please enter a valid IPv4 address (e.g., 192.168.1.100 or 10.0.0.1)"
+                "Please enter a valid IPv4 address (e.g., 192.168.1.100)"
             )
             return
         
         try:
+            # Perform deep cleanup when host IP changes to ensure clean network state
+            # Windows shares are interface-agnostic; they automatically become
+            # reachable via any active IP on the host. Deleting/recreating the
+            # share here caused UI freezes (blocking subprocess + sleep) and
+            # intermittent failures when permissions differed (e.g. Program Files).
+            # If future diagnostics show a stale share after IP swap, we can
+            # reintroduce an asynchronous refresh routine.
+            # (Intentionally left without action to keep operation instantaneous.)
+            # User requirement: actively disconnect old IP sessions and recreate
+            # the share to ensure visibility across interface profile changes.
             old_ip = current_ip
             
-            # CRITICAL: Show "Updating..." status immediately
-            if hasattr(self, "host_status_label"):
-                try:
-                    self.host_status_label.config(text=f"Host: {new_ip} • WorkingFuser: (updating...)")
-                except Exception:
-                    pass
-            if hasattr(self, "share_status_label"):
-                try:
-                    self.share_status_label.config(text="◐ Stopping fusers and resharing...", fg="#FFFF00")
-                except Exception:
-                    pass
-            
-            # Force UI update before blocking operations
-            self.update_idletasks()
-            
-            # STEP 1: Kill all running fusers BEFORE changing IP
-            logging.info(f"[change_host_ip] Step 1: Killing all fusers before IP change")
-            print(f"\n[IP Change] Step 1: Killing all running fusers...")
-            try:
-                kill_fusers()
-                config["Fusers"]["last_launched_count"] = "0"
-                save_config()
-            except Exception as e:
-                logging.warning(f"[change_host_ip] Failed to kill fusers: {e}")
-            
-            # STEP 2: Clear the WorkingFuser folder contents (removes old IP presence files/folders)
-            # This removes folders like PCNAME(OLD_IP)_1 so users can reconnect with new IP
-            logging.info(f"[change_host_ip] Step 2: Clearing WorkingFuser folder")
-            print(f"[IP Change] Step 2: Clearing WorkingFuser folder (removing old PC presence)...")
-            try:
-                o = get_offline_cfg()
-                local_root = o.get("local_data_root", "").strip()
-                working_subdir = o.get("working_fuser_subdir", "WorkingFuser").strip() or "WorkingFuser"
-                
-                # For Host PC, use local path directly (not UNC which might use old IP)
-                working_folder = None
-                if local_root and os.path.isdir(local_root):
-                    working_folder = os.path.join(local_root, working_subdir)
-                    print(f"[IP Change] Using local path: {working_folder}")
-                
-                cleared_count = 0
-                if working_folder and os.path.exists(working_folder):
-                    print(f"[IP Change] Clearing all contents of: {working_folder}")
-                    # Clear ALL contents - removes old IP-based folders and files
-                    for item in os.listdir(working_folder):
-                        item_path = os.path.join(working_folder, item)
-                        try:
-                            if os.path.isfile(item_path):
-                                os.remove(item_path)
-                                print(f"[IP Change]   ✓ Removed file: {item}")
-                                cleared_count += 1
-                            elif os.path.isdir(item_path):
-                                shutil.rmtree(item_path)
-                                print(f"[IP Change]   ✓ Removed folder: {item}")
-                                cleared_count += 1
-                        except PermissionError as e:
-                            # Try harder - might be locked by fuser
-                            print(f"[IP Change]   Retrying removal of: {item}")
-                            try:
-                                time.sleep(0.5)
-                                if os.path.isfile(item_path):
-                                    os.remove(item_path)
-                                elif os.path.isdir(item_path):
-                                    shutil.rmtree(item_path)
-                                cleared_count += 1
-                                print(f"[IP Change]   ✓ Removed on retry: {item}")
-                            except Exception as e2:
-                                logging.warning(f"[change_host_ip] Could not remove {item_path}: {e2}")
-                                print(f"[IP Change]   ✗ Could not remove {item}: {e2}")
-                        except Exception as e:
-                            logging.warning(f"[change_host_ip] Could not remove {item_path}: {e}")
-                            print(f"[IP Change]   ✗ Could not remove {item}: {e}")
-                    
-                    logging.info(f"[change_host_ip] Cleared {cleared_count} items from WorkingFuser: {working_folder}")
-                
-                if cleared_count > 0:
-                    print(f"[IP Change] ✓ Cleared {cleared_count} item(s) from WorkingFuser")
-                else:
-                    print(f"[IP Change] WorkingFuser folder was empty or not found")
-                    # Create it if needed
-                    if local_root:
-                        working_folder = os.path.join(local_root, working_subdir)
-                        os.makedirs(working_folder, exist_ok=True)
-                        print(f"[IP Change] Created: {working_folder}")
-                        
-            except Exception as e:
-                logging.warning(f"[change_host_ip] Failed to clear WorkingFuser: {e}")
-                print(f"[IP Change] Warning: Failed to clear WorkingFuser: {e}")
-            
-            # STEP 3: Clear SMB session cache for old IP
-            logging.info(f"[change_host_ip] Step 3: Clearing SMB session cache")
-            print(f"[IP Change] Step 3: Clearing SMB session cache...")
-            try:
-                with SMB_SESSION_LOCK:
-                    SMB_SESSION_CACHE.clear()
-                logging.info("[change_host_ip] Cleared all SMB session cache entries")
-            except Exception as e:
-                logging.warning(f"[change_host_ip] Failed to clear SMB cache: {e}")
-            
-            # STEP 4: Update config with force_reshare=True to ensure share is recreated
-            logging.info(f"[change_host_ip] Step 4: Updating config and resharing")
-            print(f"[IP Change] Step 4: Updating configuration and recreating share...")
-            set_host_ip(new_ip, force_reshare=True, update_ui=True)
-            
-            # STEP 4b: Explicitly ensure share is recreated on the new network (Host PC only)
-            o = get_offline_cfg()
-            local_root = o.get("local_data_root", "").strip()
-            share_name = o.get("share_name", "SharedMeshDrive").strip() or "SharedMeshDrive"
-            
-            if local_root and os.path.isdir(local_root):
-                logging.info(f"[change_host_ip] Step 4b: Ensuring share '{share_name}' exists at '{local_root}'")
-                print(f"[IP Change] Step 4b: Ensuring share is accessible on new network...")
-                try:
-                    # Check if share already exists with correct path
-                    check_result = subprocess.run(
-                        ["cmd", "/C", f"net share {share_name}"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        creationflags=NO_WINDOW_FLAG
-                    )
-                    
-                    share_exists = check_result.returncode == 0
-                    correct_path = local_root.lower() in check_result.stdout.lower() if share_exists else False
-                    
-                    if share_exists and correct_path:
-                        logging.info(f"[change_host_ip] Share '{share_name}' already exists with correct path")
-                        print(f"[IP Change] ✓ Share '{share_name}' already configured at {local_root}")
-                    else:
-                        # Remove old share first (only if it exists)
-                        if share_exists:
-                            subprocess.run(
-                                ["cmd", "/C", f"net share {share_name} /delete /yes"],
-                                capture_output=True,
-                                timeout=10,
-                                creationflags=NO_WINDOW_FLAG
-                            )
-                            time.sleep(0.5)
-                        
-                        # Create share - use shell=True to properly handle the command
-                        share_cmd = f'net share {share_name}="{local_root}" /GRANT:Everyone,FULL'
-                        result = subprocess.run(
-                            share_cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                            shell=True,
-                            creationflags=NO_WINDOW_FLAG
-                        )
-                        
-                        if result.returncode == 0 or "shared successfully" in result.stdout.lower():
-                            logging.info(f"[change_host_ip] Share '{share_name}' created successfully")
-                            print(f"[IP Change] ✓ Share '{share_name}' created at {local_root}")
-                        else:
-                            # Check if it's just saying it already exists
-                            if "already been shared" in result.stderr.lower() or "already been shared" in result.stdout.lower():
-                                logging.info(f"[change_host_ip] Share '{share_name}' already exists")
-                                print(f"[IP Change] ✓ Share '{share_name}' already exists")
-                            else:
-                                logging.warning(f"[change_host_ip] Share creation result: stdout={result.stdout}, stderr={result.stderr}")
-                                print(f"[IP Change] Note: Share may already exist (rc={result.returncode})")
-                except Exception as e:
-                    logging.error(f"[change_host_ip] Failed to ensure share: {e}")
-                    print(f"[IP Change] Warning: Failed to ensure share: {e}")
-            
-            # Update the UI variable
+            # Update config (this syncs all IP references including shared_working_unc)
+            set_host_ip(new_ip)
             self.host_ip_var.set(new_ip)
 
-            # Remap drive if it's currently mapped (so it points to new IP)
-            # NOTE: Only for User PCs - Host PC uses local paths, not mapped drives
-            if not is_this_pc_the_real_host():
-                sd = config["SharedDrive"] if "SharedDrive" in config else {}
-                if sd.get("preferred_mode", "").upper() == "DRIVE":
-                    letter = sd.get("drive_letter", "M:").strip() or "M:"
-                    try:
-                        # Unmap old connection
-                        unmap_drive(letter)
-                        logging.info(f"[change_host_ip] Unmapped old drive {letter}")
-                        
-                        # Remap with new IP
-                        if new_ip:
-                            o = get_offline_cfg()
-                            new_unc = build_unc_from_cfg(o)
-                            if new_unc and map_drive(new_unc, letter):
-                                logging.info(f"[change_host_ip] Remapped {letter} to {new_unc}")
-                            else:
-                                logging.warning(f"[change_host_ip] Failed to remap {letter} to new IP")
-                    except Exception as e:
-                        logging.warning(f"[change_host_ip] Failed to remap drive: {e}")
+            # Fire off asynchronous share recreation (non-blocking)
+            try:
+                if is_this_pc_the_real_host():
+                    self._async_recreate_share_for_ip_change(old_ip, new_ip)
+                    # Deep cleanup (Option B): full session purge + cred refresh + share recreate
+                    self._deep_cleanup_on_host_change(old_ip, new_ip)
+            except Exception as e:
+                logging.debug(f"[change_host_ip] async recreate dispatch failed: {e}")
             
-            # IMMEDIATELY update host status label to show new IP
+            # Remap drive if it's currently mapped (so it points to new IP)
+            sd = config["SharedDrive"] if "SharedDrive" in config else {}
+            if sd.get("preferred_mode", "").upper() == "DRIVE":
+                letter = sd.get("drive_letter", "M:").strip() or "M:"
+                try:
+                    # Unmap old connection
+                    unmap_drive(letter)
+                    logging.info(f"[change_host_ip] Unmapped old drive {letter}")
+                    
+                    # Remap with new IP
+                    if new_ip:
+                        o = get_offline_cfg()
+                        new_unc = build_unc_from_cfg(o)
+                        if new_unc and map_drive(new_unc, letter):
+                            logging.info(f"[change_host_ip] Remapped {letter} to {new_unc}")
+                        else:
+                            logging.warning(f"[change_host_ip] Failed to remap {letter} to new IP")
+                except Exception as e:
+                    logging.warning(f"[change_host_ip] Failed to remap drive: {e}")
+            
+            # Update beacon file if we're on the host
+            if is_host_machine():
+                self._update_host_beacon(new_ip)
+            
+            # Refresh host status label to show new IP
             if hasattr(self, "host_status_label"):
                 try:
-                    host_txt = new_ip if new_ip else "[no host set]"
-                    self.host_status_label.config(text=f"Host: {host_txt} • WorkingFuser: (verifying...)")
+                    self.host_status_label.config(text=self._format_host_status(None))
+                    # Schedule a proper check after a brief delay
+                    self.after(1000, lambda: self.host_status_label.config(text=self._format_host_status(True)))
                 except Exception:
                     pass
             
-            # IMMEDIATELY update the gray "Host PC detected" info label with new IP
-            if hasattr(self, "host_info_label") and self.host_info_label:
-                try:
-                    self.host_info_label.config(
-                        text=f"ℹ Host PC detected (IP: {new_ip}) - Fuser Computer is auto-enabled"
-                    )
-                    logging.info(f"[change_host_ip] Updated host_info_label to show IP: {new_ip}")
-                except Exception as e:
-                    logging.warning(f"[change_host_ip] Failed to update host_info_label: {e}")
-            
-            # Clear the last known status to force UI update
-            self._last_share_status = None
-            
-            # Force immediate share status update
-            self._force_share_status_update()
-            
-            # STEP 5: Relaunch fusers with new IP (if this is a fuser computer)
-            is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-            is_host = is_this_pc_the_real_host()
-            
-            relaunch_count = 0
-            if is_fuser or is_host:
-                logging.info(f"[change_host_ip] Step 5: Relaunching fusers")
-                print(f"[IP Change] Step 5: Relaunching fusers...")
-                try:
-                    host_ct, desired_ct = get_fuser_counts()
-                    relaunch_count = host_ct if is_host else desired_ct
-                    if relaunch_count > 0:
-                        # Seed the fuser config with appropriate path
-                        # Host PC uses local path; User PCs use UNC
-                        try:
-                            if is_host:
-                                # Use local path for Host PC
-                                o = get_offline_cfg()
-                                local_root = o.get("local_data_root", "").strip()
-                                working_subdir = o.get("working_fuser_subdir", "WorkingFuser").strip() or "WorkingFuser"
-                                seed_path = os.path.join(local_root, working_subdir) if local_root else None
-                                print(f"[IP Change] Host PC: seeding fuser with local path: {seed_path}")
-                            else:
-                                # Use UNC for User PCs
-                                _, seed_path = _compute_working_unc_from_cfg()
-                                print(f"[IP Change] User PC: seeding fuser with UNC: {seed_path}")
-                            
-                            if seed_path:
-                                from update_photomesh_config import seed_fuser_default
-                                seed_fuser_default(seed_path)
-                        except Exception as e:
-                            logging.warning(f"[change_host_ip] Fuser seeding failed: {e}")
-                        # Then launch the fusers
-                        ensure_fuser_instances(relaunch_count)
-                        logging.info(f"[change_host_ip] Relaunched {relaunch_count} fuser(s)")
-                        print(f"[IP Change] Relaunched {relaunch_count} fuser(s)")
-                except Exception as e:
-                    logging.error(f"[change_host_ip] Failed to relaunch fusers: {e}")
-                    print(f"[IP Change] Warning: Failed to relaunch fusers: {e}")
-            
-            # Show success message with detailed info
-            o = get_offline_cfg()
-            share_name = o.get("share_name", "SharedMeshDrive")
-            unc_path = f"\\\\{new_ip}\\{share_name}"
-            
+            # Show success message
             messagebox.showinfo(
                 "Host IP Changed",
-                f"Host IP successfully changed to: {new_ip}\n\n"
-                f"Share path: {unc_path}\n\n"
-                "✓ All network paths updated\n"
-                "✓ SMB share recreated on new network\n"
-                "✓ Beacon file updated for auto-discovery\n"
-                "✓ Fuser configurations updated\n"
-                f"✓ WorkingFuser folder cleared\n"
-                f"✓ {relaunch_count} fuser(s) relaunched\n\n"
-                "User PCs will automatically discover the new IP."
+                f"Host IP successfully changed to: {new_ip or '[blank]'}\n\n"
+                "All network paths and shared drive connections have been updated.\n"
+                "The beacon file has been updated.\n"
+                "User PCs will discover this new IP automatically."
             )
             
-            # Start asynchronous share health probe
+            # Trigger status refresh
+            self.after(500, self._update_share_status)
+            # Start asynchronous share health probe so remote UNC becomes marked connected without UI blocking
             try:
                 if new_ip:
                     self._start_async_share_health(new_ip)
@@ -16660,27 +13639,17 @@ class SettingsPanel(tk.Frame):
         self.close_on_launch_var.set(is_close_on_launch_enabled())
         enforce_local_fuser_policy()
 
-    def _update_fullscreen_buttons(self):
-        """Update button colors to highlight the active fullscreen mode."""
-        if not hasattr(self, '_fs_buttons'):
-            return
-        current_mode = getattr(self.controller, 'fullscreen_mode', 'off')
-        for mode, btn in self._fs_buttons.items():
-            if mode == current_mode:
-                btn.config(bg="#228B22", fg="white")  # Green for active
-            else:
-                btn.config(bg="#666666", fg="white")  # Gray for inactive
-
-    def _on_fullscreen_button(self, mode):
-        """Handle fullscreen button click."""
-        self.controller.toggle_fullscreen(mode)
-        self._update_fullscreen_buttons()
-
-    def _on_fullscreen_dropdown(self, event=None):
-        """Handle fullscreen dropdown selection change."""
-        selected = self.fullscreen_var.get()
-        mode = self.fullscreen_mode_map.get(selected, "off")
-        self.controller.toggle_fullscreen(mode)
+    def _on_fullscreen_toggle(self):
+        self.controller.toggle_fullscreen()
+        self.fullscreen_var.set(self.controller.fullscreen)
+        
+        # Update Settings panel scrollbar visibility
+        if self.controller.fullscreen:
+            # Fullscreen mode - hide the Settings scrollbar
+            self._settings_scrollbar.pack_forget()
+        else:
+            # Windowed mode - show the Settings scrollbar
+            self._settings_scrollbar.pack(side="right", fill="y")
 
 class TutorialsPanel(tk.Frame):
     def __init__(self, parent, controller):
@@ -16858,7 +13827,7 @@ class CreditsPanel(tk.Frame):
                  bg="#222222", fg="white", anchor="w")\
             .pack(fill="x", pady=(0, 20))
 
-        tk.Label(card, text="Version: 2.1", font=("Helvetica", 18, "bold"),
+        tk.Label(card, text="Version: 2.0", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(0, 20))
 
         tk.Label(card, text="Special thanks to:", font=("Helvetica", 18, "bold"),
@@ -16890,16 +13859,16 @@ class ContactSupportPanel(tk.Frame):
 
         tk.Label(card, text="Michael Enloe", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
-        tk.Label(card, text="Chief Technology Officer", font=("Helvetica", 14),
+        tk.Label(card, text="Cheif Technology Officer", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
         tk.Label(card, text="Email: michael.r.enloe.civ@army.mil", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
 
-        tk.Label(card, text="Ryan Curphey", font=("Helvetica", 18, "bold"),
+        tk.Label(card, text="Yovany Tietze-torres", font=("Helvetica", 18, "bold"),
                  bg="#222222", fg="white", anchor="w").pack(fill="x", pady=(20, 0))
-        tk.Label(card, text="Software Engineer", font=("Helvetica", 14),
+        tk.Label(card, text="Senior Syetems Architect", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
-        tk.Label(card, text="Email: ryan.j.curphey@saic.com", font=("Helvetica", 14),
+        tk.Label(card, text="Email: yovany.e.tietze-torres.ctr@army.mil", font=("Helvetica", 14),
                  bg="#222222", fg="white", anchor="w").pack(fill="x")
 
         tk.Label(card,
@@ -16923,17 +13892,21 @@ class ContactSupportPanel(tk.Frame):
                   highlightthickness=0).pack(pady=(0, 10))
 
     def contact_support(self):
-        webbrowser.open('mailto:michael.r.enloe.civ@army.mil?subject=Support%20Request')
+        webbrowser.open('mailto:yovany.e.tietze-torres.ctr@army.mil?subject=Support%20Request')
 
 class DronePanel(tk.Frame):
-    """Drone control panel with three columns: FPV, Quad Copter, and Gun Mounted SUAS."""
+    """Drone control panel with three columns: FPU, Quad, and GSUA."""
     
     def __init__(self, parent, controller):
-        self.overlay_panel = None  # Ensure this is always set first
         super().__init__(parent, bg="#2B2B2B")
         self.controller = controller
+        
         # Override background to be solid dark gray (no image)
         self.configure(bg="#2B2B2B")
+        
+        # Store reference to overlay panel
+        self.overlay_panel = None
+        
         # Add tutorial button
         controller.create_tutorial_button(self)
         
@@ -16953,7 +13926,6 @@ class DronePanel(tk.Frame):
             bg="#2B2B2B",
             fg="white"
         )
-        title_label.pack(pady=(0, 10))
         title_label.pack(pady=(0, 40))
         
         # Three-column container
@@ -16966,9 +13938,9 @@ class DronePanel(tk.Frame):
         
         # Column headers and buttons
         column_data = [
-            ("FPV", False),    # Active
-            ("Quad Copter", True),    # Disabled
-            ("Gun Mounted SUAS", True),    # Disabled
+            ("FPU", False),    # Active
+            ("Quad", True),    # Disabled
+            ("GSUA", True),    # Disabled
         ]
         
         for col_idx, (header_text, is_disabled) in enumerate(column_data):
@@ -16993,19 +13965,15 @@ class DronePanel(tk.Frame):
                 # Disable Table 1 (no data available)
                 btn_disabled = is_disabled or btn_num == 1
                 
-                # Container for button + clipboard icon
-                btn_container = tk.Frame(col_frame, bg="#2B2B2B")
-                btn_container.pack(pady=8, fill="x")
-                
                 if btn_disabled:
                     # Grayed out button
                     btn = tk.Button(
-                        btn_container,
+                        col_frame,
                         text=btn_text,
                         font=("Helvetica", 18),
                         bg="#444444",
                         fg="#888888",
-                        width=17,
+                        width=19,
                         height=2,
                         state="disabled",
                         bd=0,
@@ -17013,16 +13981,16 @@ class DronePanel(tk.Frame):
                         relief="flat"
                     )
                 else:
-                    # Active button (FPV column, tables 2-5)
+                    # Active button (FPU column, tables 2-5)
                     btn = tk.Button(
-                        btn_container,
+                        col_frame,
                         text=btn_text,
                         font=("Helvetica", 18),
                         bg="#555555",
                         fg="white",
-                        width=17,
+                        width=19,
                         height=2,
-                        command=lambda num=btn_num: self.on_fpv_button_click(num),
+                        command=lambda num=btn_num: self.on_fpu_button_click(num),
                         bd=0,
                         highlightthickness=0,
                         relief="flat",
@@ -17031,57 +13999,28 @@ class DronePanel(tk.Frame):
                     # Add hover effect for active buttons
                     add_button_hover_effect(btn, normal_bg="#555555", hover_bg="#666666")
                 
-                btn.pack(side="left", padx=(0, 5))
-                
-                # Add LB button for leaderboard (all tables including disabled)
-                lb_btn = tk.Button(
-                    btn_container,
-                    text="LB",
-                    font=("Helvetica", 16, "bold"),
-                    bg="#3A3A3A",
-                    fg="#FF8C00",
-                    width=3,
-                    height=2,
-                    command=lambda col=col_idx, num=btn_num: self.show_leaderboard(col, num),
-                    bd=0,
-                    highlightthickness=0,
-                    relief="flat",
-                    activebackground="#4A4A4A"
-                )
-                lb_btn.pack(side="left")
-                add_button_hover_effect(lb_btn, normal_bg="#3A3A3A", hover_bg="#4A4A4A")
+                btn.pack(pady=8)
         
         # Back button at the bottom
         back_button = tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 14, "bold"),
-            bg="#FF8C00",
+            content_frame,
+            text="Back to Main",
+            font=("Helvetica", 20),
+            bg="#444444",
             fg="white",
-            width=10,
-            height=1,
+            width=20,
+            height=2,
             command=lambda: controller.show('Home'),
             bd=0,
             highlightthickness=0,
             relief="flat"
         )
-        # Place in the standardized top-right corner
-        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
-        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
-        
-        # Add LB = Leaderboard legend below back button
-        lb_legend = tk.Label(
-            self,
-            text="LB = Leaderboard",
-            font=("Helvetica", 10),
-            bg="#232323",
-            fg="#FF8C00"
-        )
-        lb_legend.place(relx=1.0, x=-10, y=45, anchor="ne")
+        back_button.pack(pady=(40, 0))
+        add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
     
-    def on_fpv_button_click(self, button_num):
-        """Handle FPV button clicks (TBL 1-6)."""
-        print(f"FPV TBL {button_num} clicked")
+    def on_fpu_button_click(self, button_num):
+        """Handle FPU button clicks (TBL 1-6)."""
+        print(f"FPU TBL {button_num} clicked")
         self.show_table_detail(button_num)
     
     def show_table_detail(self, table_num):
@@ -17100,274 +14039,10 @@ class DronePanel(tk.Frame):
             self.overlay_panel.destroy()
             self.overlay_panel = None
 
-    def show_leaderboard(self, col_idx, table_num):
-        """Show leaderboard panel for specific table."""
-        # Destroy existing overlay if present
-        if self.overlay_panel:
-            self.overlay_panel.destroy()
-        
-        # Determine column name
-        column_names = ["FPV", "Quad Copter", "Gun Mounted SUAS"]
-        column_name = column_names[col_idx]
-        
-        # Create leaderboard overlay panel
-        self.overlay_panel = LeaderboardPanel(self, self.controller, column_name, table_num, self.hide_overlay)
-        self.overlay_panel.place(relx=0, rely=0, relwidth=1, relheight=1)
-    
-    def reset_to_root(self):
-        """Ensure panel is in its default state (no overlays)."""
-        try:
-            self.hide_overlay()
-        except Exception:
-            # Even if hide fails, ensure reference is cleared
-            self.overlay_panel = None
-
-class LeaderboardPanel(tk.Frame):
-    """Leaderboard panel showing scores with date and name columns."""
-    
-    def __init__(self, parent, controller, column_name, table_num, close_callback):
-        super().__init__(parent, bg="#2B2B2B")
-        self.controller = controller
-        self.column_name = column_name
-        self.table_num = table_num
-        self.close_callback = close_callback
-        
-        # Load day and night datasets
-        self.day_data = self._load_leaderboard_data("Day")
-        self.night_data = self._load_leaderboard_data("Night")
-        
-        # Main container
-        main_container = tk.Frame(self, bg="#2B2B2B")
-        main_container.pack(expand=True, fill="both", padx=40, pady=40)
-        
-        # Title
-        title_label = tk.Label(
-            main_container,
-            text=f"LEADERBOARD - {column_name} Table {table_num}",
-            font=("Helvetica", 28, "bold"),
-            bg="#2B2B2B",
-            fg="white"
-        )
-        title_label.pack(pady=(0, 30))
-        
-        # Dual leaderboard container
-        dual_frame = tk.Frame(main_container, bg="#2B2B2B")
-        dual_frame.pack(expand=True, fill="both", padx=10, pady=10)
-        dual_frame.columnconfigure(0, weight=1, uniform="half")
-        dual_frame.columnconfigure(1, weight=1, uniform="half")
-        dual_frame.rowconfigure(0, weight=1)
-        
-        # Build each side (Day / Night)
-        self._build_side(dual_frame, 0, "DAY", self.day_data)
-        self._build_side(dual_frame, 1, "NIGHT", self.night_data)
-        
-        # Info text
-        day_file = f"leaderboards_T{self.table_num}Day.csv"
-        night_file = f"leaderboards_T{self.table_num}Night.csv"
-        info_text = (
-            f"Day: {len(self.day_data)} loaded from {day_file} | "
-            f"Night: {len(self.night_data)} loaded from {night_file}"
-        )
-        
-        info_label = tk.Label(
-            main_container,
-            text=info_text,
-            font=("Helvetica", 12, "italic"),
-            bg="#2B2B2B",
-            fg="#888888"
-        )
-        info_label.pack(pady=(10, 0))
-        
-        # Back button
-        back_button = tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 14, "bold"),
-            bg="#FF8C00",
-            fg="white",
-            width=10,
-            height=1,
-            command=self.close_callback,
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
-        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
-    
-    def _load_leaderboard_data(self, suffix: str):
-        """Load and sort leaderboard data for given time-of-day suffix (Day/Night).
-        
-        CSV Format:
-        - Column A: Name
-        - Column B: Number of targets hit
-        - Column C: Time (seconds)
-        - Column D: Year
-        - Column E: Month
-        - Column F: Day
-        - Columns G+: Time details (irrelevant)
-        
-        CSV filename format: leaderboards_T{table_num}Day.csv
-        Example: leaderboards_T2Day.csv for Table 2
-        
-        Sorting: Highest targets hit first, then lowest time for ties.
-        """
-        try:
-            # Get VBS4 install path
-            vbs4_exe = get_vbs4_install_path()
-            if not vbs4_exe or not os.path.exists(vbs4_exe):
-                logging.warning("[Leaderboard] VBS4 install path not found")
-                return []
-            
-            # Get VBS4 root directory (same directory as VBS4.exe)
-            vbs4_root = os.path.dirname(vbs4_exe)
-            
-            # Build CSV filename based on table number: leaderboards_T{num}Day.csv
-            csv_filename = f"leaderboards_T{self.table_num}{suffix}.csv"
-            csv_path = os.path.join(vbs4_root, csv_filename)
-            
-            if not os.path.exists(csv_path):
-                logging.info(f"[Leaderboard] CSV file not found: {csv_path}")
-                return []
-            
-            # Read CSV file
-            entries = []
-            
-            with open(csv_path, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    if len(row) < 6:  # Need at least columns A-F
-                        continue
-                    
-                    try:
-                        name = row[0].strip()
-                        targets_hit = int(row[1])
-                        time_taken = float(row[2])
-                        year = row[3].strip().lstrip('[')  # Remove leading [ if present
-                        month = row[4].strip()
-                        day = row[5].strip()
-                        
-                        # Format date as M-D-Y
-                        date_str = f"{month}-{day}-{year}"
-                        
-                        entries.append({
-                            'name': name,
-                            'targets_hit': targets_hit,
-                            'time': time_taken,
-                            'date': date_str
-                        })
-                    except (ValueError, IndexError) as e:
-                        logging.warning(f"[Leaderboard] Skipping invalid CSV row: {row} - {e}")
-                        continue
-            
-            # Sort by most targets hit (descending), then by lowest time (ascending)
-            entries.sort(key=lambda x: (-x['targets_hit'], x['time']))
-            
-            logging.info(f"[Leaderboard] Loaded {len(entries)} {suffix} entries from {csv_path}")
-            return entries[:10]  # Return top 10
-            
-        except Exception as e:
-            logging.error(f"[Leaderboard] Error loading {suffix} CSV: {e}")
-            return []
-
-    def _build_side(self, parent, col, label, data):
-        """Render one side of the dual leaderboard (up to 10 rows)."""
-        outer = tk.Frame(parent, bg="#3A3A3A", bd=2, relief="solid")
-        outer.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
-        inner = tk.Frame(outer, bg="#2B2B2B")
-        inner.pack(expand=True, fill="both", padx=2, pady=2)
-        
-        # Title
-        title = tk.Label(inner, text=label, font=("Helvetica", 18, "bold"), bg="#2B2B2B", fg="#FF8C00")
-        title.grid(row=0, column=0, columnspan=5, sticky="nsew", pady=(0,4))
-        
-        # Headers
-        headers = ["Rank", "Date", "Name", "Targets", "Best Time"]
-        for i, h in enumerate(headers):
-            hdr = tk.Label(inner, text=h, font=("Helvetica", 12, "bold"), bg="#3A3A3A", fg="white", bd=1, relief="solid")
-            hdr.grid(row=1, column=i, sticky="nsew", padx=1, pady=1)
-            inner.columnconfigure(i, weight=1)
-        
-        # Rows
-        for r in range(10):
-            if r < len(data):
-                entry = data[r]
-                rank_text = str(r+1)
-                date_text = entry['date']
-                name_text = entry['name']
-                targets_text = str(entry['targets_hit'])
-                time_text = f"{entry['time']:.2f}s"
-                fg = "white"
-            else:
-                rank_text = date_text = name_text = targets_text = time_text = ""
-                fg = "#888888"
-            vals = [rank_text, date_text, name_text, targets_text, time_text]
-            for c, val in enumerate(vals):
-                lbl = tk.Label(inner, text=val, font=("Helvetica", 11), bg="#2B2B2B", fg=fg, bd=1, relief="solid")
-                lbl.grid(row=r+2, column=c, sticky="nsew", padx=1, pady=1)
-        # Row weights
-        for rr in range(0, 12):
-            inner.grid_rowconfigure(rr, weight=1)
-
-def kill_vbs4_instances(timeout: float = 5.0) -> None:
-    """Terminate any running VBS4-related processes to prevent duplicates.
-
-    Tries psutil first (graceful terminate + kill), then falls back to
-    Windows taskkill if psutil is unavailable.
-    """
-    try:
-        targets = {"vbs4.exe", "vbslauncher.exe", "vbs4launcher.exe"}
-        killed_pids = []
-        if psutil:
-            # First request graceful termination
-            for p in psutil.process_iter(["pid", "name"]):
-                try:
-                    name = (p.info.get("name") or "").lower()
-                    if name in targets:
-                        logging.info(f"[VBS4] Terminating existing process PID={p.pid} ({name})")
-                        p.terminate()
-                        killed_pids.append(p.pid)
-                except Exception:
-                    pass
-            # Wait briefly, then force kill remaining
-            deadline = time.time() + max(0.5, float(timeout))
-            for p in psutil.process_iter(["pid", "name"]):
-                try:
-                    name = (p.info.get("name") or "").lower()
-                    if name in targets:
-                        remaining = max(0.0, deadline - time.time())
-                        try:
-                            p.wait(timeout=remaining)
-                        except Exception:
-                            try:
-                                logging.info(f"[VBS4] Forcing kill PID={p.pid} ({name})")
-                                p.kill()
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-        else:
-            # Fallback without psutil
-            for exe in ("VBS4.exe", "VBSLauncher.exe", "VBS4Launcher.exe"):
-                try:
-                    subprocess.run(
-                        ["taskkill", "/IM", exe, "/F"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=3,
-                        creationflags=NO_WINDOW_FLAG,
-                    )
-                    logging.info(f"[VBS4] taskkill issued for {exe}")
-                except Exception:
-                    pass
-    except Exception as e:
-        logging.warning(f"[VBS4] Failed to terminate existing instances: {e}")
-
 class TableDetailPanel(tk.Frame):
     """Overlay panel showing table details with Day/Night launch options and map."""
     
     def __init__(self, parent, controller, table_num, close_callback):
-        self.overlay_panel = None  # Always set first to prevent AttributeError
         super().__init__(parent, bg="#2B2B2B")
         self.controller = controller
         self.table_num = table_num
@@ -17404,22 +14079,50 @@ class TableDetailPanel(tk.Frame):
         left_frame = tk.Frame(content_area, bg="#2B2B2B")
         left_frame.grid(row=0, column=0, sticky="nsew", padx=(40, 20))
         
-        # Start Scenario button replaces Day/Night selection (selection moved to setup panel)
-        start_btn = tk.Button(
+        # Day/Night buttons at the top
+        buttons_label = tk.Label(
             left_frame,
-            text="START SCENARIO",
-            font=("Helvetica", 20, "bold"),
-            bg="#FF8C00",
+            text="Launch Options:",
+            font=("Helvetica", 14, "bold"),
+            bg="#2B2B2B",
+            fg="white"
+        )
+        buttons_label.pack(anchor="w", pady=(0, 5))
+        
+        buttons_container = tk.Frame(left_frame, bg="#2B2B2B")
+        buttons_container.pack(fill="x", pady=(0, 10))
+        
+        day_button = tk.Button(
+            buttons_container,
+            text="Day",
+            font=("Helvetica", 16, "bold"),
+            bg="#4A7C59",
             fg="white",
-            width=32,
-            height=3,
-            command=self.open_setup_panel,
+            width=15,
+            height=2,
+            command=lambda: self.launch_mission("Day"),
             bd=0,
             highlightthickness=0,
             relief="flat"
         )
-        start_btn.pack(fill="x", pady=(0, 15))
-        add_button_hover_effect(start_btn, normal_bg="#FF8C00", hover_bg="#E67E00")
+        day_button.pack(side="left", padx=(0, 10))
+        add_button_hover_effect(day_button, normal_bg="#4A7C59", hover_bg="#5A8C69")
+        
+        night_button = tk.Button(
+            buttons_container,
+            text="Night",
+            font=("Helvetica", 16, "bold"),
+            bg="#3B4A7C",
+            fg="white",
+            width=15,
+            height=2,
+            command=lambda: self.launch_mission("Night"),
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        night_button.pack(side="left")
+        add_button_hover_effect(night_button, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
         
         # Test Requirements table (formatted like the image)
         test_req_label = tk.Label(
@@ -17459,7 +14162,7 @@ class TableDetailPanel(tk.Frame):
             self,
             text="Back",
             font=("Helvetica", 14, "bold"),
-            bg="#FF8C00",  # Orange
+            bg="#444444",
             fg="white",
             width=10,
             height=1,
@@ -17468,9 +14171,8 @@ class TableDetailPanel(tk.Frame):
             highlightthickness=0,
             relief="flat"
         )
-        # Position tighter to the top-right corner
-        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
-        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
+        back_button.place(relx=1.0, x=-150, y=10, anchor="ne")
+        add_button_hover_effect(back_button, normal_bg="#444444", hover_bg="#555555")
     
     def _build_requirements_table(self, parent, table_num):
         """Build a formatted table layout for test requirements."""
@@ -17728,553 +14430,67 @@ Legend
             )
             error_label.pack(expand=True, fill="both")
     
-    def open_setup_panel(self):
-        """Show scenario setup panel (choose Day/Night) in place of this panel."""
-        if self.overlay_panel:
-            self.overlay_panel.destroy()
-        self.overlay_panel = ScenarioSetupPanel(self, self.controller, self.table_num, self._back_to_table)
-        self.overlay_panel.place(relx=0, rely=0, relwidth=1, relheight=1)
-
-    def _back_to_table(self):
-        if self.overlay_panel:
-            self.overlay_panel.destroy()
-            self.overlay_panel = None
-
-
-# --- Scenario Launch Panel (in-panel overlay) ---
-class ScenarioLaunchPanel(tk.Frame):
-    def __init__(self, parent, controller, table_num, time_of_day, back_callback):
-        super().__init__(parent, bg="#232323")
-        self.controller = controller
-        self.table_num = table_num
-        self.time_of_day = time_of_day
-        self.back_callback = back_callback
-
-        # Images (relative paths) - larger thumbnails for side-by-side display
-        img1_path = _resource_path(os.path.join("assets", "ControllerControls.png"))
-        img2_path = _resource_path(os.path.join("assets", "DroneControls.png"))
-        img1 = img2 = None
-        try:
-            if os.path.exists(img1_path):
-                img1 = Image.open(img1_path)
-                img1.thumbnail((500, 350), Image.Resampling.LANCZOS)
-                self.img1tk = ImageTk.PhotoImage(img1)
-            else:
-                self.img1tk = None
-            if os.path.exists(img2_path):
-                img2 = Image.open(img2_path)
-                img2.thumbnail((500, 350), Image.Resampling.LANCZOS)
-                self.img2tk = ImageTk.PhotoImage(img2)
-            else:
-                self.img2tk = None
-        except Exception:
-            self.img1tk = self.img2tk = None
-
-        # Main container (matching TableDetailPanel structure)
-        main_container = tk.Frame(self, bg="#232323")
-        main_container.pack(expand=True, fill="both", padx=0, pady=0)
+    def launch_mission(self, time_of_day):
+        """Launch VBS4 with mission parameters."""
+        # Build command based on table number and time of day
+        mission_code = f"T{self.table_num}{time_of_day}"
         
-        # Content frame with padding
-        content_frame = tk.Frame(main_container, bg="#232323")
-        content_frame.pack(expand=True, fill="both", padx=20, pady=20)
-        
-        # Title
-        title_label = tk.Label(
-            content_frame,
-            text=f"TABLE {table_num} - {time_of_day.upper()}",
-            font=("Helvetica", 32, "bold"),
-            bg="#232323",
-            fg="white"
-        )
-        title_label.pack(pady=(0, 20))
-        
-        # Main content area (left controls + right info/images)
-        content_area = tk.Frame(content_frame, bg="#232323")
-        content_area.pack(expand=True, fill="both", pady=(0, 5))
-        
-        # Configure 50/50 split
-        content_area.grid_columnconfigure(0, weight=1, uniform="group1")
-        content_area.grid_columnconfigure(1, weight=1, uniform="group1")
-        content_area.grid_rowconfigure(0, weight=1)
-        
-        # Left side - Images positioned like Day/Night buttons
-        left_frame = tk.Frame(content_area, bg="#232323")
-        left_frame.grid(row=0, column=0, sticky="nsew", padx=(40, 20))
-        
-        # Images label
-        images_label = tk.Label(
-            left_frame,
-            text="Control References:",
-            font=("Helvetica", 14, "bold"),
-            bg="#232323",
-            fg="white"
-        )
-        images_label.pack(anchor="w", pady=(0, 5))
-        
-        # Images container (side by side, positioned like Day/Night buttons)
-        images_container = tk.Frame(left_frame, bg="#232323")
-        images_container.pack(fill="x", pady=(0, 20))
-        
-        if self.img1tk:
-            img1_label = tk.Label(images_container, image=self.img1tk, bg="#232323", bd=2, relief="solid")
-            img1_label.pack(side="left", padx=(0, 10))
-        if self.img2tk:
-            img2_label = tk.Label(images_container, image=self.img2tk, bg="#232323", bd=2, relief="solid")
-            img2_label.pack(side="left")
-        
-        # Large START SCENARIO button (positioned where Day/Night buttons are)
-        start_btn = tk.Button(
-            left_frame,
-            text="START SCENARIO",
-            font=("Helvetica", 20, "bold"),
-            bg="#FF8C00",
-            fg="white",
-            width=30,
-            height=3,
-            command=self._on_start,
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        start_btn.pack(fill="x", pady=(0, 20))
-        add_button_hover_effect(start_btn, normal_bg="#FF8C00", hover_bg="#E67E00")
-        
-        # Name entry below the button
-        entry_label = tk.Label(
-            left_frame,
-            text="Enter your name:",
-            font=("Helvetica", 14, "bold"),
-            bg="#232323",
-            fg="white"
-        )
-        entry_label.pack(anchor="w", pady=(0, 5))
-        
-        self.name_var = tk.StringVar()
-        # Performance-optimized entry with better styling and delayed focus
-        entry = tk.Entry(
-            left_frame, 
-            textvariable=self.name_var, 
-            font=("Helvetica", 14), 
-            width=40,
-            insertwidth=3,
-            insertbackground="white",
-            bg="#2a2a2a",
-            fg="white",
-            relief="flat",
-            bd=2
-        )
-        entry.pack(fill="x", pady=(0, 0))
-        entry.after(50, lambda: entry.focus_set())
-        
-        # Right side - Instructions or additional info
-        right_frame = tk.Frame(content_area, bg="#232323")
-        right_frame.grid(row=0, column=1, sticky="nsew", padx=(20, 40))
-        
-        instructions_label = tk.Label(
-            right_frame,
-            text="Instructions:",
-            font=("Helvetica", 14, "bold"),
-            bg="#232323",
-            fg="white"
-        )
-        instructions_label.pack(anchor="w", pady=(0, 10))
-        
-        instructions_text = tk.Label(
-            right_frame,
-            text=(
-                "1. Review the control references on the left\n\n"
-                "2. Enter your name in the text box\n\n"
-                "3. Click START SCENARIO to begin\n\n"
-                f"Mission: Table {table_num} - {time_of_day} Scenario\n\n"
-                "The simulation will launch automatically\n"
-                "and this window will minimize."
-            ),
-            font=("Helvetica", 12),
-            bg="#232323",
-            fg="white",
-            justify="left",
-            anchor="w"
-        )
-        instructions_text.pack(anchor="w", fill="both", expand=True)
-        
-        # Back button (top-right corner)
-        back_button = tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 14, "bold"),
-            bg="#FF8C00",
-            fg="white",
-            width=10,
-            height=1,
-            command=self.back_callback,
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        back_button.place(relx=1.0, x=-10, y=10, anchor="ne")
-        add_button_hover_effect(back_button, normal_bg="#FF8C00", hover_bg="#E67E00")
-
-    def _on_start(self):
-        name = self.name_var.get().strip() or "Anonymous User"
-        mission_code = f"T{self.table_num}{self.time_of_day}"
+        # Get VBS4 path
         vbs4_path = get_vbs4_install_path()
         if not vbs4_path:
             safe_messagebox_showerror("Error", "VBS4 executable not found. Please set the correct path in settings.")
             return
-        # Minimize main window
+        
+        # Build full command as string to avoid escaping issues
+        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -init=hostMission["{mission_code}"]'
+        
         try:
-            self.controller.iconify()
-        except Exception:
-            try:
-                self.controller.withdraw()
-            except Exception:
-                pass
-        # Kill previous VBS4
-        kill_vbs4_instances(timeout=6.0)
-        time.sleep(0.4)
-        # Build command
-        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -name="{name}" -init=hostMission["{mission_code}"]'
-        logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {self.time_of_day} as {name}")
-        logging.info(f"[DroneControl] Command: {cmd}")
-        try:
-            subprocess.Popen(
-                cmd,
-                shell=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
-            )
+            logging.info(f"[DroneControl] Launching VBS4 for Table {self.table_num} - {time_of_day}")
+            logging.info(f"[DroneControl] Command: {cmd}")
+            
+            # Launch VBS4 using shell to preserve exact command formatting
+            subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+            
         except Exception as e:
             logging.error(f"[DroneControl] Failed to launch VBS4: {e}")
             safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
-        # Optionally, return to previous panel or keep minimized
-
-# --- Scenario Setup Panel (select Day/Night, show controls) ---
-class ScenarioSetupPanel(tk.Frame):
-    def __init__(self, parent, controller, table_num, back_callback):
-        super().__init__(parent, bg="#232323")
-        self.controller = controller
-        self.table_num = table_num
-        self.back_callback = back_callback
-        # Load original images (store PIL originals for dynamic resize)
-        img1_path = _resource_path(os.path.join("assets", "ControllerControls.png"))
-        img2_path = _resource_path(os.path.join("assets", "ExsampleControls.png"))
-        img3_path = _resource_path(os.path.join("assets", "3rdPcontrolls.png"))
-        self.img1_orig = self._open_image(img1_path)
-        self.img2_orig = self._open_image(img2_path)
-        self.img3_orig = self._open_image(img3_path)
-        
-        # Pre-render images at fixed sizes for both fullscreen and windowed mode
-        # These sizes work well for 1920x1080 fullscreen and typical windowed sizes
-        self.img1tk = self._make_photo(self.img1_orig, 580, 400)
-        self.img2tk = self._make_photo(self.img2_orig, 580, 400)
-        self.img3tk = self._make_photo(self.img3_orig, 1116, 400)  
-        
-        # Set initialized to True immediately to disable dynamic resizing
-        self._images_initialized = True
-
-        # Layout similar to mock: top row buttons + name box; second row images + instructions
-        main_container = tk.Frame(self, bg="#232323")
-        main_container.pack(expand=True, fill="both", padx=0, pady=0)
-
-        content_frame = tk.Frame(main_container, bg="#232323")
-        content_frame.pack(expand=True, fill="both", padx=20, pady=(20, 30))
-
-        # Back button (absolute top-right)
-        back_btn = tk.Button(
-            self,
-            text="Back",
-            font=("Helvetica", 14, "bold"),
-            bg="#FF8C00",
-            fg="white",
-            width=10,
-            height=1,
-            command=self.back_callback,
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        back_btn.place(relx=1.0, x=-10, y=10, anchor="ne")
-        add_button_hover_effect(back_btn, normal_bg="#FF8C00", hover_bg="#E67E00")
-
-        # Top row
-        top_row = tk.Frame(content_frame, bg="#232323")
-        top_row.pack(fill="x", pady=(0, 15))
-
-        day_btn = tk.Button(
-            top_row,
-            text="Day",
-            font=("Helvetica", 18, "bold"),
-            bg="#4A7C59",
-            fg="white",
-            width=12,
-            height=2,
-            command=lambda: self._launch("Day"),
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        day_btn.pack(side="left", padx=(0, 10))
-        add_button_hover_effect(day_btn, normal_bg="#4A7C59", hover_bg="#5A8C69")
-
-        night_btn = tk.Button(
-            top_row,
-            text="Night",
-            font=("Helvetica", 18, "bold"),
-            bg="#3B4A7C",
-            fg="white",
-            width=12,
-            height=2,
-            command=lambda: self._launch("Night"),
-            bd=0,
-            highlightthickness=0,
-            relief="flat"
-        )
-        night_btn.pack(side="left", padx=(0, 20))
-        add_button_hover_effect(night_btn, normal_bg="#3B4A7C", hover_bg="#4B5A8C")
-
-        # Name entry box (fills remaining top row space)
-        # Performance optimization: Use simple Entry without StringVar trace callbacks
-        # Direct value retrieval is faster than variable tracking
-        self.name_var = tk.StringVar()
-        name_frame = tk.Frame(top_row, bg="#232323")
-        name_frame.pack(side="left", fill="x", expand=True)
-        name_label = tk.Label(name_frame, text="Enter your name: (for scoring)", font=("Helvetica", 16, "bold"), bg="#232323", fg="white")
-        name_label.pack(anchor="w")
-        # Use insertbackground to match text color for better visibility
-        name_entry = tk.Entry(
-            name_frame, 
-            textvariable=self.name_var, 
-            font=("Helvetica", 16), 
-            width=40,
-            insertwidth=3,  # Wider cursor for better visibility
-            insertbackground="white",  # White cursor
-            bg="#2a2a2a",  # Slightly lighter background
-            fg="white",
-            relief="flat",
-            bd=2
-        )
-        name_entry.pack(fill="x")
-        # Delay focus to after window is fully rendered
-        name_entry.after(50, lambda: name_entry.focus_set())
-
-        # Grid layout: 2 rows x 3 columns (images + instructions)
-        grid_frame = tk.Frame(content_frame, bg="#232323")
-        grid_frame.pack(expand=True, fill="both")
-        grid_frame.grid_columnconfigure(0, weight=5, uniform="col")
-        grid_frame.grid_columnconfigure(1, weight=5, uniform="col")
-        grid_frame.grid_columnconfigure(2, weight=2, uniform="col")
-        grid_frame.grid_rowconfigure(0, weight=1, uniform="row")
-        grid_frame.grid_rowconfigure(1, weight=1, uniform="row", minsize=140)
-
-        # Row 0, Column 0: First controller image (fixed size, no resize binding)
-        img1_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
-        img1_holder.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=(5, 5))
-        if self.img1tk:
-            self.img1_label = tk.Label(img1_holder, image=self.img1tk, bg="#232323")
-            self.img1_label.pack(expand=True, fill="both")
-
-        # Row 0, Column 1: ExsampleControls image (fixed size, no resize binding)
-        img2_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
-        img2_holder.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=(5, 5))
-        if self.img2tk:
-            self.img2_label = tk.Label(img2_holder, image=self.img2tk, bg="#232323")
-            self.img2_label.pack(expand=True, fill="both")
-
-        # Row 0-1, Column 2: Instructions (spans both rows)
-        instr_holder = tk.Frame(grid_frame, bg="#232323")
-        instr_holder.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(0, 0), pady=5)
-        instr_title = tk.Label(instr_holder, text="Instructions", font=("Helvetica", 16, "bold"), bg="#232323", fg="white")
-        instr_title.pack(anchor="nw", pady=(0, 8))
-        instr_text = tk.Label(
-            instr_holder,
-            text=(
-                "1. Enter your name.\n\n"
-                "2. Review control references.\n\n"
-                "3. Click Day or Night to launch."
-            ),
-            font=("Helvetica", 12),
-            bg="#232323",
-            fg="white",
-            justify="left",
-            anchor="nw",
-            wraplength=220
-        )
-        instr_text.pack(anchor="nw")
-
-        # Row 1, Column 0-1: 3rdPcontrolls image (spans 2 columns, allows manual resize)
-        img3_holder = tk.Frame(grid_frame, bg="#232323", bd=2, relief="solid")
-        img3_holder.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(0, 10), pady=(5, 0))
-        if self.img3tk:
-            self.img3_label = tk.Label(img3_holder, image=self.img3tk, bg="#232323")
-            self.img3_label.pack(expand=True, fill="both")
-        # Allow manual resize for bottom image
-        img3_holder.bind("<Configure>", lambda e: self._on_holder_resize(3, e.width, e.height))
-
-        # Footer spacer at the bottom (keeps image from hitting window edge)
-        footer = tk.Frame(content_frame, bg="#232323", height=50)
-        footer.pack(fill="x", pady=(20, 0))
-        footer.pack_propagate(False)
-
-    def _open_image(self, path: str):
-        try:
-            if os.path.exists(path):
-                return Image.open(path)
-        except Exception:
-            return None
-        return None
-
-    def _make_photo(self, pil_img, target_w: int, target_h: int):
-        if not pil_img:
-            return None
-        try:
-            # Maintain aspect ratio
-            ratio = min(target_w / pil_img.width, target_h / pil_img.height)
-            new_size = (max(1, int(pil_img.width * ratio)), max(1, int(pil_img.height * ratio)))
-            resized = pil_img.resize(new_size, Image.Resampling.LANCZOS)
-            return ImageTk.PhotoImage(resized)
-        except Exception:
-            return None
-
-    def _on_holder_resize(self, which: int, w: int, h: int):
-        # Skip initial resize events to prevent flicker - only resize after initialization
-        # BUT allow image 3 to always resize to fill its box better
-        if not self._images_initialized and which != 3:
-            # Mark as initialized after first layout pass
-            self.after(100, lambda: setattr(self, '_images_initialized', True))
-            return
-            
-        # Use full available space with minimal margin for tight fit
-        # Image 3 (3rdPcontrolls.png) gets even tighter margin to fill better
-        margin = 2 if which == 3 else 4
-        w2 = max(50, w - margin)
-        h2 = max(50, h - margin)
-        if which == 1:
-            pil = self.img1_orig
-        elif which == 2:
-            pil = self.img2_orig
-        elif which == 3:
-            pil = self.img3_orig
-        else:
-            return  # No img4 anymore
-        if not pil:
-            return
-        photo = self._make_photo(pil, w2, h2)
-        if not photo:
-            return
-        if which == 1:
-            self.img1tk = photo
-            self.img1_label.configure(image=photo)
-            self.img1_label.image = photo
-        elif which == 2:
-            self.img2tk = photo
-            self.img2_label.configure(image=photo)
-            self.img2_label.image = photo
-        elif which == 3:
-            self.img3tk = photo
-            self.img3_label.configure(image=photo)
-            self.img3_label.image = photo
-
-    def _launch(self, tod: str):
-        name = self.name_var.get().strip() or "Anonymous User"
-        mission_code = f"T{self.table_num}{tod}"
-        vbs4_path = get_vbs4_install_path()
-        if not vbs4_path:
-            safe_messagebox_showerror("Error", "VBS4 executable not found. Set path in Settings.")
-            return
-        try:
-            self.controller.iconify()
-        except Exception:
-            try:
-                self.controller.withdraw()
-            except Exception:
-                pass
-        kill_vbs4_instances(timeout=6.0)
-        time.sleep(0.4)
-        cmd = f'"{vbs4_path}" -autoassignside=WEST -autostart=0 -forceSimul -name="{name}" -init=hostMission["{mission_code}"]'
-        logging.info(f"[DroneSetup] Launching VBS4 Table {self.table_num} {tod} as {name}")
-        logging.info(f"[DroneSetup] Command: {cmd}")
-        try:
-            subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
-        except Exception as e:
-            logging.error(f"[DroneSetup] Failed to launch VBS4: {e}")
-            safe_messagebox_showerror("Launch Failed", f"Failed to launch VBS4:\n{e}")
 
 class Tooltip:
-    """Lightweight, reusable tooltip with delayed show to reduce hover lag.
-    DISABLED for performance - tooltips cause significant UI lag."""
-
+    """
+    A simple tooltip that appears in its own undecorated Toplevel window.
+    Usage:
+        tip = Tooltip(parent)
+        tip.show("Some text", x, y)
+        tip.hide()
+    """
     def __init__(self, parent):
         self.parent = parent
-        self.tw: tk.Toplevel | None = None
-        self._label: tk.Label | None = None
-        self._pending_after: str | None = None
-        self._last_text: str = ""
-        self._disabled = True  # Performance optimization: disable tooltips
+        self.tw = None
 
-    def _ensure_window(self):
-        if self.tw and self.tw.winfo_exists():
-            return
+    def show(self, text, x, y):
+        # If tooltip already exists, destroy it first:
+        self.hide()
         self.tw = tk.Toplevel(self.parent)
-        self.tw.withdraw()
-        self.tw.wm_overrideredirect(True)
-        try:
-            self.tw.attributes("-topmost", True)
-        except Exception:
-            pass
-        self._label = tk.Label(
+        self.tw.wm_overrideredirect(True)  
+        self.tw.attributes("-topmost", True)
+
+        # Use a normal Label (not ttk) so we can set a custom background:
+        label = tk.Label(
             self.tw,
-            text="",
+            text=text,
             justify="left",
             background="#ffffe0",
             relief="solid",
             borderwidth=1,
-            font=("Helvetica", 10),
+            font=("Helvetica", 10)
         )
-        self._label.pack(ipadx=4, ipady=2)
-
-    def show(self, text: str, x: int, y: int, delay_ms: int = 80):
-        # DISABLED for performance - tooltips cause significant UI lag
-        # Simply return without creating/showing tooltip windows
-        return
-        # Original code commented out for performance
-        # Cancel any pending show and reschedule; withdraw instead of destroy
-        # self._last_text = text or ""
-        # if self._pending_after:
-        #     try:
-        #         self.parent.after_cancel(self._pending_after)
-        #     except Exception:
-        #         pass
-        #     self._pending_after = None
-        #
-        # def _do_show():
-        #     try:
-        #         self._ensure_window()
-        #         if not self.tw:
-        #             return
-        #         # Update content only if changed
-        #         if self._label and self._label.cget("text") != self._last_text:
-        #             self._label.config(text=self._last_text)
-        #         # Position and show
-        #         self.tw.geometry(f"+{int(x)}+{int(y)}")
-        #         self.tw.deiconify()
-        #         self.tw.lift()
-        #     except Exception:
-        #         pass
-        #
-        # self._pending_after = self.parent.after(max(0, int(delay_ms)), _do_show)
+        label.pack(ipadx=4, ipady=2)
+        self.tw.geometry(f"+{x}+{y}")
 
     def hide(self):
-        # Cancel any scheduled show and just withdraw the window (reuse later)
-        if self._pending_after:
-            try:
-                self.parent.after_cancel(self._pending_after)
-            except Exception:
-                pass
-            self._pending_after = None
-        if self.tw and self.tw.winfo_exists():
-            try:
-                self.tw.withdraw()
-            except Exception:
-                pass
+        if self.tw:
+            self.tw.destroy()
+            self.tw = None
 
 def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 4000) -> None:
     """Display a short-lived notification near the bottom of the parent window."""
@@ -18319,105 +14535,6 @@ def show_info_toast(parent: tk.Misc | None, message: str, duration_ms: int = 400
         toast.geometry(f"+{x}+{y}")
         toast.after(max(1000, duration_ms), toast.destroy)
     except Exception as exc:
-        pass
-
-
-def show_loading_toast(parent: tk.Misc | None, base_message: str = "Fuser Loading", 
-                       duration_ms: int = 6000) -> tk.Toplevel | None:
-    """Display an animated loading notification with cycling dots.
-    
-    Returns the toast window so it can be dismissed early if needed.
-    The toast auto-dismisses after duration_ms.
-    """
-    if parent is None:
-        return None
-
-    try:
-        toast = tk.Toplevel(parent)
-        toast.wm_overrideredirect(True)
-        toast.attributes("-topmost", True)
-
-        # Container frame for spinner and text
-        frame = tk.Frame(toast, bg="#333333")
-        frame.pack(fill="both", expand=True)
-        
-        # Spinner characters for animation
-        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        spinner_idx = [0]  # Use list to allow modification in nested function
-        
-        spinner_label = tk.Label(
-            frame,
-            text=spinner_chars[0],
-            bg="#333333",
-            fg="#4CAF50",  # Green spinner
-            font=("Helvetica", 14),
-            padx=8,
-            pady=10,
-        )
-        spinner_label.pack(side="left")
-        
-        message_label = tk.Label(
-            frame,
-            text=f"{base_message}...",
-            bg="#333333",
-            fg="white",
-            font=("Helvetica", 12),
-            padx=8,
-            pady=10,
-            wraplength=350,
-            justify="left",
-        )
-        message_label.pack(side="left")
-
-        parent.update_idletasks()
-        toast.update_idletasks()
-
-        px = parent.winfo_rootx()
-        py = parent.winfo_rooty()
-        pw = parent.winfo_width()
-        ph = parent.winfo_height()
-        tw = toast.winfo_width()
-        th = toast.winfo_height()
-
-        if pw <= 1 or ph <= 1:
-            x = px + 40
-            y = py + 40
-        else:
-            x = px + max(0, (pw - tw) // 2)
-            y = py + max(0, ph - th - 60)
-
-        toast.geometry(f"+{x}+{y}")
-        
-        # Animation function
-        def animate():
-            if not toast.winfo_exists():
-                return
-            try:
-                spinner_idx[0] = (spinner_idx[0] + 1) % len(spinner_chars)
-                spinner_label.config(text=spinner_chars[spinner_idx[0]])
-                toast.after(100, animate)  # 100ms per frame for smooth animation
-            except Exception:
-                pass
-        
-        # Start animation
-        animate()
-        
-        # Auto-dismiss after duration
-        toast.after(max(1000, duration_ms), lambda: toast.destroy() if toast.winfo_exists() else None)
-        
-        return toast
-    except Exception as exc:
-        return None
-
-
-def dismiss_loading_toast(toast: tk.Toplevel | None) -> None:
-    """Dismiss a loading toast early."""
-    if toast is None:
-        return
-    try:
-        if toast.winfo_exists():
-            toast.destroy()
-    except Exception:
         pass
 
 def run_command_server(host: str = "", port: int = 9100) -> None:
@@ -18469,7 +14586,7 @@ def run_with_splash():
         config.add_section('General')
         
     # update version number
-    config['General']['app_version'] = '2.1'
+    config['General']['app_version'] = '2.0'
     
     should_prompt_settings = not config['General'].getboolean('first_run_done', fallback=False)
     
@@ -18485,27 +14602,6 @@ def run_with_splash():
     except Exception:
         pass
     # MainApp.__init__ already calls withdraw()
-    
-    # CRITICAL FIX: Start beacon listener EARLY for USER mode
-    # This allows us to receive host IP broadcasts before UI is fully initialized.
-    # The beacon listener runs in background and will update config when host is found.
-    mode = config.get('General', 'first_run_mode', fallback='').upper()
-    logging.info(f"[startup] first_run_mode='{mode}'")
-    logging.info(f"[startup] Current host_ip in config: '{config.get('Offline', 'host_ip', fallback='')}'")
-    logging.info(f"[startup] manual_host_ip flag: '{config.get('Offline', 'manual_host_ip', fallback='false')}'")
-    
-    if mode in ('USER', 'UPDATE', ''):
-        # Start listening for host beacons immediately
-        logging.info(f"[startup] Mode is '{mode}' - starting early beacon listener")
-        try:
-            start_user_listener()
-            logging.warning("[startup] Early beacon listener started successfully")
-        except Exception as e:
-            logging.error(f"[startup] FAILED to start early beacon listener: {e}")
-            import traceback
-            logging.error(f"[startup] Traceback: {traceback.format_exc()}")
-    else:
-        logging.warning(f"[startup] Mode is '{mode}' - skipping early beacon listener (HOST mode uses own IP)")
     
     # Clean up any orphaned fusers from previous sessions BEFORE starting new ones
     try:
@@ -18528,7 +14624,7 @@ def run_with_splash():
     
     # Create and attach a splash that never steals focus
     splash_img = _resource_path(SPLASH_NAME)
-    ver = "Version: 2.1"  # Explicitly set version to 2.1
+    ver = "Version: 2.0"  # Explicitly set version to 2.0
     # Set min_display_time to 3.0 seconds to ensure splash shows long enough
     splash = SplashScreen(app, image_path=splash_img, version_text=ver, min_display_time=3.0)
     app.attach_splash(splash)
@@ -18566,58 +14662,55 @@ def run_with_splash():
         # Now app.panels should be initialized and we can safely access it
 
         if hasattr(app, 'panels') and 'OneClick' in app.panels:
-            # CRITICAL: Run file I/O operations in background thread to prevent UI lag
-            # update_fuser_shared_path does file reads/writes which can block
-            app.after(5, lambda: run_in_thread(update_fuser_shared_path))
-            # update_fuser_state is mostly fast config reads but schedule slightly later
-            app.after(50, app.panels['OneClick'].update_fuser_state)
+            # Use a single short delay for background tasks
+            app.after(5, update_fuser_shared_path)
+            app.after(10, app.panels['OneClick'].update_fuser_state)
             
             # Improved fuser startup sequence: connect UNC first, then enable enforcement
-            # CRITICAL: This runs in a BACKGROUND THREAD to prevent UI freeze
             def _restore_then_enforce():
                 global _allow_fuser_enforcement
                 
-                def _do_restore_work():
-                    """All the heavy work runs in this background thread."""
-                    global _allow_fuser_enforcement
+                try:
+                    # 1) Auto-connect to the host's WorkingFuser share FIRST
+                    logging.info("[fuser-startup] Establishing UNC connection before fuser operations")
                     try:
-                        # 1) Auto-connect to the host's WorkingFuser share FIRST
-                        logging.info("[fuser-startup] Establishing UNC connection before fuser operations")
-                        try:
-                            auto_connect_shared_working_folder()  # Run directly in this thread
-                        except Exception as e:
-                            logging.warning(f"[fuser-startup] UNC auto-connect failed: {e}")
-                        
-                        # 2) Ensure LocalFuser directories exist on UNC
-                        try:
-                            from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
-                            desired_count = get_fuser_counts()[1]
-                            ensure_localfuser_dirs_on_unc(pm_config, desired_count)
-                            migrate_local_localfuser_to_unc_if_needed(pm_config)
-                        except Exception as e:
-                            logging.error(f"[fuser-startup] Failed to ensure LocalFuser folders on UNC: {e}")
-                        
-                        # 3) Now enable enforcement (this gates the policy to prevent premature kills)
-                        logging.info("[fuser-startup] Enabling fuser enforcement now that UNC is ready")
-                        _allow_fuser_enforcement = True
-                        
-                        # 4) Restore fusers - DISABLED, now using _autostart_fusers() instead
-                        # restore_fusers_on_startup() uses old code that doesn't use per-instance workdirs
-                        # Our new _autostart_fusers() at 3-second mark handles this properly
-                        logging.info("[fuser-startup] Skipping restore_fusers_on_startup (using _autostart_fusers instead)")
-                        
-                        # 5) Apply policy enforcement (won't kill if UNC check fails)
-                        logging.info("[fuser-startup] Running first policy enforcement")
-                        enforce_local_fuser_policy()
-                        
-                        # 6) Start presence heartbeat service
-                        start_presence_service()
-                        
+                        run_in_thread(auto_connect_shared_working_folder)
+                        # Give the connection a moment to establish
+                        time.sleep(0.5)
                     except Exception as e:
-                        logging.error(f"[fuser-startup] Startup sequence failed: {e}")
-                
-                # Run all heavy work in background thread
-                run_in_thread(_do_restore_work)
+                        logging.warning(f"[fuser-startup] UNC auto-connect failed: {e}")
+                    
+                    # 2) Ensure LocalFuser directories exist on UNC
+                    try:
+                        from photomesh_launcher import ensure_localfuser_dirs_on_unc, migrate_local_localfuser_to_unc_if_needed, get_fuser_counts, config as pm_config
+                        desired_count = get_fuser_counts()[1]
+                        ensure_localfuser_dirs_on_unc(pm_config, desired_count)
+                        migrate_local_localfuser_to_unc_if_needed(pm_config)
+                    except Exception as e:
+                        logging.error(f"[fuser-startup] Failed to ensure LocalFuser folders on UNC: {e}")
+                    
+                    # 3) Now enable enforcement (this gates the policy to prevent premature kills)
+                    logging.info("[fuser-startup] Enabling fuser enforcement now that UNC is ready")
+                    _allow_fuser_enforcement = True
+                    
+                    # 4) Restore fusers - DISABLED, now using _autostart_fusers() instead
+                    # restore_fusers_on_startup() uses old code that doesn't use per-instance workdirs
+                    # Our new _autostart_fusers() at 3-second mark handles this properly
+                    logging.info("[fuser-startup] Skipping restore_fusers_on_startup (using _autostart_fusers instead)")
+                    # try:
+                    #     restore_fusers_on_startup()
+                    # except Exception as e:
+                    #     logging.warning(f"[fuser-startup] Restore failed: {e}")
+                    
+                    # 5) Apply policy enforcement (won't kill if UNC check fails)
+                    logging.info("[fuser-startup] Running first policy enforcement")
+                    enforce_local_fuser_policy()
+                    
+                    # 6) Start presence heartbeat service
+                    start_presence_service()
+                    
+                except Exception as e:
+                    logging.error(f"[fuser-startup] Startup sequence failed: {e}")
             
             app.after(15, _restore_then_enforce)
 
@@ -18637,15 +14730,13 @@ def run_with_splash():
     app.after(20, setup_delayed_tasks)
     
     # Auto-start fusers after UI is fully loaded (readiness-gated)
-    _fuser_startup_toast = [None]  # Use list to allow modification in nested functions
-    
     def _autostart_fusers():
         global _skip_fuser_enforcement_at_startup
         
         print("\n" + "="*80)
-        print("[AUTO-START] TRIGGERED after UI ready (6-second delay elapsed)")
+        print("🚀 AUTO-START TRIGGERED after UI ready (6-second delay elapsed)")
         print("="*80 + "\n")
-        logging.info("[startup] Auto-starting fusers...")
+        logging.info("[startup] 🚀 Auto-starting fusers...")
         # Single Use Mode: skip auto-start entirely
         if is_single_use_mode():
             try:
@@ -18655,8 +14746,7 @@ def run_with_splash():
             _skip_fuser_enforcement_at_startup = False
             return
         try:
-            # Show animated loading toast instead of static message
-            _fuser_startup_toast[0] = show_loading_toast(app, "Starting Fusers", duration_ms=15000)
+            show_info_toast(app, "Starting fusers now…", duration_ms=3000)
         except Exception:
             pass
         try:
@@ -18666,10 +14756,10 @@ def run_with_splash():
         
         # Determine target count based on machine role
         is_fuser = config["Fusers"].getboolean("fuser_computer", fallback=False)
-        print(f"[INFO] fuser_computer setting: {is_fuser}")
+        print(f"📋 fuser_computer setting: {is_fuser}")
         
         if not is_fuser:
-            print("[WARN] Not a fuser computer - SKIPPING auto-start")
+            print("⚠️ Not a fuser computer - SKIPPING auto-start")
             logging.info("[startup] Not a fuser computer, skipping auto-start")
             _skip_fuser_enforcement_at_startup = False
             return
@@ -18678,113 +14768,105 @@ def run_with_splash():
         host_ct, desired_ct = get_fuser_counts()
         is_host = is_host_machine()
         
-        print(f"[INFO] Host count: {host_ct}, User count: {desired_ct}")
-        print(f"[INFO] Is host machine: {is_host}")
+        print(f"📊 Host count: {host_ct}, User count: {desired_ct}")
+        print(f"🖥️ Is host machine: {is_host}")
         
         if is_host:
             target = host_ct
-            print(f"[OK] HOST mode: Will launch {target} fuser(s)")
+            print(f"✓ HOST mode: Will launch {target} fuser(s)")
             logging.info(f"[startup] Host machine: auto-starting {target} fuser(s)")
         else:
             target = desired_ct
-            print(f"[OK] USER mode: Will launch {target} fuser(s)")
+            print(f"✓ USER mode: Will launch {target} fuser(s)")
             logging.info(f"[startup] User machine: auto-starting {target} fuser(s)")
         
         # Readiness-gated auto-start loop
         def _auto_start_tick():
-            # Run readiness check in background thread to avoid blocking UI
-            def _check_readiness():
+            try:
                 try:
+                    machine_ip = get_primary_ipv4()
+                except Exception:
+                    machine_ip = ""
+                frozen = is_frozen_build()
+                configured_host = get_host_ip() or get_host()
+                logging.info(f"[startup] auto-start tick: frozen={frozen} host={is_host} ip={machine_ip} configured_host={configured_host}")
+
+                ready, diag = ready_for_fusers()
+                # Structured readiness logs
+                logging.info(f"[ready] exe_ok={diag.get('exe_ok')} path=\"{diag.get('exe_path','')}\"")
+                logging.info(f"[ready] share_ok={diag.get('share_ok')} root=\"{diag.get('working_root','')}\" write_test={diag.get('write_test')}")
+                logging.info(f"[ready] seed_ok={diag.get('seed_ok')} seed_pids={diag.get('seed_pids')}")
+                logging.info(f"[ready] loopback_ok={diag.get('loopback_ok')}")
+                logging.info(f"[ready] -> ready={diag.get('ready')}")
+
+                if not ready:
+                    # Try again in 500ms
                     try:
-                        machine_ip = get_primary_ipv4()
+                        app.after(500, _auto_start_tick)
                     except Exception:
-                        machine_ip = ""
-                    frozen = is_frozen_build()
-                    configured_host = get_host_ip() or get_host()
-                    logging.info(f"[startup] auto-start tick: frozen={frozen} host={is_host} ip={machine_ip} configured_host={configured_host}")
+                        pass
+                    return
 
-                    ready, diag = ready_for_fusers()
-                    # Structured readiness logs
-                    logging.info(f"[ready] exe_ok={diag.get('exe_ok')} path=\"{diag.get('exe_path','')}\"")
-                    logging.info(f"[ready] share_ok={diag.get('share_ok')} root=\"{diag.get('working_root','')}\" write_test={diag.get('write_test')}")
-                    logging.info(f"[ready] seed_ok={diag.get('seed_ok')} seed_pids={diag.get('seed_pids')}")
-                    logging.info(f"[ready] loopback_ok={diag.get('loopback_ok')}")
-                    logging.info(f"[ready] -> ready={diag.get('ready')}")
+                # Clear the skip flag FIRST so enforcement can run
+                print("🔓 Clearing enforcement skip flag")
+                global _skip_fuser_enforcement_at_startup
+                _skip_fuser_enforcement_at_startup = False
 
-                    if not ready:
-                        # Try again in 500ms - schedule on UI thread
+                # Launch fusers in a background thread to avoid blocking UI
+                def _launch_in_background():
+                    try:
+                        print("🧵 Background launch thread STARTED")
+                        logging.info("[startup] Background fuser launch thread started")
+
+                        existing_count = count_local_fusers()
+                        print(f"📊 Existing fuser count: {existing_count}")
+                        logging.info(f"[startup] Existing fuser count: {existing_count}")
+
+                        print(f"▶️ Calling ensure_fuser_instances({target})...")
+                        logging.info(f"[startup] About to call ensure_fuser_instances({target})")
+                        ensure_fuser_instances(target)
+
+                        # Wait briefly for processes to fully initialize before checking count
+                        time.sleep(0.3)
+                        final_running = count_local_fusers()
+                        print(f"✅ AUTO-START COMPLETE: {final_running}/{target} fusers running")
+                        logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
+
+                        # Persist a first-run completion marker
                         try:
-                            app.after(500, _auto_start_tick)
+                            flag = _first_run_flag_path()
+                            with open(flag, 'w', encoding='utf-8') as f:
+                                f.write('ok')
                         except Exception:
                             pass
-                        return
 
-                    # Clear the skip flag FIRST so enforcement can run
-                    print("[OK] Clearing enforcement skip flag")
-                    global _skip_fuser_enforcement_at_startup
-                    _skip_fuser_enforcement_at_startup = False
+                        try:
+                            show_info_toast(app, f"Fusers {target}/{target} started", duration_ms=3500)
+                        except Exception:
+                            pass
+                        try:
+                            post_ui(log_to_console, f"> Fusers {target}/{target} started")
+                        except Exception:
+                            pass
 
-                    # Launch fusers (already in background thread)
-                    _launch_fusers_now()
-                except Exception as e:
-                    logging.error(f"[startup] readiness check failed: {e}")
-            
-            import threading
-            threading.Thread(target=_check_readiness, daemon=True).start()
+                        try:
+                            refresh_settings_panel_from_config()
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        import traceback
+                        error_msg = traceback.format_exc()
+                        print(f"❌ AUTO-START FAILED: {e}")
+                        print(error_msg)
+                        logging.error(f"[startup] Fuser auto-start failed: {e}")
+                        logging.error(f"[startup] Traceback: {error_msg}")
 
-        def _launch_fusers_now():
-            """Launch fusers - called from background thread after readiness check passes."""
-            try:
-                print("[OK] Background launch thread STARTED")
-                logging.info("[startup] Background fuser launch thread started")
-
-                existing_count = count_local_fusers()
-                print(f"[INFO] Existing fuser count: {existing_count}")
-                logging.info(f"[startup] Existing fuser count: {existing_count}")
-
-                print(f"[INFO] Calling ensure_fuser_instances({target})...")
-                logging.info(f"[startup] About to call ensure_fuser_instances({target})")
-                ensure_fuser_instances(target)
-
-                # Wait briefly for processes to fully initialize before checking count
-                time.sleep(0.3)
-                final_running = count_local_fusers()
-                print(f"[OK] AUTO-START COMPLETE: {final_running}/{target} fusers running")
-                logging.info(f"[startup] Fuser auto-start complete. Running: {final_running}/{target}")
-
-                # Persist a first-run completion marker
-                try:
-                    flag = _first_run_flag_path()
-                    with open(flag, 'w', encoding='utf-8') as f:
-                        f.write('ok')
-                except Exception:
-                    pass
-
-                # Dismiss loading toast and show completion message
-                try:
-                    post_ui(dismiss_loading_toast, _fuser_startup_toast[0])
-                except Exception:
-                    pass
-                try:
-                    show_info_toast(app, f"✓ Fusers {final_running}/{target} ready", duration_ms=3500)
-                except Exception:
-                    pass
-                try:
-                    post_ui(log_to_console, f"> ✓ Fusers {final_running}/{target} ready")
-                except Exception:
-                    pass
-
-                try:
-                    refresh_settings_panel_from_config()
-                except Exception:
-                    pass
+                import threading
+                print("🧵 Starting background launch thread...")
+                threading.Thread(target=_launch_in_background, daemon=True).start()
+                logging.info("[startup] Background fuser launch thread dispatched")
             except Exception as e:
-                import traceback
-                error_msg = traceback.format_exc()
-                print(f"[ERROR] AUTO-START FAILED: {e}")
-                print(error_msg)
-                logging.error(f"[startup] Fuser auto-start failed: {e}")
-                logging.error(f"[startup] Traceback: {error_msg}")
+                logging.error(f"[startup] auto-start tick failed: {e}")
 
         # Start the readiness loop immediately
         _auto_start_tick()
@@ -18814,12 +14896,12 @@ def run_with_splash():
     logging.info("[startup] Registered post-UI fuser auto-start callback")
 
     print("\n" + "="*80)
-    print("[OK] MAINLOOP STARTING - App window should open now")
+    print("✅ MAINLOOP STARTING - App window should open now")
     print("="*80 + "\n")
     logging.info("[startup] About to start mainloop()")
     app.mainloop()
     print("\n" + "="*80)
-    print("[STOP] MAINLOOP EXITED - App was closed by user")
+    print("🛑 MAINLOOP EXITED - App was closed by user")
     print("="*80 + "\n")
     logging.info("[startup] mainloop() exited (app closed)")
 
