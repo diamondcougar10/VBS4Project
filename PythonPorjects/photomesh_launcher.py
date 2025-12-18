@@ -958,6 +958,12 @@ def ensure_offline_share_via_cmd(log=print) -> None:
     Ensure the Offline share exists using CMD tools only:
       - ``net share`` to create/update the share
       - enable the "File and Printer Sharing" firewall group
+    
+    Uses Everyone,FULL for maximum compatibility in lab/training environments
+    where Guest access and service accounts need to work reliably.
+    
+    CONSERVATIVE: Only deletes/recreates share if it points to wrong folder.
+    If share already exists with correct path, just ensures NTFS permissions.
     """
 
     o = get_offline_cfg()
@@ -969,22 +975,89 @@ def ensure_offline_share_via_cmd(log=print) -> None:
         log(f"Failed to create {root}: {e}")
         return
 
+    # Check if share already exists and points to correct path
+    def _share_exists_with_correct_path() -> bool:
+        try:
+            result = subprocess.run(
+                ["cmd", "/C", f"net share {share}"],
+                capture_output=True,
+                text=True,
+                creationflags=NO_WINDOW_FLAG,
+                timeout=5
+            )
+            if result.returncode != 0:
+                return False  # Share doesn't exist
+            
+            # Parse output for "Path" line
+            output = result.stdout
+            for line in output.splitlines():
+                if line.strip().lower().startswith("path"):
+                    # Extract path after "Path" label
+                    parts = line.split(None, 1)
+                    if len(parts) >= 2:
+                        existing_path = parts[1].strip()
+                        # Normalize both paths for comparison
+                        existing_norm = os.path.normpath(existing_path).lower()
+                        expected_norm = os.path.normpath(root).lower()
+                        if existing_norm == expected_norm:
+                            log(f"Share '{share}' already exists with correct path: {existing_path}")
+                            return True
+                        else:
+                            log(f"Share '{share}' exists but points to wrong path: {existing_path} (expected: {root})")
+                            return False
+            return False
+        except Exception as e:
+            log(f"Error checking share: {e}")
+            return False
+
     try:
-        # Least privilege first: Authenticated Users (CHANGE), Administrators (FULL)
-        cmd = (
-            f'net share {share}="{root}" '
-            f'/GRANT:"Authenticated Users",CHANGE /GRANT:"Administrators",FULL'
-        )
-        result = subprocess.run(["cmd", "/C", cmd], check=False, creationflags=NO_WINDOW_FLAG)
+        # First check if share already exists correctly
+        share_ok = _share_exists_with_correct_path()
         
-        if result.returncode != 0:
-            log(f"Authenticated Users share failed, trying Everyone as fallback")
-            # Fallback to Everyone with FULL if Authenticated Users fails
-            subprocess.run(
-                ["cmd", "/C", f'net share {share}="{root}" /GRANT:Everyone,FULL'],
+        if not share_ok:
+            # Use Everyone,FULL for lab environments - this ensures Guest access,
+            # service accounts, and cross-PC access all work without credential issues.
+            # This aligns with PhotoMesh documentation requirements.
+            cmd = f'net share {share}="{root}" /GRANT:Everyone,FULL'
+            result = subprocess.run(["cmd", "/C", cmd], check=False, creationflags=NO_WINDOW_FLAG)
+            
+            if result.returncode != 0:
+                # Share might exist with wrong path - check before deleting
+                check_result = subprocess.run(
+                    ["cmd", "/C", f"net share {share}"],
+                    capture_output=True,
+                    text=True,
+                    creationflags=NO_WINDOW_FLAG,
+                    timeout=5
+                )
+                if check_result.returncode == 0:
+                    # Share exists (but with wrong path since share_ok was False) - recreate
+                    log(f"Share creation returned {result.returncode}, share exists with wrong path - recreating...")
+                    subprocess.run(["cmd", "/C", f'net share {share} /delete /y'], check=False, creationflags=NO_WINDOW_FLAG)
+                    time.sleep(0.5)
+                    subprocess.run(["cmd", "/C", cmd], check=False, creationflags=NO_WINDOW_FLAG)
+                else:
+                    # Share doesn't exist but creation failed for other reason
+                    log(f"Share creation failed with code {result.returncode}")
+        
+        # CRITICAL: Also set NTFS permissions to allow Everyone full access
+        # Share permissions alone are not enough - NTFS ACLs also restrict access
+        # This grants Everyone Modify access (read/write/delete) to the folder and subfolders
+        try:
+            # Normalize the path to avoid error 123 (invalid path syntax)
+            normalized_root = os.path.normpath(root)
+            icacls_result = subprocess.run(
+                ["icacls", normalized_root, "/grant", "Everyone:(OI)(CI)F", "/T", "/Q"],
                 check=False,
                 creationflags=NO_WINDOW_FLAG,
+                capture_output=True
             )
+            if icacls_result.returncode == 0:
+                log(f"NTFS permissions set: Everyone has Full access to {normalized_root}")
+            else:
+                log(f"Warning: NTFS permission update returned {icacls_result.returncode}")
+        except Exception as e:
+            log(f"Warning: Could not set NTFS permissions: {e}")
         
         # Enable firewall rules
         firewall_result = subprocess.run(

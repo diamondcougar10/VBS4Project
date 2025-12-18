@@ -315,6 +315,102 @@ def is_running_elevated():
     except Exception:
         return False
 
+def normalize_unc_to_ip(unc_path: str, host_ip: str = None) -> str:
+    """
+    Normalize a UNC path to use IP address instead of hostname.
+    This prevents credential/session mismatches between \\HOSTNAME\share and \\IP\share.
+    
+    Args:
+        unc_path: UNC path like \\\\hostname\\share or \\\\ip\\share
+        host_ip: Optional IP to use. If not provided, tries to get from config.
+        
+    Returns:
+        Normalized UNC path with IP instead of hostname
+    """
+    if not unc_path or not unc_path.startswith("\\\\"):
+        return unc_path
+    
+    parts = unc_path.strip("\\").split("\\")
+    if len(parts) < 2:
+        return unc_path
+    
+    host = parts[0]
+    
+    # Check if already an IP address
+    import re
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', host):
+        return unc_path  # Already IP-based
+    
+    # Get host IP from config if not provided
+    if not host_ip:
+        try:
+            o = get_offline_cfg()
+            host_ip = (o.get('host_ip') or '').strip()
+        except Exception:
+            pass
+    
+    if not host_ip:
+        return unc_path  # Can't normalize without IP
+    
+    # Replace hostname with IP
+    parts[0] = host_ip
+    normalized = "\\\\" + "\\".join(parts)
+    logging.debug(f"[smb] Normalized UNC: {unc_path} -> {normalized}")
+    return normalized
+
+def test_unc_write_access(unc_path: str, timeout: float = 5.0) -> tuple:
+    """
+    Test if we have write access to a UNC path by creating/deleting a temp file.
+    This is more reliable than os.access() for network paths.
+    
+    Args:
+        unc_path: UNC path to test
+        timeout: Timeout for the test
+        
+    Returns:
+        (success: bool, error_msg: str or None)
+    """
+    if not unc_path or not unc_path.startswith("\\\\"):
+        return False, "Invalid UNC path"
+    
+    import uuid
+    test_file = os.path.join(unc_path, f"_ste_write_test_{uuid.uuid4().hex[:8]}.tmp")
+    
+    try:
+        # Try to create the directory if it doesn't exist
+        if not os.path.exists(unc_path):
+            os.makedirs(unc_path, exist_ok=True)
+        
+        # Try to write a test file
+        with open(test_file, 'w') as f:
+            f.write("STE Toolkit write test")
+        
+        # Clean up
+        os.remove(test_file)
+        
+        logging.debug(f"[smb] Write test passed for: {unc_path}")
+        return True, None
+        
+    except PermissionError as e:
+        error_msg = f"Access denied - check share and NTFS permissions: {e}"
+        logging.warning(f"[smb] Write test failed for {unc_path}: {error_msg}")
+        return False, error_msg
+    except OSError as e:
+        error_msg = f"Network error: {e}"
+        logging.warning(f"[smb] Write test failed for {unc_path}: {error_msg}")
+        return False, error_msg
+    except Exception as e:
+        error_msg = f"Unexpected error: {e}"
+        logging.warning(f"[smb] Write test failed for {unc_path}: {error_msg}")
+        return False, error_msg
+    finally:
+        # Ensure cleanup even if something went wrong
+        try:
+            if os.path.exists(test_file):
+                os.remove(test_file)
+        except Exception:
+            pass
+
 def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5):
     """
     Establish and cache a persistent SMB session to the given UNC path.
@@ -3389,11 +3485,8 @@ def sync_host_ip_references():
     except Exception as e:
         logging.warning(f"[sync_ip] Failed to sync IP references: {e}")
 
-# Run IP sync at startup to fix any inconsistencies
-try:
-    sync_host_ip_references()
-except Exception as e:
-    logging.warning(f"[sync_ip] Startup sync failed: {e}")
+# NOTE: sync_host_ip_references() is called AFTER save_config() is defined
+# to avoid NameError. See call after _ensure_fuser_defaults().
 
 # --- Config flags (global enforcement) ---
 # Strict enforcement: refuse to launch fusers if shared working folder is not accessible
@@ -3534,6 +3627,13 @@ def _ensure_fuser_defaults() -> None:
 
 _ensure_fuser_defaults()
 
+# Run IP sync at startup to fix any inconsistencies
+# (Must be after save_config() is defined)
+try:
+    sync_host_ip_references()
+except Exception as e:
+    logging.warning(f"[sync_ip] Startup sync failed: {e}")
+
 def get_projects_root() -> str:
     try:
         root = config.get("Paths", "projects_root", fallback="").strip()
@@ -3557,39 +3657,78 @@ def get_host_ip() -> str:
     except Exception as e:
         return ""
 
-def remove_and_recreate_share(share_name: str) -> bool:
+def remove_and_recreate_share(share_name: str, force_recreate: bool = False) -> bool:
     """
-    Remove the existing SMB share and recreate it on the new network.
-    This does NOT delete the folder or any data - only removes and recreates the network share.
+    Ensure the SMB share exists with correct path and permissions.
+    
+    By default, this is CONSERVATIVE - it only recreates the share if:
+      - The share does not exist, OR
+      - The share points to the wrong folder
+    
+    Set force_recreate=True to always delete and recreate (use sparingly).
+    
+    This does NOT delete the folder or any data - only manages the network share.
     """
     try:
-        # Step 1: Remove the old share from the network (doesn't delete folder/data)
-        logging.info(f"[share] Removing old network share: {share_name}")
-        result = subprocess.run(
-            ["cmd", "/C", f"net share {share_name} /delete /yes"],
-            capture_output=True,
-            text=True,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-            timeout=10
-        )
-        # Don't fail if share doesn't exist - we'll create it anyway
-        if result.returncode == 0:
-            logging.info(f"[share] Successfully removed old share: {share_name}")
-        else:
-            logging.info(f"[share] Share {share_name} may not have existed (exit code {result.returncode})")
+        o = get_offline_cfg()
+        local_root = (o.get("local_data_root") or "").strip()
+        if not local_root:
+            # Try default location
+            local_root = rf"D:\{share_name}"
         
-        # Step 2: Wait a moment for Windows to release the share
-        time.sleep(1)
+        # Check if share already exists with correct path
+        if not force_recreate:
+            try:
+                result = subprocess.run(
+                    ["net", "share", share_name],
+                    capture_output=True,
+                    text=True,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    output = result.stdout.lower()
+                    expected_path = os.path.normpath(local_root).lower()
+                    # Check if share points to correct folder
+                    if expected_path.replace("\\", "/") in output.replace("\\", "/") or expected_path in output:
+                        logging.info(f"[share] Share {share_name} already exists with correct path, skipping recreation")
+                        # Just ensure permissions are correct (non-destructive)
+                        ensure_offline_share_exists(log=lambda msg: logging.info(f"[share] {msg}"))
+                        return True
+                    else:
+                        logging.info(f"[share] Share {share_name} exists but points to wrong path, will recreate")
+                else:
+                    logging.info(f"[share] Share {share_name} does not exist, will create")
+            except Exception as e:
+                logging.debug(f"[share] Could not check existing share: {e}")
         
-        # Step 3: Recreate the share on the new network using ensure_offline_share_exists
-        logging.info(f"[share] Recreating share {share_name} on new network...")
+        # Only delete if force_recreate or share points to wrong path
+        if force_recreate:
+            logging.info(f"[share] Force-removing old network share: {share_name}")
+            result = subprocess.run(
+                ["cmd", "/C", f"net share {share_name} /delete /yes"],
+                capture_output=True,
+                text=True,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+                timeout=10
+            )
+            if result.returncode == 0:
+                logging.info(f"[share] Successfully removed old share: {share_name}")
+            else:
+                logging.info(f"[share] Share {share_name} may not have existed (exit code {result.returncode})")
+            
+            # Wait a moment for Windows to release the share
+            time.sleep(1)
+        
+        # Create/update the share with correct permissions (Everyone,FULL + NTFS ACLs)
+        logging.info(f"[share] Ensuring share {share_name} exists with Everyone,FULL...")
         ensure_offline_share_exists(log=lambda msg: logging.info(f"[share] {msg}"))
         
-        logging.info(f"[share] Successfully recreated share: {share_name}")
+        logging.info(f"[share] Successfully ensured share: {share_name}")
         return True
         
     except Exception as e:
-        logging.error(f"[share] Error removing/recreating share: {e}")
+        logging.error(f"[share] Error ensuring share: {e}")
         return False
 
 def set_host_ip(ip: str) -> None:
@@ -3655,7 +3794,9 @@ def build_unc_from_cfg(o: dict | None = None) -> str:
         return ""
     return f"\\\\{ip}\\{share}"
 
-def is_this_pc_the_real_host() -> bool:
+_HOST_DETECT_CACHE = {"is_host": None, "checked_at": 0.0, "share_recreated": False}
+
+def is_this_pc_the_real_host(force_recheck: bool = False) -> bool:
     """
     Determine if this PC is the actual host by checking if the SharedMeshDrive share exists locally.
     
@@ -3664,14 +3805,27 @@ def is_this_pc_the_real_host() -> bool:
     - IP addresses can change
     - Only the true host will have the share folder as a local directory
     
+    Results are cached for 30 seconds to avoid excessive `net share` calls.
+    If we detect the folder exists but share is missing, we recreate the share.
+    
     Returns:
         True if this PC has the SharedMeshDrive share configured locally
     """
+    import time as _time
+    
+    # Check cache first (valid for 30 seconds)
+    cache_age = _time.time() - _HOST_DETECT_CACHE["checked_at"]
+    if not force_recheck and _HOST_DETECT_CACHE["is_host"] is not None and cache_age < 30.0:
+        return _HOST_DETECT_CACHE["is_host"]
+    
     try:
         o = get_offline_cfg()
         share_name = (o.get("share_name") or "SharedMeshDrive").strip() or "SharedMeshDrive"
+        local_data_root = (o.get("local_data_root") or "").strip()
         
-        # Query Windows for the share
+        # Method 1: Query Windows for the share (check if share already exists)
+        share_exists = False
+        share_path = None
         rc, out, err = _run(["net", "share", share_name], timeout=3.0)
         if rc == 0:
             # Parse output for the "Path" line
@@ -3680,12 +3834,72 @@ def is_this_pc_the_real_host() -> bool:
                 if line_stripped.lower().startswith("path"):
                     parts_line = line.split(maxsplit=1)
                     if len(parts_line) >= 2:
-                        local_path = parts_line[1].strip()
-                        if os.path.exists(local_path):
-                            logging.info(f"[host-detect] This PC IS the host - share '{share_name}' exists at {local_path}")
-                            return True
+                        share_path = parts_line[1].strip()
+                        if os.path.exists(share_path):
+                            share_exists = True
+                            logging.info(f"[host-detect] This PC IS the host - share '{share_name}' exists at {share_path}")
+                            
+                            # Auto-populate local_data_root if empty (handles reinstall scenario)
+                            if not local_data_root:
+                                try:
+                                    config.set("Offline", "local_data_root", share_path)
+                                    config.set("Offline", "host_ip", get_primary_ipv4() or "")
+                                    config.set("Offline", "host_name", get_machine_name() or "")
+                                    _save_config()
+                                    logging.info(f"[host-detect] Auto-populated local_data_root={share_path} (reinstall recovery)")
+                                except Exception as e:
+                                    logging.warning(f"[host-detect] Failed to save local_data_root: {e}")
+        
+        # If share exists, we're done - we are the host
+        if share_exists:
+            _HOST_DETECT_CACHE["is_host"] = True
+            _HOST_DETECT_CACHE["checked_at"] = _time.time()
+            return True
+        
+        # Method 2: Check if local_data_root exists (folder exists but share might be missing)
+        # Also check the default location D:\SharedMeshDrive if local_data_root is not configured
+        candidate_roots = []
+        if local_data_root:
+            candidate_roots.append(local_data_root)
+        # Always check default location as fallback (may exist even if config is empty)
+        default_root = rf"D:\{share_name}"
+        if default_root not in candidate_roots:
+            candidate_roots.append(default_root)
+        
+        for candidate_root in candidate_roots:
+            if os.path.isdir(candidate_root):
+                # Only attempt to recreate share ONCE per session to avoid disconnecting users
+                if not _HOST_DETECT_CACHE.get("share_recreated", False):
+                    logging.info(f"[host-detect] Folder exists at {candidate_root} but share may be missing - recreating share (once)")
+                    try:
+                        # Update config if local_data_root was empty
+                        if not local_data_root:
+                            try:
+                                config.set("Offline", "local_data_root", candidate_root)
+                                config.set("Offline", "host_ip", get_primary_ipv4() or "")
+                                config.set("Offline", "host_name", get_machine_name() or "")
+                                save_config()
+                                logging.info(f"[host-detect] Auto-populated config: local_data_root={candidate_root}")
+                            except Exception as cfg_e:
+                                logging.warning(f"[host-detect] Failed to update config: {cfg_e}")
+                        
+                        # Recreate the share with Everyone,FULL permissions
+                        ensure_offline_share_via_cmd(log=lambda msg: logging.info(f"[host-detect] {msg}"))
+                        _HOST_DETECT_CACHE["share_recreated"] = True
+                        logging.info(f"[host-detect] Share recreation completed - will not retry this session")
+                    except Exception as e:
+                        logging.warning(f"[host-detect] Failed to recreate share: {e}")
+                        _HOST_DETECT_CACHE["share_recreated"] = True  # Don't retry even on failure
+                
+                # We are the host since the folder exists
+                logging.info(f"[host-detect] This PC IS the host - folder exists at {candidate_root}")
+                _HOST_DETECT_CACHE["is_host"] = True
+                _HOST_DETECT_CACHE["checked_at"] = _time.time()
+                return True
         
         logging.info(f"[host-detect] This PC is NOT the host - share '{share_name}' not found locally")
+        _HOST_DETECT_CACHE["is_host"] = False
+        _HOST_DETECT_CACHE["checked_at"] = _time.time()
         return False
     except Exception as e:
         logging.warning(f"[host-detect] Failed to check if host: {e}")
@@ -4121,6 +4335,7 @@ def warm_up_environment(progress=lambda _msg: None, update_progress=lambda _val:
         ("Detecting VBS4 Launcher…", lambda: get_vbs4_launcher_path(time_budget_sec=budget, allow_full_drive=allow_c and not fast)),
         ("Detecting Blue IG…",       get_blueig_install_path),
         ("Detecting ARES Manager…",  get_ares_manager_path),
+        ("Checking host status…",    is_this_pc_the_real_host),  # May recreate share if needed
         ("Checking network connectivity…", check_network_status_during_warmup),
         ("Applying offline settings…", apply_offline_settings_with_skip_guard),
         ("Warming shared working folder…", auto_connect_shared_working_folder),
@@ -5621,9 +5836,12 @@ def enforce_local_fuser_policy():
         
         # Compute target based on work mode
         if work_mode == "local":
-            # LOCAL MODE: Target is always desired_count if fuser_computer=True
-            # No UNC checks, no network dependencies
-            if is_fuser:
+            # LOCAL MODE: No UNC checks, no network dependencies
+            # HOST PC uses host_count, FUSER PCs use desired_count
+            if is_host:
+                target = host_ct
+                logging.info(f"[fuser-policy] policy: mode=local is_host=True host_count={host_ct} -> target={target}")
+            elif is_fuser:
                 target = desired_ct
                 logging.info(f"[fuser-policy] policy: mode=local is_fuser={is_fuser} desired={desired_ct} -> target={target}")
             else:
@@ -6079,6 +6297,25 @@ def first_run_setup(master=None) -> None:
             log_to_console(f"[first-run] Failed to create {path}: {exc}")
             raise
 
+    # Set NTFS permissions to allow Everyone full access to the share root
+    # This is critical for PhotoMesh fusers and service accounts to work
+    try:
+        import subprocess
+        # Normalize the path to avoid error 123 (invalid path syntax)
+        normalized_root = os.path.normpath(share_root)
+        result = subprocess.run(
+            ["icacls", normalized_root, "/grant", "Everyone:(OI)(CI)F", "/T", "/Q"],
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
+            capture_output=True
+        )
+        if result.returncode == 0:
+            log_to_console(f"[first-run] NTFS permissions set: Everyone has Full access to {normalized_root}")
+        else:
+            log_to_console(f"[first-run] Warning: NTFS permission update returned {result.returncode}")
+    except Exception as exc:
+        log_to_console(f"[first-run] Warning: Could not set NTFS permissions: {exc}")
+
     host_name = get_machine_name()
     host_ip = get_local_ip()
     log_to_console(f"[first-run] Host resolved as {host_name} ({host_ip})")
@@ -6127,10 +6364,12 @@ def first_run_setup(master=None) -> None:
 
     ensure_offline_share_via_cmd(log=log_to_console)
 
+    # For HOST, use local path for projects (not UNC to avoid access issues)
+    # share_root is the local path like D:\SharedMeshDrive
+    set_projects_root(os.path.join(share_root, "Projects"))
+    log_to_console(f"[first-run] Projects root set to local path: {os.path.join(share_root, 'Projects')}")
+    
     unc_root = build_unc_from_cfg(get_offline_cfg())
-    if unc_root:
-        set_projects_root(os.path.join(unc_root, "Projects"))
-
     apply_offline_settings()
 
     if unc_root and sys.platform.startswith("win"):
@@ -9640,28 +9879,99 @@ class VBS4Panel(tk.Frame):
             messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
             return
 
+        # Check if we're in shared/fuser mode - projects must be on the shared drive
+        o = get_offline_cfg()
+        work_mode = config.get('Fusers', 'work_mode', fallback='local')
+        is_shared_mode = o.get("enabled") or work_mode == 'shared'
+        is_host = is_host_machine()
+        
         projects_root = get_projects_root()
         project_path = ""
-        if projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+        
+        if is_shared_mode and not is_host:
+            # USER PC in shared mode - MUST use UNC path to shared Projects folder
+            if not projects_root or not projects_root.startswith("\\\\"):
+                # Build the expected UNC path for projects
+                host_ip = (o.get("host_ip") or "").strip()
+                share_name = (o.get("share_name") or "SharedMeshDrive").strip()
+                if host_ip and share_name:
+                    projects_root = f"\\\\{host_ip}\\{share_name}\\Projects"
+                    set_projects_root(projects_root)
+                    if hasattr(self, "log_message"):
+                        self.log_message(f"[shared] Set projects root to UNC: {projects_root}")
+                else:
+                    messagebox.showerror(
+                        "Configuration Required",
+                        "Shared mode requires Host IP to be configured.\n\n"
+                        "Please configure the Host IP in Settings."
+                    )
+                    return
+            
+            # Normalize to IP-based UNC (prevents hostname vs IP session conflicts)
+            projects_root = normalize_unc_to_ip(projects_root)
+            
+            # Validate we can write to the network path
+            write_ok, write_error = test_unc_write_access(projects_root)
+            if not write_ok:
+                messagebox.showerror(
+                    "Access Denied",
+                    f"Cannot write to shared Projects folder:\n{projects_root}\n\n"
+                    f"Error: {write_error}\n\n"
+                    "Fix: On the HOST PC, ensure the share has 'Everyone = Full' permissions:\n"
+                    f"  net share SharedMeshDrive /delete /y\n"
+                    f"  net share SharedMeshDrive=\"D:\\SharedMeshDrive\" /GRANT:Everyone,FULL"
+                )
+                return
+            
             project_path = projects_root
             if hasattr(self, "log_message"):
-                self.log_message(f"Using saved Projects root: {project_path}")
+                self.log_message(f"[shared] Using network Projects root: {project_path}")
+                
+        elif is_shared_mode and is_host:
+            # HOST PC in shared mode - use local path (already set correctly)
+            local_root = (o.get("local_data_root") or "").strip()
+            if local_root and os.path.isdir(local_root):
+                projects_root = os.path.join(local_root, "Projects")
+                os.makedirs(projects_root, exist_ok=True)
+                set_projects_root(projects_root)
+                project_path = projects_root
+                if hasattr(self, "log_message"):
+                    self.log_message(f"[host] Using local Projects root: {project_path}")
+            elif projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+                project_path = projects_root
+                if hasattr(self, "log_message"):
+                    self.log_message(f"Using saved Projects root: {project_path}")
+            else:
+                project_path = filedialog.askdirectory(
+                    title="Select Project Output Folder (root, will be saved)",
+                    parent=self,
+                )
+                if not project_path:
+                    messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                    return
+                set_projects_root(project_path)
         else:
-            if projects_root and hasattr(self, "log_message"):
-                if not os.path.isdir(projects_root):
-                    self.log_message(f"Saved Projects root missing: {projects_root}")
-                elif not os.access(projects_root, os.W_OK):
-                    self.log_message(f"Saved Projects root not writable: {projects_root}")
-            project_path = filedialog.askdirectory(
-                title="Select Project Output Folder (root, will be saved)",
-                parent=self,
-            )
-            if not project_path:
-                messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
-                return
-            set_projects_root(project_path)
-            if hasattr(self, "log_message"):
-                self.log_message(f"Saved Projects root: {project_path}")
+            # Local mode - use any folder
+            if projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+                project_path = projects_root
+                if hasattr(self, "log_message"):
+                    self.log_message(f"Using saved Projects root: {project_path}")
+            else:
+                if projects_root and hasattr(self, "log_message"):
+                    if not os.path.isdir(projects_root):
+                        self.log_message(f"Saved Projects root missing: {projects_root}")
+                    elif not os.access(projects_root, os.W_OK):
+                        self.log_message(f"Saved Projects root not writable: {projects_root}")
+                project_path = filedialog.askdirectory(
+                    title="Select Project Output Folder (root, will be saved)",
+                    parent=self,
+                )
+                if not project_path:
+                    messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                    return
+                set_projects_root(project_path)
+                if hasattr(self, "log_message"):
+                    self.log_message(f"Saved Projects root: {project_path}")
 
         project_path = os.path.normpath(project_path)
         project_dir = clean_path(os.path.join(project_path, project_name))
@@ -10684,26 +10994,93 @@ class OneClickPanel(tk.Frame):
             messagebox.showwarning("Missing Name", "Project name is required.", parent=self)
             return
 
+        # Check if we're in shared/fuser mode - projects must be on the shared drive
+        o = get_offline_cfg()
+        work_mode = config.get('Fusers', 'work_mode', fallback='local')
+        is_shared_mode = o.get("enabled") or work_mode == 'shared'
+        is_host = is_host_machine()
+        
         projects_root = get_projects_root()
         project_path = ""
-        if projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
-            project_path = projects_root
-            self.log_message(f"Using saved Projects root: {project_path}")
-        else:
-            if projects_root:
-                if not os.path.isdir(projects_root):
-                    self.log_message(f"Saved Projects root missing: {projects_root}")
-                elif not os.access(projects_root, os.W_OK):
-                    self.log_message(f"Saved Projects root not writable: {projects_root}")
-            project_path = filedialog.askdirectory(
-                title="Select Project Output Folder (root, will be saved)",
-                parent=self,
-            )
-            if not project_path:
-                messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+        
+        if is_shared_mode and not is_host:
+            # USER PC in shared mode - MUST use UNC path to shared Projects folder
+            if not projects_root or not projects_root.startswith("\\\\"):
+                # Build the expected UNC path for projects
+                host_ip = (o.get("host_ip") or "").strip()
+                share_name = (o.get("share_name") or "SharedMeshDrive").strip()
+                if host_ip and share_name:
+                    projects_root = f"\\\\{host_ip}\\{share_name}\\Projects"
+                    set_projects_root(projects_root)
+                    self.log_message(f"[shared] Set projects root to UNC: {projects_root}")
+                else:
+                    messagebox.showerror(
+                        "Configuration Required",
+                        "Shared mode requires Host IP to be configured.\n\n"
+                        "Please configure the Host IP in Settings."
+                    )
+                    return
+            
+            # Normalize to IP-based UNC (prevents hostname vs IP session conflicts)
+            projects_root = normalize_unc_to_ip(projects_root)
+            
+            # Validate we can write to the network path
+            write_ok, write_error = test_unc_write_access(projects_root)
+            if not write_ok:
+                messagebox.showerror(
+                    "Access Denied",
+                    f"Cannot write to shared Projects folder:\n{projects_root}\n\n"
+                    f"Error: {write_error}\n\n"
+                    "Fix: On the HOST PC, ensure the share has 'Everyone = Full' permissions:\n"
+                    f"  net share SharedMeshDrive /delete /y\n"
+                    f"  net share SharedMeshDrive=\"D:\\SharedMeshDrive\" /GRANT:Everyone,FULL"
+                )
                 return
-            set_projects_root(project_path)
-            self.log_message(f"Saved Projects root: {project_path}")
+            
+            project_path = projects_root
+            self.log_message(f"[shared] Using network Projects root: {project_path}")
+                
+        elif is_shared_mode and is_host:
+            # HOST PC in shared mode - use local path
+            local_root = (o.get("local_data_root") or "").strip()
+            if local_root and os.path.isdir(local_root):
+                projects_root = os.path.join(local_root, "Projects")
+                os.makedirs(projects_root, exist_ok=True)
+                set_projects_root(projects_root)
+                project_path = projects_root
+                self.log_message(f"[host] Using local Projects root: {project_path}")
+            elif projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+                project_path = projects_root
+                self.log_message(f"Using saved Projects root: {project_path}")
+            else:
+                project_path = filedialog.askdirectory(
+                    title="Select Project Output Folder (root, will be saved)",
+                    parent=self,
+                )
+                if not project_path:
+                    messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                    return
+                set_projects_root(project_path)
+        else:
+            # Local mode - use any folder
+            if projects_root and os.path.isdir(projects_root) and os.access(projects_root, os.W_OK):
+                project_path = projects_root
+                self.log_message(f"Using saved Projects root: {project_path}")
+            else:
+                if projects_root:
+                    if not os.path.isdir(projects_root):
+                        self.log_message(f"Saved Projects root missing: {projects_root}")
+                    elif not os.access(projects_root, os.W_OK):
+                        self.log_message(f"Saved Projects root not writable: {projects_root}")
+                project_path = filedialog.askdirectory(
+                    title="Select Project Output Folder (root, will be saved)",
+                    parent=self,
+                )
+                if not project_path:
+                    messagebox.showwarning("Missing Folder", "Project output folder is required.", parent=self)
+                    return
+                set_projects_root(project_path)
+                self.log_message(f"Saved Projects root: {project_path}")
 
         project_path = os.path.normpath(project_path)
         project_dir = clean_path(os.path.join(project_path, project_name))
@@ -11401,7 +11778,7 @@ class SettingsPanel(tk.Frame):
         # Provide a “Share Now” action to (re)publish the folder silently
         def _share_now():
             # Canonical share creator from photomesh_launcher.py
-            ensure_offline_share_exists(log=self.controller.log)
+            ensure_offline_share_exists(log=lambda msg: logging.info(f"[share-now] {msg}"))
             o = get_offline_cfg()
             root = o.get("local_data_root") or ""
             messagebox.showinfo(
@@ -13395,11 +13772,11 @@ class SettingsPanel(tk.Frame):
                     logging.info(f"[deep-cleanup] Updated HostInfo.ini beacon with new IP {new_ip}")
             except Exception as e:
                 logging.warning(f"[deep-cleanup] Beacon update failed: {e}")
-            # 5. Recreate share (safety)
+            # 5. Ensure share exists with correct permissions (no force delete)
             try:
-                remove_and_recreate_share(share_name)
+                remove_and_recreate_share(share_name, force_recreate=False)
             except Exception as e:
-                logging.warning(f"[deep-cleanup] Share recreation error: {e}")
+                logging.warning(f"[deep-cleanup] Share ensure error: {e}")
             # 6. Store new credentials
             try:
                 if username and password:
@@ -13429,9 +13806,12 @@ class SettingsPanel(tk.Frame):
         threading.Thread(target=_do_cleanup, name="deep-cleanup-host-change", daemon=True).start()
 
     def _async_recreate_share_for_ip_change(self, old_ip: str, new_ip: str):
-        """Asynchronously remove and recreate the SMB share to satisfy explicit
-        requirement that the share be re-announced under the new IP. This clears
-        old sessions for the previous IP and re-validates permissions.
+        """Asynchronously ensure the SMB share exists with correct permissions after IP change.
+        
+        NOTE: We do NOT delete/recreate the share just because the IP changed.
+        The share itself is fine - we just need to:
+        1. Clear old SMB sessions for the previous IP
+        2. Ensure the share still exists with correct Everyone,FULL permissions
         """
         try:
             o = get_offline_cfg()
@@ -13454,11 +13834,11 @@ class SettingsPanel(tk.Frame):
                         logging.info(f"[async-recreate] Cleared old IP SMB sessions: {old_ip}")
                     except Exception as e:
                         logging.debug(f"[async-recreate] Failed clearing old sessions: {e}")
-                # Recreate share (non-fatal if fails)
+                # Ensure share exists with correct permissions (no force delete)
                 try:
-                    remove_and_recreate_share(share_name)
+                    remove_and_recreate_share(share_name, force_recreate=False)
                 except Exception as e:
-                    logging.warning(f"[async-recreate] Share recreation error: {e}")
+                    logging.warning(f"[async-recreate] Share ensure error: {e}")
                 # Probe accessibility quickly
                 try:
                     unc_root = f"\\\\{new_ip}\\{share_name}" if new_ip else ""

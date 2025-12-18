@@ -71,7 +71,7 @@ Write-Host "-----------------------------------------" -ForegroundColor Yellow
 
 # Delete all connections
 try {
-    $deleteResult = net use * /delete /yes 2>&1
+    net use * /delete /yes 2>&1 | Out-Null
     Write-Host "✓ Cleared all SMB sessions" -ForegroundColor Green
 } catch {
     Write-Host "Note: $_" -ForegroundColor Gray

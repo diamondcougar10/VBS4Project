@@ -180,29 +180,48 @@ def update_config(path: str) -> bool:
 
     offline = get_offline_cfg()
     root_unc = build_unc_from_cfg(offline)
-    wf_unc = ""
-    if root_unc:
-        subdir = (offline.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
-        wf_unc = os.path.join(root_unc, subdir).replace("/", "\\")
+    local_data_root = (offline.get("local_data_root") or "").strip()
+    subdir = (offline.get("working_fuser_subdir") or "WorkingFuser").strip() or "WorkingFuser"
+    
+    # Determine WorkingFolder path - use local path on HOST, UNC on USER PCs
+    if local_data_root and os.path.isdir(local_data_root):
+        # This is the HOST PC - use local path
+        wf_path = os.path.join(local_data_root, subdir).replace("/", "\\")
+        print(f"[Wizard 1.5.1] HOST detected - using local WorkingFolder: {wf_path}")
+    elif root_unc:
+        # This is a USER PC - use UNC path
+        wf_path = os.path.join(root_unc, subdir).replace("/", "\\")
+        print(f"[Wizard 1.5.1] USER PC - using UNC WorkingFolder: {wf_path}")
     else:
         try:
-            wf_unc = resolve_network_working_folder_from_cfg(offline)
+            wf_path = resolve_network_working_folder_from_cfg(offline)
         except Exception:
-            wf_unc = ""
+            wf_path = ""
 
-    if wf_unc:
-        cfg["NetworkWorkingFolder"] = wf_unc
+    if wf_path:
+        cfg["NetworkWorkingFolder"] = wf_path
 
-    if root_unc:
-        projects_unc = os.path.join(root_unc, "Projects").replace("/", "\\")
+    # Determine projects path - use local path on HOST, UNC on USER PCs
+    if local_data_root and os.path.isdir(local_data_root):
+        # This is the HOST PC - use local path to avoid access issues
+        projects_path = os.path.join(local_data_root, "Projects").replace("/", "\\")
+        print(f"[Wizard 1.5.1] HOST detected - using local projects path: {projects_path}")
+    elif root_unc:
+        # This is a USER PC - use UNC path
+        projects_path = os.path.join(root_unc, "Projects").replace("/", "\\")
+        print(f"[Wizard 1.5.1] USER PC - using UNC projects path: {projects_path}")
+    else:
+        projects_path = None
+    
+    if projects_path:
         for key in ("ProjectsRoot", "ProjectsRootFolder", "ProjectsRootPath"):
             if key in cfg:
-                cfg[key] = projects_unc
+                cfg[key] = projects_path
         paths = cfg.get("Paths")
         if isinstance(paths, dict):
             for key in ("ProjectsRoot", "ProjectRoot", "ProjectsFolder"):
                 if key in paths:
-                    paths[key] = projects_unc
+                    paths[key] = projects_path
 
     host_ip = (offline.get("host_ip") or "").strip()
     
