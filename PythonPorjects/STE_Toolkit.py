@@ -539,6 +539,370 @@ def ensure_smb_session_cached(unc_path, username=None, password=None, timeout=5)
         logging.error(f"[smb] Exception establishing session for {unc_root}: {e}")
         return False
 
+
+def cache_smb_credentials(host: str, username: str = None, password: str = None) -> bool:
+    """
+    Cache SMB credentials in Windows Credential Manager for automatic authentication.
+    
+    This allows PhotoMesh and other services to access the share without manual
+    credential entry. Credentials are stored persistently and survive reboots.
+    
+    Args:
+        host: Hostname or IP address (e.g., "KIT1-1" or "192.168.10.201")
+        username: Username for authentication (e.g., "KIT1-1\\User" or just "User")
+        password: Password for the user account
+        
+    Returns:
+        True if credentials were cached successfully
+    """
+    if not host:
+        logging.warning("[cred-cache] No host specified")
+        return False
+    
+    # If no username provided, try to use the host's local account
+    # Common pattern: hostname\username where username matches current user
+    if not username:
+        try:
+            current_user = os.environ.get('USERNAME', '')
+            if current_user:
+                username = f"{host}\\{current_user}"
+                logging.info(f"[cred-cache] Using inferred username: {username}")
+        except Exception:
+            pass
+    
+    if not username:
+        logging.warning("[cred-cache] No username available for credential caching")
+        return False
+    
+    try:
+        # Use cmdkey to add/update credentials
+        # Format: cmdkey /add:hostname /user:username /pass:password
+        target = host
+        
+        # Build cmdkey command
+        cmd = ['cmdkey', f'/add:{target}', f'/user:{username}']
+        if password:
+            cmd.append(f'/pass:{password}')
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        
+        if result.returncode == 0:
+            logging.info(f"[cred-cache] Credentials cached for {target} as {username}")
+            return True
+        else:
+            logging.warning(f"[cred-cache] cmdkey failed: {result.stderr.strip()}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"[cred-cache] Error caching credentials: {e}")
+        return False
+
+
+def ensure_host_credentials_cached() -> bool:
+    """
+    Ensure credentials are cached for both the host IP and hostname.
+    
+    Reads credentials from config if available, or prompts once if needed.
+    This enables automatic authentication for PhotoMesh service accounts.
+    
+    Returns:
+        True if credentials are available (cached or not needed)
+    """
+    if is_host_machine():
+        # Host doesn't need credentials to itself
+        return True
+    
+    try:
+        o = get_offline_cfg()
+        host_ip = (o.get("host_ip") or "").strip()
+        host_name = (o.get("host_name") or "").strip()
+        share_name = (o.get("share_name") or "SharedMeshDrive").strip()
+        
+        # Check if credentials are configured
+        smb_username = (o.get("smb_username") or "").strip()
+        smb_password = (o.get("smb_password") or "").strip()
+        
+        if not smb_username:
+            # Try to infer - use host_name\current_user pattern
+            current_user = os.environ.get('USERNAME', '')
+            if host_name and current_user:
+                smb_username = f"{host_name}\\{current_user}"
+                logging.info(f"[cred-cache] Inferred SMB username: {smb_username}")
+        
+        success = True
+        
+        # Cache credentials for IP
+        if host_ip and smb_username:
+            if not cache_smb_credentials(host_ip, smb_username, smb_password):
+                logging.warning(f"[cred-cache] Could not cache credentials for IP: {host_ip}")
+                success = False
+        
+        # Cache credentials for hostname
+        if host_name and smb_username and host_name != host_ip:
+            if not cache_smb_credentials(host_name, smb_username, smb_password):
+                logging.warning(f"[cred-cache] Could not cache credentials for hostname: {host_name}")
+                success = False
+        
+        return success
+        
+    except Exception as e:
+        logging.error(f"[cred-cache] Error in ensure_host_credentials_cached: {e}")
+        return False
+
+
+def setup_smb_access_for_photomesh() -> bool:
+    """
+    Complete SMB access setup for PhotoMesh distributed processing.
+    
+    This function should be called on USER PCs before starting PhotoMesh work.
+    It ensures:
+    1. Credentials are cached for both hostname and IP
+    2. SMB sessions are established for both hostname and IP
+    3. The share is accessible
+    
+    Returns:
+        True if SMB access is fully configured
+    """
+    if is_host_machine():
+        logging.info("[smb-setup] Running on host - skipping SMB client setup")
+        return True
+    
+    logging.info("[smb-setup] Setting up SMB access for PhotoMesh...")
+    
+    # Step 1: Cache credentials (persistent across reboots)
+    ensure_host_credentials_cached()
+    
+    # Step 2: Establish SMB sessions for both IP and hostname
+    sessions_ok = ensure_smb_sessions_for_host()
+    
+    # Step 3: Verify access
+    o = get_offline_cfg()
+    host_ip = (o.get("host_ip") or "").strip()
+    share_name = (o.get("share_name") or "SharedMeshDrive").strip()
+    
+    if host_ip and share_name:
+        unc_path = f"\\\\{host_ip}\\{share_name}"
+        if quick_unc_check(unc_path, timeout=3):
+            logging.info(f"[smb-setup] SMB access verified: {unc_path}")
+            return True
+        else:
+            logging.warning(f"[smb-setup] SMB access check failed for: {unc_path}")
+            return False
+    
+    return sessions_ok
+
+
+def ensure_smb_sessions_for_host(share_name: str = None) -> bool:
+    """
+    Ensure SMB sessions exist for BOTH the hostname AND IP of the configured host.
+    
+    PhotoMesh internally converts paths and may use hostname-based UNCs even when
+    we configure IP-based paths. This function ensures Windows has sessions for both,
+    preventing 'Access Denied' errors on remote fuser machines.
+    
+    Args:
+        share_name: Optional share name, defaults to config value or 'SharedMeshDrive'
+        
+    Returns:
+        True if at least one session was established successfully
+    """
+    if is_host_machine():
+        # Host doesn't need SMB sessions to itself
+        logging.debug("[smb-dual] Skipping dual-session setup on host machine")
+        return True
+    
+    try:
+        o = get_offline_cfg()
+        host_ip = (o.get("host_ip") or "").strip()
+        host_name = (o.get("host_name") or "").strip()
+        share = share_name or (o.get("share_name") or "SharedMeshDrive").strip()
+        
+        if not host_ip:
+            logging.warning("[smb-dual] No host_ip configured, cannot establish sessions")
+            return False
+        
+        # Try to resolve hostname if not configured
+        if not host_name:
+            try:
+                # Try reverse DNS lookup
+                host_name = socket.gethostbyaddr(host_ip)[0].split('.')[0]
+                logging.info(f"[smb-dual] Resolved hostname from IP: {host_ip} -> {host_name}")
+            except Exception:
+                # Fall back to common patterns or try NetBIOS
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['nbtstat', '-A', host_ip],
+                        capture_output=True, text=True, timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                    )
+                    # Parse nbtstat output for the hostname
+                    for line in result.stdout.splitlines():
+                        if '<00>' in line and 'UNIQUE' in line:
+                            host_name = line.split()[0].strip()
+                            logging.info(f"[smb-dual] Resolved hostname via NetBIOS: {host_ip} -> {host_name}")
+                            break
+                except Exception as e:
+                    logging.debug(f"[smb-dual] NetBIOS lookup failed: {e}")
+        
+        success_count = 0
+        
+        # 1. Establish session for IP-based path (primary)
+        ip_unc = f"\\\\{host_ip}\\{share}"
+        logging.info(f"[smb-dual] Ensuring session for IP-based path: {ip_unc}")
+        if ensure_smb_session_cached(ip_unc):
+            success_count += 1
+            logging.info(f"[smb-dual] IP-based session OK: {ip_unc}")
+        else:
+            logging.warning(f"[smb-dual] IP-based session FAILED: {ip_unc}")
+        
+        # 2. Establish session for hostname-based path (for PhotoMesh compatibility)
+        if host_name and host_name.upper() != host_ip:
+            hostname_unc = f"\\\\{host_name}\\{share}"
+            logging.info(f"[smb-dual] Ensuring session for hostname-based path: {hostname_unc}")
+            if ensure_smb_session_cached(hostname_unc):
+                success_count += 1
+                logging.info(f"[smb-dual] Hostname-based session OK: {hostname_unc}")
+            else:
+                logging.warning(f"[smb-dual] Hostname-based session FAILED: {hostname_unc}")
+        
+        return success_count > 0
+        
+    except Exception as e:
+        logging.error(f"[smb-dual] Error establishing dual sessions: {e}")
+        return False
+
+
+def ensure_ntfs_permissions_for_photomesh(folder_path: str, log=None) -> bool:
+    """
+    Ensure NTFS permissions allow Everyone Full Control on a folder.
+    
+    PhotoMesh fusers may run under LocalSystem or other service accounts that
+    aren't in "Authenticated Users". This function ensures the folder has
+    Everyone:(OI)(CI)F permissions for reliable PhotoMesh access.
+    
+    Should be called on:
+    - The share root (SharedMeshDrive)
+    - The Projects folder
+    - Any project folder before PhotoMesh processing starts
+    
+    Args:
+        folder_path: Local path to the folder (not UNC)
+        log: Optional logging function
+        
+    Returns:
+        True if permissions were set successfully
+    """
+    if log is None:
+        log = lambda msg: logging.info(f"[ntfs-perms] {msg}")
+    
+    if not folder_path or not os.path.exists(folder_path):
+        log(f"Folder does not exist: {folder_path}")
+        return False
+    
+    # Only apply to local paths - UNC paths are on remote systems
+    if folder_path.startswith("\\\\"):
+        log(f"Skipping UNC path (remote): {folder_path}")
+        return True  # Not an error, just skip
+    
+    try:
+        normalized_path = os.path.normpath(folder_path)
+        
+        # First, enable inheritance to ensure parent ACLs propagate
+        inherit_result = subprocess.run(
+            ["icacls", normalized_path, "/inheritance:e"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        if inherit_result.returncode != 0:
+            log(f"Warning: Could not enable inheritance on {normalized_path}: {inherit_result.stderr.strip()}")
+        
+        # Grant Everyone Full Control recursively
+        # (OI) = Object Inherit - files inherit
+        # (CI) = Container Inherit - subfolders inherit
+        # F = Full Control
+        # /T = Apply recursively to existing files/folders
+        # /Q = Quiet mode
+        result = subprocess.run(
+            ["icacls", normalized_path, "/grant", "Everyone:(OI)(CI)F", "/T", "/Q"],
+            capture_output=True,
+            text=True,
+            timeout=120,  # Can take a while for large folder trees
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        
+        if result.returncode == 0:
+            log(f"NTFS permissions set: Everyone Full Control on {normalized_path}")
+            return True
+        else:
+            log(f"Failed to set NTFS permissions on {normalized_path}: {result.stderr.strip()}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        log(f"Timeout setting NTFS permissions on {folder_path}")
+        return False
+    except Exception as e:
+        log(f"Error setting NTFS permissions on {folder_path}: {e}")
+        return False
+
+
+def validate_photomesh_write_access(project_folder: str, log=None) -> tuple:
+    """
+    Validate that PhotoMesh will be able to write to a project folder.
+    
+    Performs a write test and checks NTFS permissions. If on the host PC,
+    attempts to fix permissions if they're incorrect.
+    
+    Args:
+        project_folder: Path to the project folder (local or UNC)
+        log: Optional logging function
+        
+    Returns:
+        (success: bool, message: str)
+    """
+    if log is None:
+        log = lambda msg: logging.info(f"[pm-access] {msg}")
+    
+    # Test 1: Can we write a file?
+    test_file = os.path.join(project_folder, f"_photomesh_write_test_{os.getpid()}.tmp")
+    try:
+        with open(test_file, 'w') as f:
+            f.write("PhotoMesh write test")
+        os.remove(test_file)
+        log(f"Write test passed for: {project_folder}")
+    except PermissionError as e:
+        # If we're on the host, try to fix permissions
+        if is_host_machine():
+            log(f"Write test failed, attempting to fix NTFS permissions...")
+            local_path = unc_to_local_if_host(project_folder) if project_folder.startswith("\\\\") else project_folder
+            if ensure_ntfs_permissions_for_photomesh(local_path, log):
+                # Retry the write test
+                try:
+                    with open(test_file, 'w') as f:
+                        f.write("PhotoMesh write test")
+                    os.remove(test_file)
+                    log(f"Write test passed after fixing permissions")
+                    return (True, "Permissions fixed and write test passed")
+                except Exception as e2:
+                    return (False, f"Write test still failing after permission fix: {e2}")
+            else:
+                return (False, f"Could not fix NTFS permissions: {e}")
+        else:
+            return (False, f"Access denied (run on Host PC to fix): {e}")
+    except Exception as e:
+        return (False, f"Write test error: {e}")
+    
+    return (True, "Write access validated")
+
+
 def _compose_beacon_payload() -> bytes:
     try:
         o = get_offline_cfg()
@@ -1570,6 +1934,8 @@ def auto_connect_shared_working_folder() -> bool:
 
     - Discovers host IP if missing.
     - Updates Offline.host_ip and Fusers.working_folder_host.
+    - Caches SMB credentials (for both IP and hostname) to Credential Manager.
+    - Establishes SMB sessions for BOTH IP and hostname (PhotoMesh compatibility).
     - Tries to connect silently to the share root and verifies the WorkingFuser path.
     Returns True on success, False otherwise.
     """
@@ -1586,6 +1952,11 @@ def auto_connect_shared_working_folder() -> bool:
         if not ip:
             return False
 
+        # STEP 1: Cache credentials in Windows Credential Manager (for automatic access)
+        # This ensures that both IP-based and hostname-based UNC paths work without manual intervention
+        logging.info(f"[autoconnect] Ensuring credentials are cached for host {ip}...")
+        ensure_host_credentials_cached()
+
         # Try to connect to the share root quickly
         unc_root = build_unc_from_cfg(o | {"host_ip": ip}) if '|' in dir(dict) else build_unc_from_cfg({**o, "host_ip": ip})
         if not unc_root:
@@ -1597,10 +1968,20 @@ def auto_connect_shared_working_folder() -> bool:
         wf_unc = os.path.join(unc_root, wf_sub).replace("/", "\\")
         
         if quick_unc_check(wf_unc, timeout=1):
-            # Already accessible, no need to connect
+            # Already accessible via IP, but also ensure hostname session for PhotoMesh
             logging.info(f"[autoconnect] Share already accessible: {wf_unc}")
+            # Establish dual sessions (IP + hostname) for PhotoMesh compatibility
+            ensure_smb_sessions_for_host()
             update_fuser_shared_path(wf_unc)
             return True
+
+        # Try to establish connections for both IP and hostname
+        logging.info(f"[autoconnect] Establishing dual SMB sessions (IP + hostname)...")
+        if ensure_smb_sessions_for_host():
+            if quick_unc_check(wf_unc, timeout=2):
+                logging.info(f"[autoconnect] Connected after dual session setup: {wf_unc}")
+                update_fuser_shared_path(wf_unc)
+                return True
 
         # User can manually connect via Settings → Test Access if needed
         logging.info(f"[autoconnect] Share not immediately accessible, skipping (on-demand connection)")
@@ -2093,6 +2474,7 @@ def connect_working_share_interactive(parent=None, silent=True):
     Auto-connect to the configured WorkingFuser UNC without ever prompting
     for credentials. Uses the current Windows session or cached credentials.
     Uses the new SMB session cache to prevent ERROR 1219 collisions.
+    Also establishes sessions for both IP and hostname for PhotoMesh compatibility.
     Returns True if the working UNC is accessible.
     """
     unc_root, working_unc = _compute_working_unc_from_cfg()
@@ -2101,6 +2483,10 @@ def connect_working_share_interactive(parent=None, silent=True):
         return False
 
     logging.debug(f"[connect] Starting connection sequence: unc_root={unc_root} working_unc={working_unc}")
+
+    # Establish dual sessions (IP + hostname) for PhotoMesh compatibility
+    # This ensures remote fusers can access paths whether PhotoMesh uses IP or hostname
+    ensure_smb_sessions_for_host()
 
     # Already accessible via UNC?
     if quick_unc_check(working_unc, timeout=2):
@@ -9979,6 +10365,23 @@ class VBS4Panel(tk.Frame):
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
+        # CRITICAL: Validate and fix NTFS permissions BEFORE launching PhotoMesh
+        # PhotoMesh fusers run under service accounts that may not have access
+        if is_host_machine():
+            self.log_message("Validating NTFS permissions for PhotoMesh...")
+            # Fix permissions on the projects root
+            local_projects = unc_to_local_if_host(project_path) if project_path.startswith("\\\\") else project_path
+            if not ensure_ntfs_permissions_for_photomesh(local_projects, log=self.log_message):
+                self.log_message("Warning: Could not set NTFS permissions on projects folder")
+            # Also fix permissions on the specific project directory
+            local_project_dir = unc_to_local_if_host(project_dir) if project_dir.startswith("\\\\") else project_dir
+            if not ensure_ntfs_permissions_for_photomesh(local_project_dir, log=self.log_message):
+                self.log_message("Warning: Could not set NTFS permissions on project directory")
+        else:
+            # On USER PC, ensure dual SMB sessions for both IP and hostname
+            self.log_message("Ensuring SMB sessions for PhotoMesh...")
+            ensure_smb_sessions_for_host()
+
         try:
             pmpreset_path = _resource_path("STEPRESET.PMPreset")
             try:
@@ -11088,6 +11491,28 @@ class OneClickPanel(tk.Frame):
 
         self.log_message(f"Creating mesh for project: {project_name}")
 
+        # CRITICAL: Validate and fix NTFS permissions BEFORE launching PhotoMesh
+        # PhotoMesh fusers run under service accounts that may not have access
+        if is_host_machine():
+            self.log_message("Validating NTFS permissions for PhotoMesh...")
+            # Fix permissions on the projects root
+            local_projects = unc_to_local_if_host(project_path) if project_path.startswith("\\\\") else project_path
+            if not ensure_ntfs_permissions_for_photomesh(local_projects, log=self.log_message):
+                self.log_message("Warning: Could not set NTFS permissions on projects folder")
+            # Also fix permissions on the specific project directory
+            local_project_dir = unc_to_local_if_host(project_dir) if project_dir.startswith("\\\\") else project_dir
+            if not ensure_ntfs_permissions_for_photomesh(local_project_dir, log=self.log_message):
+                self.log_message("Warning: Could not set NTFS permissions on project directory")
+            
+            # Validate write access
+            write_ok, write_msg = validate_photomesh_write_access(local_project_dir, log=self.log_message)
+            if not write_ok:
+                self.log_message(f"Warning: Write access validation issue: {write_msg}")
+        else:
+            # On USER PC, ensure dual SMB sessions for both IP and hostname
+            self.log_message("Ensuring SMB sessions for PhotoMesh...")
+            ensure_smb_sessions_for_host()
+
         try:
             apply_offline_settings()
             enforce_wizard_obj_only_defaults(log=self.log_message)
@@ -12028,6 +12453,7 @@ class SettingsPanel(tk.Frame):
         row8.pack(fill="x", pady=6)
         tk.Button(row8, text="Save", bg="#444", fg="white", command=self._save_offline_settings).pack(side="left")
         tk.Button(row8, text="Test Access", bg="#444", fg="white", command=self._test_offline_access).pack(side="left", padx=8)
+        tk.Button(row8, text="SMB Credentials", bg="#446644", fg="white", command=self._setup_smb_credentials).pack(side="left", padx=8)
         tk.Button(row8, text="Manual Connect", bg="#446644", fg="white", command=self._manual_connect_dialog).pack(side="left", padx=8)
         tk.Button(row8, text="Open Working Folder", bg="#444", fg="white", command=self._open_working_folder).pack(side="left")
         tk.Button(row8, text="Clear Settings", bg="#664444", fg="white", command=self._clear_offline_settings).pack(side="left", padx=8)
@@ -12742,6 +13168,146 @@ class SettingsPanel(tk.Frame):
             post_ui(_done)
 
         run_in_thread(_work)
+
+    def _setup_smb_credentials(self):
+        """Set up SMB credentials in Windows Credential Manager for automatic access."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Setup SMB Credentials")
+        dialog.configure(bg="black")
+        dialog.geometry("500x380")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        tk.Label(
+            dialog, text="SMB Credential Setup", font=("Helvetica", 14, "bold"),
+            bg="black", fg="white"
+        ).pack(pady=10)
+        
+        tk.Label(
+            dialog,
+            text="This caches credentials in Windows Credential Manager\n"
+                 "so PhotoMesh fusers can access the share automatically.\n\n"
+                 "Credentials are stored for both IP and hostname targets.",
+            bg="black", fg="gray", justify="left"
+        ).pack(pady=5)
+        
+        input_frame = tk.Frame(dialog, bg="black")
+        input_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # Get current config values
+        o = get_offline_cfg()
+        host_ip = (o.get("host_ip") or "").strip()
+        host_name = (o.get("host_name") or "").strip()
+        
+        # Host IP
+        tk.Label(input_frame, text="Host IP:", bg="black", fg="white").grid(row=0, column=0, sticky="w", pady=5)
+        ip_var = tk.StringVar(value=host_ip or "192.168.10.201")
+        tk.Entry(input_frame, textvariable=ip_var, width=25, bg="#333", fg="white", insertbackground="white").grid(row=0, column=1, sticky="ew", pady=5, padx=5)
+        
+        # Host Name
+        tk.Label(input_frame, text="Host Name:", bg="black", fg="white").grid(row=1, column=0, sticky="w", pady=5)
+        name_var = tk.StringVar(value=host_name or "KIT1-1")
+        tk.Entry(input_frame, textvariable=name_var, width=25, bg="#333", fg="white", insertbackground="white").grid(row=1, column=1, sticky="ew", pady=5, padx=5)
+        
+        # Username
+        tk.Label(input_frame, text="Username:", bg="black", fg="white").grid(row=2, column=0, sticky="w", pady=5)
+        user_var = tk.StringVar(value=o.get("smb_username") or "")
+        tk.Entry(input_frame, textvariable=user_var, width=25, bg="#333", fg="white", insertbackground="white").grid(row=2, column=1, sticky="ew", pady=5, padx=5)
+        tk.Label(input_frame, text="(e.g., KIT1-1\\Admin or .\\Admin)", bg="black", fg="#888").grid(row=2, column=2, sticky="w", pady=5, padx=5)
+        
+        # Password
+        tk.Label(input_frame, text="Password:", bg="black", fg="white").grid(row=3, column=0, sticky="w", pady=5)
+        pass_var = tk.StringVar(value=o.get("smb_password") or "")
+        tk.Entry(input_frame, textvariable=pass_var, width=25, bg="#333", fg="white", insertbackground="white", show="*").grid(row=3, column=1, sticky="ew", pady=5, padx=5)
+        
+        input_frame.columnconfigure(1, weight=1)
+        
+        status_label = tk.Label(dialog, text="", bg="black", fg="yellow", wraplength=450, justify="left")
+        status_label.pack(pady=10)
+        
+        btn_frame = tk.Frame(dialog, bg="black")
+        btn_frame.pack(pady=10)
+        
+        def do_setup():
+            """Cache credentials for both IP and hostname."""
+            ip = ip_var.get().strip()
+            hostname = name_var.get().strip()
+            username = user_var.get().strip()
+            password = pass_var.get()
+            
+            if not username:
+                status_label.config(text="❌ Username is required", fg="red")
+                return
+            
+            status_label.config(text="⏳ Caching credentials...", fg="yellow")
+            dialog.update()
+            
+            results = []
+            
+            # Cache for IP
+            if ip:
+                if cache_smb_credentials(ip, username, password):
+                    results.append(f"✓ {ip}")
+                else:
+                    results.append(f"✗ {ip} (failed)")
+            
+            # Cache for hostname
+            if hostname and hostname != ip:
+                if cache_smb_credentials(hostname, username, password):
+                    results.append(f"✓ {hostname}")
+                else:
+                    results.append(f"✗ {hostname} (failed)")
+            
+            # Save to config.ini for future auto-setup
+            config.set("Offline", "smb_username", username)
+            config.set("Offline", "smb_password", password)
+            if hostname:
+                config.set("Offline", "host_name", hostname)
+            save_config()
+            
+            result_text = "Credential caching results:\n" + "\n".join(results)
+            all_ok = all("✓" in r for r in results)
+            
+            if all_ok:
+                result_text += "\n\n✓ Credentials saved to config.ini"
+                status_label.config(text=result_text, fg="lime")
+            else:
+                status_label.config(text=result_text, fg="orange")
+        
+        def test_access():
+            """Test if credentials work."""
+            ip = ip_var.get().strip()
+            hostname = name_var.get().strip()
+            share = (o.get("share_name") or "SharedMeshDrive").strip()
+            
+            status_label.config(text="⏳ Testing access...", fg="yellow")
+            dialog.update()
+            
+            results = []
+            
+            # Test IP path
+            if ip:
+                unc = rf"\\{ip}\{share}"
+                if quick_unc_check(unc, timeout=3):
+                    results.append(f"✓ {unc}")
+                else:
+                    results.append(f"✗ {unc}")
+            
+            # Test hostname path
+            if hostname and hostname != ip:
+                unc = rf"\\{hostname}\{share}"
+                if quick_unc_check(unc, timeout=3):
+                    results.append(f"✓ {unc}")
+                else:
+                    results.append(f"✗ {unc}")
+            
+            result_text = "Access test results:\n" + "\n".join(results)
+            all_ok = all("✓" in r for r in results)
+            status_label.config(text=result_text, fg="lime" if all_ok else "orange")
+        
+        tk.Button(btn_frame, text="Save Credentials", bg="#446644", fg="white", command=do_setup, width=15).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Test Access", bg="#444", fg="white", command=test_access, width=12).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Close", bg="#444", fg="white", command=dialog.destroy, width=10).pack(side="left", padx=5)
 
     def _manual_connect_dialog(self):
         """Open a manual connection dialog when auto-connect fails."""

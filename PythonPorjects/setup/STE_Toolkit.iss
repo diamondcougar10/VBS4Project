@@ -575,13 +575,14 @@ begin
 
   SetIniString('Network', 'host', HostIP,                     Ini);
 
-  { Grant NTFS Modify permissions to Authenticated Users }
+  { Grant NTFS Full Control permissions to Everyone - required for PhotoMesh service accounts }
+  { PhotoMesh fusers may run under LocalSystem or service contexts that aren't in Authenticated Users }
   try
-    LogInstallEvent('Applying NTFS Modify permissions to Authenticated Users');
+    LogInstallEvent('Applying NTFS Full Control permissions to Everyone');
     Exec(ExpandConstant('{cmd}'),
-      '/C icacls "' + Base + '" /grant "Authenticated Users:(OI)(CI)M" /T /C',
+      '/C icacls "' + Base + '" /grant "Everyone:(OI)(CI)F" /T /C',
       '', SW_HIDE, ewWaitUntilTerminated, RC);
-    LogInstallEvent('Applied NTFS Modify permissions RC=' + IntToStr(RC));
+    LogInstallEvent('Applied NTFS Full Control permissions RC=' + IntToStr(RC));
   except
     LogInstallEvent('Failed to apply NTFS permissions - continuing anyway');
   end;
