@@ -401,19 +401,21 @@ var RC: Integer; Cmd: string; Ran: Boolean;
 begin
   if LocalPath = '' then Exit;
 
-  // First attempt: Least privilege - Authenticated Users with Change, Administrators with Full
+  // Use Everyone,FULL for lab/training environments - this ensures Guest access,
+  // service accounts (PhotoMesh), and cross-PC access all work without credential issues.
+  // This aligns with the runtime behavior in photomesh_launcher.py.
   Cmd :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
     '"$ErrorActionPreference=''Stop''; ' +
     'if (-not (Get-SmbShare -Name ''' + ShareName + ''' -ErrorAction SilentlyContinue)) { ' +
-    '  New-SmbShare -Name ''' + ShareName + ''' -Path ''' + LocalPath + ''' -ChangeAccess ''Authenticated Users'' -FullAccess ''Administrators'' | Out-Null ' +
+    '  New-SmbShare -Name ''' + ShareName + ''' -Path ''' + LocalPath + ''' -FullAccess ''Everyone'' | Out-Null ' +
     '}"';
   Ran := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
               Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
   if Ran and (RC = 0) then
   begin
-    LogInstallEvent('SMB share created with Authenticated Users (Change) permissions');
-    // Enable File and Printer Sharing firewall rule after successful share creation
+    LogInstallEvent('SMB share created with Everyone (Full) permissions');
+    // Enable File and Printer Sharing firewall rule after successful share creation - use all profiles for lab networks
     Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
     if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
     begin
@@ -421,13 +423,13 @@ begin
         LogInstallEvent('Firewall group rule enabled successfully')
       else
       begin
-        LogInstallEvent('Firewall group rule failed, trying specific SMB rule');
-        // Fallback: add specific SMB rule if group enable failed
-        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes"';
+        LogInstallEvent('Firewall group rule failed, trying specific SMB rule for all profiles');
+        // Fallback: add specific SMB rule if group enable failed - use profile=any for lab environments
+        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=any enable=yes"';
         if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
         begin
           if RC = 0 then
-            LogInstallEvent('Specific SMB firewall rule added successfully')
+            LogInstallEvent('Specific SMB firewall rule added successfully (all profiles)')
           else
             LogInstallEvent('Specific SMB firewall rule failed: RC=' + IntToStr(RC));
         end;
@@ -436,7 +438,7 @@ begin
     Exit;
   end;
 
-  LogInstallEvent('Authenticated Users share failed, trying Everyone permissions');
+  LogInstallEvent('PowerShell SMB share creation failed, trying net share command');
   
   // Second attempt: Everyone with Full (for environments that require it)
   Cmd :=
@@ -456,8 +458,8 @@ begin
     begin
       if RC <> 0 then
       begin
-        LogInstallEvent('Firewall group rule failed, trying specific SMB rule');
-        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes"';
+        LogInstallEvent('Firewall group rule failed, trying specific SMB rule for all profiles');
+        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=any enable=yes"';
         Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
       end;
     end;
@@ -466,34 +468,24 @@ begin
 
   LogInstallEvent('PowerShell SMB share creation failed, trying net share command');
 
-  // Final fallback: net share command with Authenticated Users
-  Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:""Authenticated Users"",CHANGE /GRANT:""Administrators"",FULL"';
+  // Final fallback: net share command with Everyone,FULL for lab environments
+  Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
   Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
   if Ran and (RC = 0) then
   begin
-    LogInstallEvent('SMB share created via net share with Authenticated Users');
+    LogInstallEvent('SMB share created via net share with Everyone (Full)');
     Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
     if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC) then
     begin
       if RC <> 0 then
       begin
-        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes"';
+        LogInstallEvent('Firewall group rule failed, trying specific SMB rule for all profiles');
+        Cmd := '/C "netsh advfirewall firewall add rule name=""STE Toolkit SMB 445"" dir=in action=allow protocol=TCP localport=445 profile=any enable=yes"';
         Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
       end;
     end;
   end else begin
-    LogInstallEvent('Authenticated Users net share failed, trying Everyone as last resort');
-    // Last resort: Everyone with FULL
-    Cmd := '/C "net share ' + ShareName + '=""' + LocalPath + '"" /GRANT:Everyone,FULL"';
-    Ran := Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-    if Ran and (RC = 0) then
-    begin
-      LogInstallEvent('SMB share created via net share with Everyone (Full)');
-      Cmd := '/C "netsh advfirewall firewall set rule group=""File and Printer Sharing"" new enable=Yes"';
-      Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, RC);
-    end else begin
-      LogInstallEvent('All SMB share creation methods failed');
-    end;
+    LogInstallEvent('net share creation failed');
   end;
 end;
 

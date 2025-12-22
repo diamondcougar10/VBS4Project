@@ -11777,14 +11777,25 @@ class SettingsPanel(tk.Frame):
 
         # Provide a “Share Now” action to (re)publish the folder silently
         def _share_now():
-            # Canonical share creator from photomesh_launcher.py
-            ensure_offline_share_exists(log=lambda msg: logging.info(f"[share-now] {msg}"))
+            # Canonical share creator from photomesh_launcher.py - now returns (ok, details)
+            result = ensure_offline_share_exists(log=lambda msg: logging.info(f"[share-now] {msg}"))
+            ok, details = result if isinstance(result, tuple) else (True, "Legacy call")
+            
             o = get_offline_cfg()
             root = o.get("local_data_root") or ""
-            messagebox.showinfo(
-                "Share",
-                f"Shared (or already shared): {root if root else 'No folder configured'}",
-            )
+            
+            if ok:
+                messagebox.showinfo(
+                    "Share Success",
+                    f"✓ Shared successfully!\n\nFolder: {root if root else 'No folder configured'}\n\n{details}",
+                )
+            else:
+                messagebox.showerror(
+                    "Share Failed",
+                    f"✗ Failed to share folder.\n\nFolder: {root if root else 'No folder configured'}\n\n"
+                    f"Error Details:\n{details}\n\n"
+                    f"Try running as Administrator or check the log for more details.",
+                )
             # Refresh status after sharing
             self._update_share_status()
 

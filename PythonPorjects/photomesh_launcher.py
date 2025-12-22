@@ -953,7 +953,7 @@ def _resolve_share_root_from_offline(o: dict) -> tuple[str, str]:
     return share, os.path.normpath(trimmed_root)
 
 
-def ensure_offline_share_via_cmd(log=print) -> None:
+def ensure_offline_share_via_cmd(log=print) -> tuple:
     """
     Ensure the Offline share exists using CMD tools only:
       - ``net share`` to create/update the share
@@ -964,6 +964,9 @@ def ensure_offline_share_via_cmd(log=print) -> None:
     
     CONSERVATIVE: Only deletes/recreates share if it points to wrong folder.
     If share already exists with correct path, just ensures NTFS permissions.
+    
+    Returns:
+        tuple: (ok: bool, details: str) - True if share is verified working, with details
     """
 
     o = get_offline_cfg()
@@ -973,7 +976,7 @@ def ensure_offline_share_via_cmd(log=print) -> None:
         os.makedirs(root, exist_ok=True)
     except Exception as e:
         log(f"Failed to create {root}: {e}")
-        return
+        return (False, f"Failed to create folder {root}: {e}")
 
     # Check if share already exists and points to correct path
     def _share_exists_with_correct_path() -> bool:
@@ -1013,15 +1016,25 @@ def ensure_offline_share_via_cmd(log=print) -> None:
     try:
         # First check if share already exists correctly
         share_ok = _share_exists_with_correct_path()
+        create_errors = []
         
         if not share_ok:
             # Use Everyone,FULL for lab environments - this ensures Guest access,
             # service accounts, and cross-PC access all work without credential issues.
             # This aligns with PhotoMesh documentation requirements.
             cmd = f'net share {share}="{root}" /GRANT:Everyone,FULL'
-            result = subprocess.run(["cmd", "/C", cmd], check=False, creationflags=NO_WINDOW_FLAG)
+            result = subprocess.run(
+                ["cmd", "/C", cmd], 
+                check=False, 
+                capture_output=True,
+                text=True,
+                creationflags=NO_WINDOW_FLAG
+            )
             
             if result.returncode != 0:
+                create_errors.append(f"Initial 'net share' failed (code {result.returncode}): stdout={result.stdout.strip()} stderr={result.stderr.strip()}")
+                log(f"Share creation returned {result.returncode}: {result.stdout.strip()} {result.stderr.strip()}")
+                
                 # Share might exist with wrong path - check before deleting
                 check_result = subprocess.run(
                     ["cmd", "/C", f"net share {share}"],
@@ -1032,17 +1045,50 @@ def ensure_offline_share_via_cmd(log=print) -> None:
                 )
                 if check_result.returncode == 0:
                     # Share exists (but with wrong path since share_ok was False) - recreate
-                    log(f"Share creation returned {result.returncode}, share exists with wrong path - recreating...")
-                    subprocess.run(["cmd", "/C", f'net share {share} /delete /y'], check=False, creationflags=NO_WINDOW_FLAG)
+                    log(f"Share exists with wrong path - deleting and recreating...")
+                    del_result = subprocess.run(
+                        ["cmd", "/C", f'net share {share} /delete /y'], 
+                        check=False, 
+                        capture_output=True,
+                        text=True,
+                        creationflags=NO_WINDOW_FLAG
+                    )
+                    if del_result.returncode != 0:
+                        create_errors.append(f"Delete failed (code {del_result.returncode}): {del_result.stderr.strip()}")
                     time.sleep(0.5)
-                    subprocess.run(["cmd", "/C", cmd], check=False, creationflags=NO_WINDOW_FLAG)
+                    
+                    # Recreate
+                    recreate_result = subprocess.run(
+                        ["cmd", "/C", cmd], 
+                        check=False, 
+                        capture_output=True,
+                        text=True,
+                        creationflags=NO_WINDOW_FLAG
+                    )
+                    if recreate_result.returncode != 0:
+                        create_errors.append(f"Recreate failed (code {recreate_result.returncode}): {recreate_result.stdout.strip()} {recreate_result.stderr.strip()}")
+                        log(f"Recreate also failed: {recreate_result.stdout.strip()} {recreate_result.stderr.strip()}")
                 else:
                     # Share doesn't exist but creation failed for other reason
-                    log(f"Share creation failed with code {result.returncode}")
+                    log(f"Share creation failed with code {result.returncode} and share doesn't exist")
+        
+        # CRITICAL: Verify share actually exists now
+        verify_result = subprocess.run(
+            ["cmd", "/C", f"net share {share}"],
+            capture_output=True,
+            text=True,
+            creationflags=NO_WINDOW_FLAG,
+            timeout=5
+        )
+        if verify_result.returncode != 0:
+            error_msg = f"Share verification FAILED - share '{share}' does not exist after creation attempts. Errors: {'; '.join(create_errors)}"
+            log(error_msg)
+            return (False, error_msg)
         
         # CRITICAL: Also set NTFS permissions to allow Everyone full access
         # Share permissions alone are not enough - NTFS ACLs also restrict access
         # This grants Everyone Modify access (read/write/delete) to the folder and subfolders
+        ntfs_ok = True
         try:
             # Normalize the path to avoid error 123 (invalid path syntax)
             normalized_root = os.path.normpath(root)
@@ -1050,16 +1096,19 @@ def ensure_offline_share_via_cmd(log=print) -> None:
                 ["icacls", normalized_root, "/grant", "Everyone:(OI)(CI)F", "/T", "/Q"],
                 check=False,
                 creationflags=NO_WINDOW_FLAG,
-                capture_output=True
+                capture_output=True,
+                text=True
             )
             if icacls_result.returncode == 0:
                 log(f"NTFS permissions set: Everyone has Full access to {normalized_root}")
             else:
-                log(f"Warning: NTFS permission update returned {icacls_result.returncode}")
+                ntfs_ok = False
+                log(f"Warning: NTFS permission update returned {icacls_result.returncode}: {icacls_result.stderr.strip()}")
         except Exception as e:
+            ntfs_ok = False
             log(f"Warning: Could not set NTFS permissions: {e}")
         
-        # Enable firewall rules
+        # Enable firewall rules for ALL profiles including Public (common in lab environments)
         firewall_result = subprocess.run(
             [
                 "cmd",
@@ -1068,32 +1117,40 @@ def ensure_offline_share_via_cmd(log=print) -> None:
             ],
             check=False,
             creationflags=NO_WINDOW_FLAG,
+            capture_output=True,
+            text=True,
         )
         
-        # Add specific SMB rule if group enable failed
+        # Add specific SMB rule if group enable failed - use profile=any for lab environments
         if firewall_result.returncode != 0:
-            log("Firewall group rule failed, trying specific SMB rule")
+            log("Firewall group rule failed, trying specific SMB rule with all profiles")
             subprocess.run(
                 [
                     "cmd", 
                     "/C",
-                    'netsh advfirewall firewall add rule name="STE Toolkit SMB 445" dir=in action=allow protocol=TCP localport=445 profile=Domain,Private enable=yes'
+                    'netsh advfirewall firewall add rule name="STE Toolkit SMB 445" dir=in action=allow protocol=TCP localport=445 profile=any enable=yes'
                 ],
                 check=False,
                 creationflags=NO_WINDOW_FLAG,
             )
         
-        log(
-            f"Offline share ensured via CMD: \\{get_machine_name()}\\{share}  ({root})"
-        )
+        share_path = f"\\\\{get_machine_name()}\\{share}"
+        log(f"Offline share VERIFIED: {share_path}  ({root})")
+        return (True, f"Share verified: {share_path}")
+        
     except Exception as e:
-        log(f"Could not create SMB share via cmd: {e}")
+        error_msg = f"Could not create SMB share via cmd: {e}"
+        log(error_msg)
+        return (False, error_msg)
 
 
-def ensure_offline_share_exists(log=print) -> None:
-    """Ensure the offline share exists and firewall rules allow access."""
-
-    ensure_offline_share_via_cmd(log=log)
+def ensure_offline_share_exists(log=print) -> tuple:
+    """Ensure the offline share exists and firewall rules allow access.
+    
+    Returns:
+        tuple: (ok: bool, details: str) - True if share is verified working, with details
+    """
+    return ensure_offline_share_via_cmd(log=log)
 
 def can_access_unc(path: str, timeout: float = 2.5) -> bool:
     """Return True only if the UNC root is reachable quickly.
